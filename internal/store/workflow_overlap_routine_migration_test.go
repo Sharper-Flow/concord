@@ -269,10 +269,9 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	db := openMigratedTo(t, path, target)
 
 	// The prerequisite projection the resolution rows' foreign keys need:
-	// one Product and the two endpoint work items, folded through the real
-	// event folds the way TestMigration124RetiresThePlanningMirror seeds a
-	// prefix. The events append before the fixture transaction; the store
-	// pools one connection.
+	// one Product and the two endpoint work items. The old events are retained
+	// as bytes, not submitted to current folds. Append them before the fixture
+	// transaction because the store pools one connection.
 	created := func(id, eventID string) Event {
 		event := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{"work_kind": "task", "title": id, "priority": 0})
 		event.PayloadVersion = 2
@@ -296,7 +295,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	fromSeq := eventSeq("create-overlap-from")
 	toSeq := eventSeq("create-overlap-to")
 
-	// The fixture transaction: fold the prerequisites, then write the
+	// The fixture transaction: seed the prerequisite rows, then write the
 	// historical depends_on shapes the pre-target check alone admits — an
 	// active row and an invalidated one, both with an empty approval_ref and
 	// no invented approval. The compatible_with probe documents the old
@@ -310,9 +309,16 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	if err := enterFold(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range historical {
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
-			t.Fatalf("fold %s: %v", event.Kind, err)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
+		VALUES('overlap-authority-product','overlap-authority-product','prototype','operator_only',1,'1970-01-01T00:00:01Z','1970-01-01T00:00:01Z')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range historical[1:] {
+		intent := mustJSONValue(workIntentProjection{Title: event.SubjectID, Kind: "task", Urgency: "standard", Tags: []string{}})
+		at := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+		if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json)
+			VALUES(?,'task',?,'needed',0,1,?,?,?)`, event.SubjectID, event.SubjectID, at, at, string(intent)); err != nil {
+			t.Fatal(err)
 		}
 	}
 	actorRef := DeriveWorkflowActorRef("principal:operator", "client:overlap-authority", "agent:operator", "session:overlap-authority")

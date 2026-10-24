@@ -4,12 +4,13 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
+import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, withWorkerReadbackScope, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
-// The published scenario contract pins the provenance source bound the
+// The published worker recovery contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
-const scenarioSchema = JSON.parse(fs.readFileSync(new URL("../../contracts/workflow-engine-scenarios.schema.json", import.meta.url), "utf8")) as {
-  $defs: { eventPayload: { properties: { host_provenance: { properties: { sources: { maxItems: number } } } } } }
+const agentPayloadSchema = JSON.parse(fs.readFileSync(new URL("../../contracts/agent-tool-surface-payloads.schema.json", import.meta.url), "utf8")) as {
+  $defs: { worker_recovery_context: { properties: { dispatch: { properties: { host_provenance: { properties: { sources: { maxItems: number } } } } } } } }
 }
 import type { RouteResult, SessionReader } from "./move-session"
 
@@ -1979,7 +1980,7 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 
 // CON-821 / CD-0034: one host-provenance manifest holds at most 32 sources
 // (internal/store/worker_lanes.go ValidateWorkerHostProvenance;
-// contracts/workflow-engine-scenarios.schema.json host_provenance.sources).
+// contracts/agent-tool-surface-payloads.schema.json worker_recovery_context.dispatch.host_provenance.sources).
 // The producer is all-or-refuse: complete up to the bound, typed refusal past
 // it, never a shortened manifest.
 
@@ -2030,8 +2031,8 @@ async function expectProvenanceRefusal(worktree: string): Promise<void> {
   expect(String(refused)).toMatch(/\b32\b/)
 }
 
-test("the adapter provenance bound is the published scenario contract bound", () => {
-  expect(MAX_HOST_PROVENANCE_SOURCES).toBe(scenarioSchema.$defs.eventPayload.properties.host_provenance.properties.sources.maxItems)
+test("the adapter provenance bound is the published worker recovery contract bound", () => {
+  expect(MAX_HOST_PROVENANCE_SOURCES).toBe(agentPayloadSchema.$defs.worker_recovery_context.properties.dispatch.properties.host_provenance.properties.sources.maxItems)
 })
 
 test("host prompt provenance admits the complete 32-source manifest at the store bound, exact and recomputable", async () => {
@@ -2332,9 +2333,8 @@ const dispatchedJob = {
 const dispatchedJobBinding = { job_id: dispatchedJob.job_id, revision: dispatchedJob.revision, digest: dispatchedJob.digest }
 const jobPacket = (): AgentLanePacket => ({ ...packet(), schema_version: "1.1", inputs: { ...packet().inputs, worker_job: { ...dispatchedJob } } })
 
-test("size and direct-caller claims remain reported content with packet-owned identity", () => {
+test("direct-caller claims remain reported content with packet-owned identity", () => {
   const p = { ...jobPacket(), schema_version: packetSchemaVersions[packetSchemaVersions.length - 1] }
-  const production_size = { base: "1".repeat(40), tree: "2".repeat(40), count: 17 }
   const direct_caller_repairs = [{
     owner: { path: "adapter/opencode/dispatch.ts", entry_point: "readWorkerReport" },
     caller: { path: "adapter/opencode/packet.ts", entry_point: "buildAgentLanePacket" },
@@ -2347,20 +2347,17 @@ test("size and direct-caller claims remain reported content with packet-owned id
       combined_pass: { observed: "evidence:combined-pass" },
     },
   }]
-  const claimed = report({ production_size, direct_caller_repairs, worker_job: { job_id: "job:foreign" } })
+  const claimed = report({ direct_caller_repairs, worker_job: { job_id: "job:foreign" } })
   const before = structuredClone(claimed)
   for (const admitted of [resolveWorkerReportFromText(JSON.stringify(claimed), p), resolveWorkerReport(runOutput("", claimed), p)]) {
     expect("report" in admitted).toBe(true)
     if ("report" in admitted) {
-      expect(admitted.report.production_size).toEqual(production_size)
       expect(admitted.report.direct_caller_repairs).toEqual(direct_caller_repairs)
       expect(admitted.report.worker_job).toEqual(dispatchedJobBinding)
-      expect(Object.hasOwn(admitted.report, "supplemental_classifications")).toBe(false)
       expect(Object.hasOwn(admitted.report, "worker_production_size")).toBe(false)
     }
   }
   expect(claimed).toEqual(before)
-  expect("report" in resolveWorkerReportFromText(JSON.stringify(report({ production_size: { ...production_size, count: -1 } })), p)).toBe(false)
 })
 
 const workerJobEchoes = [
@@ -2624,7 +2621,7 @@ for (const registered of agentLanes) {
     const requiresReviewBlock = (registered.required_report_blocks as readonly string[]).includes("review")
     const blockDischarged = requiresReviewBlock ? ["severity"] : []
     const evidence = dischargingEvidence(laneID).filter((entry) => !blockDischarged.includes(entry.obligation))
-    const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+    const extra = requiresReviewBlock ? { review: reviewBlockFixture({ disposition: "ready_for_final_proof", findings: [] }) } : {}
     const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
     expect(result.outcome).toBe("ok")
     expect(result.assigned_result).toBe(workerScopeAssignedResult(laneID)!)
@@ -2638,7 +2635,7 @@ for (const registered of agentLanes) {
       const evidence = dischargingEvidence(laneID)
         .filter((entry) => !requiresReviewBlock || entry.obligation !== "severity")
         .map((entry) => shape === "empty" ? { ...entry, predicate_ids: [] } : entry)
-      const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+      const extra = requiresReviewBlock ? { review: reviewBlockFixture({ disposition: "ready_for_final_proof", findings: [] }) } : {}
       expect(validateAgentLaneReport(report({ evidence, ...extra }))).toBe(true)
       const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
       expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
@@ -3277,8 +3274,8 @@ test("invalid-report and readback diagnostics never supply context_findings", as
 })
 
 // CD-0197: the review lane's completed report carries the typed review
-// block — an explicit ship or no_ship verdict and per-finding severity and
-// confidence — and the adapter refuses a review completion without it.
+// block — an explicit disposition and per-finding severity and confidence —
+// and the adapter refuses a review completion without it.
 const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
 const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest })
 // Evidence beside the typed review block carries no severity entry: the block
@@ -3287,8 +3284,8 @@ const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.
 // for the blockless refusals.
 const reviewEvidence = () => reviewLane.evidence_obligations.filter((obligation) => obligation !== "severity").map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
 const reviewEvidenceWithSeverity = () => reviewLane.evidence_obligations.map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
-const reviewFinding = () => ({ severity: "P1" as const, confidence: "high" as const, detail: "the bound is not checked at the boundary" })
-const reviewBlock = () => ({ verdict: "no_ship", findings: [reviewFinding()] })
+const reviewFinding = reviewFindingFixture
+const reviewBlock = reviewBlockFixture
 const reviewReport = (overrides: Record<string, unknown> = {}) =>
   report({ evidence: reviewEvidence(), review: reviewBlock(), ...overrides })
 const completeReview = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = reviewPacket()) =>
@@ -3310,20 +3307,20 @@ test("the report schema admits the typed review block and refuses drifted shapes
   // The block is optional for every lane, and ship with zero findings is a
   // legal verdict.
   expect(validateAgentLaneReport(report())).toBe(true)
-  expect(validateAgentLaneReport(reviewReport({ review: { verdict: "ship", findings: [] } }))).toBe(true)
+  expect(validateAgentLaneReport(reviewReport({ review: reviewBlock({ disposition: "ready_for_final_proof", findings: [] }) }))).toBe(true)
   const refusals = [
     { name: "unknown sibling property", value: { ...reviewBlock(), mood: "confident" } },
-    { name: "missing verdict", value: { findings: [reviewFinding()] } },
-    { name: "missing findings", value: { verdict: "ship" } },
-    { name: "verdict outside the closed set", value: { verdict: "conditional", findings: [reviewFinding()] } },
-    { name: "finding with an undeclared property", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), exit_code: 0 }] } },
-    { name: "severity outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), severity: "S1" }] } },
-    { name: "confidence outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), confidence: "certain" }] } },
-    { name: "empty finding detail", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "" }] } },
-    { name: "finding detail beyond 512 bytes", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "é".repeat(300) }] } },
-    { name: "more than 64 findings", value: { verdict: "ship", findings: Array.from({ length: 65 }, () => ({ severity: "P3", confidence: "low", detail: "a finding" })) } },
-    { name: "ship with a P0 finding", value: { verdict: "ship", findings: [{ severity: "P0", confidence: "high", detail: "a blocker" }] } },
-    { name: "no_ship with zero findings", value: { verdict: "no_ship", findings: [] } },
+    { name: "missing disposition", value: { ...reviewBlock(), disposition: undefined } },
+    { name: "missing findings", value: { ...reviewBlock(), findings: undefined } },
+    { name: "disposition outside the closed set", value: { ...reviewBlock(), disposition: "conditional" } },
+    { name: "finding with an undeclared property", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), exit_code: 0 }] } },
+    { name: "severity outside the closed scale", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), severity: "S1" }] } },
+    { name: "confidence outside the closed scale", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), confidence: "certain" }] } },
+    { name: "empty finding detail", value: reviewBlock({ findings: [reviewFinding({ detail: "" })] }) },
+    { name: "finding detail beyond 512 bytes", value: reviewBlock({ findings: [reviewFinding({ detail: "é".repeat(300) })] }) },
+    { name: "more than 64 findings", value: reviewBlock({ findings: Array.from({ length: 65 }, (_, index) => reviewFinding({ finding_id: `finding:${index}` })) }) },
+    { name: "missing explicit scope", value: { ...reviewBlock(), findings: [{ ...reviewFinding(), in_scope: undefined }] } },
+    { name: "missing candidate tree", value: { ...reviewBlock(), output_candidate: { ...reviewBlock().output_candidate, tree: undefined } } },
   ]
   for (const refusal of refusals) {
     expect(validateAgentLaneReport(reviewReport({ review: refusal.value })), refusal.name).toBe(false)
@@ -3391,18 +3388,18 @@ test("the review lane refuses a free-text severity entry beside the typed review
 })
 
 test("a typed review block rides worker-complete and the completed envelope", async () => {
-  const block = { verdict: "no_ship" as const, findings: [reviewFinding(), { ...reviewFinding(), detail: "a second finding" }, { severity: "P3" as const, confidence: "medium" as const, detail: "a third finding" }] }
+  const block = reviewBlock({ findings: [reviewFinding(), reviewFinding({ finding_id: "finding:second", detail: "a second finding" }), reviewFinding({ finding_id: "finding:third", severity: "P3", confidence: "medium", detail: "a third finding" })] })
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].review).toEqual(block)
-  expect(result.review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
+  expect(result.review).toEqual({ disposition: "correction_required", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
 })
 
-test("review subject drift at settlement records a host validator failure, never a completed review", async () => {
+test("unrelated review output at settlement records a host validator failure, never a completed review", async () => {
   const dispatched = reviewPacket()
   dispatched.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: "a".repeat(40) }
-  const subjectRunner: DispatchRunner = { run: async (argv) => ({ exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }) }
+  const subjectRunner: DispatchRunner = { run: async (argv) => ({ exitCode: argv.includes("merge-base") ? 1 : 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }) }
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport(), { subjectRunner }, dispatched)
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(result.outcome).toBe("error")
@@ -3420,7 +3417,7 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
   let probes = 0
   const subjectRunner: DispatchRunner = { run: async (argv) => {
     probes++
-    return { exitCode: 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }
+    return { exitCode: argv.includes("merge-base") ? 1 : 0, stdout: argv.includes("rev-parse") ? "b".repeat(40) + "\n" : "", stderr: "" }
   } }
   const recovery: NonNullable<CompleteOptions["recovery"]> = {
     packet_digest: PACKET_DIGEST, worker_worktree: WORKER_DIRECTORY, coordinator_session: "parent", attempt_epoch: 1,
@@ -3434,16 +3431,16 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
   const { result, verbs } = await terminalReviewEvidence(reviewReport(), { subjectRunner, recovery, sessionReader }, dispatched)
   expect(verbs, JSON.stringify(result)).toEqual(["worker-dispatch", state === "completed" ? "worker-complete" : "worker-fail"])
   expect(result.outcome).toBe(state === "completed" ? "ok" : "error")
-  expect(probes).toBe(state === "completed" ? 0 : 2)
+  expect(probes).toBe(state === "completed" ? 0 : 3)
 })
 
-test("a ship verdict with findings completes and counts each severity", async () => {
-  const block = { verdict: "ship" as const, findings: [{ severity: "P2" as const, confidence: "low" as const, detail: "one" }, { severity: "P2" as const, confidence: "low" as const, detail: "two" }] }
+test("a ready disposition with findings completes its report and counts each severity", async () => {
+  const block = reviewBlock({ disposition: "ready_for_final_proof", findings: [reviewFinding({ severity: "P2", confidence: "low", detail: "one" }), reviewFinding({ finding_id: "finding:second", severity: "P2", confidence: "low", detail: "two" })] })
   const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
   expect(result.outcome).toBe("ok")
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-  expect(payloads[1].review.verdict).toBe("ship")
-  expect(result.review).toEqual({ verdict: "ship", findings: { P0: 0, P1: 0, P2: 2, P3: 0 } })
+  expect(payloads[1].review.disposition).toBe("ready_for_final_proof")
+  expect(result.review).toEqual({ disposition: "ready_for_final_proof", findings: { P0: 0, P1: 0, P2: 2, P3: 0 } })
 })
 
 test("a blockless review completion is a typed invalid report, never a completion", async () => {
@@ -3489,14 +3486,14 @@ test("a multi-byte evidence detail is truncated to the byte bound on a code-poin
 
 test("an over-length review finding detail is truncated at admission, not refused", () => {
   for (const long of ["x".repeat(900), "é".repeat(300)]) {
-    const block = { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: long }, reviewFinding()] }
+    const block = reviewBlock({ findings: [reviewFinding({ detail: long }), reviewFinding({ finding_id: "finding:second" })] })
     const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport({ review: block })), reviewPacket())
     expect("detail" in admitted ? admitted.detail : "admitted").toBe("admitted")
     const findings = ("report" in admitted ? admitted.report.review?.findings : undefined) ?? []
     expect(Buffer.byteLength(findings[0].detail)).toBeLessThanOrEqual(512)
     expect(findings[0].detail.endsWith(" [truncated]")).toBe(true)
     expect(findings[0].severity).toBe("P1")
-    expect(findings[1]).toEqual(reviewFinding())
+    expect(findings[1]).toEqual(reviewFinding({ finding_id: "finding:second" }))
   }
 })
 

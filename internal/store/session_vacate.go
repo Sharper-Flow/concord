@@ -85,23 +85,11 @@ func firstSessionRef(refs []string) string {
 	return refs[0]
 }
 
-// upcastSessionVacatedV1 carries a version 1 event to the version 2 shape.
-// The v1 payload already names every field v2 records, so only the version
-// moves. The fold reads the stored version back through
-// replaySourcePayloadVersion, so a recorded v1 event still performs the
-// release it performed when the writer that recorded it folded it at commit
-// time.
-func upcastSessionVacatedV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 // validateSessionVacatedPayload enforces the append-time shape. A version 2
 // relocation request names no landing: the landing is the vacate-landing
-// verb's evidence, never the requester's claim. Recorded v1 events keep the
-// shape they were written with.
+// verb's evidence, never the requester's claim.
 func validateSessionVacatedPayload(event Event, p sessionVacatedPayload) error {
-	if event.replaySourcePayloadVersion == 0 && p.LandedDirectory != "" {
+	if p.LandedDirectory != "" {
 		return newFailure(KindInvalidPayload, "validate_event", "a session vacate request records no landing", false, "record the verified landing through the adapter-only vacate-landing verb")
 	}
 	return nil
@@ -140,14 +128,6 @@ func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if p.WorkID == "" || p.WorkID != event.SubjectID || p.ProjectID == "" || p.SessionRef == "" || p.SourceDirectory == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "session vacated payload is missing required fields", false, "supply work, project, session, and source directory")
-	}
-	// A version 1 event recorded the release in the same event the vacate
-	// committed, so replay still performs it. A version 2 event records only
-	// the relocation request: the release waits for the verified landing the
-	// vacate-landing verb records, so a refused host move, a destination
-	// mismatch, or an unreadable landing leaves every occupancy row standing.
-	if event.replaySourcePayloadVersion == 1 {
-		return releaseSessionWorktreeOccupancyTx(ctx, tx, event, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
 	}
 	return nil
 }

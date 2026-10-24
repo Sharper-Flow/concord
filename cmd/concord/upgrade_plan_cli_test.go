@@ -294,6 +294,8 @@ var migrationTailReversals = map[int][]string{
 	// Migration 134's overlap-resolution rebuild also drops and recreates
 	// its own table, backup TEMP table included.
 	134: nil,
+	// Migration 140 replaces its own knowledge tables and removes its TEMP copies.
+	140: nil,
 	129: {
 		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
 	},
@@ -306,7 +308,6 @@ var migrationTailReversals = map[int][]string{
 		`DROP TABLE work_size_assessments`,
 	},
 	132: {
-		`DROP TABLE work_resize_lineage`,
 		`DROP TABLE work_size_overrides`,
 	},
 	133: {
@@ -314,6 +315,33 @@ var migrationTailReversals = map[int][]string{
 	},
 	135: {
 		`ALTER TABLE workflow_contracts DROP COLUMN law_change`,
+	},
+	// Migration 136's retirement drops only retired tables; reapplying it
+	// after the reversal recreates nothing the fixture must restore.
+	136: nil,
+	137: {
+		`ALTER TABLE worker_job_revisions DROP COLUMN correction_ref`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN group_review_ref`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN group_permission`,
+	},
+	138: {
+		`DROP TABLE store_revision`,
+	},
+	139: {
+		`DROP TABLE worker_authorizations`,
+		`DROP TABLE workflow_step_epochs`,
+		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_event_id`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_actor`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload_version`,
+		`ALTER TABLE worker_attempts DROP COLUMN dispatch_seq`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_event_id`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload_version`,
+		`ALTER TABLE worker_attempts DROP COLUMN terminal_kind`,
+		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded`,
+		`ALTER TABLE workflow_instances DROP COLUMN result_disposition`,
 	},
 	128: {
 		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
@@ -817,12 +845,9 @@ func TestSupportedReleasePairsCoexistWithOldSessionsAndNewAccess(t *testing.T) {
 	}
 }
 
-// The fixtures below rebuild, at the CLI package's own seam, the pin shapes
-// the internal authoring-cutover witnesses seed: workflow initialization runs
-// through the exported store transaction API over synthetic work created by
-// the event log, and the fold-only projection rows (contracts, the
-// outside-repair hold, the terminal lifecycle) are written under the same
-// transient fold guard the store's own folds use.
+// Cutover fixtures initialize current workflows through the exported store
+// transaction API. Synthetic historical metadata and held dispositions use the
+// test fold guard; no archived definition is registered or executed.
 
 const (
 	cutoverArchivedPinWork        = "cutover-archived-pin"
@@ -833,12 +858,10 @@ const (
 	cutoverHeldWork               = "cutover-held-pin"
 )
 
-// cutoverSelectedWorks names the two nonterminal items the authoring-cutover
-// gate selects in the fixture store: one archived-family instance pin and one
-// old-authoring pin carried only by the work's active contract.
-// cutoverSparedWorks names the three look-alikes the gate must leave alone.
-var cutoverSelectedWorks = []string{cutoverArchivedPinWork, cutoverOldContractWork}
-var cutoverSparedWorks = []string{cutoverCanonicalWork, cutoverTerminalHistoryWork, cutoverSupersededContractWork}
+// Only an unsupported family selects nonterminal work for this disposition.
+// Old version metadata on a current family is not a separate definition.
+var cutoverSelectedWorks = []string{cutoverArchivedPinWork}
+var cutoverSparedWorks = []string{cutoverOldContractWork, cutoverCanonicalWork, cutoverTerminalHistoryWork, cutoverSupersededContractWork}
 
 // cutoverDispositionReport is the cutover_disposition object the upgrade
 // surface reports when the operator names the cancel input.
@@ -915,6 +938,11 @@ func cutoverFixtureContract(workID string, contractVersion int64, ref string, de
 		workID, contractVersion, ref, definitionVersion, digest)
 }
 
+// This row represents stored metadata, not an executable archived definition.
+func cutoverFixtureArchivedInstance(workID string) string {
+	return fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='workflow.generic_one_off',definition_version=1,definition_digest='%s' WHERE work_id='%s'`, "sha256:"+strings.Repeat("a", 64), workID)
+}
+
 // seedCutoverPinStore builds one fully migrated temporary store whose
 // nonterminal work holds every pin shape the authoring-cutover gate
 // distinguishes. The item identities and their expected selection are
@@ -935,24 +963,16 @@ func seedCutoverPinStore(t *testing.T, path string) {
 			t.Fatal(err)
 		}
 	}
-	archived, err := store.BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
 	canonical, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	initialize := func(workID string, registered store.RegisteredDefinition) {
+	initialize := func(workID string) {
 		t.Helper()
 		if err := s.Transact(ctx, func(tx *store.Transaction) error {
 			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
 				WorkID:     workID,
-				Definition: registered,
+				Definition: canonical,
 				Actor:      cutoverFixtureActor(workID),
 				Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
 			})
@@ -960,29 +980,22 @@ func seedCutoverPinStore(t *testing.T, path string) {
 			t.Fatalf("cannot initialize the workflow for %s: %v", workID, err)
 		}
 	}
-	initialize(cutoverArchivedPinWork, archived)
-	initialize(cutoverOldContractWork, canonical)
-	initialize(cutoverCanonicalWork, canonical)
-	initialize(cutoverTerminalHistoryWork, archived)
-	initialize(cutoverSupersededContractWork, canonical)
+	for _, workID := range append(append([]string{}, cutoverSelectedWorks...), cutoverSparedWorks...) {
+		initialize(workID)
+	}
 
 	execUnderFoldGuard(t, s.DatabaseForTesting(),
-		// The old-authoring item is pinned only through its active contract:
-		// the instance carries the canonical head while contract v1 still
-		// pins v29.
-		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", 29, old.Digest),
-		// The superseded-contract item carries the closed history the gate
-		// must ignore: v1 pins the old authoring and v2, the canonical
-		// successor, supersedes it.
-		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, old.Digest),
-		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", 30, canonical.Digest),
+		cutoverFixtureArchivedInstance(cutoverArchivedPinWork),
+		cutoverFixtureArchivedInstance(cutoverTerminalHistoryWork),
+		// Both active and superseded old-version metadata must leave a
+		// current-family item outside the cancellation population.
+		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", canonical.Definition.Version, canonical.Digest),
 		fmt.Sprintf(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='%s' AND contract_version=1`, cutoverSupersededContractWork),
 	)
-	// The terminal historical item closed while its archived pin stayed
-	// recorded: terminal work opens, reads, and rebuilds. The cancellation is
-	// a retained work.transitioned event, so replay rebuilds the same
-	// terminal state and snapshot qualification accepts the fixture by
-	// design; a direct lifecycle row would not survive the staged rebuild.
+	// A terminal item with archived metadata is not selected again. Record
+	// its cancellation through the ordinary lifecycle owner.
 	terminalActor, err := store.WorkflowActorRef(cutoverFixtureActor(cutoverTerminalHistoryWork))
 	if err != nil {
 		t.Fatal(err)
@@ -1027,14 +1040,14 @@ func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
 	if err := pm1fixture.SeedWorkItem(ctx, s, "cutover-project", cutoverHeldWork, "cutover pin fixture "+cutoverHeldWork, 0); err != nil {
 		t.Fatal(err)
 	}
-	archived, err := store.BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	canonical, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
 			WorkID:     cutoverHeldWork,
-			Definition: archived,
+			Definition: canonical,
 			Actor:      cutoverFixtureActor(cutoverHeldWork),
 			Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
 		})
@@ -1042,6 +1055,7 @@ func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	execUnderFoldGuard(t, s.DatabaseForTesting(),
+		cutoverFixtureArchivedInstance(cutoverHeldWork),
 		fmt.Sprintf(`UPDATE workflow_instances SET instance_state='outside_repair', outside_repair_state='active' WHERE work_id='%s'`, cutoverHeldWork),
 		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 			VALUES('%s','approval:cutover-fixture-hold','active','operator-held outside repair','{}','2026-10-12T00:00:00Z')`, cutoverHeldWork),
@@ -1208,7 +1222,7 @@ func TestUpgradePlanRefusesCutoverPinnedWorkUntilTheOperatorNamesTheCancelInput(
 }
 
 // The plan with the cancel input skips only the cutover gate and reports the
-// exact disposition read-only: the two selected items, and nothing else —
+// exact disposition read-only: the selected item, and nothing else —
 // no lifecycle moves, no events, no fence, no snapshot.
 func TestUpgradePlanWithTheCancelInputReportsTheExactCutoverDisposition(t *testing.T) {
 	path, root := cliStoreRoot(t)
@@ -1238,13 +1252,13 @@ func TestUpgradePlanWithTheCancelInputReportsTheExactCutoverDisposition(t *testi
 	if disposition.WorkCount != len(cutoverSelectedWorks) {
 		t.Fatalf("cutover_disposition.work_count = %d, want %d: %+v", disposition.WorkCount, len(cutoverSelectedWorks), disposition)
 	}
-	if want := []string{cutoverArchivedPinWork, cutoverOldContractWork}; !reflect.DeepEqual(disposition.WorkIDs, want) {
+	if want := []string{cutoverArchivedPinWork}; !reflect.DeepEqual(disposition.WorkIDs, want) {
 		t.Fatalf("cutover_disposition.work_ids = %v, want the exactly selected %v", disposition.WorkIDs, want)
 	}
-	if want := map[string]int{"needed": 2}; !reflect.DeepEqual(disposition.ByLifecycle, want) {
+	if want := map[string]int{"needed": 1}; !reflect.DeepEqual(disposition.ByLifecycle, want) {
 		t.Fatalf("cutover_disposition.by_lifecycle = %v, want %v", disposition.ByLifecycle, want)
 	}
-	if want := map[string]int{"workflow.generic_one_off": 1, "workflow.implementation": 1}; !reflect.DeepEqual(disposition.ByPinnedFamily, want) {
+	if want := map[string]int{"workflow.generic_one_off": 1}; !reflect.DeepEqual(disposition.ByPinnedFamily, want) {
 		t.Fatalf("cutover_disposition.by_pinned_family = %v, want %v", disposition.ByPinnedFamily, want)
 	}
 	if after := cutoverEventCount(t, path); after != eventsBefore {

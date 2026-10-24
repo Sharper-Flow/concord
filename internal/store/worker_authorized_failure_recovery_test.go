@@ -9,14 +9,7 @@ import (
 
 func seedAuthorizedFailedWorker(t *testing.T, workID string) (*Store, WorkflowActor, string) {
 	t.Helper()
-	// The latest implementation head that predates the attribution
-	// requirement: the authorized-abandonment baseline closes an in-flight
-	// authorization with no worker evidence to observe.
-	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
-	if !ok {
-		t.Fatal("workflow.implementation v30 is not registered")
-	}
-	return seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
+	return seedAuthorizedFailedWorkerWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"))
 }
 
 func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry RegisteredDefinition) (*Store, WorkflowActor, string) {
@@ -50,8 +43,8 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	if err != nil {
 		t.Fatalf("authorize worker: %v", err)
 	}
-	failure := Event{EventID: "abandon:" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "authorized worker never supplied admissible dispatch evidence"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
+	failure := authorizedAbandonment(workID, "abandon:"+workID, attemptID, "authorized worker never supplied admissible dispatch evidence", 3)
+	if err := s2WorkerFailedLive(t, s, failure); err != nil {
 		t.Fatalf("abandon authorized worker: %v", err)
 	}
 	// Failure disposition keeps the existing distinct-coordinator authority.
@@ -70,145 +63,16 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	return s, owner, attemptID
 }
 
-// An abandoned authorized worker job binds its recorded obligation from the
-// core's own dispatch_worker completion alone (CD-0205 D2: the completion
-// records worker_job and the attempt before any worker evidence exists). With
-// no worker.dispatched evidence, the failure disposition still resolves the
-// job, so an acceptance of an unrelated job cannot consume the open record,
-// reset the counted window, or erase the exact failed-attempt retry binding
-// (CD-0164 D1 counted the abandoned authorization; CD-0205 D4 keeps an
-// unrelated success from discharging another job's obligation).
-func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testing.T) {
-	const workID = "witness-abandoned-job-unrelated-success"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
-	s, owner := fixture.store, fixture.owner
-	defer s.Close()
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent}
-	acceptor := reviewGateAcceptor(workID)
-	corrective := &WorkerJobBinding{JobID: "job:witness-abandoned", Revision: 1}
-	abandoned := "attempt:" + workID + ":abandoned"
-	// Record before building the packet: the recording qualifies the fixture
-	// oracle subject the packet's inputs.work_context must then consume.
-	// Authorization only: the dispatch_worker completion records the job
-	// binding, and no worker.dispatched evidence ever lands.
-	recordWorkerJobRevisionForTest(t, s, workID, worker, corrective)
-	packet := dispatchWorkerPacket(t, s, workID, "repair", abandoned)
-	packet["schema_version"] = WorkerPacketSchemaVersion
-	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *corrective, "implement")
-	if err := dispatchJobPacketForTest(t, s, workID, abandoned, worker, "witness-abandoned-dispatch", packet); err != nil {
-		t.Fatalf("authorize the abandoned job: %v", err)
-	}
-	epoch := latestStepStartEpoch(t, s, workID, "repair")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{Event{EventID: "witness-abandon:" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: abandoned, FailureKind: WorkerFailureAbandoned, Detail: "authorized worker never supplied admissible dispatch evidence"})}}}); err != nil {
-		t.Fatalf("abandon the authorized job: %v", err)
-	}
-	applyRecordWorkerFailureForTest(t, s, workID, owner, abandoned, epoch, readWorkVersion(t, s, workID), "witness-abandoned-failure")
-	pin := issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != abandoned || pin.Correction.FailedAttemptEpoch != epoch {
-		t.Fatalf("correction after the abandoned job disposition = %#v, want the failed attempt bound with its exact epoch", pin.Correction)
-	}
-	// An unrelated job's successful dispatch and acceptance discharges only
-	// the job it was bound under. The abandoned job's window stays open with
-	// both dispatches counted and the exact retry binding.
-	unrelated := &WorkerJobBinding{JobID: "job:witness-unrelated", Revision: 1}
-	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.FailedAttemptID != abandoned {
-		t.Fatalf("the correction the unrelated dispatch consumes = %#v, want the abandoned attempt's own record", pin.Correction)
-	}
-	unrelatedAttempt := "attempt:" + workID + ":unrelated"
-	dispatchJobBoundAttempt(t, s, workID, "repair", unrelatedAttempt, pin.Correction, worker, pin.Version, "witness-unrelated-dispatch", unrelated)
-	completeAndAcceptAttempt(t, s, workID, unrelatedAttempt, reviewGateLane(t, "implementation"), acceptor)
-	anchor, anchorErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
-	if anchorErr != nil || anchor == nil || anchor.FailedAttemptID != abandoned || anchor.FailedAttemptEpoch != epoch {
-		t.Fatalf("anchor after the unrelated acceptance = (%#v, %v), want the abandoned job's exact binding", anchor, anchorErr)
-	}
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("count after the unrelated acceptance = %d, want both dispatches preserved", count)
-	}
-}
-
-// A materialized job-bound attempt that failed mid-window — the worker's own
-// worker.failed terminal event — marks its recorded obligation unresolved at
-// the failure itself, before the coordinator's record_worker_failure
-// disposition exists (CD-0205 D4 refining CD-0164 D2: the acceptance that
-// opens the counting window is acceptance of the recorded obligation, not
-// acceptance in general; a failure the coordinator has not yet dispositioned
-// is exactly the unresolved state the protection stands on). An unrelated
-// job's success that arrives before the disposition therefore resets neither
-// the counted window nor the exact approval-free retry the failed attempt
-// still owns.
-func TestWitnessJobFailureBeforeDispositionKeepsWindowThroughUnrelatedSuccess(t *testing.T) {
-	const workID = "witness-unrecorded-job-failure"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
-	s := fixture.store
-	defer s.Close()
-	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent}
-	acceptor := reviewGateAcceptor(workID)
-	corrective := &WorkerJobBinding{JobID: "job:witness-midwindow", Revision: 1}
-	failed := "attempt:" + workID + ":failed"
-	// The attempt materialized (dispatch evidence + the failure the worker
-	// itself reported), and the coordinator never dispositions it: no
-	// record_worker_failure exists in the walked prefix.
-	dispatchJobBoundAttempt(t, s, workID, "repair", failed, nil, worker, 0, "witness-midwindow-dispatch", corrective)
-	failWorkerAttemptWithKind(t, s, workID, failed, "the worker reported the job failed mid-window")
-	// An unrelated job's acceptance lands while the failed job still owes
-	// its obligation, with no coordinator disposition in between.
-	unrelated := &WorkerJobBinding{JobID: "job:witness-midwindow-unrelated", Revision: 1}
-	pin := issue1013Pin(t, s, workID)
-	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
-	pin = issue1013Pin(t, s, workID)
-	unrelatedAttempt := "attempt:" + workID + ":unrelated"
-	dispatchJobBoundAttempt(t, s, workID, "repair", unrelatedAttempt, nil, worker, pin.Version, "witness-midwindow-unrelated", unrelated)
-	completeAndAcceptAttempt(t, s, workID, unrelatedAttempt, reviewGateLane(t, "implementation"), acceptor)
-	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
-		t.Fatalf("count after the unrelated acceptance = %d, want both dispatches preserved before any disposition", count)
-	}
-	// The same failed dispatch stays counted in the same-step wall's window
-	// too: the wall anchor and the counting window share the same walk's
-	// opening, and the unrelated success moved neither.
-	before, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), workID, "witness", BuiltinWorkflowRegistry())
-	if err != nil || before != 1 {
-		t.Fatalf("same-step failed count after the unrelated acceptance = (%d, %v), want the one failed dispatch still counted", before, err)
-	}
-	// A satisfying follow-up leg of the failed job — the exact obligation
-	// re-recorded as a later revision and accepted — is the one resolution
-	// CD-0205 leaves open, so the walk's protection excludes only the reset
-	// through an unrelated success.
-	unchanged, anchorErr := workflowCorrectionAttemptCount(context.Background(), s.DatabaseForTesting(), workID, maxEventSeq(t, s, workID), "witness")
-	if anchorErr != nil || unchanged != 2 {
-		t.Fatalf("pre-disposition recount = (%d, %v), want the same preserved window the unrelated acceptance left", unchanged, anchorErr)
-	}
-	// The late record_worker_failure leg is not exercised here because
-	// CD-0133's epoch fence refuses a failure disposition for an attempt
-	// whose dispatch predates the latest step start, so a disposition cannot
-	// legally arrive after the unrelated start_repair this journey already
-	// consumed; the abandonment journey above carries the
-	// dispositioned-failure half of the protection.
-}
-
-func TestAuthorizedWorkerFailureRecoveryPreservesOlderDefinition(t *testing.T) {
-	const workID = "authorized-failure-older-definition"
-	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
-	if !ok {
-		t.Fatal("older implementation definition is not registered")
-	}
-	s, owner, attemptID := seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, readWorkVersion(t, s, workID), "record-older-authorized-failure")
-	var digest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&digest); err != nil {
-		t.Fatal(err)
-	}
-	if digest != entry.Digest {
-		t.Fatal("failure recovery changed the pinned definition")
-	}
+// authorizedAbandonment is the host adapter's abandoned terminal for one
+// authorized attempt, carrying the recorded attribution the live
+// definitions require on every failed terminal.
+func authorizedAbandonment(workID, eventID, attemptID, detail string, at int64) Event {
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: detail, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown, Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}}}})}
 }
 
 func TestAuthorizedWorkerFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	const workID = "authorized-failure-recovery"
-	s, owner, attemptID := seedAuthorizedFailedWorker(t, workID)
-	version := readWorkVersion(t, s, workID)
-	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, version, "record-authorized-failure")
+	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
 	var dispatches, dispositions int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkerDispatched).Scan(&dispatches); err != nil {
 		t.Fatal(err)
@@ -226,19 +90,26 @@ func TestAuthorizedWorkerFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	if lifecycle != "failed" || readback != "" {
 		t.Fatalf("failure disposition changed terminal lifecycle=%q readback=%q", lifecycle, readback)
 	}
+	var digest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest != mustBuiltinDefinition(t, "workflow.implementation").Digest {
+		t.Fatal("failure recovery changed the pinned definition")
+	}
 }
 
-func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
+func TestTerminalAuthorizationRecoveryIdentityIsReadOnly(t *testing.T) {
 	const workID = "authorized-failure-retry-binding"
-	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _, attemptID := seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
 	version := readWorkVersion(t, s, workID)
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
-		t.Fatalf("unrecorded failure binding=%#v error=%v, want the exact failed authorization", binding, err)
+	failedID, err := workflowLatestFailedWorkerAuthorization(context.Background(), s.DatabaseForTesting(), workID, "execution")
+	if err != nil || failedID != attemptID {
+		t.Fatalf("terminal recovery identity=%q error=%v, want the exact failed authorization", failedID, err)
 	}
 	if readWorkVersion(t, s, workID) != version {
 		t.Fatal("reading the retry binding changed work state")
@@ -247,12 +118,8 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, workID, WorkflowActionCompleted).Scan(&dispositions); err != nil {
 		t.Fatal(err)
 	}
-	if dispositions != 0 {
-		t.Fatal("retry binding fabricated a failure disposition")
-	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	if dispositions != 1 {
+		t.Fatalf("the terminal must derive exactly one disposition, got %d", dispositions)
 	}
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -264,17 +131,25 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
-	// consequence_v1 answers a failed retry below the wall as routine and
-	// revalidates the binding instead of asking for operator consent.
-	wantApproval := entry.Definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1
-	if decision.ApprovalRequired != wantApproval || state.FailedWorkerRetry == nil || state.FailedWorkerRetry.FailedAttemptID != attemptID {
-		t.Fatalf("the shared admission owner lost the failed authorization: decision=%#v binding=%#v", decision, state.FailedWorkerRetry)
+	if !decision.Admitted {
+		t.Fatalf("terminal failure refused the dispatch route: %#v", decision)
 	}
 }
 
+// The derived failure record owns the attempt's epoch: it carries the
+// authorized dispatch window's epoch, and a caller-authored record at another
+// epoch refuses with zero effects because the live execution step declares
+// no record_worker_failure (CD-0198 D5).
 func TestAuthorizedWorkerFailureRecoveryRejectsWrongEpoch(t *testing.T) {
 	const workID = "authorized-failure-wrong-epoch"
 	s, owner, attemptID := seedAuthorizedFailedWorker(t, workID)
+	var derivedEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&derivedEpoch); err != nil {
+		t.Fatal(err)
+	}
+	if derivedEpoch != 1 {
+		t.Fatalf("derived failure record epoch=%d, want the dispatch window's epoch 1", derivedEpoch)
+	}
 	version := readWorkVersion(t, s, workID)
 	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_worker_failure",
@@ -284,7 +159,7 @@ func TestAuthorizedWorkerFailureRecoveryRejectsWrongEpoch(t *testing.T) {
 		Tool: "concord_work_transition", IdempotencyKey: "wrong-epoch", RequestID: "wrong-epoch",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
 	})
-	if !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(err.Error(), "epoch") {
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("wrong epoch error=%v, want illegal_lifecycle_transition", err)
 	}
 	if readWorkVersion(t, s, workID) != version {
@@ -295,10 +170,7 @@ func TestAuthorizedWorkerFailureRecoveryRejectsWrongEpoch(t *testing.T) {
 func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	const workID = "authorized-checkpoint-failure"
 	const attemptID = "attempt:authorized-checkpoint-failure"
-	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
-	if !ok {
-		t.Fatal("workflow.break_fix v27 is not registered")
-	}
+	breakFix := mustBuiltinDefinition(t, "workflow.break_fix")
 	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, breakFix, "verify", []string{"verification"}, []string{"verification", "artifact"})
 	s := fixture.store
 	// The review gate joins the accepted implementation delivery before the
@@ -306,7 +178,10 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	// scoped to this attempt's own dispatch population.
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	job := &WorkerJobBinding{JobID: "job:checkpoint-review", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("authorize checkpoint review: %v", err)
 	}
@@ -314,13 +189,23 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
-	failure := Event{EventID: "abandon-checkpoint-review", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "checkpoint review supplied no admissible dispatch evidence"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
+	failure := authorizedAbandonment(workID, "abandon-checkpoint-review", attemptID, "checkpoint review supplied no admissible dispatch evidence", 30)
+	if err := s2WorkerFailedLive(t, s, failure); err != nil {
 		t.Fatal(err)
 	}
+	// The terminal derives the checkpoint's failure disposition at the
+	// window's own epoch (CD-0198 D5, CD-0193 D1); a second, caller-authored
+	// record of the same attempt refuses.
+	var recorded int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.attempt_epoch')=?`, workID, WorkflowActionCompleted, attemptID, epoch).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("checkpoint failure dispositions=%d, want the one derived record", recorded)
+	}
 	recorder := checkpointReviewReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), 0, recorder); err != nil {
-		t.Fatalf("checkpoint failure disposition: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), 0, recorder); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("second checkpoint failure disposition error=%v, want illegal_lifecycle_transition", err)
 	}
 	var dispatches int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, attemptID).Scan(&dispatches); err != nil {
@@ -331,46 +216,32 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	}
 }
 
+// The live definition derives the failure record from the terminal itself
+// (CD-0198 D5), so the retry stands on a recorded failure; a registry rescan
+// must still refuse the retry dispatch and keep it off the work pin.
 func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
-	for _, stage := range []string{"unrecorded", "recorded"} {
-		t.Run(stage, func(t *testing.T) {
-			testAuthorizedFailedRetryRegistryStaleness(t, stage == "recorded")
-		})
-	}
-}
-
-func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition bool) {
-	t.Helper()
 	const workID = "authorized-failed-retry-stale-registry"
 	const attemptID = "attempt:authorized-failed-retry-stale-registry"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
+	breakFix := mustBuiltinDefinition(t, "workflow.break_fix")
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, breakFix, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
 	laneVersion, laneDigest := registeredLaneIdentity(t, "implement")
-	breakFix, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	job := readyWorkerJobForTest(t, s, workID, breakFix.Definition, fixture.owner, "job:stale-registry-retry")
 	packet := joinPacketFor(t, s, workID, "repair", attemptID, "implement", laneVersion, laneDigest)
-	if job != nil {
-		packet["inputs"].(map[string]any)["worker_job"] = job
-	}
+	packet["inputs"].(map[string]any)["worker_job"] = job
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatal(err)
 	}
-	failure := Event{EventID: "abandon-stale-registry-retry", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
+	failure := authorizedAbandonment(workID, "abandon-stale-registry-retry", attemptID, "no admissible dispatch evidence", 30)
+	if err := s2WorkerFailedLive(t, s, failure); err != nil {
 		t.Fatal(err)
 	}
-	if recordDisposition {
-		var epoch int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
-			t.Fatal(err)
-		}
-		recorder := checkpointReviewReviewer(t, s, workID)
-		if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), 0, recorder); err != nil {
-			t.Fatal(err)
-		}
+	var recorded int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 1 {
+		t.Fatalf("the terminal derived %d failure records, want 1", recorded)
 	}
 	driftStaleRegistryFixture(t, s)
 	pin, err := ReadWorkPin(context.Background(), s, workID)
@@ -382,6 +253,7 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	}
 	freshID := attemptID + ":fresh"
 	freshPacket := joinPacketFor(t, s, workID, "repair", freshID, "implement", laneVersion, laneDigest)
+	freshPacket["inputs"].(map[string]any)["worker_job"] = job
 	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Actor: fixture.owner,
 		Payload:         mustJSONValue(map[string]any{"attempt_id": freshID, "worker_packet": freshPacket}),
@@ -389,14 +261,6 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	})
 	if !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("retry preflight error=%v, want the registry staleness refusal", err)
-	}
-	var binding *WorkflowRetryApprovalBinding
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var txErr error
-		binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-		return txErr
-	}); err != nil || binding != nil {
-		t.Fatalf("a refused retry must not request a wasted approval: binding=%#v error=%v", binding, err)
 	}
 }
 
@@ -417,13 +281,12 @@ func TestAuthorizedFailedRetryApprovalNeverOverridesAnotherRefusal(t *testing.T)
 	}
 	for _, step := range []string{"execution", offStep} {
 		t.Run(step, func(t *testing.T) {
-			state := WorkflowAdmissionState{Step: step, Lifecycle: "in_progress", InstanceState: "running", ActiveContracts: 1,
-				FailedWorkerRetry: &WorkflowRetryApprovalBinding{FailedAttemptID: "attempt:failed", FailedAttemptEpoch: 1}}
+			state := WorkflowAdmissionState{Step: step, Lifecycle: "in_progress", InstanceState: "running", ActiveContracts: 1}
 			if step == "execution" {
 				state.LawPinStaleError = newFailure(KindStaleLawRevision, "test", "law revision is stale", false, "reread_entities")
 			}
 			decision := workflowAdmit(entry.Definition, state, "dispatch_worker")
-			if decision.Failure == nil || decision.Admitted || decision.ApprovalRequired {
+			if decision.Failure == nil || decision.Admitted {
 				t.Fatalf("retry approval masked another refusal: %#v", decision)
 			}
 		})

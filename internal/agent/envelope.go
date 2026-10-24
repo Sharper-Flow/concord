@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -132,11 +131,9 @@ type SessionPlacement struct {
 }
 
 type StaleLawRevision struct {
-	OldLawID                     string   `json:"old_law_id"`
-	OldContentHash               string   `json:"old_content_hash"`
-	AcceptedSuccessorLawID       string   `json:"accepted_successor_law_id"`
-	AcceptedSuccessorContentHash string   `json:"accepted_successor_content_hash"`
-	RecoveryActions              []string `json:"recovery_actions"`
+	OldLawID        string   `json:"old_law_id"`
+	OldContentHash  string   `json:"old_content_hash"`
+	RecoveryActions []string `json:"recovery_actions"`
 }
 
 type DomainOverlapRelationTuple struct {
@@ -178,16 +175,6 @@ type ExternalRefConflict struct {
 	ExternalRef    string `json:"external_ref"`
 }
 
-// SizeOverrun names the worker job revision an acceptance refused because
-// its observed production size exceeds the recorded cap (CD-0225 D2).
-type SizeOverrun struct {
-	JobID    string `json:"job_id"`
-	Revision int64  `json:"revision"`
-	Cap      int64  `json:"cap"`
-	Observed int64  `json:"observed"`
-	Subject  string `json:"subject"`
-}
-
 type InterveningAction struct {
 	ActionID   string `json:"action_id"`
 	SessionRef string `json:"session_ref"`
@@ -220,7 +207,6 @@ type TypedError struct {
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
-	SizeOverrun         *SizeOverrun         `json:"size_overrun,omitempty"`
 	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
@@ -827,12 +813,6 @@ func validateError(err TypedError) error {
 			return errors.New("external reference conflict coupling violated")
 		}
 	}
-	if overrun := err.SizeOverrun; overrun != nil {
-		if err.Kind != "invalid_input" || err.RecoveryAction.Kind != "use_declared_route" || !slices.Contains(err.RecoveryAction.RequiredRefs, "record_worker_job") ||
-			!bounded(overrun.JobID, 1, 128) || overrun.Revision < 1 || overrun.Cap < 1 || overrun.Cap > store.WorkerJobSizeCapMax || overrun.Observed <= overrun.Cap || !commitOIDRE.MatchString(overrun.Subject) {
-			return errors.New("size overrun coupling violated")
-		}
-	}
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {
 		return fmt.Errorf("%s recovery coupling violated: want %s, got %s", err.Kind, want, err.RecoveryAction.Kind)
 	}
@@ -885,10 +865,10 @@ func validateError(err TypedError) error {
 }
 
 // validateStaleLawRevisionCoupling validates the stale-law-revision payload
-// the kind requires: two bounded law IDs with proof hashes and one to four
+// the kind requires: the deleted law's bounded ID and pinned hash, and one to four
 // bounded recovery actions.
 func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
-	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || !bounded(revision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(revision.AcceptedSuccessorContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
+	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
 		return errors.New("stale law revision coupling violated")
 	}
 	return nil

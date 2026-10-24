@@ -153,7 +153,6 @@ var approvalInventoryAliases = map[string]string{
 	"internal/store/work_size_override.go\x00OverrideWorkSizeTx\x00workflowOperatorFromConsumedApprovalTx":                                                                           "live admission half anchored to revise-intent-operator-size-demand",
 	"internal/store/work_size_override.go\x00foldWorkSizeOverridden\x00authorizeWorkflowOperatorApprovalTx":                                                                          "fold recheck anchored to revise-intent-operator-size-demand",
 	"internal/store/workflow_completion.go\x00workflowPremiseConfirmationAuthority\x00workflow premise confirmation is not operator typed#2":                                         "the consequence_v1 decision-bearing arm of the same operator-typed premise check anchored to completion-premise-not-typed",
-	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00failed-retry-below-wall":                                                                        "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyLegacyWorkflowApproval\x00operator-required":                                                                              "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1WorkflowApproval\x00destructive":                                                                             "classified consent source of the same decision anchored to workflow-action-consent-demand",
 	"internal/store/workflow_approval_policy.go\x00classifyConsequenceV1Decision\x00classifyConsequenceV1Decision":                                                                   "classified consent source of the same decision anchored to workflow-action-consent-demand",
@@ -173,9 +172,7 @@ var approvalInventoryAliases = map[string]string{
 // reachability, and the forward coverage check still refuses any triple the
 // declaration ever produces, so the witness cannot hide newly reachable
 // consent and is no excluded-owner shortcut.
-var approvalInventoryRetainedDeclarations = map[string]string{
-	"internal/store/workflow_registry_versions.go\x00legacyV1ActionPolicies\x00accept_decision": "version-1 override retained for pinned instances (legacyV1ActionDefinitions resolves it only for action ids in a version-1 list); accept_decision is in no version-1 action list, so the declaration resolves no triple",
-}
+var approvalInventoryRetainedDeclarations = map[string]string{}
 
 // approvalInventoryClasses is the closed D5 class vocabulary.
 var approvalInventoryClasses = map[string]bool{
@@ -1126,7 +1123,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	switch consent {
 	case WorkflowConsentNone, WorkflowConsentConditional, WorkflowConsentRequired:
 	}
-	if facts.FailedRetryBelowWall {
+	if facts.OperatorRequired {
 		consent = WorkflowConsentRequired
 	}
 	if facts.Destructive != "" {
@@ -1165,7 +1162,7 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	}
 	// Each consent decision keys on its governing branch; the case-list
 	// validation read and the comparison read stay reads.
-	want := []string{"failed-retry-below-wall", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
+	want := []string{"operator-required", "destructive", "workflow-consent-required", "syntheticClassifierConsent"}
 	if !slices.Equal(demand, want) || consentReads != 2 {
 		t.Fatalf("census misclassified the synthetic classifier consent: demand=%v consentReads=%d points=%v reads=%v", demand, consentReads, visitor.points, visitor.reads)
 	}
@@ -1284,7 +1281,7 @@ func TestOperatorApprovalInventoryRegistryExpansionCatchesNewDefinition(t *testi
 
 func realBuiltinTriples(t *testing.T) []approvalInventoryTriple {
 	t.Helper()
-	return approvalInventoryExpansion(builtinWorkflowDefinitionsWithHistory())
+	return approvalInventoryExpansion(BuiltinWorkflowDefinitions())
 }
 
 // callerWitnessTriples registers a real caller-registered definition through
@@ -1575,7 +1572,7 @@ func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryT
 	triples := append(append([]approvalInventoryTriple{}, builtinTriples...), callerTriples...)
 	headRefs := map[string]int64{}
 	registeredRefs := map[string]bool{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		registeredRefs[definition.Ref] = true
 	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
@@ -1668,6 +1665,26 @@ func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryT
 	return problems
 }
 
+func TestOperatorApprovalInventoryCensusRejectsStaleOwnerRow(t *testing.T) {
+	gated := approvalInventoryGatedManifestOperations(t)
+	points, _ := approvalInventoryCensus(t, gated)
+	table := approvalInventoryLoadTable(t)
+	holding := "CD-0037"
+	rows := table.ApprovalPoints
+	rows = append(rows, approvalInventoryPointRow{
+		ID:             "synthetic-stale-owner",
+		Owner:          approvalInventoryOwner{Path: "internal/store/workflow_registry.go", Symbol: "absentApprovalOwner", Branch: "absentApprovalOwner"},
+		HoldingLaw:     &holding,
+		Reachability:   []string{"live"},
+		Classification: json.RawMessage(`{"class":"product_preference"}`),
+	})
+	planners := approvalInventoryManifestConditionalPlanners(t, gated)
+	problems := approvalInventoryCoverageProblems(points, rows, gated, planners)
+	if len(problems) != 1 || !strings.Contains(problems[0], "row synthetic-stale-owner claims owner") || !strings.Contains(problems[0], "which the census does not find in the current sources") {
+		t.Fatalf("stale owner did not produce its exact census refusal: %v", problems)
+	}
+}
+
 // TestOperatorApprovalInventoryTableCoversCensus asserts set equality between
 // census entries and approval_points rows, through the declared aliases and
 // witnesses, plus the manifest axis. It fails while the table carries no
@@ -1688,6 +1705,9 @@ func TestOperatorApprovalInventoryTableCoversCensus(t *testing.T) {
 	if table.CatalogGeneration < 1 {
 		t.Errorf("catalog_generation must be a positive per-revision identity")
 	}
+	if table.CatalogGeneration != conflictRuleCatalogGeneration {
+		t.Errorf("catalog generation %d differs from generated catalog %d; rerun scripts/generate-conflict-rules.py", table.CatalogGeneration, conflictRuleCatalogGeneration)
+	}
 	planners := approvalInventoryManifestConditionalPlanners(t, gated)
 	problems := approvalInventoryCoverageProblems(points, table.ApprovalPoints, gated, planners)
 	if len(problems) > 0 {
@@ -1700,7 +1720,7 @@ func TestOperatorApprovalInventoryTableCoversCensus(t *testing.T) {
 // declared coverage against the exact definition/version/action triples the
 // registered history and off-pin recovery resolve to.
 func TestOperatorApprovalInventoryRegistryExpansionIsCovered(t *testing.T) {
-	definitions := builtinWorkflowDefinitionsWithHistory()
+	definitions := BuiltinWorkflowDefinitions()
 	triples := approvalInventoryExpansion(definitions)
 	if len(triples) == 0 {
 		t.Fatal("no registered workflow definition carries an approval-required action; the expansion is broken")

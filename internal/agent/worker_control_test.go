@@ -113,7 +113,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 	service, a, key := workerControlProofFixture(t, []Capability{"work_transition"})
 	events := agentFixtureProductEvents("foreign-control", "product-foreign", "project-foreign", "Foreign", "Foreign Project", "control scope fixture")
 	events = append(events,
-		store.Event{EventID: "foreign-control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "foreign-control-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Foreign control","priority":1}`)},
+		store.Event{EventID: "foreign-control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "foreign-control-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Foreign control","priority":1}`)},
 		store.Event{EventID: "foreign-control-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "foreign-control-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-foreign","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	)
 	if err := store.ApplyOperation(context.Background(), service.Store, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-foreign"): 0, store.VersionRef(store.SubjectProject, "project-foreign"): 0, store.VersionRef(store.SubjectWorkItem, "foreign-control-work"): 0}}); err != nil {
@@ -134,7 +134,7 @@ func TestWorkerControlScopeRejectsForeignWorkBeforeProducerBinding(t *testing.T)
 func TestWorkerControlScopeUsesSignedHostProductWithoutInventingPacketFields(t *testing.T) {
 	service, a, _ := workerControlProofFixture(t, []Capability{"work_transition"})
 	events := []store.Event{
-		{EventID: "control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Control","priority":1}`)},
+		{EventID: "control-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Control","priority":1}`)},
 		{EventID: "control-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: a.WorkID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(context.Background(), service.Store, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, a.WorkID): 0}}); err != nil {

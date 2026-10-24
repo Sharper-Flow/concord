@@ -16,9 +16,6 @@ func seedDomainReadStore(t *testing.T) *Store {
 	lawContent := "domain law\n"
 	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0001.md", lawContent)
 	sum := sha256.Sum256([]byte(lawContent))
-	legacyContent := "retired law\n"
-	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0002.md", legacyContent)
-	legacySum := sha256.Sum256([]byte(legacyContent))
 	manifest := KnowledgeManifest{
 		SchemaVersion:  "1.2",
 		SupportedKinds: []string{"decision"},
@@ -36,14 +33,8 @@ func seedDomainReadStore(t *testing.T) *Store {
 			{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Domain law", Summary: "A domain law", Tags: []string{},
 				Authority:    KnowledgeAuthority{Tier: "derived"},
-				LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0002"}},
 				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
 				HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])},
-			{ID: "CD-0002", Kind: "decision", Path: ".concord/docs/decisions/CD-0002.md", Status: "superseded", Date: "2026-08-18T00:00:00Z",
-				Title: "Retired law", Summary: "A retired law", Tags: []string{}, Successor: "CD-0001",
-				Authority:    KnowledgeAuthority{Tier: "derived"},
-				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
-				HomeDomainID: "sync", SHA256: "sha256:" + hex.EncodeToString(legacySum[:])},
 		},
 	}
 	manifestBytes, err := json.Marshal(manifest)
@@ -98,7 +89,7 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(detail.CurrentLaw) != 1 || detail.CurrentLaw[0].LawID != "CD-0001" {
-		t.Fatalf("current law wrong (superseded must be absent): %#v", detail.CurrentLaw)
+		t.Fatalf("current law wrong: %#v", detail.CurrentLaw)
 	}
 	if len(detail.CurrentLaw[0].AppliesTo) != 1 || detail.CurrentLaw[0].AppliesTo[0] != "product-root:concord" {
 		t.Fatalf("law applicability fan-out wrong: %#v", detail.CurrentLaw[0])

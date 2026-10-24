@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -71,10 +70,10 @@ func sequenceWitnessRecordJob(t *testing.T, s *Store, workID string, actor Workf
 // acceptance satisfies exactly its recorded revision and holds the step,
 // zero delivery and zero approval surface moves, and the rebuild folds back
 // to identical bindings, result references, and readiness.
-func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *testing.T) {
+func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	t.Parallel()
 	const workID = "job-sequence-witness-prereq-chain"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -171,14 +170,14 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// plain local acceptance satisfies its revision, keeps the effect step
 	// held, and writes no delivery assertion and no correction disposition.
 	attemptB := "attempt:" + workID + ":second"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 	views, err = readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 2 || views[0].State != "satisfied" || views[1].State != "satisfied" {
-		t.Fatalf("revisions after the second local accept = %#v, want both revisions satisfied", views)
+	if len(views) != 3 || views[0].Binding != *jobA || views[1].Binding != *jobB || views[0].State != "satisfied" || views[1].State != "satisfied" || views[2].State != "satisfied" {
+		t.Fatalf("revisions after the second local accept = %#v, want both implementation revisions and their continuation Review satisfied", views)
 	}
 	if views[1].SatisfiedResultRef == "" || views[1].SatisfiedResultRef == views[0].SatisfiedResultRef || views[1].SatisfiedResultRef != sequenceWitnessAcceptEventID(t, s, workID, attemptB) {
 		t.Fatalf("second satisfied result ref = %q, want the second acceptance's own distinct event id", views[1].SatisfiedResultRef)
@@ -205,33 +204,6 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 		t.Fatalf("the acceptance chain moved the approval tables from (%d,%d) to (%d,%d), want zero approval delta", approvalsBefore, challengesBefore, approvalsAfter, challengesAfter)
 	}
 
-	// The rebuild folds the stored chain to identical revision bindings,
-	// accepted result references, and derived readiness.
-	viewsBefore, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyBefore, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	viewsAfter, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyAfter, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(viewsBefore, viewsAfter) {
-		t.Fatalf("rebuilt revision views differ:\nbefore: %#v\nafter:  %#v", viewsBefore, viewsAfter)
-	}
-	if !reflect.DeepEqual(readyBefore, readyAfter) {
-		t.Fatalf("rebuilt ready set differs:\nbefore: %#v\nafter:  %#v", readyBefore, readyAfter)
-	}
 }
 
 // TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole drives the

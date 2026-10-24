@@ -10,7 +10,6 @@
     ".concord/docs/workflow-engine-contract.md",
     "adapter/opencode/packet.ts",
     "internal/store/workflow_design.go",
-    "internal/store/workflow_design_test.go",
     "internal/agent/design_contract_correction_test.go"
   ],
   "home_domain_id": "product-root:concord",
@@ -35,9 +34,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:92a1f9c27f9e540c9cda34b8e917a01f016cfb9e38a69d4dcfc76af4a47aa73a",
+  "sha256": "sha256:19b66c2d2382114b40cd5487b5421a6ad2e573c08ee818176cf3f7c6d9f3dc7d",
   "status": "accepted",
-  "summary": "Projects the current typed design into implement context, preserves superseded designs as history, and requires an approved replacement after contract correction.",
+  "summary": "Projects the current typed design into implement context, does not present superseded designs as current, and requires an approved replacement after contract correction.",
   "tags": [
     "workflow",
     "design",

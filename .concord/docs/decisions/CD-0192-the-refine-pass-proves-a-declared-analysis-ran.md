@@ -5,11 +5,9 @@
 - **Scope:** The refine exit of `workflow.implementation` and
   `workflow.break_fix`, the Project tooling manifest, and the argv equality
   the guard enforces
-- **Amends:** CD-0138 D3 at its second sentence ("The step is agent-worked,
-  not scanner-driven.")
 - **Preserves:** CD-0138 D1, D2, and D4, the agent-judgment rule of CD-0138 D3,
-  CD-0055 D4, CD-0096 D3, and every earlier definition version's behavior and
-  digest
+  CD-0055 D4, CD-0096 D3, and the digests derived from the one canonical
+  source ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 - **Related:** CD-0013, CD-0055, CD-0096, CD-0138, CD-0156
 - **Approval:** The operator approved the work item contract that carries this
   record on 2026-09-29.
@@ -33,11 +31,10 @@ default ref.
 
 ### D1. The refine exit runs a guard at record_delivery
 
-Leaving `refine` through `record_delivery` on `workflow.implementation`
-version 18 and later, and `workflow.break_fix` version 16 and later, runs a
+Leaving `refine` through `record_delivery` in the implementation and
+break-fix families runs a
 guard registered next to the delivery admission guards. The guard is active
-only at the refinement step of those versions. Items pinned to earlier
-definition versions keep the behavior and digest they shipped with.
+only at the refinement step.
 
 ### D2. The proof is a green worktree_verify run bound in the epoch
 
@@ -93,8 +90,7 @@ runs a green worktree_verify command inside the refine epoch and binds its
 operation ref as verification evidence before the step exits. A Project
 declares its checks once on the default ref, and every later change proves
 itself against that declaration. Projects without a manifest still run a real
-green check, which is strictly stronger than the unchecked artifact the
-previous rule accepted.
+green check.
 
 The gate reads the manifest outside the store transaction, so a slow git read
 never holds the store's single connection. A missing manifest at the default
@@ -115,14 +111,8 @@ succeeds.
 - `go test ./internal/store/ -run TestRefineToolingResolution` proves the
   resolution reads the default ref only and reads an absent manifest as no
   declaration.
-- `go test ./internal/store/ -run TestWorkflowDefinitionVersionPinsHold`
-  proves every earlier definition digest is unchanged, and the new versions
-  hold their own pins.
 - `python3 scripts/test-project-tooling.py` proves the checker and the schema
   refuse shell quoting and shell operators in an invocation.
-- The workflow corpus carries `WF57-refine-exit-needs-green-verify-run`, whose
-  `record_delivery` at a started refine step refuses with the missing-evidence
-  refusal.
 - `python3 scripts/check-doc-contract.py` proves this record carries the
   current decision outline and passes the writing rules.
 - `python3 scripts/check-knowledge-index.py` and

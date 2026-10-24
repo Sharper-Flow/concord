@@ -182,7 +182,7 @@ def test_loader_parses_the_committed_asset() -> None:
     defaults = authority_defaults.load()
     assert defaults.vehicle_work_id == VEHICLE
     assert isinstance(VEHICLE_VERSION, int) and VEHICLE_VERSION >= 1
-    assert len(defaults.members) == 152
+    assert len(defaults.members) == 139
     assert (MEMBER_ID, MEMBER_KIND) in defaults.members
     assert (NONMEMBER_ID, NONMEMBER_KIND) not in defaults.members
 
@@ -232,6 +232,28 @@ def test_loader_refuses_unsorted_members() -> None:
 
 
 # --- schema parity -------------------------------------------------------
+
+
+def test_history_census_retains_only_surviving_members() -> None:
+    history = load_module("knowledge_authority_history_under_test", SCRIPTS / "check-knowledge-authority-history.py")
+    document = base_asset_document()
+    defaults = authority_defaults.AuthorityDefaults(document)
+
+    def git_result(root: Path, *args: str) -> str:
+        if args[0] == "cat-file":
+            return "commit"
+        if args[0] == "ls-tree":
+            return "a blob CD-0002.json\nb blob CD-0009.json\n"
+        identifier = "CD-0009" if args[1].endswith("CD-0009.json") else "CD-0002"
+        return json.dumps({"id": identifier, "kind": "decision", "authority": {"tier": "legislated", "legislated_by": ORDINARY_WORK, "contract_version": 1}})
+
+    current = {"records": [{"id": "CD-0002", "kind": "decision"}]}
+    with mock.patch.object(history, "git", side_effect=git_result), mock.patch.object(history.knowledge_index, "raw_manifest", return_value=current):
+        assert history.census(REPO_ROOT, defaults) == []
+        current["records"].append({"id": "CD-0009", "kind": "decision"})
+        assert any("missing cohort member" in finding for finding in history.census(REPO_ROOT, defaults))
+        current["records"].clear()
+        assert any("expanded cohort member" in finding for finding in history.census(REPO_ROOT, defaults))
 
 
 def test_schema_legislated_by_matches_the_work_grammar() -> None:

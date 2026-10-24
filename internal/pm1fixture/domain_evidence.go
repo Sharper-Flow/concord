@@ -36,10 +36,7 @@ const (
 	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath.
 	DomainEvidenceLawBody = "Domains are the only architecture authority.\n"
 
-	domainEvidenceProductKey     = "concord"
-	domainEvidenceSupersededID   = "CD-0002"
-	domainEvidenceSupersededPath = ".concord/docs/decisions/CD-0002.md"
-	domainEvidenceSupersededBody = "Components were the prior architecture authority.\n"
+	domainEvidenceProductKey = "concord"
 )
 
 // DomainEvidenceTime is the occurrence time every seeded event carries, so
@@ -94,9 +91,9 @@ func ContentDigest(content string) string {
 func SeedProductAndProject(ctx context.Context, s *store.Store, productID, projectID string) error {
 	membership := fmt.Sprintf(`{"product_id":%q,"project_id":%q,"role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`, productID, projectID)
 	events := []store.Event{
-		{EventID: "domain-evidence-product-" + productID, Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "domain-evidence-project-" + projectID, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project"}`)},
-		{EventID: "domain-evidence-membership-" + productID + "-" + projectID, Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(membership)},
+		{EventID: "domain-evidence-product-" + productID, Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("product.created"), Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: "domain-evidence-project-" + projectID, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Project"}`)},
+		{EventID: "domain-evidence-membership-" + productID + "-" + projectID, Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: productID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"), Payload: json.RawMessage(membership)},
 	}
 	versions := map[store.SubjectRef]int64{
 		store.VersionRef(store.SubjectProduct, productID): 0,
@@ -114,8 +111,8 @@ func SeedWorkItem(ctx context.Context, s *store.Store, projectID, workID, title 
 	created := fmt.Sprintf(`{"work_kind":"task","title":%q,"priority":%d}`, title, priority)
 	membership := fmt.Sprintf(`{"memberships":[{"project_id":%q,"role":"primary"}],"expected_version":1,"resulting_version":2}`, projectID)
 	events := []store.Event{
-		{EventID: "domain-evidence-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 2, Payload: json.RawMessage(created)},
-		{EventID: "domain-evidence-work-" + workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 1, Payload: json.RawMessage(membership)},
+		{EventID: "domain-evidence-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(created)},
+		{EventID: "domain-evidence-work-" + workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: store.CurrentEventPayloadVersion("work.memberships_replaced"), Payload: json.RawMessage(membership)},
 	}
 	versions := map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: versions}); err != nil {
@@ -173,7 +170,7 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 
 // DomainEvidenceRepo commits a knowledge manifest declaring exactly one root
 // Domain with an empty architecture relation set, plus an accepted decision
-// homed to that Domain and the superseded decision it replaced.
+// homed to that Domain.
 func DomainEvidenceRepo(dir string) (string, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
@@ -181,9 +178,6 @@ func DomainEvidenceRepo(dir string) (string, error) {
 	}
 	if err := writeKnowledgeFile(repo, DomainEvidenceLawPath, DomainEvidenceLawBody); err != nil {
 		return "", fmt.Errorf("pm1fixture: write accepted decision: %w", err)
-	}
-	if err := writeKnowledgeFile(repo, domainEvidenceSupersededPath, domainEvidenceSupersededBody); err != nil {
-		return "", fmt.Errorf("pm1fixture: write superseded decision: %w", err)
 	}
 	manifest := store.KnowledgeManifest{
 		SchemaVersion:  "1.2",
@@ -202,16 +196,8 @@ func DomainEvidenceRepo(dir string) (string, error) {
 				ID: DomainEvidenceLawID, Kind: "decision", Path: DomainEvidenceLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: DomainEvidenceLawTitle, Summary: "Domains carry architecture authority", Tags: []string{},
 				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: domainEvidenceSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
 				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(DomainEvidenceLawBody),
-			},
-			{
-				ID: domainEvidenceSupersededID, Kind: "decision", Path: domainEvidenceSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
-				Title: "Component authority", Summary: "Retired architecture authority", Tags: []string{},
-				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}, Successor: DomainEvidenceLawID,
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
-				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(domainEvidenceSupersededBody),
 			},
 		},
 	}

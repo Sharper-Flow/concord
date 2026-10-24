@@ -19,14 +19,14 @@ import (
 // it, an active worktree claim, and the fixture workflow instance parked at
 // execution with a contract-required verification kind nothing binds. The
 // shape follows seedItemAtAcceptanceRequiring, minus the lane attempt.
-func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGit, WorkflowActor, WorkflowActor) {
+func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGit) {
 	ctx := context.Background()
 	s := openTemp(t)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-w"), locatorProjectEvent("project-w"), locatorMembershipEvent("product-w", "project-w")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-w"): 0, VersionRef(SubjectProject, "project-w"): 0}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Verify evidence fixture","priority":1}`)},
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Verify evidence fixture","priority":1}`)},
 		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	setup := []Event{
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
 		workflowEvent("reviewer-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": workflowFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": workflowWorkerFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("proposal-"+workID, workID, ownerRef, 5, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("discovery-"+workID, workID, ownerRef, 6, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, ownerRef, 7, "design", "record_design"),
@@ -71,7 +71,7 @@ func verifyEvidenceFixture(t *testing.T, workID string) (*Store, *fakeWorktreeGi
 	if err := os.MkdirAll(claim.Entry.Path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return s, git, owner, reviewer
+	return s, git
 }
 
 // verifyLeaseID matches the id produced by the worktree verify mutation.
@@ -112,52 +112,36 @@ func durableVerifyOperationCount(t *testing.T, s *Store, leaseID string) int {
 // calculation, premise confirmation, and completion.
 func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	ctx := context.Background()
-	workID := "verify-evidence-route"
-	s, git, owner, reviewer := verifyEvidenceFixture(t, workID)
-	defer s.Close()
-
-	authoritativeBefore, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification", 0)
-	if err != nil {
+	f, repo, refs := pReceiptFixture(t, "verify-evidence-route", 1, 1, func(f workContextFixture) {
+		authoritative, err := workflowEvidenceKindBound(ctx, f.store.db, f.workID, "verification", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authoritative {
+			t.Fatal("verification evidence is bound before any verify run ran")
+		}
+	})
+	s, workID := f.store, f.workID
+	ref := refs[0][0]
+	if len(ref) != 87 {
+		t.Fatalf("compact verify operation reference length=%d, want 87", len(ref))
+	}
+	var operations int
+	if err := s.db.QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id=?`, ref).Scan(&operations); err != nil {
 		t.Fatal(err)
 	}
-	if authoritativeBefore {
-		t.Fatal("verification evidence is bound before any verify run ran")
-	}
-
-	leaseID := verifyLeaseID(workID)
-	if len(verifyOperationRef(leaseID)) != 87 {
-		t.Fatalf("compact verify operation reference length=%d, want 87", len(verifyOperationRef(leaseID)))
-	}
-	result, err := s.VerifyWorktree(ctx, verifyEvidenceRun(git, workID, leaseID, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ExitCode != 0 || result.TrackedFilesChanged {
-		t.Fatalf("green run result=%+v", result)
-	}
-	if durableVerifyOperationCount(t, s, leaseID) != 1 {
+	if operations != 1 {
 		t.Fatal("the green run claimed no durable producer operation")
 	}
 	var resultKind, evidenceRefs string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind,evidence_refs FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref='principal-1' AND request_id=?`, verifyOperationRef(leaseID), workID, verifyRequestID(workID)).Scan(&resultKind, &evidenceRefs); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_kind,evidence_refs FROM durable_operations WHERE op_id=? AND work_id=? AND principal_ref=? AND request_id='request:p:0:0'`, ref, workID, f.owner.PrincipalRef).Scan(&resultKind, &evidenceRefs); err != nil {
 		t.Fatal(err)
 	}
-	if resultKind != "completed" || !strings.Contains(evidenceRefs, verifyOperationRef(leaseID)) {
+	if resultKind != "completed" || !strings.Contains(evidenceRefs, ref) {
 		t.Fatalf("verify authority result_kind=%q evidence_refs=%q", resultKind, evidenceRefs)
 	}
-
-	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef(leaseID) + `","immutable_subject_ref":"` + verifyOperationRef(leaseID) + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef(leaseID) + `","producer_watermark":"` + verifyRequestID(workID) + `"}`)
-	if err := runVerdictAction(t, s, workID, "bind_evidence", bindPayload, 0); err != nil {
-		t.Fatalf("bind_evidence naming the verify run refused: %v", err)
-	}
-	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 1 {
+	if got := countEvidenceBinding(t, s, workID, "verification", ref); got != 1 {
 		t.Fatalf("verify-run binding count=%d, want 1", got)
-	}
-	// The fixture family's definition also requires review, which the verify
-	// run does not produce; bind it so the outstanding calculation reads the
-	// verification route this test proves.
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`), 0); err != nil {
-		t.Fatalf("binding the fixture's review kind refused: %v", err)
 	}
 	authoritativeAfter, err := workflowEvidenceKindBound(ctx, s.DatabaseForTesting(), workID, "verification", 0)
 	if err != nil {
@@ -184,34 +168,19 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 		t.Fatalf("outstanding evidence requirements after the bind = %v, want none", outstanding)
 	}
 
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
+	seedComparisonObservation(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
+		t.Fatalf("associate reviewed verify receipt: %v", err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
-		t.Fatal(err)
+	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
+		t.Fatalf("confirm with reviewed verify receipt: %v", err)
 	}
-	terminal := func(action string, payload json.RawMessage, actor WorkflowActor, operator *WorkflowActor) error {
-		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, Runner: git})
-		if err != nil {
-			return err
-		}
-		journey := &candidateJourney{s: s, workID: workID}
-		return journey.terminalActionContext(t, WithWorkerDispatchPreparation(ctx, prepared), action, payload, actor, operator)
-	}
-	if err := terminal("record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), reviewer, nil); err != nil {
-		t.Fatalf("record_verdict after the verify bind refused: %v", err)
-	}
-	if err := terminal("confirm_premise", nil, owner, recoveryOperator(workID)); err != nil {
-		t.Fatalf("confirm_premise with the verify run bound refused: %v", err)
-	}
-	// The verdict actor is the invoking actor, and it must differ from the
-	// execution the fixture started under, so the distinct reviewer completes.
-	if err := terminal("complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), reviewer, nil); err != nil {
-		t.Fatalf("completion with the verify run as verification evidence refused: %v", err)
+	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
+		t.Fatalf("complete with reviewed verify receipt: %v", err)
 	}
 	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "completed" {
@@ -225,7 +194,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	ctx := context.Background()
 	workID := "verify-evidence-red-run"
-	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	s, git := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
 	leaseID := verifyLeaseID(workID)
@@ -241,7 +210,7 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 	}
 
 	bindPayload := json.RawMessage(`{"evidence_kind":"verification","evidence_ref":"` + verifyOperationRef(leaseID) + `","immutable_subject_ref":"` + verifyOperationRef(leaseID) + `","producer_id":"principal-1","producer_run_ref":"` + verifyOperationRef(leaseID) + `","producer_watermark":"` + verifyRequestID(workID) + `"}`)
-	bindErr := runVerdictAction(t, s, workID, "bind_evidence", bindPayload, 0)
+	bindErr := runVerdictAction(t, s, workID, "bind_evidence", bindPayload)
 	requireRecoveryFailure(t, bindErr, KindInvariantViolation, "bind naming a red verify run")
 	if got := countEvidenceBinding(t, s, workID, "verification", verifyOperationRef(leaseID)); got != 0 {
 		t.Fatalf("refused red-run binding count=%d, want 0", got)
@@ -262,7 +231,7 @@ func TestRedVerifyRunNamesNoAuthority(t *testing.T) {
 func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 	ctx := context.Background()
 	workID := "verify-evidence-replay"
-	s, git, _, _ := verifyEvidenceFixture(t, workID)
+	s, git := verifyEvidenceFixture(t, workID)
 	defer s.Close()
 
 	var eventsBefore int

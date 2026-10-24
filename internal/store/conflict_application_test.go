@@ -107,6 +107,28 @@ func TestConflictApplicationRecordPersistsRuleSizeAndOutcome(t *testing.T) {
 	}
 }
 
+func TestConflictApplicationV2RecordsEffectiveSize(t *testing.T) {
+	s := openTemp(t)
+	seedSizedWork(t, s, "conflict-v2")
+	var eventID string
+	err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var err error
+		eventID, err = RecordConflictApplicationTx(context.Background(), tx, ConflictApplicationRequest{WorkID: "conflict-v2", RuleID: "A2-3", Outcome: "settled", SettlementRef: "settlement-v2", Actor: "operator", OccurredAt: time.Unix(30, 0).UTC()})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := s.db.QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, eventID).Scan(&version); err != nil || version != 2 {
+		t.Fatalf("conflict payload version=%d err=%v", version, err)
+	}
+	record, fields := storedConflictApplication(t, s, eventID)
+	if len(fields) != 8 || record.Size != WorkSizeSmall || record.SizeAssessmentSequence != 1 || record.ModelVersion != WorkSizeModelVersion {
+		t.Fatalf("v2 lost model-owned size: %+v", record)
+	}
+}
+
 func TestConflictApplicationDoesNotAdvanceWorkVersion(t *testing.T) {
 	s := openTemp(t)
 	seedSizedWork(t, s, "steady")
@@ -228,9 +250,9 @@ func TestConflictApplicationRollsBackTheWholeOperation(t *testing.T) {
 }
 
 // The synthetic later work.sized event is a fold fixture, not a public resize
-// route: the record must rebuild against the assessment its payload references,
+// route: the record must keep the assessment its payload references,
 // never against the current generated table or the latest assessment.
-func TestConflictApplicationSurvivesRebuildAndReopen(t *testing.T) {
+func TestConflictApplicationSurvivesLaterAssessmentAndReopen(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
 	s, err := Open(ctx, path)
@@ -247,15 +269,12 @@ func TestConflictApplicationSurvivesRebuildAndReopen(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("durable-later", "durable", WorkSizeModelVersion, WorkSizeLarger, later), nil); err != nil {
 		t.Fatalf("record the later assessment: %v", err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	after, _ := storedConflictApplication(t, s, "durable-1")
 	if after != before {
-		t.Fatalf("rebuild changed the recorded application: %+v, want %+v", after, before)
+		t.Fatalf("later assessment changed the recorded application: %+v, want %+v", after, before)
 	}
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events after rebuild, want 1", got)
+		t.Fatalf("domain_events holds %d conflict application events, want 1", got)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -360,7 +379,7 @@ func TestRecordConflictApplicationTxRecordsTheLiveBinding(t *testing.T) {
 	}
 }
 
-func TestConflictApplicationRecordsEffectiveSizeAndReplaysItsPrefix(t *testing.T) {
+func TestConflictApplicationRecordsEffectiveSize(t *testing.T) {
 	for _, sizes := range []struct{ model, operator WorkSize }{
 		{WorkSizeSmall, WorkSizeCrucial},
 		{WorkSizeLarger, WorkSizeSmall},
@@ -397,13 +416,9 @@ func TestConflictApplicationRecordsEffectiveSizeAndReplaysItsPrefix(t *testing.T
 			// operator size governing this event position.
 			err = applyWorkEvent(t, s, conflictAppliedEvent("wrong-effective-size", workID, map[string]any{"size": string(sizes.model)}), nil)
 			assertFailureKind(t, err, KindInvariantViolation)
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("rebuild the override and both settlements: %v", err)
-			}
-			replayedBefore, _ := storedConflictApplication(t, s, beforeIDs[0])
-			replayedAfter, _ := storedConflictApplication(t, s, afterIDs[0])
-			if replayedBefore != before || replayedAfter != after {
-				t.Fatalf("replay changed historical sizes: before %+v/%+v, after %+v/%+v", before, replayedBefore, after, replayedAfter)
+			storedBefore, _ := storedConflictApplication(t, s, beforeIDs[0])
+			if storedBefore != before {
+				t.Fatalf("override changed the earlier settlement: %+v, want %+v", storedBefore, before)
 			}
 		})
 	}
@@ -624,11 +639,8 @@ func TestRecordConflictApplicationTxRecordsAllThreeSizesWithValidA2Rules(t *test
 			t.Fatalf("recorded %+v; want rule %s at size %q, sequence 1", record, tc.rule, tc.size)
 		}
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	if got := countConflictEvents(t, s); got != len(cases) {
-		t.Fatalf("domain_events holds %d conflict application events after rebuild, want %d", got, len(cases))
+		t.Fatalf("domain_events holds %d conflict application events, want %d", got, len(cases))
 	}
 }
 

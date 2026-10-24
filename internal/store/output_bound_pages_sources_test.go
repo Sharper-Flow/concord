@@ -847,7 +847,7 @@ func pkOutsideRepairURLBound(which string) outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		const (
 			file         = "internal/store/outside_repair.go"
-			validator    = "validateOutsideRepairEvidenceShapeWithReference"
+			validator    = "validateOutsideRepairEvidenceShape"
 			schemeHost   = int64(8 + 10) // "https://" + "github.com", enforced by the live equality literals
 			pathSlash    = int64(1)      // the "/" separator in the live path join
 			int64Digits  = int64(19)     // a positive int64 renders in at most 19 decimal digits
@@ -1142,18 +1142,18 @@ func init() {
 
 	registerOutputBound("/$defs/outside_repair_evidence/properties/observed_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "ObservedAt"))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/published_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "PublishedAt"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "len(e.PullRequests)", boundItems))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(e.PullRequests)", boundItems))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/release_url/maxLength", pkOutsideRepairURLBound("release"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "e.Repository", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.Repository", 1, boundBytes))
 
 	registerOutputBound("/$defs/outside_repair_git_sha/maxLength", pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"))
 
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairPullRequestEvidence", "MergedAt"))
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "len(pr.RequiredChecks)", boundItems))
+	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(pr.RequiredChecks)", boundItems))
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/url/maxLength", pkOutsideRepairURLBound("pull"))
 
-	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "e.ReleaseTag", 1, boundBytes))
-	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "check.URL", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.ReleaseTag", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "check.URL", 1, boundBytes))
 
 	registerOutputBound("/$defs/product_context/properties/candidates/maxItems", maxBound(
 		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems),

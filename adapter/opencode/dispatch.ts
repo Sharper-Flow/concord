@@ -84,7 +84,12 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; review_input?: AgentLanePacketReviewInput; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+export interface AgentLanePacketReviewInput {
+  input_candidate: AgentLaneReportReview["input_candidate"]
+  dependencies: AgentLaneReportReview["dependencies"]
 }
 
 // The recorded-state members below mirror inputs.law_context,
@@ -98,7 +103,7 @@ export interface AgentLanePacketLawContext {
     law_id: string
     obligation_ids?: string[]
     kind?: "constitution" | "decision" | "spec"
-    status?: "accepted" | "superseded"
+    status?: "accepted"
     title?: string
     path?: string
     criteria?: { criterion: number; predicate_id: string }[]
@@ -149,11 +154,6 @@ export interface AgentLanePacketWorkerJob {
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
-  production_size_max?: number
-  measurement_basis?: {
-    base_commit: string
-    paths: { path: string; class: "production" | "test" | "documentation" | "generated"; generator_ref?: string }[]
-  }
   direct_caller_allowance?: {
     project_id: string
     mechanisms: AgentLaneOracleMechanism[]
@@ -249,9 +249,6 @@ export interface AgentLanePacketOutcomePredicate {
 
 export interface AgentLanePacketCorrection {
   disposition: "failed" | "rejected" | "verification"
-  attempt_count: number
-  attempt_limit: 3
-  escalated: boolean
   diagnosis: string
   strategy: string
   failure_kind?: string
@@ -519,15 +516,6 @@ export interface AgentLaneReportBaseComparison {
   checks: AgentLaneReportBaseComparisonCheck[]
 }
 
-// AgentLaneReportProductionSize mirrors the report's production_size
-// (CD-0225 D2): the production lines the worker counted between the job's
-// recorded base and its delivered tree. The core binds base and tree.
-export interface AgentLaneReportProductionSize {
-  base: string
-  tree: string
-  count: number
-}
-
 // AgentLaneReportCallerMechanism names one direct-caller repair endpoint.
 export interface AgentLaneReportCallerMechanism {
   path: string
@@ -560,6 +548,12 @@ export interface AgentLaneReportDirectCallerRepair {
 // law, case, and control references that bind the finding to the job's
 // acceptance oracle; it records no acceptance.
 export interface AgentLaneReportReviewFinding {
+  finding_id: string
+  in_scope: boolean
+  blocking: boolean
+  status: "open" | "closed"
+  evidence_refs: string[]
+  closure_refs: string[]
   severity: "P0" | "P1" | "P2" | "P3"
   confidence: "low" | "medium" | "high"
   detail: string
@@ -592,8 +586,8 @@ export interface AgentLaneReportResolvedFinding {
 
 // AgentLaneReportOracleReceipt is one typed control-execution receipt:
 // reported evidence, never native-run authority. The adapter
-// strips any worker-echoed subject_commit and injects the observed raw OID
-// subject from the dispatch packet before the canonical report forms.
+// strips worker subject claims; the store resolves the producer's actual
+// subject through run_ref instead of substituting the dispatch input.
 export interface AgentLaneReportOracleReceipt {
   control_ids: string[]
   case_ids: string[]
@@ -606,13 +600,20 @@ export interface AgentLaneReportOracleReceipt {
 }
 
 // AgentLaneReportReview mirrors the optional top-level review object of
-// contracts/agent-lane-report.schema.json: the lane's explicit verdict, its
-// findings, and the optional evidenced closure claims. The verdict
-// is report content only (CD-0197): it maps to no workflow field and records
-// no transition.
+// contracts/agent-lane-report.schema.json. Report arrival grants no progression;
+// Main accepts the exact report through the existing result-acceptance route.
 export interface AgentLaneReportReview {
-  verdict: "ship" | "no_ship"
+  disposition: "continue" | "correction_required" | "revision_required" | "ready_for_final_proof"
+  input_candidate: { project_id: string; commit: string; tree: string }
+  output_candidate: { project_id: string; commit: string; tree: string }
+  dependencies: {
+    criteria: { predicate_id: string; content_digest: string }[]
+    architecture_digest?: string
+    architecture_not_applicable: boolean
+  }
+  assessments: { predicate_id: string; assessment: "supported" | "unproved" | "mismatch"; receipt_refs: string[] }[]
   findings: AgentLaneReportReviewFinding[]
+  remaining_obligations: { obligation_id: string; owner_ref: string; subject_ref: string; input_digest: string; needed_proof: string }[]
   resolved_findings?: AgentLaneReportResolvedFinding[]
 }
 
@@ -640,16 +641,15 @@ export interface AgentLaneReport {
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
   worker_job?: AgentLaneReportWorkerJob
-  production_size?: AgentLaneReportProductionSize
   direct_caller_repairs?: AgentLaneReportDirectCallerRepair[]
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
 
 // AgentResultReviewSummary is the attempt readback's typed view of a review
-// report: the verdict and one count per severity of the closed P0-P3 scale.
+// report: the disposition and one count per severity of the closed P0-P3 scale.
 export interface AgentResultReviewSummary {
-  verdict: AgentLaneReportReview["verdict"]
+  disposition: AgentLaneReportReview["disposition"]
   findings: Record<AgentLaneReportReviewFinding["severity"], number>
 }
 
@@ -1389,7 +1389,7 @@ function normalizeWorkerReport(report: Record<string, unknown>): Record<string, 
 function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket, readbackModel?: string): Record<string, unknown> {
   const stripped = { ...report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
-  const rebound = packet ? rebindOracleReceiptSubjects(stripped, packet) : stripped
+  const rebound = packet ? rebindOracleReceiptSubjects(stripped) : stripped
   return normalizeWorkerReport({
     ...rebound,
     schema_version: packet?.schema_version ?? report.schema_version,
@@ -1436,23 +1436,15 @@ export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes:
   return `worker report failed the closed agent-lane-report.v1 schema: review.resolved_findings: serialize to ${bytes} UTF-8 bytes against a limit of ${maxArrayBytes}; the claims are refused, never truncated`
 }
 
-// rebindOracleReceiptSubjects composes the dispatch-owned subject-commit
-// identity of every oracle receipt. A worker-echoed
-// subject_commit is stripped exactly like the other dispatch-owned report
-// fields: the model never authors subject identity. The observed subject is
-// injected from the packet's work context when the core supplied one; absent
-// it, the receipt rides without a candidate subject rather than inventing
-// one, and the store's reference/subject joins stay the authority.
-function rebindOracleReceiptSubjects(report: Record<string, unknown>, packet: AgentLanePacket): Record<string, unknown> {
-  const observed = packet.inputs?.work_context?.subject_commit
-  const observedSubject = typeof observed === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(observed) ? observed : undefined
+// The store resolves run_ref to its producer-captured subject at terminal
+// ingress. Neither the worker's claim nor input B can replace output C.
+function rebindOracleReceiptSubjects(report: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(report.evidence)) return report
   let changed = false
   const evidence = report.evidence.map((entry) => {
     if (!isRecord(entry) || !isRecord(entry.oracle_receipt)) return entry
     const receipt = entry.oracle_receipt as Record<string, unknown>
     const rebound = omitMember(receipt, "subject_commit")
-    if (observedSubject !== undefined) rebound.subject_commit = observedSubject
     changed = true
     return { ...entry, oracle_receipt: rebound }
   })
@@ -2977,7 +2969,7 @@ async function completeWorkerSession(
   if (!("detail" in resolution) && resolution.report.status === "completed" && resolution.report.review) {
     const counts: AgentResultReviewSummary["findings"] = { P0: 0, P1: 0, P2: 0, P3: 0 }
     for (const finding of resolution.report.review.findings) counts[finding.severity] += 1
-    envelope.review = { verdict: resolution.report.review.verdict, findings: counts }
+    envelope.review = { disposition: resolution.report.review.disposition, findings: counts }
   }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
@@ -3016,7 +3008,7 @@ async function completeWorkerSession(
   // A committed terminal replays its proof. An open attempt still owes the
   // subject check before its first terminal admission, including recovery.
   const subjectFailure = hostFailure === undefined && options.recovery?.lifecycle_state !== "completed"
-    ? await reviewSubjectFailure(lane, packet, workerDirectory, signal, options.subjectRunner ?? defaultRunner)
+    ? await reviewSubjectFailure(lane, packet, workerDirectory, signal, options.subjectRunner ?? defaultRunner, "terminal")
     : null
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[]; failureAttribution: WorkerFailureObservation } =
     hostFailure !== undefined
@@ -3161,7 +3153,6 @@ async function completeWorkerSession(
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
     worker_job: terminal.report.worker_job,
-    production_size: terminal.report.production_size,
     direct_caller_repairs: terminal.report.direct_caller_repairs,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,

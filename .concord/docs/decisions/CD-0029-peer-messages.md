@@ -1,9 +1,8 @@
 # CD-0029: Peer messages addressed to durable work
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18.
 - **Date:** 2026-08-15
-- **Scope:** Agent tool surface; work-item events; continuity snapshot
+- **Scope:** Agent tool surface; work-item messages; continuity snapshot
 - **Related:** CD-0014 (no polling), CD-0016 (continuity), CD-0028 (claims), issue #86
 
 ## Context
@@ -17,14 +16,16 @@ authoring because its target rebased and self-resolved.
 
 ## Decision
 
-A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate, alter the recipient's classification, or weaken a historical workflow pin.
+Messages are current rows with no historical pins under
+[CD-0242 D2 and D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 
+A peer message supplies neither consent nor authority. CD-0013 D11 governs terminal transitions: routine completion requires its unchanged acceptance evidence, not operator approval; cancellation and removal require operator approval only when a CD-0243 D2 class applies. A message cannot satisfy either gate or alter the recipient's classification.
 
-**D1. Messages are durable events addressed to work, not sessions.**
-`work.message_sent` carries a recipient work id in its payload; the
-`work_messages` fold validates the recipient exists (the successor-link
-precedent for cross-work folds) and writes one row per (sender, recipient)
-pair. Whatever session next picks the work up reads the same rows — restart,
+**D1. Messages are durable rows addressed to work, not sessions.**
+`concord_work_relate.message_send` carries a recipient work id; the message
+write validates the recipient exists (the successor-link precedent for
+cross-work writes) and writes one row per (sender, recipient)
+pair (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). Whatever session next picks the work up reads the same rows — restart,
 compaction, and context loss on the receiving side cannot lose a message,
 because the message never belonged to the session.
 
@@ -36,18 +37,18 @@ never crosses Products; C18 §12 anti-requirement 11 stands untouched.
 
 **D3. Delivery is pull-at-next-call.** No polling, timers, or daemons (CD-0014).
 Two pull points: `concord_work_browse.messages` (PM1.Q14) returns the bounded
-message list for a work item, and the continuity snapshot now carries
+message list for a work item, and the continuity snapshot carries
 `pending_messages` — a sent-state count that points a resuming session at its
-unread findings the way it is already pointed at checkpoints and pending
+unread findings the way it is pointed at checkpoints and pending
 decisions. The pointer is re-derived per call, so it inherits CD-0016's
 restart survival by construction.
 
-**D4. No authority, structurally.** Nothing reads messages: no gate, no fold,
-no transition consults them. A message cannot approve, complete, unblock, or
+**D4. No authority, structurally.** Nothing reads messages: no gate, no
+admission check, no transition consults them. A message cannot approve, complete, unblock, or
 rewrite a contract because no code path gives it the chance; the test asserts
 a recipient's terminal transition still demands operator approval after
 receiving a message that claims it. Messages are also fully auditable: they
-are ordinary domain events, visible in the operator's history read.
+are ordinary current rows, readable through the operator's message read.
 
 **D5. Obsolescence at read time.** Senders may withdraw a message; withdrawal
 is a state change, never a deletion — reads return withdrawn messages
@@ -58,7 +59,7 @@ which the incident showed can resolve faster than delivery.
 
 **D6. Bounded.** Body at most 4096 characters (the decision-rationale
 precedent — enough for a finding with a reference, not enough to encourage
-essays), reads capped at 100, retained rows capped by the fold-only table's
+essays), reads capped at 100, retained rows bounded by the message table's
 growth discipline. Messages reference durable state rather than copying
 credentials, grants, or transcripts; the body bound enforces the pressure to
 reference rather than replicate.
@@ -81,4 +82,4 @@ reaches exactly the active others, never the sender, never terminal work);
 continuity pending-count before and after withdrawal; withdrawal visible as
 state, not absence; and the no-authority assertion — a message claiming
 operator approval does not soften the recipient's approval requirement, and
-the message remains in the event log for operator audit.
+the message remains in the store for operator audit.

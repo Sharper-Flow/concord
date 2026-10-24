@@ -12,6 +12,7 @@ exception.
 **Further amended by:** CD-0042 closes the historical surface-version and TS9
 exception policy before go-live; this record remains historical evidence and does
 not define a current compatibility path.
+**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D13 — the store keeps current rows; the cutover is one documented migration.
 **Amends:** TS8 and TS9.
 **Preserves:** CD-0005's generated canonical manifest, TS5 authority envelopes,
 CD-0010, and the accepted Epic constraints.
@@ -19,28 +20,28 @@ CD-0010, and the accepted Epic constraints.
 ## Context
 
 The accepted research-context law already accepted Epic as a Product-scoped canonical work-item kind with a
-living narrative and ordered entries. The store has event folds, validators, event
-builders, bounded reads, and conformance tests. No agent operation could call them.
+living narrative and ordered entries. The store validates and reads Epic state
+with bounded reads and conformance tests. No agent operation could call them.
 The operational coverage record therefore marked initiative framing and promotion
-provenance not covered: hand-appending events is not a reachable outcome.
+provenance not covered: hand-writing store state is not a reachable outcome.
 
 Making the model reachable adds the ninth static agent tool and seven operations.
 TS8 classifies that as a major change. The normal TS9 gate requires paired
 supported-model trials, but this repository has no agent-tool TS9 runner or bounded
-evidence-artifact pipeline; its Promptfoo harness evaluates worker lanes, not
-`concord.ts` selection against PM1/TS1 jobs. Unit tests cannot be represented as
+evidence-artifact pipeline, and no harness evaluates `concord.ts` selection
+against PM1/TS1 jobs. Unit tests cannot be represented as
 model trials.
 
 ## Decision
 
 **D1. Surface `3.0.0` adds `concord_work_epic`.** The generated manifest owns one
 create operation, ordered-entry add/remove/reorder/requiredness operations, narrative
-revision, and bounded entries read. The operations call the existing Epic event
-builders; they do not invent a second Epic lifecycle, direct parent-edge writer,
+revision, and bounded entries read. The operations call the store's Epic
+writers; they do not invent a second Epic lifecycle, direct parent-edge writer,
 nested Epic, or cross-Product path.
 
 **D2. Epic creation starts with an empty narrative.** The accepted narrative rule makes
-`epic.narrative_revised` the only narrative write path. Create then revise is the
+revision the only narrative write path after create. Create then revise is the
 intentional route; no create-time narrative bypass is added.
 
 **D3. TS9 has one narrow exception.** For this `2.3.0 → 3.0.0` change only, the
@@ -61,8 +62,7 @@ normal TS9 runner and evidence artifact must exist and evaluate the 3.0.0 baseli
 **D4. The major boundary fails closed.** A 2.x adapter has a different pinned digest
 and cannot express the ninth tool. Core serves new grants only at 3.0.0; a 2.x range
 fails before a domain call. Upgrade the generated adapter/manifest and request a
-fresh 3.0.0 grant. Durable events accepted under 1.x/2.x remain readable and
-recoverable; no history is rewritten.
+fresh 3.0.0 grant. Retained state migrates through the one documented cutover with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ## Rejected alternatives
 
@@ -84,6 +84,6 @@ reachable.
 - Every Epic operation has generated schema fixtures and agent-boundary positive or
   rejection coverage.
 - An ambiguous/multi-Product Epic create leaves no work item behind.
-- Entry mutation uses the Epic event builder, preserving the typed parent relation
-  and ordered `epic_entries` provenance atomically.
+- Entry mutation writes the typed parent relation and ordered `epic_entries`
+  provenance in one transaction.
 - `bin/oc-test full` and contract drift checks pass.

@@ -651,7 +651,7 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 			var report WorkerCompletedPayload
 			if json.Unmarshal([]byte(payload), &report) != nil {
 				rows.Close()
-				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "rebuild the worker events from the authoritative log")
+				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			for _, entry := range report.Evidence {
 				if entry.OracleReceipt != nil {
@@ -858,23 +858,9 @@ func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string
 		return nil, err
 	}
 	if producer == nil {
-		var evidenceRef string
-		status := "healthy"
-		if receipt.Result == OracleReceiptResultFail {
-			status = "failed"
-		}
-		err := q.QueryRowContext(ctx, `SELECT n.evidence_ref FROM workflow_native_runs n JOIN external_observations o ON o.observation_id=n.observation_id AND o.work_id=n.work_id
-			WHERE n.work_id=? AND n.run_id=? AND n.phase='health' AND n.status=? AND n.native_subject_ref=? AND n.verification_state=?
-			AND o.subject_kind='native_run' AND o.subject_ref=n.native_subject_ref AND o.subject_digest=n.subject_digest
-			AND o.verification_state=? AND o.verification_result=?`, workID, receipt.RunRef, status, "commit:"+currentSubject, string(VerificationVerified), string(VerificationVerified), string(VerificationMatched)).Scan(&evidenceRef)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot read the receipt's verified native producer", true, "retry once the projection is readable", err)
-		}
-		if err == nil {
-			producer, err = readOracleControlProducerTx(ctx, q, workID, evidenceRef, receipt.Result)
-			if err != nil {
-				return nil, err
-			}
+		producer, err = readMatchedOracleControlProducerTx(ctx, q, workID, receipt, currentSubject)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if producer == nil {
@@ -1256,7 +1242,7 @@ func oracleClosureIndependentProducerTx(ctx context.Context, q queryer, workID s
 		return false, nil
 	}
 	var client, agent, session, principal, worker string
-	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN domain_events d ON d.subject_id=l.work_id AND d.subject_type='work_item' AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=? WHERE l.work_id=? AND l.lease_id=?`, WorkerDispatched, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
+	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.dispatch_payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN worker_attempts d ON d.work_id=l.work_id AND d.attempt_id=? AND d.dispatch_payload IS NOT NULL WHERE l.work_id=? AND l.lease_id=?`, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

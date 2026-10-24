@@ -107,7 +107,7 @@ func TestWorkPinPublishesDeclaredObligationsForHistoricalDefinition(t *testing.T
 	}
 	historical := WorkflowDefinition{}
 	found := false
-	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		current, ok := currentVersions[definition.Ref]
 		if !ok || definition.Version >= current {
 			continue

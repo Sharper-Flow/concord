@@ -1048,7 +1048,7 @@ func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRou
 	if f.launches != 0 {
 		t.Fatalf("preparation launched the acceptance body: launches=%d", f.launches)
 	}
-	f.a = f.authorize(t, "a", seed.owner)
+	f.a = f.authorizeLane(t, "a", seed.owner, "implement")
 	f.b = f.authorize(t, "b", seed.owner)
 }
 
@@ -1095,6 +1095,11 @@ func (f *nativeTargetFixture) request(id string, o *NativeOracleRequest) Worktre
 
 func (f *nativeTargetFixture) authorize(t *testing.T, id string, actor WorkflowActor) NativeOracleRequest {
 	t.Helper()
+	return f.authorizeLane(t, id, actor, "verify")
+}
+
+func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor WorkflowActor, laneID string) NativeOracleRequest {
+	t.Helper()
 	b := f.bundle
 	b.Control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
 	oracle := &AcceptanceOracle{Owners: []OracleOwner{b.Owner}, Cases: b.Cases, Controls: []OracleControl{b.Control}}
@@ -1110,7 +1115,7 @@ func (f *nativeTargetFixture) authorize(t *testing.T, id string, actor WorkflowA
 	actorRef, _ := WorkflowActorRef(actor)
 	event := workflowEventWithActor("native-target-job-"+id, WorkerJobRecorded, f.work, actorRef, map[string]any{})
 	event.Payload = raw
-	event.PayloadVersion = 1
+	event.PayloadVersion = CurrentEventPayloadVersion(WorkerJobRecorded)
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1119,18 +1124,19 @@ func (f *nativeTargetFixture) authorize(t *testing.T, id string, actor WorkflowA
 	packetRaw, _ := json.Marshal(packet)
 	canonical, _ := canonicalJSON(packetRaw)
 	digest := nativeDigest(canonical)
-	lv, ld := implementLaneIdentity()
+	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification"}[laneID])
+	lv, ld := lane.Version, lane.Digest
 	var epoch int64
 	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-target-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-target-dispatch-" + id, "actor_ref": actorRef})
-	completion := workflowEventWithActor("native-target-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.dispatchSubject, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": "implement", "worker_lane_version": lv, "worker_lane_digest": ld, "worker_capability_class": "implementation", "worker_packet_predicate_ids": b.Control.PredicateIDs})
-	completion.PayloadVersion = 4
+	completion := workflowEventWithActor("native-target-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.dispatchSubject, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_version": lv, "worker_lane_digest": ld, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
+	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowActionCompleted)
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
 	}
-	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: 1, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
+	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
 
 // An unsupported pair refuses through the real producer before any plan

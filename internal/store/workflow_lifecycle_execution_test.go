@@ -93,14 +93,9 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	}
 }
 
-// TestExecutionStartStepSetMatchesRegistry pins the migration backfill's
-// external-effect step-id set to the registered definitions: the set holds
-// exactly the step ids the registered history declares external-effect,
-// across every registered version of every family. The migration freezes the
-// set and still replays effects recorded under retired families, so the
-// comparison universe is the registered history — the narrowed live heads
-// would silently drop steps only archived pins declare. A registry change
-// that moves a step kind must revisit the migration decision.
+// TestExecutionStartStepSetMatchesRegistry checks that the migration backfill
+// covers every current external-effect step. CD-0242 D14 retains no historical
+// definitions, so the frozen migration may also name retired steps.
 func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	t.Parallel()
 	var migrationSQL string
@@ -130,7 +125,7 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 		}
 	}
 	registrySet := map[string]bool{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, step := range definition.StepGraph.Steps {
 			if step.Kind == WorkflowStepExternalEffect {
 				registrySet[step.ID] = true
@@ -142,16 +137,10 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 			t.Errorf("registered external-effect step %q is missing from the migration set", id)
 		}
 	}
-	for id := range migrationSet {
-		if !registrySet[id] {
-			t.Errorf("migration set names %q, which no registered version declares external-effect", id)
-		}
-	}
 }
 
-// TestExecutionStartBackfillMatchesFoldDerivation proves three derivations of
-// the execution-start fact agree: the fold's value, migration 107's backfill
-// over the same log, and a rebuild from the log. The second external-effect
+// TestExecutionStartBackfillMatchesFoldDerivation proves the execution-start
+// fold agrees with migration 107's backfill. The second external-effect
 // start carries an earlier occurred_at than the first, because appendEvent
 // orders by seq and never requires timestamps to rise with it.
 func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
@@ -197,12 +186,6 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		t.Fatalf("migration backfill derived %q, want the folded value %q", backfilled, folded)
 	}
 
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt := executionStart("the rebuild"); rebuilt != folded {
-		t.Fatalf("rebuild derived %q, want the folded value %q", rebuilt, folded)
-	}
 }
 
 // migration107Backfill returns migration 107's text after its ALTER TABLE, so

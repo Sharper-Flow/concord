@@ -82,9 +82,9 @@ const refused = {outcome:"error", error:{reason_code:"authorization_denied", eff
 // answers a malformed payload with the same invalid_input/none/
 // correct_request/retry_safe false triple and the core's own diagnostics.
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
-// The usage line derives its field lists from the generated branches exactly
-// as the adapter's own workStartUsage does.
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id. Do not combine capture and resume fields.`;
+// The usage line mirrors the adapter's own workStartUsage exactly.
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires exactly one of work_id or issue_key, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id or issue_key. Do not combine capture and resume fields.`;
+const isResume = args => "work_id" in args || "issue_key" in args;
 const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
@@ -134,23 +134,25 @@ export const work_start = recordingTool("concord_work_start", {
     title:tool.schema.string().optional(), value_statement:tool.schema.string().optional(),
     kind:tool.schema.enum(["task","bug","decision","research","other"]).optional(),
     task:tool.schema.string().optional(), idempotency_key:tool.schema.string().optional(),
-    work_id:tool.schema.string().optional(), project_id:tool.schema.string().optional(),
+    work_id:tool.schema.string().optional(), issue_key:tool.schema.string().optional(),
+    project_id:tool.schema.string().optional(),
   },
   async execute(args) {
     // The adapter's own admission boundary: validateWorkStartArgs selects one
-    // generated branch (resume when work_id is present, else capture) and
+    // generated branch (resume when work_id or issue_key is present, else
+    // capture) and
     // validateAgainstSchema produces every failure string; the double calls
     // the same exported validator on the same generated schema, so a blank,
     // oversize, pattern-refusing, undeclared, or missing field serves the
     // adapter's exact diagnostic before any fixture logic runs.
     const failures = [];
-    const branch = "work_id" in args ? workStartResumeBranch : workStartCaptureBranch;
+    const branch = isResume(args) ? workStartResumeBranch : workStartCaptureBranch;
     const admitted = validateAgainstSchema(branch, args, failures);
     const unchanged = args.title === "Synthetic parser repair" && args.kind === "bug" && args.task === "Fix the synthetic parser defect with regression coverage";
     let value;
     if (!admitted) {
       value = adapterInputRefusal(adapterInputRefusalMessage(failures.join("; ")));
-    } else if ("work_id" in args) {
+    } else if (isResume(args)) {
       const matches = startConfig !== null
         && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
         && Object.keys(args).every(key => key in startConfig.admit);

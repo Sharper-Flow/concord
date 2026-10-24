@@ -18,8 +18,8 @@ func TestWorkflowRequiredFieldIsExemptOnlyInItsForbiddenAlternative(t *testing.T
 	}{
 		{"single", map[string]any{"predicate_id": "predicate:sample", "verdict_kind": "ok"}, true},
 		{"single missing required field", map[string]any{"predicate_id": "predicate:sample"}, false},
-		{"batch", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:sample", "verdict_kind": "ok"}}}, true},
-		{"forbidden field beside batch", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:sample", "verdict_kind": "ok"}}, "verdict_kind": "ok"}, false},
+		{"batch", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:sample", "receipt_refs": []string{"worktree_verify:sample"}}}}, true},
+		{"forbidden field beside batch", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:sample", "receipt_refs": []string{"worktree_verify:sample"}}}, "verdict_kind": "ok"}, false},
 		{"null batch", map[string]any{"verdicts": nil}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

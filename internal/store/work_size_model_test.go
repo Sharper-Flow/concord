@@ -2,6 +2,23 @@ package store
 
 import "testing"
 
+func TestWorkSizeModelV2KeepsReviewProof(t *testing.T) {
+	inputs := workSizeInputsFixture()
+	for _, version := range []int{1, 2} {
+		got, err := DecideWorkSize(version, inputs, nil)
+		if err != nil || got != WorkSizeSmall {
+			t.Fatalf("version %d without review basis = %s, %v", version, got, err)
+		}
+	}
+	basis := []string{"review-acceptance"}
+	got, err := DecideWorkSize(2, inputs, basis)
+	if err != nil || got != WorkSizeCrucial {
+		t.Fatalf("version 2 with review basis = %s, %v", got, err)
+	}
+	_, err = DecideWorkSize(1, inputs, basis)
+	assertFailureKind(t, err, KindInvalidInput)
+}
+
 // Each case moves one input of the small fixture across one rule's boundary.
 func TestWorkSizeModelV1RuleBoundaries(t *testing.T) {
 	t.Parallel()

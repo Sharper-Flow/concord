@@ -8,7 +8,6 @@
 - **Approval:** The operator approved this decision in-session on 2026-09-08
   after the manual relocation it removes.
 - **Related:** CD-0092, CD-0096, CD-0098, CD-0103, issue #722, issue #950
-- **Amends:** CD-0098 D1/D2 at the move scope only
 - **Preserves:** CD-0096 D2 path ownership, CD-0096 D3 occupancy protection,
   and the CD-0098 read-back and no-fallback rules
 
@@ -36,8 +35,7 @@ registered Project default checkout. The core derives the destination from
 the registered Project; the caller names no path. The operation uses the
 existing OpenCode move-session route through the adapter, with the same
 read-back verification and the same refusal on a destination mismatch that
-CD-0098 D3 requires. The move takes effect from the next turn, as amended by
-CD-0103.
+CD-0098 D3 requires. The move takes effect from the next turn.
 
 ### D2. The move is authority-decreasing only
 
@@ -88,12 +86,10 @@ Then it names the actor, the derived destination, and the verified landing.
 
 ## Consequences
 
-- A completed session frees its own worktree without operator relocation;
-  the 2026-09-08 manual step becomes a typed operation.
-- The move surface grows beyond work start, which CD-0098 D2 forbade; this
-  record amends that clause to admit one authority-decreasing exception.
-- The adapter gains a third caller of the move route beside work start and
-  worktree claim, with the same failure contract.
+- A completed session frees its own worktree without operator relocation.
+- Vacate is an authority-decreasing move to the registered default checkout.
+- The adapter uses the move route for vacate, work start, and worktree claim,
+  with the same failure contract.
 - Agents gain no path-naming power; CD-0096 D2 ownership is unchanged.
 
 ## Verification

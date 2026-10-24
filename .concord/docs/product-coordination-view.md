@@ -1,30 +1,19 @@
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract, amended by CD-0222; §5.2 amended
-2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
-amended. Amended 2026-10-09: the launcher rendering of this view retired with
-the launcher TUI under CD-0219; the ranked-query contract continues under the
-product-memory query contract.
+**Status:** Accepted C17 contract. The ranked-query contract is owned by the product-memory query contract.
+**Storage ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2):** ranking reads current rows;
+no fold, event history, or replay exists.
 **Readiness:** see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
-This document bound the Product coordination view required by Priority 5 and
-launcher S2. It preserves the previously reviewed candidate behavior: two
+The coordination queries provide two
 bounded modes over canonical Product-scoped reads, structural grouping only,
-stored-priority ranking, and visible incomplete coverage. The view's launcher
-rendering retired with the launcher TUI under CD-0219; the ranked-query reads
-continue under the product-memory query contract.
+stored-priority ranking, and visible incomplete coverage.
 
-Terminal-launcher interaction and prototype detail were explicitly reserved as
-implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
-contract at this layer did not require a new decision record.
-
-**CD-0222 amendment.** These two bounded work projections remain valid, but they
-are no longer the Product's primary architecture view. Product detail opens
+These two bounded work projections are subordinate coordination views. Product detail opens
 through Product → Domain. Canonical typed relations remain available through
 the bounded Domain-detail read. Q8 work relations remain a subordinate coordination view;
 Business grouping lives in Linear under CD-0213. Runtime support for the
-Domain/overlap layer is outstanding follow-up work and is not claimed by issue
-#51's existing implementation.
+Domain/overlap layer is outstanding follow-up work.
 
 ## Context
 
@@ -49,16 +38,6 @@ Priority 5 in [`priorities.md`](./priorities.md) requires that dependencies and
 sequences are visible before they become blockers, and that the operator can see what
 is ready, what is blocked, and what is next.
 
-The retired Product-row contract deliberately
-did not answer this. Its row was an orientation and selection projection, not a
-Product dashboard, with at most one focus item and no raw blocker graph. That is
-correct for a row and insufficient for coordination. The row's render and read
-retired (CD-0219, CD-0224), and the contract is deleted with them.
-
-Before C17, no accepted document
-specified what the coordination detail renders for coordination. C17 accepts that
-view here.
-
 ## 2. Accepted shape
 
 One **Product coordination view**, reached by selecting a Product row and opening
@@ -77,7 +56,6 @@ Source: Q8, dependencies and supersession.
 | Roots | Node with no in-edge of a traversed kind |
 | Cycles | Rendered as `invariant_violation`, never hidden, matching the Q8 oracle |
 | Supersession | Resolves to the canonical successor exactly once, no duplicate authority |
-| Pruned follow-up | Typed `archived_work_linked`, not a live PM4 relation |
 | Cross-Project work | Appears once with `project_count` per PM5, never per-Project copies |
 
 Grouping derives from declared edges only. Topical or thematic grouping is excluded:
@@ -118,11 +96,8 @@ The view carries this reliance discipline:
 
 | Accepted item | Status under this contract |
 |---|---|
-| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the session entry route owns session bootstrap | The view retired with the launcher TUI; CD-0108 as amended carries the entry-route boundary. |
-| Product-row glance contract (deleted with its read under CD-0224) | Its exclusion discipline continues here: no field is added to a glance surface, the raw blocker graph appears only after selection, and activity is not value or priority — activity is not a default column, and the work list's stored last-activity display order (CD-0048 D3, vacated under CD-0219) was a display order, never a priority or value ranking. |
 | Query-contract deferral of cross-Product prioritization pending PM2 authority and portability | Honored. This view is single-Product only. |
 | R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
-| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored while the view stood: it navigated and explained; it took no substantive workflow action. |
 
 ## 5. Anti-requirements
 
@@ -133,11 +108,8 @@ unstable across runs.
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
 2. **No activity-derived priority.** Computed importance and activity-derived
-   priority stay prohibited. **Amendment 2026-09-28, vacated 2026-10-09:** the
-   work-list display order this contract carried was the stored ordering rule
-   of CD-0048 D3. That ordering, its stored column, and its fold advance are
-   vacated with the launcher work list under CD-0219. No activity-derived
-   priority replaces them.
+   priority stay prohibited. Ranking reads the stored explicit priority rank over current rows
+   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders

@@ -151,7 +151,7 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	events := []store.Event{
-		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus","priority":1}`)},
+		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus","priority":1}`)},
 		{EventID: "population-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, readPopulationWork): 0}}); err != nil {

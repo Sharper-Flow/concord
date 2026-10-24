@@ -11,35 +11,20 @@
   [CD-0020](CD-0020-retain-knowledge-index-shape.md), [CD-0036](CD-0036-breaking-law-cutovers.md),
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md).
-- **Incorporates:** CD-0042 sequencing, CD-0144 execution-start footprint,
-  CD-0153 judged-content staleness, the CD-0145 shared-write narrowing, the
-  2026-09-22 browse-path correction, and CD-0213 planning placement.
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
   CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 1061](https://linear.app/sharper-flow/issue/CON-1061).
-  D2 adds a declared, checked package-to-Domain map and the footprint read that
-  consumes it. D12 and Cost no longer exclude that map.
-
-- **Amended:** 2026-10-18. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-  D1 replaces the ranked priorities with the unranked goals of
-  [`goals.md`](../goals.md) and the Appendix A conflict rules; the law mandate
-  of Product-changing work follows
-  [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-  D4.
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks do not change.
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D1, D4, and D5: law mandates and enactment require approval only under its six classes. It also governs D6's overlap approval rule. Law homes, applicability, footprint, and architecture checks remain required.
 
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
 contracts pin exact law revisions, a spec mandate limits authorized amendments,
-breaking supersession strictly quiesces old consumers, and completion refuses
-unresolved law conflicts. Those controls protect work that names the right law.
+breaking supersession marks stale exactly the contracts that consumed the
+superseded revision (CD-0242 D7), and completion refuses unresolved law
+conflicts. Those controls protect work that names the right law.
 
 The Product model beneath them is inverted. `Product -> component` is documented
 as the primary knowledge path, but component is an opaque grouping label rather
@@ -59,23 +44,9 @@ coherent while many agents act at once. Its primary deliverable is the accepted,
 pruned statement of what the Product must keep true. Work and code enact that
 law; they do not outrank it.
 
-An earlier record enacted this law and added a global navigation layer beside it. That
-layer bound one accountable Domain to each file, joined authored bindings
-through a source catalog, and required every Domain to participate in a
-relation graph. The launcher TUI retirement under CD-0219 and the closed
-owner-level acceptance oracle landed on the integration branch first. The
-coordination witnesses and the composed single-work fixture are merged
-evidence.
-
-The navigation layer's only consumers are deleted by the same repository
-change that retires it. CD-0036 D2 requires a new law identity when consumers
-must stop, so this record takes a new identity. D2 and D3 state
-package-boundary code ownership. D12 states the navigation retirement.
-
 ## Decision
 
 D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
-
 
 ### D1. Product law and architectural concordance serve the goals
 
@@ -388,9 +359,8 @@ architecturally compatible.
 
 CD-0215 D2–D8 govern research: independent research is ordinary research work,
 embedded research stays with its owner, packs remain retained
-SQLite context until explicit retirement, and durable promotion keeps its accepted destinations. Every
-reference in those clauses to Epic ownership now means ownership by the owning
-work item.
+SQLite context until explicit retirement, and durable promotion keeps its accepted destinations.
+Ordinary work owns research packs; consumers bind exact revisions.
 
 ### D9. Migration reaches the clean vocabulary; compatibility is bounded
 
@@ -408,12 +378,11 @@ Implementation uses an explicit major migration rather than permanent aliases:
    the new manifest version, whose migration must therefore produce no unhomed
    current law. New writes use `home_domain_id` and
    `applies_to_domain_ids`.
-3. Historical `kind=epic`, `epic.*` events, and `epic_entries` remain readable
-   through versioned upcasters and rebuild logic. History is not rewritten.
-   Legacy active-research and knowledge applicability scopes upcast
-   `component` to `domain` with the retained ID.
+3. Historical `kind=epic` rows and `epic_entries` remain readable as recorded
+   rows; recorded rows read back unchanged ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+   Recorded `component` applicability scopes read as `domain` with the retained ID.
 4. New writes use neither `kind=epic` nor `kind=initiative`. Historical
-   `initiative.*` events replay and refuse new appends under CD-0213 D8.
+   initiative work reads back unchanged and refuses new writes under CD-0213 D8.
 5. The agent surface carries no Epic or Initiative tool. Removal ships at a
    major contract version; no permanent alias or discovery surface is added.
 6. CD-0024's one-time TS9 exception is not reusable. The normal supported-model
@@ -516,8 +485,8 @@ graph. Product law approval does not authorize live-state cutover.
 6. `depends_on` and `shares_contract_with` Domain relations refuse without a
    current governing law ID; subdomain cycles refuse.
 7. Shared business grouping never satisfies an architecture overlap.
-8. Legacy component/Epic events and manifests rebuild to the canonical
-   Domain projection without event rewriting.
+8. Legacy component/Epic rows and manifests read back through the canonical
+   Domain vocabulary without rewriting (CD-0242 D2).
 9. New clients cannot write legacy component/Epic forms after the major cutover,
    and old clients fail closed after the bounded TS8 window.
 10. The accepted ten-process SQLite correctness, latency-population, backup,
@@ -571,10 +540,8 @@ graph. Product law approval does not authorize live-state cutover.
   decision.
 - Manifest, workflow-contract, projection, launcher, and agent-surface migrations
   are major and require compatibility evidence.
-- The 3.0.0 Epic surface receives a bounded lifetime and cannot reuse its original
-  TS9 exception.
-- Existing documents that use old priority numbers, component, or Epic need a
-  controlled living-document update while historical records remain intact.
+- The TS9 exception is not reusable.
+- Living-document updates are controlled; historical records remain intact.
 
 - The navigation corpus, generated cards, catalogs, joins, and their
   generators are deleted. No graph, glob map, or owner-note generator replaces
@@ -583,15 +550,16 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Amendment map
 
-- **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation now join
+- **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation accompany
   law conflict, spec mandate, and cross-workflow impact checks.
-- **CD-0015:** law relations remain Git-authored and closed; every law gains one
+- **CD-0015:** law relations are Git-authored and closed; every law has one
   Domain home and architecture-bound workflow use.
-- **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through
-  a normal major-version path; D3 remains historical evidence, not precedent.
-- **CD-0036:** preserved. Breaking law supersession still strictly quiesces old
-  consumers and composes with D7.
-- **CD-0002/CD-0011:** preserved verbatim. SQLite remains sole local live-state
+- **CD-0024 D1/D2/D4:** surface migration requires a normal major-version path;
+  D3's one-time exception is not reusable.
+- **CD-0036:** preserved. Breaking law supersession marks stale exactly the
+  contracts that consumed the superseded revision and composes with D7
+  (CD-0242 D7).
+- **CD-0002/CD-0011:** SQLite is the sole local live-state
   authority under the existing falsifiers.
 
 ## Verification

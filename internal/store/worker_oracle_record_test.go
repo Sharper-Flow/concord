@@ -394,31 +394,6 @@ func TestOwnerOracleMemberProjectPreparationReads(t *testing.T) {
 	})
 }
 
-// A pre-oracle pin keeps its oracle-free authoring route and refuses the
-// oracle member: released definitions retain both behaviors under their
-// frozen digests.
-func TestOwnerOracleLegacyPinStaysOracleFree(t *testing.T) {
-	t.Parallel()
-	const workID = "owner-oracle-legacy-pin"
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 21, "repair")
-	s := fixture.store
-	defer s.Close()
-	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
-		"job_id": "job:legacy", "objective": "legacy job without an oracle",
-		"stopping_condition": "the legacy checks pass", "ready": false,
-	}); err != nil {
-		t.Fatalf("legacy pin refused an oracle-free job: %v", err)
-	}
-	err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
-		"job_id": "job:legacy-oracle", "objective": "legacy job with an oracle",
-		"stopping_condition": "the legacy checks pass", "ready": false,
-		"acceptance_oracle": acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID),
-	})
-	if err == nil || !strings.Contains(err.Error(), "acceptance_oracle\" is not declared for action") {
-		t.Fatalf("legacy pin oracle error = %v, want the pinned-definition refusal", err)
-	}
-}
-
 // The oracle member is omitempty in the digest content: an oracle-free
 // payload serializes to exactly the bytes the pre-oracle derivation
 // produced, so every historical digest still verifies.

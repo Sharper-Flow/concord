@@ -165,7 +165,7 @@ type Q10Payload struct {
 }
 
 // KnowledgeLawStatus reports the record's law status (CD-0020 D3) when the
-// indexed outcome tag carries one: accepted or superseded for law, published
+// indexed outcome tag carries one: accepted for law, published
 // for lessons, references, and research. A work-note outcome tag is free
 // front-matter text rather than a law status, so a work note projects no
 // status whatever its tag says.
@@ -174,7 +174,7 @@ func KnowledgeLawStatus(kind, outcomeTag string) string {
 		return ""
 	}
 	switch outcomeTag {
-	case "accepted", "superseded", "published":
+	case "accepted", "published":
 		return outcomeTag
 	}
 	return ""
@@ -421,7 +421,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		}
 	}
 	scanNote := func(homeScoped bool) error {
-		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
+		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,CASE WHEN type='work_note' THEN COALESCE(successor_work_id,'') ELSE '' END,scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
 		scanArgs := []any{lookupID}
 		if homeScoped {
 			query += ` AND home_project_id = ? AND home_locator_id = ?`
@@ -488,7 +488,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, nil
 		}
 	} else {
-		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
+		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
 		if recordErr != nil {
 			return out, recordErr
 		}
@@ -571,7 +571,7 @@ func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record Knowled
 // caller already holds — the SQL discovery half of the committed-record
 // proof, so the Git verification runs with no database access. A law-bearing
 // record requires its projected law-domain home at the exact hash.
-func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path string) (KnowledgeRecord, knowledgeManifestRole, error) {
+func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path string) (KnowledgeRecord, knowledgeManifestRole, error) {
 	var tags []string
 	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
 		return KnowledgeRecord{}, manifestSharedHomeRole, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
@@ -580,7 +580,7 @@ func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, 
 	if roleErr != nil {
 		return KnowledgeRecord{}, manifestSharedHomeRole, roleErr
 	}
-	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
+	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, SHA256: hash}
 	for _, scope := range []struct {
 		table, column string
 		target        *[]string
@@ -1116,7 +1116,7 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 	return `WITH input(` + strings.Join(inputColumns, ",") + `) AS (VALUES (` + strings.Join(inputValues, ",") + `)), ranked AS (` +
 		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 WHEN ` + structuredTextMatch + ` THEN 1 ELSE 2 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
-		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,COALESCE(aw.successor_work_id,''),aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
+		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,CASE WHEN aw.type='work_note' THEN COALESCE(aw.successor_work_id,'') ELSE '' END,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
 		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY product_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY project_id)), '[]'),` +
 		scopeSelect +

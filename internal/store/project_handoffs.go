@@ -665,7 +665,7 @@ func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID stri
 	}
 	decode := func(raw string, target *[]string) error {
 		if json.Unmarshal([]byte(raw), target) != nil {
-			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return nil
 	}
@@ -1013,7 +1013,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 				facts.recorded = true
 				facts.handoffID = handoffID
 				if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {
-					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "rebuild projections from the event log")
+					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "restore a verified backup into a new path with concord restore, then swap")
 				}
 			}
 		}
@@ -1142,12 +1142,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 		// only core ownership evidence: read the authorizing actor from the
 		// dispatch_worker completion, then resolve its authenticated session
 		// through workflow_actors.
-		var actorRef string
-		scanErr := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
-			WHERE kind='workflow.action_completed' AND subject_id=?
-			AND json_extract(payload,'$.action_id')='dispatch_worker'
-			AND json_extract(payload,'$.worker_attempt_id')=?
-			ORDER BY seq DESC LIMIT 1`, workID, attemptID).Scan(&actorRef)
+		actorRef, scanErr := workerAuthorizationActorTx(ctx, q, workID, attemptID)
 		if scanErr == sql.ErrNoRows {
 			return false, nil
 		}

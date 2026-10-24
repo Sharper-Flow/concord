@@ -17,7 +17,8 @@ import (
 // Severity reads high as P0/P1 and medium as P2 (CD-0230 D4). A finding
 // qualifies when its oracle tie blocks delivery (it is not a follow-up), it
 // is P0-P2, and the same report does not resolve it; an oracle-free finding
-// has no scope classification and qualifies at P0-P2 in a no_ship report.
+// has no scope classification and qualifies at P0-P2 in a correction_required
+// or revision_required report.
 
 // RecoveryWorkSizeRerun names the one exit of the CD-0229 D6 stop.
 const RecoveryWorkSizeRerun = "rerun the size model through revise_intent with size_inputs"
@@ -115,7 +116,7 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 	}
 	var report WorkerCompletedPayload
 	if err := json.Unmarshal([]byte(raw), &report); err != nil {
-		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "rebuild the worker events from the authoritative log")
+		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if report.Review == nil {
 		return false, nil
@@ -129,7 +130,7 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 			continue
 		}
 		if finding.Oracle == nil {
-			if report.Review.Verdict == "no_ship" {
+			if report.Review.Disposition == "correction_required" || report.Review.Disposition == "revision_required" {
 				return true, nil
 			}
 			continue
@@ -148,16 +149,11 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 	return false, nil
 }
 
-// workSizeLineageBasisTx lists every proof an earlier size record on the
-// item or its resize predecessors names. A proof stays recorded after the
-// fix: the change has proved bigger.
-func workSizeLineageBasisTx(ctx context.Context, q queryer, workID string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `WITH RECURSIVE chain(work_id) AS (
-			SELECT ?
-			UNION SELECT l.predecessor_work_id FROM work_resize_lineage l JOIN chain c ON l.successor_work_id=c.work_id)
-		SELECT DISTINCT basis.value FROM work_size_assessments s
-		JOIN chain c ON c.work_id=s.work_id
-		JOIN domain_events e ON e.event_id=s.event_id, json_each(coalesce(json_extract(e.payload,'$.review_basis'),'[]')) basis`, workID)
+// workSizeRecordedBasisTx lists every proof an earlier size record on this
+// item names. A proof stays recorded after the fix: the change has proved bigger.
+func workSizeRecordedBasisTx(ctx context.Context, q queryer, workID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT basis.value FROM work_size_assessments s
+		JOIN domain_events e ON e.event_id=s.event_id, json_each(coalesce(json_extract(e.payload,'$.review_basis'),'[]')) basis WHERE s.work_id=?`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the recorded review basis", true, "retry once the event log is readable", err)
 	}
@@ -178,14 +174,14 @@ func workSizeLineageBasisTx(ctx context.Context, q queryer, workID string) ([]st
 
 // workSizeReviewBasisTx is the exact basis the next size record of the item
 // carries: every proof derived now and every proof recorded earlier on its
-// lineage, sorted and distinct. A positive before bounds the derivation as
+// work item, sorted and distinct. A positive before bounds the derivation as
 // deriveWorkSizeProofsTx does.
 func workSizeReviewBasisTx(ctx context.Context, q queryer, workID string, before int64) ([]string, error) {
 	derived, err := deriveWorkSizeProofsTx(ctx, q, workID, before)
 	if err != nil {
 		return nil, err
 	}
-	recorded, err := workSizeLineageBasisTx(ctx, q, workID)
+	recorded, err := workSizeRecordedBasisTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}

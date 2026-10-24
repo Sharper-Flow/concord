@@ -6,11 +6,9 @@ import (
 	"slices"
 )
 
-// WorkflowPart is one released, versioned unit of steps (CD-0229 D1) with
-// declared parameters. Each step is defined in exactly one part; a variant
-// of a step is a parameter of its part, never a copy. A released part
-// version is frozen (D3): a content change is a new part version, which the
-// compositions that want it pin explicitly.
+// WorkflowPart owns one unit of steps with declared parameters. Each step is
+// defined in exactly one part; a variant is a parameter of its part, never a
+// copy. Compositions resolve the current parts into the canonical definition.
 type WorkflowPart struct {
 	Ref     string           `json:"ref"`
 	Version int              `json:"version"`
@@ -85,12 +83,14 @@ func builtinWorkflowParts() []WorkflowPart {
 			LeadActionOptions: []string{"frame_research"},
 			Actions:           []string{"approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context"}},
 		{Ref: "part.execution", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"execution"},
-			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
+			Routes:       unhealthy,
 			Capabilities: workflowJobCapabilities},
 		{Ref: "part.repair", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"repair"},
-			Actions:      []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Actions:      []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
+			Routes:       unhealthy,
 			Capabilities: workflowJobCapabilities | workflowCapabilitySet(WorkflowCapabilityDerivedStepStart)},
 		{Ref: "part.investigate", Version: 1, Kind: WorkflowStepCrossAuthority, StepIDOptions: []string{"investigate"},
 			Actions:      []string{"record_finding", "revise_candidates", "bind_evidence", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
@@ -99,14 +99,15 @@ func builtinWorkflowParts() []WorkflowPart {
 			Actions:      []string{"record_report", "link_successor", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
 			Capabilities: workflowWorkerResultCapabilities | workflowCapabilitySet(WorkflowCapabilityRootCauseAnalysis)},
 		{Ref: "part.refine", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"refine"},
-			Actions:      []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Actions:      []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
+			Routes:       unhealthy,
 			Capabilities: workflowJobCapabilities | workflowCapabilitySet(WorkflowCapabilityDerivedStepStart|WorkflowCapabilityAcceptDelivery|WorkflowCapabilityRefineProof)},
 		{Ref: "part.delivery", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"delivery"},
 			Actions:      []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"},
 			Capabilities: workflowCapabilitySet(WorkflowCapabilityProducesDelivery)},
 		{Ref: "part.verdict", Version: 1, Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"acceptance", "verify", "conclude"},
 			LeadActionOptions: []string{"bind_evidence", "record_conclusion"},
-			Actions:           []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
+			Actions:           []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_result", "record_worker_job", "record_work_context"},
 			FailureEdge:       true,
 			Routes:            unhealthy},
 		{Ref: "part.close", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"release", "complete"},

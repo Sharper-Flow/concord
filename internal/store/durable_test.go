@@ -29,7 +29,7 @@ func TestDurableTxCommitsUnderFull(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ordinary, err := beginWriteTx(ctx, s.db, nil)
+	ordinary, err := beginWriteTx(ctx, s.db, nil, stateWriteAdmission)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func (s *Store) appendSeedEvent(ctx context.Context) error {
 		SubjectID:      "probe-1",
 		Actor:          "probe",
 		OccurredAt:     time.Now().UTC(),
-		PayloadVersion: 2,
+		PayloadVersion: CurrentEventPayloadVersion("work.created"),
 		Payload:        []byte(`{"work_id":"probe-1","work_kind":"task","title":"probe","priority":1}`),
 	}
 	if _, err := AppendEvent(ctx, tx, e); err != nil {

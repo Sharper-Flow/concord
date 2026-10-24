@@ -165,20 +165,19 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 }
 
 // TestHistoryContractVersionWithoutAVerifiedPin proves a version recorded
-// without a pin answers definition_pin null and a pin the registry no longer
-// verifies answers verified false. Neither substitutes the instance's
-// Product-truth flag: the field is omitted.
+// without a pin answers definition_pin null and a pin whose ref the registry
+// no longer carries answers verified false. A pin resolves by its ref to the
+// one current definition (CD-0242 D14), so only a retired ref is unverified.
+// Neither substitutes the instance's Product-truth flag: the field is omitted.
 func TestHistoryContractVersionWithoutAVerifiedPin(t *testing.T) {
 	t.Parallel()
-	for name, digest := range map[string]string{"unpinned": "", "unverified": "sha256:" + strings.Repeat("f", 64)} {
+	for name, ref := range map[string]string{"unpinned": "", "unverified": "workflow.retired"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s, workID := historyContractFixture(t, "history-contract-"+name)
-			ref := ""
-			if digest != "" {
-				if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref); err != nil {
-					t.Fatal(err)
-				}
+			digest := ""
+			if ref != "" {
+				digest = "sha256:" + strings.Repeat("f", 64)
 			}
 			setHistoryContractPin(t, s, workID, 1, ref, digest)
 			result, err := s.QueryQ7(context.Background(), Q7Request{Work: workID, ContractVersion: 1})

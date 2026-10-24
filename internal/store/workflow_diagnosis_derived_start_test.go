@@ -346,28 +346,6 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	}
 }
 
-// TestReleasedBreakFixPinsKeepCallableStarts proves the frozen boundary:
-// the released break_fix v24 still declares start_repair/start_refine and
-// admits them, while the current head refuses them as undeclared.
-func TestReleasedBreakFixPinsKeepCallableStarts(t *testing.T) {
-	t.Parallel()
-	released, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 24)
-	if !ok {
-		t.Fatal("workflow.break_fix v24 is not registered")
-	}
-	if !slices.Contains(released.Definition.AvailableActions, "start_repair") || !slices.Contains(released.Definition.AvailableActions, "start_refine") {
-		t.Fatal("break_fix v24 lost its callable starts; released pins are frozen")
-	}
-	for _, want := range []struct{ step, action string }{
-		{"reproduce", "record_reproduction"}, {"alignment", "record_alignment"}, {"diagnose", "record_root_cause"},
-		{"repair", "start_repair"}, {"refine", "start_refine"},
-	} {
-		if !definitionStepAllows(released.Definition, want.step, want.action) {
-			t.Fatalf("break_fix v24 step %s does not declare %s", want.step, want.action)
-		}
-	}
-}
-
 // TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint proves the
 // CD-0198 D3 derivation on the repair step: the first admitted qualifying
 // action fences the step from its own actor, opens epoch 1, and the step's
@@ -408,7 +386,8 @@ func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T
 	// The derived start admits the step's ordinary route: the repair
 	// step's delivery advances toward the refinement pass, which owns the
 	// refine proof behind its own derived start.
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, checkpointer); err != nil {
+	oProveReadyDelivery(t, fixture, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery behind the derived start: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "refine" {
@@ -444,7 +423,8 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 			t.Fatalf("%s: refine starts = %+v, want one checkpoint_refine start at epoch 1", family.ref, starts)
 		}
 		refineProofSeedGreenRun(t, s, workID, "derivedrefine"+workID)
-		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, checkpointer); err != nil {
+		oProveReadyDelivery(t, fixture, workID)
+		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 			t.Fatalf("%s: record_delivery behind the derived refine start: %v", family.ref, err)
 		}
 		if step := currentStep(t, s, workID); step != "delivery" {
@@ -459,9 +439,11 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-start-non-qualifying"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "refine")
 	s := fixture.store
 	actor := fixture.owner
+	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: actor}, workerFixtureDirectory(t, s, workID), "ready_for_final_proof")
+	parkWorkflowInstanceAt(t, s, workID, "repair")
 
 	contextPayload, err := json.Marshal(map[string]any{
 		"required_reading": []map[string]any{workContextRepoReading("root", "the reading is product-wide")},
@@ -528,6 +510,7 @@ func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	if startedAt == "" || actorRef == "" {
 		t.Fatal("the derived start lost its fence")
 	}
+	oProveReadyDelivery(t, fixture, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:repeat-`+workID+`","delivery_state":"asserted"}`), 0, actor); err != nil {
 		t.Fatalf("record_delivery after the further step activity: %v", err)
 	}
@@ -610,6 +593,8 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	const workID = "corrected-contract-liveness"
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
+	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	journey := &candidateJourney{fixture: current, s: s, workID: workID, repo: workerFixtureDirectory(t, s, workID), acceptor: fixture.owner}
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
@@ -619,14 +604,36 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 
 	// The stale half: the successor's own gate refuses a completion built on
 	// pre-correction facts — the ordinary stale recovery stays unchanged.
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err == nil {
+	if err := pConfirmReceiptPremise(t, current, journey.repo); err == nil {
 		t.Fatal("confirm_premise admitted behind the successor's outstanding fresh evidence")
 	}
 
 	// Source-qualified context: the declared reading binds an original
 	// source commit the correction returned to.
+	const sourceProject = "liveness-source"
+	var productVersion int64
+	if err := s.db.QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
+		projectCreatedEvent(sourceProject, "create-"+sourceProject),
+		operationEvent("add-"+sourceProject, "product_project.added", SubjectProduct, "product", map[string]any{
+			"product_id": "product", "project_id": sourceProject, "role": "secondary", "reason": "the corrected contract's pinned reading",
+			"expected_version": productVersion, "resulting_version": productVersion + 1,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, sourceProject): 0, VersionRef(SubjectProduct, "product"): productVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	sourceRepo := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, sourceRepo, "internal/store/work_context.go", "package synthetic\n")
+	sourceCommit := commitKnowledgeRepo(t, sourceRepo, "source-qualified liveness reading")
+	if err := s.AddProjectLocator(t.Context(), sourceProject, ProjectLocator{ID: "liveness-source-repo", Kind: LocatorCanonicalPath, Value: sourceRepo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	reading := workContextRepoReading("root", "the reading is product-wide")
+	reading["source"] = map[string]any{"kind": "repository_file", "project_id": sourceProject, "path": "internal/store/work_context.go", "commit_oid": sourceCommit}
 	contextPayload, err := json.Marshal(map[string]any{
-		"required_reading": []map[string]any{workContextRepoReading("root", "the reading is product-wide")},
+		"required_reading": []map[string]any{reading},
 		"finding_refs":     []string{},
 		"context_findings": []map[string]any{{"kind": "direction", "statement": "the corrected contract repairs the returned subject", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "root", "product_wide_rationale": "the finding is product-wide"}},
 	})
@@ -648,36 +655,22 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 			t.Fatalf("bind fresh %s evidence: %v", kind, err)
 		}
 	}
-	// Fresh check evidence: one green worktree_verify run acquired after
-	// the derived repair start, bound as the successor's verification.
-	var repairStarted string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&repairStarted); err != nil {
-		t.Fatal(err)
-	}
-	repairStart, err := time.Parse(time.RFC3339Nano, repairStarted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var project string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-		t.Fatal(err)
-	}
-	runRef := refineProofSeedVerifyRunForProject(t, s, workID, "liveness"+workID, []string{"go", "vet", "./..."}, repairStart.Add(time.Second), project)
-	refineProofBindVerification(t, s, workID, runRef, runRef)
 	bindKind("review", "review:liveness-"+workID)
 	bindKind("artifact", "artifact:liveness-"+workID)
+	proof := journey.observeRun(t, "liveness-current")
+	qAcceptCriterionReview(t, current, journey.repo, proof.OperationRef)
+	journey.bindVerification(t, proof)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery on the corrected contract: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "refine" {
 		t.Fatalf("step after the repaired delivery = %q, want refine", step)
 	}
-	// The refine pass behind its own derived start: the declared route back
-	// to a verdict crosses the refine proof with fresh check evidence.
+	// The unchanged candidate keeps its verification through the refine pass.
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 		t.Fatalf("the derived refine start on the corrected contract: %v", err)
 	}
-	refineProofSeedGreenRun(t, s, workID, "livenessrefine"+workID)
+	journey.bindVerification(t, proof)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record_delivery at the refine step on the corrected contract: %v", err)
 	}
@@ -688,10 +681,10 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 		t.Fatalf("record_delivery through the delivery gate on the corrected contract: %v", err)
 	}
 	reviewer := diagnosisS1Actor(workID, "liveness-reviewer")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {
+	if err := pConfirmReceiptPremise(t, current, journey.repo); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "complete" {
@@ -710,41 +703,6 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	}
 	if lifecycle != "completed" {
 		t.Fatalf("lifecycle after completing the corrected contract = %q, want completed", lifecycle)
-	}
-}
-
-// diagnosisS1LanePacket builds the closed lane packet the dispatch_worker
-// fold expects for one named lane, so a test can dispatch the lane class the
-// step's kind admits instead of the implementation lane.
-func diagnosisS1LanePacket(t *testing.T, s *Store, workID, stepID, attemptID, laneID string) map[string]any {
-	t.Helper()
-	var lane LaneDefinition
-	for _, candidate := range BuiltinLaneDefinitions() {
-		if candidate.ID == laneID {
-			lane = candidate
-		}
-	}
-	if lane.ID == "" {
-		t.Fatalf("lane %s is not a builtin lane", laneID)
-	}
-	task, binding := recordedPacketInputs(t, s, workID, laneID)
-	inputs := map[string]any{
-		"task":        task,
-		"binding":     binding,
-		"constraints": []string{"do-not-modify-product-truth"},
-	}
-	for member, value := range recordedPacketRecords(t, s, workID) {
-		inputs[member] = value
-	}
-	return map[string]any{
-		"schema_version": "1.0",
-		"attempt_id":     attemptID,
-		"lane_id":        lane.ID,
-		"lane_version":   lane.Version,
-		"lane_digest":    lane.Digest,
-		"work_id":        workID,
-		"step_id":        stepID,
-		"inputs":         inputs,
 	}
 }
 
@@ -788,8 +746,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 	} else {
 		job = nil
 	}
-	packet := diagnosisS1LanePacket(t, s, workID, stepID, attemptID, laneID)
-	packet["schema_version"] = WorkerPacketSchemaVersion
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, stepID, attemptID)
 	if err != nil {
 		t.Fatalf("read the open correction for %s: %v", attemptID, err)
@@ -820,7 +777,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
-	dispatch := Event{EventID: "diagnosis-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "diagnosis-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
@@ -862,84 +819,6 @@ func TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair(t *testing.T) {
 	}
 	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 {
 		t.Fatalf("the refused checkpoint left %d starts, want one", len(starts))
-	}
-}
-
-// TestReleasedPinsAnswerToTheCheckpointWriterRule proves the frozen boundary
-// the derivation pair never widened: on the released break_fix v24, whose
-// callable start_repair opens the step, the checkpoint its starter authors
-// behind a live lane answers to the writer rule like any other.
-func TestReleasedPinsAnswerToTheCheckpointWriterRule(t *testing.T) {
-	t.Parallel()
-	const workID = "released-pin-checkpoint-writer"
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 24)
-	if !ok {
-		t.Fatal("workflow.break_fix v24 is not registered")
-	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
-	s := fixture.store
-	starter := diagnosisS1Actor(workID, "starter")
-	if err := runVerdictActionAs(t, s, workID, "start_repair", json.RawMessage(`{}`), 0, starter); err != nil {
-		t.Fatalf("the callable start_repair on v24: %v", err)
-	}
-	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":1", starter, "implement")
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 2 || starts[1].ActionID != "dispatch_worker" || starts[1].Epoch != 2 {
-		t.Fatalf("repair starts after the dispatch = %+v, want the start_repair start and the dispatch start at epoch 2", starts)
-	}
-	version := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, starter); err == nil {
-		t.Fatal("the v24 starter authored checkpoint_repair behind a live lane")
-	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
-	}
-}
-
-// TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule proves the
-// later same-actor checkpoint answers to the writer rule: after the derived
-// self-pair opened epoch 1, the dispatch that follows opens epoch 2, and the
-// attempt's disposal moves the pen — the pair's own actor cannot checkpoint
-// that later operation.
-//
-// This is the manual-disposal witness, pinned to the latest pre-attribution
-// head: the disposal record's writer identity is the rule's own subject, and
-// the attributed seam route would derive that record under the dispatch
-// actor instead of the disposing owner. The manual path it witnesses still
-// exists on current heads wherever the derivation is structurally skipped —
-// a superseded epoch at the step, or a dispatch completion with no actor.
-// The current-head counterpart below covers the derived-disposal writer.
-func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
-	t.Parallel()
-	const workID = "derived-pair-disposed-writer"
-	// The writer-rule fixture predates the failure-attribution requirement:
-	// the disposal record's writer identity is the rule's own subject, and
-	// the seam-attributed terminal would derive that record under the
-	// dispatch actor instead of the disposing owner. Pin the latest
-	// pre-attribution head so the disposal keeps the writer the rule pins.
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
-	s := fixture.store
-	coordinator := diagnosisS1Actor(workID, "coordinator")
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
-		t.Fatalf("the derived self-pair: %v", err)
-	}
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the self-pair = %+v, want one derived start at epoch 1", starts)
-	}
-	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":2", coordinator, "implement")
-	starts = workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 2 || starts[1].Epoch != 2 {
-		t.Fatalf("repair starts after the dispatch = %+v, want the dispatch start at epoch 2", starts)
-	}
-	failWorkerAttemptWithKind(t, s, workID, "attempt:"+workID+":2", "the lane failed before a judgeable result existed")
-	applyRecordWorkerFailureForTest(t, s, workID, fixture.owner, "attempt:"+workID+":2", 2, readWorkVersion(t, s, workID), "diagnosis-failure-"+workID)
-	version := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err == nil {
-		t.Fatal("the derivation pair's actor authored the later checkpoint after the disposal moved the writer")
-	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
 	}
 }
 
@@ -989,7 +868,7 @@ func requireCheckpointWriterRefusal(t *testing.T, s *Store, workID string, actor
 
 // Derived failure records preserve the dispatch completion's actor rather
 // than the terminal producer's actor. The writer fence follows that disposer
-// on current pins; the manual-disposal witness covers a different actor.
+// on current pins.
 func TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-pair-disposed-writer-current"
@@ -1038,6 +917,7 @@ func TestDerivedDispositionWriterLosesThePenAtTheNextDispatch(t *testing.T) {
 	const workID = "derived-pair-disposer-redispatched"
 	fixture, coordinator, _ := seedDerivedRepairDisposal(t, workID)
 	s := fixture.store
+	oAcceptOracleFixtureReview(t, oracleRepairFixtureFrom(t, workID, fixture), workID, "continue")
 	next := "attempt:" + workID + ":3"
 	diagnosisS1DispatchAttempt(t, s, workID, "repair", next, coordinator, "implement")
 	nextLane := crossAttemptDispatchedLaneActor(t, s, workID, next)

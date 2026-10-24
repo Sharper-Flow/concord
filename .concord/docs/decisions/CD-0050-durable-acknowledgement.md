@@ -17,8 +17,6 @@
 - **Preserves:** `synchronous=NORMAL` for ordinary writes; the conformance
   harness, its pacing, threshold, and population authority; CD-0011's
   falsifier list and retention decision
-- **Supersedes:** nothing; adds a mechanism the retained architecture lacked
-- **Amended by:** [CD-0207](CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md) at D1, D3, D4, and the statements that describe `SyncDurable`: a durable commit under `synchronous=FULL` replaces the TRUNCATE checkpoint barrier, D3 adds the bootstrap, predecessor-import, and fold-guard-recovery families, and the fence entry points commit durably. D2 and D5 stand unchanged.
 
 ## Context
 
@@ -26,7 +24,7 @@ Under CD-0002 §2b the store commits with WAL plus `synchronous=NORMAL`.
 SQLite's documented guarantee for that combination is narrow: the database
 remains consistent after an operating-system crash or power loss, but a
 transaction already reported committed may roll back, because most commits do
-not sync the WAL. A projection rebuild cannot recover an event that
+not sync the WAL. A verified snapshot restore cannot recover a row that
 disappeared with the unsynced WAL tail.
 
 Issue #189 asked whether to adopt `synchronous=FULL`. Three benchmark passes
@@ -80,14 +78,13 @@ The contract, stated as Product law:
   roll back, but never past the last successful barrier: everything committed
   before a consequential acknowledgement is durable with it. The database
   remains consistent in every case.
-- Nothing in this decision claims a fold recovers an event absent from the
-  authoritative log. If an ordinary write rolls back, it rolls back; there is
+- Nothing in this decision claims a snapshot restore recovers a row absent from
+  the store. If an ordinary write rolls back, it rolls back; there is
   no silent reconstruction.
 
 ### D3. The consequential boundary enumeration
 
-Consent classification is not durability classification. Removing a routine approval under CD-0013 D11 does not remove a durable acknowledgement boundary. Workflow actions, terminal transitions, authority changes, and cross-authority claims retain their durable commits under CD-0207. Mutation and replay paths must select durability from the effect and retained intent, not merely from the presence of an approval reference.
-
+Consent classification is not durability classification. Removing a routine approval under CD-0013 D11 does not remove a durable acknowledgement boundary. Workflow actions, terminal transitions, authority changes, and cross-authority claims retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained intent, not merely from the presence of an approval reference.
 
 `SyncDurable` runs at the acknowledgement point — after the outermost
 commit, before success returns to the caller — of exactly these families:

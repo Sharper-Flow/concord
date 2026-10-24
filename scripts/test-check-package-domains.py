@@ -120,11 +120,10 @@ class PackageDomainMapTests(unittest.TestCase):
         findings = self.check(records=[law("CD-2", "surface", "internal/store/store.go")])
         self.assertFinding(findings, "package internal/store: law CD-2 homed in 'surface' names internal/store/store.go")
 
-    def test_law_check_exempts_root_noncode_and_noncurrent_records(self) -> None:
+    def test_law_check_exempts_root_noncode_and_nonlaw_records(self) -> None:
         records = [
             law("CD-3", ROOT_DOMAIN, "internal/store/store.go"),
             law("CD-4", "surface", "README.md"),
-            law("CD-5", "surface", "internal/store/store.go", status="superseded"),
             law("L-1", "surface", "internal/store/store.go", kind="lesson", status="published"),
         ]
         self.assertEqual(self.check(records=records), [])

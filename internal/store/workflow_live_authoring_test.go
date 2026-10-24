@@ -15,10 +15,8 @@ import (
 	"time"
 )
 
-// The live authoring selector exposes exactly three families, the frozen
-// registry keeps every released pin readable, and the canonical heads author
-// batched verdicts and explicit outcome predicates only. These tests own
-// that surface; historical decode and rebuild owners keep their own suites.
+// The live authoring selector and registry expose the same three current
+// families. Their contracts publish explicit outcome predicates only.
 
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
@@ -52,14 +50,10 @@ func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *tes
 	if _, err := LiveWorkflowDefinitionForRef("workflow.unknown_family"); !hasFailureKind(err, KindInvalidDefinition) {
 		t.Fatalf("unknown family: err=%v, want %s", err, KindInvalidDefinition)
 	}
-	// The frozen lookup keeps every retired head registered for decode and
-	// replay; archiving changes authoring, never the pin table.
-	frozen, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatalf("frozen lookup of a retired family: %v", err)
-	}
-	if frozen.Definition.Version != 16 {
-		t.Fatalf("frozen generic_one_off head = v%d, want the retired v16", frozen.Definition.Version)
+	for ref := range archivedWorkflowFamilies {
+		if _, err := BuiltinWorkflowDefinitionForRef(ref); err == nil {
+			t.Fatalf("retired family %s remains registered", ref)
+		}
 	}
 }
 
@@ -89,76 +83,92 @@ func TestDefaultWorkflowRefForKindRequiresExplicitFamilyForDecisionAndOther(t *t
 }
 
 func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
-	ctx := context.Background()
-	const workID = "archived-mutation"
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	for family := range archivedWorkflowFamilies {
+		t.Run(family, func(t *testing.T) {
+			ctx := context.Background()
+			const workID = "archived-mutation"
+			s := openTemp(t)
+			seedWork(t, s, workID)
+			registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+				_ = tx.Rollback()
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			// Model a stored retired-family instance without registering a historical
+			// definition. The live mutation must refuse before it can append anything.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=? WHERE work_id=?; DELETE FROM fold_guard`, family, workID); err != nil {
+				t.Fatal(err)
+			}
 
-	// The pinned retired definition stays readable through its instance.
-	var pinnedRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef); err != nil {
-		t.Fatalf("archived instance read: %v", err)
-	}
-	if pinnedRef != "workflow.generic_one_off" {
-		t.Fatalf("pinned definition = %s, want the retired family", pinnedRef)
-	}
+			// The pinned retired definition stays readable through its instance.
+			var pinnedRef string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef); err != nil {
+				t.Fatalf("archived instance read: %v", err)
+			}
+			if pinnedRef != family {
+				t.Fatalf("pinned definition = %s, want the retired family", pinnedRef)
+			}
 
-	events := func() int64 {
-		var count int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		return count
-	}
-	before := events()
+			events := func() int64 {
+				var count int64
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				return count
+			}
+			before := events()
 
-	// The read-only preflight answers the same refusal the mutation applies.
-	preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: "checkpoint_context", Payload: json.RawMessage(`{}`), Actor: owner,
-	})
-	if !hasFailureKind(preflightErr, KindInvalidOperation) {
-		t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvalidOperation)
-	}
-	mutationErr := runIssue933OperatorAction(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), owner, operator)
-	if !hasFailureKind(mutationErr, KindInvalidOperation) {
-		t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvalidOperation)
-	}
-	failure, ok := mutationErr.(*Failure)
-	if ok && !strings.Contains(failure.Detail, "workflow.generic_one_off") {
-		t.Fatalf("mutation refusal %q must name the archived family", failure.Detail)
-	}
-	if got := events(); got != before {
-		t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
-	}
-	if got := readWorkVersion(t, s, workID); got != 4 {
-		t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
+			// Every action refuses at the unavailable-family boundary, not through
+			// the archived graph's payload or step validation.
+			for _, action := range []string{"checkpoint_context", "accept_worker_result", "record_decision"} {
+				t.Run(action, func(t *testing.T) {
+					preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+						WorkID: workID, ActionID: action, Payload: json.RawMessage(`{}`), Actor: owner,
+					})
+					if !hasFailureKind(preflightErr, KindInvariantViolation) {
+						t.Fatalf("archived-family preflight = %v, want %s", preflightErr, KindInvariantViolation)
+					}
+					mutationErr := runIssue933OperatorAction(t, s, workID, action, json.RawMessage(`{}`), owner, operator)
+					if !hasFailureKind(mutationErr, KindInvariantViolation) {
+						t.Fatalf("archived-family mutation = %v, want %s", mutationErr, KindInvariantViolation)
+					}
+					for _, refusal := range []error{preflightErr, mutationErr} {
+						failure, ok := refusal.(*Failure)
+						if !ok || !strings.Contains(failure.Detail, family) {
+							t.Fatalf("refusal %v must name the archived family %s", refusal, family)
+						}
+					}
+					if got := events(); got != before {
+						t.Fatalf("refused archived-family mutation moved events from %d to %d; the refusal must commit nothing", before, got)
+					}
+					if got := readWorkVersion(t, s, workID); got != 4 {
+						t.Fatalf("refused mutation left the work at version %d, want the untouched 4", got)
+					}
+					if got := currentStep(t, s, workID); got != registered.Definition.StepGraph.StartStep {
+						t.Fatalf("refused mutation moved the step to %s", got)
+					}
+				})
+			}
+		})
 	}
 }
 
 func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 	t.Parallel()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := registered.Definition
+	definition := genericDefinitionFixture()
+	definition.Ref = "workflow.generic_one_off"
 	nonterminal := WorkflowAdmissionState{InstanceState: "planned", Step: "define"}
 	decision := workflowAdmit(definition, nonterminal, "checkpoint_context")
 	if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindInvalidOperation {
@@ -188,7 +198,7 @@ func TestArchivedFamilyTerminalHistoryStaysReadable(t *testing.T) {
 // condition. The walk covers every registered version, not only live heads.
 func TestNoRetainedWorkflowVersionDeclaresAConditionAction(t *testing.T) {
 	t.Parallel()
-	if got := retainedConditionActionDeclarations(builtinWorkflowDefinitionsWithHistory()); len(got) != 0 {
+	if got := retainedConditionActionDeclarations(BuiltinWorkflowDefinitions()); len(got) != 0 {
 		t.Fatalf("retained workflow versions declare condition actions: %s", strings.Join(got, ", "))
 	}
 	// Control: the walk flags a retained version that declares one, so an
@@ -329,8 +339,13 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 
 func TestCanonicalHeadsAuthorBatchVerdictsOnly(t *testing.T) {
 	const workID = "canonical-verdict-batch-only"
-	fixture := seedWorkflowVerdictBatchFixture(t, workID)
+	// The current head associates criteria with captured receipts (CD-0242
+	// D8): the research fixture selects one sourced finding as that receipt.
+	fixture, receipt := seedCriterionAssociationAtStep(t, workID, mustBuiltinDefinition(t, "workflow.research"), "conclude")
 	s := fixture.store
+	run := func(payload json.RawMessage) error {
+		return runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, fixture.owner)
+	}
 
 	verdictEvents := func() int64 {
 		var count int64
@@ -342,17 +357,15 @@ func TestCanonicalHeadsAuthorBatchVerdictsOnly(t *testing.T) {
 	before := verdictEvents()
 
 	// The single wire shape refuses, and the refusal writes nothing.
-	single := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", single, fixture.owner, fixture.operator); !hasFailureKind(err, KindInvalidPayload) {
+	single := mustJSONValue(map[string]any{"contract_version": 1, "predicate_id": "predicate:first", "receipt_refs": []string{receipt}})
+	if err := run(single); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("canonical single-form verdict = %v, want %s", err, KindInvalidPayload)
 	}
 	if got := verdictEvents(); got != before {
 		t.Fatalf("refused single-form verdict moved verdict events from %d to %d", before, got)
 	}
-	// A one-entry batch carries the same independent actor and evidence the
-	// single shape bound: the entry semantics are the frozen ones.
-	oneEntry := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", oneEntry, fixture.owner, fixture.operator); err != nil {
+	// A one-entry batch binds the calling Main and the entry's own receipt.
+	if err := run(criterionAssociationPayload(receipt, "predicate:first")); err != nil {
 		t.Fatalf("canonical one-entry batch: %v", err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -368,20 +381,20 @@ func TestCanonicalHeadsAuthorBatchVerdictsOnly(t *testing.T) {
 		t.Fatalf("canonical batch recorded %d verdicts, want 1", len(recorded))
 	}
 	entry := recorded[0]
-	if entry.PredicateID != "predicate:batch-present" || entry.VerdictKind != "ok" || entry.ContractVersion != 1 {
+	if entry.PredicateID != "predicate:first" || entry.ContractVersion != 1 {
 		t.Fatalf("canonical entry = %+v, want the batched contract's own entry", entry)
 	}
-	if len(entry.EvaluationEvidence) != 1 || entry.EvaluationEvidence[0] != "evidence:return-route-verification" {
-		t.Fatalf("canonical entry evidence = %v, want the entry's own bound locator", entry.EvaluationEvidence)
+	if len(entry.EvaluationEvidence) != 1 || entry.EvaluationEvidence[0] != receipt {
+		t.Fatalf("canonical entry evidence = %v, want the entry's own receipt", entry.EvaluationEvidence)
 	}
-	if entry.VerdictActorRef == "" {
-		t.Fatal("the canonical entry carries no independent verdict actor")
+	if entry.VerdictActorRef != mustActorRef(t, fixture.owner) {
+		t.Fatalf("canonical entry actor = %q, want the calling Main", entry.VerdictActorRef)
 	}
 	// An empty batch and a batch-less call refuse on the canonical payload.
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[]}`), fixture.owner, fixture.operator); !hasFailureKind(err, KindInvalidPayload) {
+	if err := run(json.RawMessage(`{"contract_version":1,"verdicts":[]}`)); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("empty canonical batch = %v, want %s", err, KindInvalidPayload)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); !hasFailureKind(err, KindInvalidPayload) {
+	if err := run(json.RawMessage(`{"contract_version":1}`)); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("canonical call without verdicts = %v, want %s", err, KindInvalidPayload)
 	}
 }
@@ -508,8 +521,7 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 		`"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],` +
 		`"rigor_class":"prototype_internal","supersede_reason":"correct the accepted premise","audit_evidence":["evidence:canonical-supersede"],`
 	// The live head answers consent under consequence_v1, so its successor
-	// declares the explicit engineering decision fact; the historical head
-	// below never declared it.
+	// declares the explicit engineering decision fact.
 	live := base + `"decision_domains":[],`
 	valid := json.RawMessage(live + predicates() + "}")
 	if err := validateWorkflowContractRecoveryPayload(canonical.Definition, valid); err != nil {
@@ -523,16 +535,6 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 		if err := validateWorkflowContractRecoveryPayload(canonical.Definition, raw); !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("canonical successor with %s = %v, want %s", name, err, KindInvalidPayload)
 		}
-	}
-	// The frozen historical head keeps both wire shapes: the retirement never
-	// rewrites what a pinned version admitted.
-	historical, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 26)
-	if !ok {
-		t.Fatal("historical break_fix v26 left the registry")
-	}
-	pair := json.RawMessage(base + `"outcome_kind":"absent","outcome_payload":{"kind":"absent","subjects":["regression"],"surface":"repository_file","distinguish_from":["archived"]}}`)
-	if err := validateWorkflowContractRecoveryPayload(historical.Definition, pair); err != nil {
-		t.Fatalf("historical successor with the outcome pair: %v", err)
 	}
 }
 
@@ -571,35 +573,21 @@ func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 	if packetRef != "worker_packet3" {
 		t.Fatalf("canonical research dispatch packet ref = %q, want the research-context packet3 closure", packetRef)
 	}
-	historical, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 16)
-	if !ok {
-		t.Fatal("historical research v16 left the registry")
-	}
-	if workflowDerivedWorkerFailureActive(historical.Definition) {
-		t.Fatal("historical research v16 must keep its callable failure record")
-	}
-
 	// The canonical authoring gate reads the definition's own registry
-	// content: the batch-only record_verdict payload the head declares.
-	cases := []struct {
-		ref     string
-		version int64
-		want    bool
-	}{
-		{"workflow.implementation", 30, true},
-		{"workflow.implementation", 29, false},
-		{"workflow.break_fix", 27, true},
-		{"workflow.break_fix", 26, false},
-		{"workflow.research", 17, true},
-		{"workflow.research", 16, false},
-	}
-	for _, testCase := range cases {
-		entry, ok := BuiltinWorkflowRegistry().Lookup(testCase.ref, testCase.version)
-		if !ok {
-			t.Fatalf("%s v%d left the registry", testCase.ref, testCase.version)
+	// content: the batch-only record_verdict payload every current head
+	// declares. A head without that payload is not canonical.
+	for _, current := range BuiltinWorkflowDefinitions() {
+		if !workflowCanonicalAuthoringActive(current) {
+			t.Fatalf("%s v%d is not canonical", current.Ref, current.Version)
 		}
-		if got := workflowCanonicalAuthoringActive(entry.Definition); got != testCase.want {
-			t.Fatalf("%s v%d canonical = %t, want %t", testCase.ref, testCase.version, got, testCase.want)
+		scalar := cloneWorkflowDefinition(current)
+		for i := range scalar.ActionDefinitions {
+			if scalar.ActionDefinitions[i].ID == "record_verdict" {
+				scalar.ActionDefinitions[i].Payload.Fields = slices.DeleteFunc(scalar.ActionDefinitions[i].Payload.Fields, func(field WorkflowPayloadField) bool { return field.Name == "contract_version" })
+			}
+		}
+		if workflowCanonicalAuthoringActive(scalar) {
+			t.Fatalf("%s without the batch-only verdict payload reads as canonical", current.Ref)
 		}
 	}
 }
@@ -608,13 +596,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     37,
-		"workflow.break_fix":          34,
-		"workflow.research":           22,
-		"workflow.architecture_spike": 17,
-		"workflow.ops_runbook":        18,
-		"workflow.static_analysis":    15,
-		"workflow.generic_one_off":    16,
+		"workflow.implementation": 37,
+		"workflow.break_fix":      34,
+		"workflow.research":       22,
 	}
 	if !reflect.DeepEqual(current, want) {
 		t.Fatalf("builtin current versions = %v, want %v", current, want)
@@ -624,7 +608,7 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 // seedPinnedInstance opens one throwaway store and initializes a work item
 // under the exact registered pin, with the work item still nonterminal — the
 // state a serving release leaves behind mid-flight.
-func seedPinnedInstance(t *testing.T, path string, workID string, registered RegisteredDefinition) string {
+func seedPinnedInstance(t *testing.T, path string, workID string, registered RegisteredDefinition) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := Open(ctx, path)
@@ -645,16 +629,34 @@ func seedPinnedInstance(t *testing.T, path string, workID string, registered Reg
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return workID
 }
 
+// seedArchivedInstance seeds a nonterminal item whose recorded instance pin
+// names an archived family. No archived definition is registered (CD-0242
+// D14), so the seed rewrites the current pin's metadata the way an earlier
+// binary left it; readiness reads only that recorded pin.
 func seedArchivedInstance(t *testing.T, path string) string {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	return seedCutoverPin(t, path, "archived-cutover", "workflow.generic_one_off", 16)
+}
+
+// seedCutoverPin seeds a nonterminal item on the current implementation head
+// and rewrites its recorded instance pin to ref and version.
+func seedCutoverPin(t *testing.T, path, workID, ref string, version int64) string {
+	t.Helper()
+	seedPinnedInstance(t, path, workID, mustBuiltinDefinition(t, "workflow.implementation"))
+	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seedPinnedInstance(t, path, "archived-cutover", registered)
+	defer func() { _ = s.Close() }()
+	repinCutoverInstance(t, s, workID, ref, version)
+	return workID
+}
+
+func repinCutoverInstance(t *testing.T, s *Store, workID, ref string, version int64) {
+	t.Helper()
+	execStaleRegistryInFold(t, s, fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='%s',definition_version=%d WHERE work_id='%s'`, ref, version, workID))
 }
 
 func storedCounts(t *testing.T, path string) (events int64, migrations int64) {
@@ -695,21 +697,18 @@ func TestCutoverRefusesNonterminalArchivedPinAtReadiness(t *testing.T) {
 	if eventsAfter != eventsBefore || migrationsAfter != migrationsBefore {
 		t.Fatalf("refused readiness moved rows: events %d->%d, migrations %d->%d; the gate must write nothing", eventsBefore, eventsAfter, migrationsBefore, migrationsAfter)
 	}
-	// The recorded state stays openable for reads and rebuilds; the refusal
+	// The recorded state stays openable for reads; the refusal
 	// gates activation, not the frozen history.
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("open over a nonterminal archived pin: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the nonterminal archived pin: %v", err)
-	}
 }
 
 // TestCutoverAllowsTerminalHistoricalPinsAtReadiness proves the gate keys on
 // the work item's closed lifecycle: an archived pin whose work item reached a
-// terminal lifecycle admits activation, reads, and an idempotent rebuild.
+// terminal lifecycle admits activation and reads.
 func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
@@ -738,72 +737,34 @@ func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	if lifecycle != "cancelled" || ref != "workflow.generic_one_off" {
 		t.Fatalf("reopened instance = %s/%s, want the terminal archived pin readable", lifecycle, ref)
 	}
-	if err := RebuildFromLog(ctx, reopened); err != nil {
-		t.Fatalf("rebuild over terminal archived history: %v", err)
-	}
-	first, err := WorkflowProjectionHash(ctx, reopened)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, reopened); err != nil {
-		t.Fatalf("second rebuild over terminal archived history: %v", err)
-	}
-	second, err := WorkflowProjectionHash(ctx, reopened)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("projection hash moved across rebuild: %s != %s", first, second)
-	}
 }
 
-// TestCutoverRefusesOldAuthoringRetainedPinAtReadiness proves the gate covers
-// the retained families too: a nonterminal work item pinned below the
-// canonical authoring shape blocks activation, and the refusal reads only.
-func TestCutoverRefusesOldAuthoringRetainedPinAtReadiness(t *testing.T) {
+// TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness proves an earlier
+// recorded version of a live family does not block activation: no earlier
+// definition is retained, and active work continues under the family's
+// current definition (CD-0242 D13, D14). The recorded state opens.
+func TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	seedPinnedInstance(t, path, "old-authoring-cutover", pinned)
-	eventsBefore, migrationsBefore := storedCounts(t, path)
-
-	_, err := PlanUpgradeReadiness(ctx, path)
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindSchemaUnsupported {
-		t.Fatalf("readiness with an old-authoring pin = %v, want %s", err, KindSchemaUnsupported)
-	}
-	if !strings.Contains(failure.Detail, "workflow.implementation version 29") || !strings.Contains(failure.Detail, "predates the canonical authoring contract") {
-		t.Fatalf("cutover refusal %q must name the old-authoring pin", failure.Detail)
-	}
-	eventsAfter, migrationsAfter := storedCounts(t, path)
-	if eventsAfter != eventsBefore || migrationsAfter != migrationsBefore {
-		t.Fatalf("refused readiness moved rows: events %d->%d, migrations %d->%d; the gate must write nothing", eventsBefore, eventsAfter, migrationsBefore, migrationsAfter)
+	seedCutoverPin(t, path, "earlier-live-pin", "workflow.implementation", 29)
+	if _, err := PlanUpgradeReadiness(ctx, path); err != nil {
+		t.Fatalf("readiness with an earlier live-family pin: %v", err)
 	}
 	s, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("open over an old-authoring pin: %v", err)
+		t.Fatalf("open over an earlier live-family pin: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the old-authoring pin: %v", err)
-	}
 }
 
-// TestCutoverBlocksOutsideRepairOldPin proves an outside-repair disposition
-// is a held state, not a terminal one: an old-authoring pin under an
+// TestCutoverBlocksOutsideRepairArchivedPin proves an outside-repair
+// disposition is a held state, not a terminal one: an archived pin under an
 // outside-repair instance still blocks activation while the work item stays
 // nonterminal.
-func TestCutoverBlocksOutsideRepairOldPin(t *testing.T) {
+func TestCutoverBlocksOutsideRepairArchivedPin(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 26)
-	if !ok {
-		t.Fatal("break_fix v26 left the registry")
-	}
-	workID := seedPinnedInstance(t, path, "outside-repair-cutover", pinned)
+	workID := seedCutoverPin(t, path, "outside-repair-cutover", "workflow.ops_runbook", 9)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
@@ -816,10 +777,10 @@ func TestCutoverBlocksOutsideRepairOldPin(t *testing.T) {
 	_, err = PlanUpgradeReadiness(ctx, path)
 	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindSchemaUnsupported {
-		t.Fatalf("readiness with an outside-repair old pin = %v, want %s", err, KindSchemaUnsupported)
+		t.Fatalf("readiness with an outside-repair archived pin = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.break_fix version 26") {
-		t.Fatalf("cutover refusal %q must name the held old-authoring pin", failure.Detail)
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") {
+		t.Fatalf("cutover refusal %q must name the held archived pin", failure.Detail)
 	}
 }
 
@@ -829,28 +790,8 @@ func TestCutoverBlocksOutsideRepairOldPin(t *testing.T) {
 func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
-	for _, head := range []struct {
-		ref     string
-		version int64
-		workID  string
-	}{
-		{"workflow.implementation", 33, "canonical-impl-33"},
-		{"workflow.break_fix", 30, "canonical-break-30"},
-		{"workflow.research", 20, "canonical-research-20"},
-		{"workflow.implementation", 34, "canonical-impl-34"},
-		{"workflow.break_fix", 31, "canonical-break-31"},
-		{"workflow.research", 21, "canonical-research-21"},
-		{"workflow.implementation", 35, "canonical-impl-35"},
-		{"workflow.break_fix", 32, "canonical-break-32"},
-		{"workflow.research", 22, "canonical-research-22"},
-		{"workflow.implementation", 36, "canonical-impl-36"},
-		{"workflow.break_fix", 33, "canonical-break-33"},
-	} {
-		pinned, ok := BuiltinWorkflowRegistry().Lookup(head.ref, head.version)
-		if !ok {
-			t.Fatalf("%s v%d left the registry", head.ref, head.version)
-		}
-		seedPinnedInstance(t, path, head.workID, pinned)
+	for _, head := range BuiltinWorkflowDefinitions() {
+		seedPinnedInstance(t, path, "canonical-"+strings.TrimPrefix(head.Ref, "workflow."), mustBuiltinDefinition(t, head.Ref))
 	}
 	if _, err := PlanUpgradeReadiness(ctx, path); err != nil {
 		t.Fatalf("readiness with exact canonical heads: %v", err)
@@ -896,10 +837,14 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		window, err := findAuthorizedDispatchWindowCore(context.Background(), s.DatabaseForTesting(), workID, attemptID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: "research-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest}),
 		}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -953,13 +898,6 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		t.Fatalf("investigate starts after the retry = %+v, want the second dispatch at epoch 2", starts)
 	}
 
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	rebuilt := s2DerivedFailureRecords(t, s, workID, attempt)
-	if len(rebuilt) != 1 || rebuilt[0]["step"] != "investigate" || rebuilt[0]["actor"] != record["actor"] {
-		t.Fatalf("rebuilt failure records = %+v, want the one derived record rebuilt identically", rebuilt)
-	}
 }
 
 // insertCutoverContract copies the seeded instance's own definition pin into
@@ -991,30 +929,23 @@ func supersedeCutoverContract(t *testing.T, s *Store, workID string) {
 	execStaleRegistryInFold(t, s, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='`+workID+`' AND contract_version=1`)
 }
 
-// TestCutoverRefusesActiveOldContractBesideCanonicalInstance proves the gate
-// reads the work's active contract pin, not only its instance: after a
-// same-family re-pin the instance holds the canonical head while the active
-// contract still pins the old authoring, and that store refuses activation
-// without writing anything.
-func TestCutoverRefusesActiveOldContractBesideCanonicalInstance(t *testing.T) {
+// TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance proves the
+// gate reads the work's active contract pin, not only its instance: the
+// instance holds the canonical head while the active contract still pins an
+// archived family, and that store refuses activation without writing
+// anything.
+func TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
-	workID := "old-contract-repin"
-	old, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	canonical, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
-	if !ok {
-		t.Fatal("implementation v30 left the registry")
-	}
-	seedPinnedInstance(t, path, workID, old)
+	workID := "archived-contract-repin"
+	canonical := mustBuiltinDefinition(t, "workflow.implementation")
+	seedCutoverPin(t, path, workID, "workflow.ops_runbook", 9)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	insertCutoverContract(t, s, workID)
-	execStaleRegistryInFold(t, s, `UPDATE workflow_instances SET definition_ref='workflow.implementation',definition_version=30,definition_digest='`+canonical.Digest+`' WHERE work_id='`+workID+`'`)
+	repinCutoverInstance(t, s, workID, canonical.Definition.Ref, canonical.Definition.Version)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1023,55 +954,45 @@ func TestCutoverRefusesActiveOldContractBesideCanonicalInstance(t *testing.T) {
 	_, err = PlanUpgradeReadiness(ctx, path)
 	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindSchemaUnsupported {
-		t.Fatalf("readiness with an active old contract beside the canonical instance = %v, want %s", err, KindSchemaUnsupported)
+		t.Fatalf("readiness with an active archived contract beside the canonical instance = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.implementation version 29") || !strings.Contains(failure.Detail, "predates the canonical authoring contract") {
-		t.Fatalf("cutover refusal %q must name the active contract's old pin", failure.Detail)
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") || !strings.Contains(failure.Detail, "is archived") {
+		t.Fatalf("cutover refusal %q must name the active contract's archived pin", failure.Detail)
 	}
 	eventsAfter, migrationsAfter := storedCounts(t, path)
 	if eventsAfter != eventsBefore || migrationsAfter != migrationsBefore {
 		t.Fatalf("refused readiness moved rows: events %d->%d, migrations %d->%d; the gate must write nothing", eventsBefore, eventsAfter, migrationsBefore, migrationsAfter)
 	}
 	// The read-only gate answers activation only; the recorded state opens,
-	// reads, and rebuilds.
+	// and reads.
 	s, err = Open(ctx, path)
 	if err != nil {
-		t.Fatalf("open over an active old contract: %v", err)
+		t.Fatalf("open over an active archived contract: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the active old contract: %v", err)
-	}
 }
 
-// TestCutoverAllowsSupersededOldContractAtReadiness proves the contract half
-// keys on supersession: the same old pin, once superseded by the canonical
-// successor beside a canonical instance, stops blocking activation.
-func TestCutoverAllowsSupersededOldContractAtReadiness(t *testing.T) {
+// TestCutoverAllowsSupersededArchivedContractAtReadiness proves the contract
+// half keys on supersession: the same archived pin, once superseded by the
+// canonical successor beside a canonical instance, stops blocking activation.
+func TestCutoverAllowsSupersededArchivedContractAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
 	workID := "superseded-contract"
-	old, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	canonical, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
-	if !ok {
-		t.Fatal("implementation v30 left the registry")
-	}
+	canonical := mustBuiltinDefinition(t, "workflow.implementation")
 	seedPinnedInstance(t, path, workID, canonical)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertCutoverSuccessorContract(t, s, workID, 1, "workflow.implementation", 29, old.Digest)
-	insertCutoverSuccessorContract(t, s, workID, 2, "workflow.implementation", 30, canonical.Digest)
+	insertCutoverSuccessorContract(t, s, workID, 1, "workflow.ops_runbook", 9, canonical.Digest)
+	insertCutoverSuccessorContract(t, s, workID, 2, canonical.Definition.Ref, canonical.Definition.Version, canonical.Digest)
 	supersedeCutoverContract(t, s, workID)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := PlanUpgradeReadiness(ctx, path); err != nil {
-		t.Fatalf("readiness with the old contract superseded: %v", err)
+		t.Fatalf("readiness with the archived contract superseded: %v", err)
 	}
 }
 
@@ -1082,16 +1003,13 @@ func TestCutoverRefusesArchivedInstanceWhenContractSuperseded(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
 	workID := seedArchivedInstance(t, path)
-	canonical, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
-	if !ok {
-		t.Fatal("implementation v30 left the registry")
-	}
+	canonical := mustBuiltinDefinition(t, "workflow.implementation")
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	insertCutoverContract(t, s, workID)
-	insertCutoverSuccessorContract(t, s, workID, 2, "workflow.implementation", 30, canonical.Digest)
+	insertCutoverSuccessorContract(t, s, workID, 2, canonical.Definition.Ref, canonical.Definition.Version, canonical.Digest)
 	supersedeCutoverContract(t, s, workID)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -1106,18 +1024,13 @@ func TestCutoverRefusesArchivedInstanceWhenContractSuperseded(t *testing.T) {
 	}
 }
 
-// TestCutoverRefusesActiveOldContractWithoutInstance proves the contract pin
-// stands alone: with the instance row gone, the work's active old-authoring
+// TestCutoverRefusesActiveArchivedContractWithoutInstance proves the contract
+// pin stands alone: with the instance row gone, the work's active archived
 // contract still refuses activation, and the gate stays read-only.
-func TestCutoverRefusesActiveOldContractWithoutInstance(t *testing.T) {
+func TestCutoverRefusesActiveArchivedContractWithoutInstance(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
-	workID := "contract-only-cutover"
-	old, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
-	seedPinnedInstance(t, path, workID, old)
+	workID := seedCutoverPin(t, path, "contract-only-cutover", "workflow.ops_runbook", 9)
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
@@ -1130,55 +1043,41 @@ func TestCutoverRefusesActiveOldContractWithoutInstance(t *testing.T) {
 	_, err = PlanUpgradeReadiness(ctx, path)
 	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindSchemaUnsupported {
-		t.Fatalf("readiness with an active old contract and no instance = %v, want %s", err, KindSchemaUnsupported)
+		t.Fatalf("readiness with an active archived contract and no instance = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.implementation version 29") {
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") {
 		t.Fatalf("cutover refusal %q must name the contract-only pin", failure.Detail)
 	}
-	// The refusal gates activation, not the frozen history.
+	// The refusal gates activation, not the recorded state.
 	opened, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("open over a contract-only old pin: %v", err)
+		t.Fatalf("open over a contract-only archived pin: %v", err)
 	}
 	defer func() { _ = opened.Close() }()
-	if err := RebuildFromLog(ctx, opened); err != nil {
-		t.Fatalf("rebuild over the contract-only old pin: %v", err)
-	}
 }
 
 func seedCutoverDispositionFixture(t *testing.T) *Store {
 	t.Helper()
 	path := copyTestDatabase(t)
-	archived, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
-	old, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 left the registry")
-	}
 	canonical, err := LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []struct {
-		id  string
-		pin RegisteredDefinition
-	}{
-		{"a-archived", archived}, {"b-contract-only", old}, {"c-canonical", canonical},
-		{"d-terminal", archived}, {"e-superseded-contract", canonical},
-	} {
-		seedPinnedInstance(t, path, item.id, item.pin)
+	for _, id := range []string{"a-archived", "b-contract-only", "c-canonical", "d-terminal", "e-superseded-contract"} {
+		seedPinnedInstance(t, path, id, canonical)
 	}
 	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
+	repinCutoverInstance(t, s, "a-archived", "workflow.generic_one_off", 16)
+	repinCutoverInstance(t, s, "b-contract-only", "workflow.ops_runbook", 9)
+	repinCutoverInstance(t, s, "d-terminal", "workflow.generic_one_off", 16)
 	insertCutoverContract(t, s, "a-archived") // Two blocking surfaces still select one work.
 	insertCutoverContract(t, s, "b-contract-only")
 	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
-	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 1, old.Definition.Ref, old.Definition.Version, old.Digest)
+	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 1, "workflow.ops_runbook", 9, canonical.Digest)
 	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 2, canonical.Definition.Ref, canonical.Definition.Version, canonical.Digest)
 	supersedeCutoverContract(t, s, "e-superseded-contract")
 	terminal, err := cutoverReadWork(context.Background(), s, "d-terminal")
@@ -1291,7 +1190,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &CutoverDisposition{WorkCount: 2, WorkIDs: []string{"a-archived", "b-contract-only"}, ByLifecycle: map[string]int{"needed": 2}, ByPinnedFamily: map[string]int{"workflow.generic_one_off": 1, "workflow.implementation": 1}}
+	want := &CutoverDisposition{WorkCount: 2, WorkIDs: []string{"a-archived", "b-contract-only"}, ByLifecycle: map[string]int{"needed": 2}, ByPinnedFamily: map[string]int{"workflow.generic_one_off": 1, "workflow.ops_runbook": 1}}
 	if plan.ActivationBlocked || !reflect.DeepEqual(plan.CutoverDisposition, want) {
 		t.Fatalf("cutover plan = %+v, want %+v", plan, want)
 	}

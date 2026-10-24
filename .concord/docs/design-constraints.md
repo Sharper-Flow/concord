@@ -25,7 +25,7 @@ non-blocking for reads and serialize writes without retry storms. Writer-admissi
 wait, commit duration, and escaped busy failure are distinct quantities, measured
 and reported separately against a named population per CD-0045.
 
-**Direction.** Product-scoped partitioning; single-writer-per-entity or append-only writes. Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
+**Direction.** Product-scoped partitioning; single-writer-per-entity writes to current rows, with no event log or replay ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
 
 This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 5 (Planning and coordination).
 
@@ -69,11 +69,11 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ## 4. Bounded writer admission, no history repair
 
-**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash via the CD-0050 checkpoint barrier; ordinary writes are durable through the last consequential boundary. History is never "repaired" by hand: if the past is wrong, the correction is appended; the original record remains intact and inspectable.
+**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash via the CD-0050 checkpoint barrier; ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 
-**Direction.** **Resolved by [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority — append-only `domain_events` log + explicit typed projections in one transaction, `synchronous=NORMAL`, WAL, one writer at a time. State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
+**Direction.** **Resolved by [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority writing current rows in one transaction, `synchronous=NORMAL`, WAL, one writer at a time; no event log, fold, upcaster, or replay exists ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
 
 This supports Priority 2 (Data governance, reliability, and safe evolution).
 
@@ -83,7 +83,7 @@ This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 **Requirement.** Portfolio and dashboard reads feel instant. Every read is bounded by Product scope and paginated or streamed; no query is unbounded.
 
-**Implication.** The read-path is a first-class design surface, implemented in Go as part of the Concord core ([`core-architecture.md`](./core-architecture.md) §1). The latency target and bounded-read requirement remain; the language is no longer conditional.
+**Implication.** The read-path is a first-class design surface, implemented in Go as part of the Concord core ([`core-architecture.md`](./core-architecture.md) §1), with a latency target and bounded-read requirement.
 
 **Direction.** Target sub-100ms for typical Product views; per-read latency budgets; on-disk projections as the primary read input. The read-path language is Go (see §7 and [`core-architecture.md`](./core-architecture.md)).
 
@@ -211,18 +211,13 @@ This supports Priority 5 (Planning and coordination), Priority 4 (Visibility and
 
 ---
 
-## 14. Single derivation — one log, no parallel authority
+## 14. Single derivation — no parallel authority
 
-**Requirement.** All Concord-owned state derives from exactly one authoritative
-log. No subsystem may hold a second writable authority for the same entity, and
-two readers must not be *able* to return different answers to the same question.
+**Requirement.** All Concord-owned current state derives from exactly one authoritative store, with no event log, fold, upcaster, or replay ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No subsystem may hold a second writable authority for the same entity, and two readers must not be *able* to return different answers to the same question.
 
-**Implication.** This is stricter than §4, and it is the constraint §4 does not supply. An append-only log does not prevent this failure if a separate projection is also written directly — divergence then has no owner. Projections are derived, disposable, and rebuildable from the log; they are never a write target. A projection that cannot be rebuilt from the log is a second authority wearing a projection's name.
+**Implication.** This is stricter than §4, and it is the constraint §4 does not supply. A single authoritative store does not prevent this failure if a separate writable projection is also maintained — divergence then has no owner.
 
-**Direction.** CD-0002 and PM3 resolve one serialized writer plus explicit typed
-projections updated atomically with each accepted event. Projections remain pure,
-disposable rebuilds of the log; rebuild-from-log is a routine tested operation rather
-than a recovery ritual.
+**Direction.** CD-0002 and PM3 resolve one serialized writer whose accepted mutations write current rows in one transaction; derived read models are never a second write target ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
@@ -292,7 +287,7 @@ This supports Priority 4 (Visibility and continuity) and the operating envelope.
 
 **Implication.** Recovery proportionality is a first-class design property, not an operational afterthought. If the only remedy for a bookkeeping inconsistency is a destructive operation, operators are forced to choose between an incorrect record and losing valid history — and will reasonably choose to leave the system broken, which is what accumulates.
 
-**Direction.** Recovery paths are designed alongside the states that need them, and graded to the severity of the problem: reconcile before repair, repair before rebuild, rebuild before destroy. Refusal prechecks on a recovery tool must not shadow the very condition that tool exists to handle.
+**Direction.** Recovery paths are designed alongside the states that need them, and graded to the severity of the problem: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects before destructive operations ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Refusal prechecks on a recovery tool must not shadow the very condition that tool exists to handle.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
@@ -302,28 +297,30 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 ## Architecture decision history
 
-All entries below are resolved by their cited accepted decisions. They remain for
-traceability and implementation conformance, not as active blockers.
+The cited decisions govern implementation conformance.
 
-1. **Storage model for Concord-owned state** (§4, §14). **Resolved by CD-0002** — see #8. Item 1 was previously an earlier private planning pointer and is now superseded by #8.
+1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority.
 2. **Workflow evolution semantics** (§3). **Resolved by CD-0006:** full coordination engine, code-defined versioned built-ins, one generic type, and forward-linked successors with independent authority/recovery.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
 5. **Recovery-path taxonomy** (§19). **Resolved by PM10 and CD-0008 D3/D4/D6:**
-   PM10 defines verified backup/restore and the reconcile → repair → rebuild →
-   operator-escalation ladder; CD-0008 adds dependency-aware unreadable isolation,
-   append-only quarantine, durable-operation checkpoints/attempt fencing, and
-   fail-closed schema/upcaster recovery. The storage slice must prove the enumerated
+   PM10 defines verified backup/restore and operator escalation; CD-0008 adds dependency-aware unreadable
+   isolation and durable-operation checkpoints/attempt fencing. Recovery
+   reconciles current rows and restores finite verified snapshots; no
+   rebuild-from-log ladder, append-only quarantine, or upcaster recovery exists
+   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The storage slice must prove the enumerated
    fault cases rather than choose a new recovery model.
 6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Evidence resolution; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2.
 7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Write-path truthfulness; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3.
 8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md). Four records refine it:
    - **one global local authority** per [`product-memory-authority-scope.md`](./product-memory-authority-scope.md);
-   - one generic authoritative event log plus explicit typed projections per [`product-memory-domain-schema.md`](./product-memory-domain-schema.md);
+   - one authoritative current-state store per [`product-memory-domain-schema.md`](./product-memory-domain-schema.md);
    - lifecycle and relation invariants per [`product-memory-lifecycle-relations.md`](./product-memory-lifecycle-relations.md);
    - canonical membership and scope per [`product-memory-membership.md`](./product-memory-membership.md).
 
-   Together they give transactional state plus durable event history, `synchronous=NORMAL`, WAL, and invariants I1–I6. Ranked engine alternatives remain in CD-0002 §2.
+   Together they give transactional current state, finite verified snapshots,
+   `synchronous=NORMAL`, WAL, and invariants I1–I6, with no event log or replay
+   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Ranked engine alternatives remain in CD-0002 §2.
 
 ---
 
@@ -334,7 +331,7 @@ traceability and implementation conformance, not as active blockers.
 | §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
 | §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
-| §4 bounded writer admission / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
+| §4 bounded writer admission / no history repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |
 | §6 lightweight interface | Operating envelope | [`priorities.md`](./priorities.md) |
 | §7 language choice | 2, 4 | [`core-architecture.md`](./core-architecture.md) |

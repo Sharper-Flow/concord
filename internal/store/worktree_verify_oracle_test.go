@@ -89,8 +89,8 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 }
 
 // qualify claims f.repo at f.head for f.work, prepares the pinned recipe's
-// single control for caseID without launching it, and authorizes two attempts
-// to execute it.
+// single control for caseID without launching it, and authorizes an editing
+// attempt plus a distinct verification assignment to execute it.
 func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
 	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
@@ -126,7 +126,7 @@ func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, cas
 		t.Fatalf("prepare: %+v err=%v", f.prepare, err)
 	}
 	f.assertNoLaunch(t)
-	f.a = f.authorize(t, "a", f.actor)
+	f.a = f.authorizeLane(t, "a", f.actor, "implement")
 	f.b = f.authorize(t, "b", f.actor)
 }
 
@@ -140,6 +140,10 @@ func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) Worktre
 }
 
 func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowActor) NativeOracleRequest {
+	return f.authorizeLane(t, id, actor, "verify")
+}
+
+func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor WorkflowActor, laneID string, readOnly ...bool) NativeOracleRequest {
 	t.Helper()
 	b := f.bundle
 	b.Control.ReadinessEvidenceRefs = []string{f.prepare.OperationRef}
@@ -152,7 +156,7 @@ func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowA
 	actorRef, _ := WorkflowActorRef(actor)
 	event := workflowEventWithActor("native-job-"+id, WorkerJobRecorded, f.work, actorRef, map[string]any{})
 	event.Payload = raw
-	event.PayloadVersion = 1
+	event.PayloadVersion = CurrentEventPayloadVersion(WorkerJobRecorded)
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +165,19 @@ func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowA
 	packetRaw, _ := json.Marshal(packet)
 	canonical, _ := canonicalJSON(packetRaw)
 	digest := nativeDigest(canonical)
-	lv, ld := implementLaneIdentity()
+	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "review": "review", "verify": "verification"}[laneID])
+	if len(readOnly) > 0 && readOnly[0] {
+		legacy := generatedLegacyLaneDigests[laneKey(lane.ID, lane.Version)]
+		lane.Digest = legacy[len(legacy)-1]
+	}
+	lv, ld := lane.Version, lane.Digest
 	var epoch int64
 	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-dispatch-" + id, "actor_ref": actorRef})
-	completion := workflowEventWithActor("native-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.head, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": "implement", "worker_lane_version": lv, "worker_lane_digest": ld, "worker_capability_class": "implementation", "worker_packet_predicate_ids": b.Control.PredicateIDs})
-	completion.PayloadVersion = 4
+	completion := workflowEventWithActor("native-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.head, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_version": lv, "worker_lane_digest": ld, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
+	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowActionCompleted)
 	var completionPayload map[string]any
 	if err := json.Unmarshal(completion.Payload, &completionPayload); err != nil {
 		t.Fatal(err)
@@ -182,7 +191,7 @@ func (f *nativeOracleFixture) authorize(t *testing.T, id string, actor WorkflowA
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
 	}
-	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: 1, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
+	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
 
 func (f *nativeOracleFixture) assertNoLaunch(t *testing.T) {

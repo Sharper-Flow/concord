@@ -188,25 +188,6 @@ func durableNeighborOperations() []neighborOperation {
 			}
 		}
 	}})
-	rows = append(rows, neighborOperation{"RecoverFoldGuard", func(t *testing.T) (*Store, func() error, func()) {
-		s := seedQueryFixture(t)
-		before := countRows(t, s, "domain_events")
-		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-			t.Fatal(err)
-		}
-		return s, func() error {
-				report, err := RecoverFoldGuard(ctx, s.Path())
-				if err == nil && (!report.Rebuilt || report.Events != int64(before)) {
-					return fmt.Errorf("recovery report=%+v want events=%d", report, before)
-				}
-				return err
-			}, func() {
-				assertFoldGuardEmpty(t, s)
-				if got := countRows(t, s, "domain_events"); got != before {
-					t.Fatalf("events=%d want %d", got, before)
-				}
-			}
-	}})
 	for _, name := range []string{"bootstrap_journal", "bootstrap_rollback", "cross_project_bootstrap"} {
 		rows = append(rows, neighborOperation{name, func(t *testing.T) (*Store, func() error, func()) {
 			s := openTemp(t)

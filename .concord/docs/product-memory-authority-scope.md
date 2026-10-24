@@ -5,8 +5,7 @@
 > **Decision:** PM2; direct accepted authority for Concord's global physical Product-memory authority scope.
 > **Binding inputs:** accepted [`product-memory-query-contract.md`](./product-memory-query-contract.md), CD-0002 invariants I1–I6, and the one-operator/one-machine operating envelope.
 > **Research basis:** official SQLite documentation (also queried through Context7 `/sqlite/sqlite`) plus Exa-discovered comparable local-first/developer-tool architectures. No local benchmark or PoC is part of this decision.
-> **Supersedes narrowly:** CD-0002's "one database file per Project"
-> configuration. SQLite/WAL/NORMAL/library-in-process/I1–I6 remain binding.
+> **Engine requirements:** SQLite/WAL/NORMAL/library-in-process/I1–I6.
 
 ## Context
 
@@ -15,8 +14,7 @@ inputs are the accepted PM1 query contract, CD-0002 invariants I1 through I6,
 and the one-operator one-machine operating envelope. This record decides where
 live authority lives: one global local SQLite database per operator
 installation, with logical boundaries kept first-class in the domain model.
-PM2 supersedes CD-0002's per-Project file configuration narrowly; the SQLite
-engine, WAL, synchronous=NORMAL, and I1 through I6 remain binding.
+The SQLite engine, WAL, synchronous=NORMAL, and I1 through I6 remain binding.
 ## Contract
 
 The binding contract is sections 1 and 2: the decision — one global local
@@ -111,8 +109,7 @@ Costs:
 
 ### Per-Project — explicitly superseded
 
-Per-Project was CD-0002's baseline and is now superseded. It conflicts with
-Concord's purpose:
+Per-Project storage conflicts with Concord's purpose:
 
 - Product-wide reads must open/merge Project stores,
 - one cross-Project work item needs duplicate rows or cross-file coordination,
@@ -185,7 +182,7 @@ factual claims. No unsourced internal SaaS storage claims are made.
 - **Backup:** one consistent SQLite backup/checkpoint plus git backups. PM10
   must automate and test this before production readiness.
 - **Product export:** versioned logical bundle containing Product identity,
-  Project membership, canonical work/relations/events allowed by policy,
+  Project membership, canonical work and relations allowed by policy,
   knowledge locators, and ordinary external references allowed by policy. The bundle is
   not live authority.
 - **Import:** deferred; it must validate schema/IDs and cannot silently merge.
@@ -209,13 +206,12 @@ Reopen PM2 when any becomes a real requirement:
 
 Accepted consequences:
 
-- CD-0002 changes from **"one database file per Project"** to **"one global local
-  database per Concord installation/operator-machine."**
+- One global local database serves each Concord installation/operator-machine.
 - CD-0002's SQLite engine, WAL, `synchronous=NORMAL`, library-in-process,
   `busy_timeout`, and I1–I6 remain binding.
 - PM3 now narrowly supersedes CD-0003 D1's generic materialized spine with explicit
   typed Product-memory projections while retaining one generic authoritative log.
-- PM5 now models one canonical set of Product/Project/work memberships with
+- PM5 models one canonical set of Product/Project/work memberships with
   transactionally enforced referential integrity and derived cross-Product scope.
 - TS5 treats Product/Project as logical ambient scope, not database-shard selection.
 

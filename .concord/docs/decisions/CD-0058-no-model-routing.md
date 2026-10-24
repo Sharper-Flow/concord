@@ -10,8 +10,8 @@
 - **Related:** CD-0054 (model-neutral registry), CD-0017 (worker evidence and
   workflow-declared distinctness), CD-0036 (breaking cutover),
   CD-0044 (evidence boundary, unaffected)
-- **Preserves:** reviewer/implementer model distinctness, worker-attempt model
-  evidence, cost attribution
+- **Preserves:** worker-attempt model evidence, cost attribution; CD-0242 D5
+  requires no reviewer/implementer model distinctness
 
 ## Context
 
@@ -39,7 +39,8 @@ Models are per-host configuration; Concord holds no second opinion about them.
 ### D2. `readback_model` is the sole model evidence
 
 A worker attempt records the model the host reports as having executed it.
-That value remains the input to CD-0017 D6 distinctness, unchanged. Concord
+That value remains bound evidence of what executed; CD-0242 D5 requires no
+distinctness check on it. Concord
 asserts nothing about which model *should* have run, so it detects no
 substitution and claims none.
 
@@ -52,10 +53,9 @@ attempt row.
 
 ### D3. The routing-policy record and its load path are removed
 
-The contracts/routing-policy.v1.json file, the `CONCORD_ROUTING_POLICY` environment
-override, the embedded default, load-time validation, and the
-`opencode models` existence check are deleted. The repository retains no model
-identifier outside test and eval fixtures.
+Host configuration selects models. Concord records the executing model and
+does not resolve a model. The repository retains no model identifier outside
+test and eval fixtures.
 
 ### D4. The declared-side attempt columns are dropped
 
@@ -109,8 +109,11 @@ asserts a decision Concord no longer makes.
   proves a failed attempt retains missing-readback evidence without a model value.
 - `adapter/opencode/dispatch.test.ts` checks that lane dispatch omits `--model`
   and that missing or ambiguous readback records one failed attempt.
-- `internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed`
-  proves workflow-declared distinctness evaluates executing-model evidence.
+- `internal/store.TestCompletionMainAuthorityDoesNotRequireDifferentModels`
+  proves Main's completion authority needs no model separation.
+  `internal/store.TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner`
+  proves a worker cannot accept its own result. These exercise the current boundary under
+  [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
 - `internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows`
   proves the migration removes the five columns and preserves existing rows.
 - `scripts/check-agent-contracts.py` and `scripts/check-json.py` pass with

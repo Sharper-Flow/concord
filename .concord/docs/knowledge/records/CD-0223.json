@@ -26,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:da52d6d5e64e2ce0e51ea5a23e9fb5b169307d6bf69fdb976b6e77999c1d9e92",
+  "sha256": "sha256:ca26541de733524b80e20f96b98fc209aab1146a1e4bf46430de79d2977c5e60",
   "status": "accepted",
   "summary": "A dispatched worker has no general Concord state-query or mutation access. Its packet remains complete declared context. Explicit capabilities may expose bounded original pinned readings, scoped review diffs, and selection of recorded executable checks, not new context discovery or workflow authority. Review diffs span the first editing dispatch subject under the review contract version to the pinned review subject and remain within the recorded approved job path scope. Bounded reads use immutable Git bytes and revalidate the active attempt. Native-oracle receipt authority stays with the host producer. Utilities retain complete Concord-tool denial, and missing context or executable backing uses the report boundary.",
   "tags": [

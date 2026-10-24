@@ -170,8 +170,8 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(strings.Repeat("f", 40) + "\n"), nil
 	case strings.HasSuffix(join, "^{tree}") && strings.HasPrefix(join, "rev-parse "):
-		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse "), "^{tree}")
-		if g.resolveRef(ref) == ref {
+		ref := strings.TrimSuffix(args[len(args)-1], "^{tree}")
+		if _, known := g.branches[g.revisionBranch(ref)]; !known {
 			return nil, fmt.Errorf("unknown ref")
 		}
 		return []byte(g.treeOf(ref) + "\n"), nil
@@ -412,9 +412,9 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte(sha + "\n"), nil
 		}
 		return nil, fmt.Errorf("unknown ref")
-	case slices.Contains(args, "--numstat"):
-		// The terminal measured-delta probe over the fake's clean fixture
-		// tree: an empty numstat is the clean zero-delta observation.
+	case slices.Contains(args, "--name-only"):
+		// The terminal changed-path probe over the fake's clean fixture
+		// tree: no names is the clean zero-delta observation.
 		return nil, nil
 	}
 	return nil, fmt.Errorf("unexpected git invocation: %s", join)
@@ -524,7 +524,7 @@ func worktreeFixture(t *testing.T) (*Store, *fakeWorktreeGit, string) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
+		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
 		{EventID: "work-w-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 0}}); err != nil {
 		t.Fatal(err)
@@ -1417,22 +1417,6 @@ func TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch(t *testing.T) {
 	}
 }
 
-func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := s.WorktreeEntries(context.Background(), "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive || entries[0].ClaimOpID != "wt-op-1" {
-		t.Fatalf("entries after rebuild=%+v err=%v", entries, err)
-	}
-}
-
 // insertPendingClaim writes the durable claim row without running git, the
 // state an interrupted operation leaves behind. repoRoot is the Project's
 // canonical-path locator value, the repository identity the claim pins.
@@ -1450,7 +1434,7 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 	t.Helper()
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Audit ` + workID + `","priority":1}`)},
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Audit ` + workID + `","priority":1}`)},
 		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)

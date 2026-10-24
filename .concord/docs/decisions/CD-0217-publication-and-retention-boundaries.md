@@ -1,16 +1,12 @@
 # CD-0217: Publication and research retention have separate boundaries
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Related:** [compaction-retention-policy](../compaction-retention-policy.md),
   [CD-0215](CD-0215-retained-research-context.md),
   [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility, publication proof, and other non-consent checks remain required.
 
 ## Context
 
@@ -26,18 +22,18 @@ CD-0013 D11 separates routine local publication/proof reconciliation from resear
 
 ### D1. Terminal projection pruning remains deferred
 
-No terminal-work prune eligibility predicate, storage-pressure threshold, maintenance run, or prune event is introduced.
+No terminal-work prune eligibility predicate, storage-pressure threshold, or maintenance run is introduced.
 Terminal work remains in live typed projections indefinitely.
 `work_projection_pruned` and `archived_work_linked` remain reserved; introducing either requires a successor to this deferral.
 CD-0142 remains a separate operator-directed nonterminal execution-removal boundary after verified handoff and reconciliation.
-It is not terminal pruning and does not remove `domain_events`.
+It is not terminal pruning: it removes one nonterminal work item and its owned execution projections and keeps the removal receipt as a current row under [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history).
 
 ### D2. Authority guarantees remain in force
 
 | Guarantee | Obligation |
 |---|---|
 | Git note | authority for distilled knowledge |
-| `domain_events` | exact work history and replay; never pruned |
+| Store state | current rows and finite verified snapshots; retention and cleanup follow [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) |
 | Work IDs | immutable after a prune boundary; renewed need uses a new linked identity |
 | Work projection removal | verified linkage precedes terminal removal; CD-0142 remains separate |
 | Historical projections | disposable and Git-rebuildable |
@@ -48,14 +44,14 @@ It is not terminal pruning and does not remove `domain_events`.
 
 Research retirement needs neither a compaction link nor a calendar deadline.
 Only `research_retire` deletes pack aggregates; eligibility alone has no destructive effect.
-PM8's WIP-byte exclusion, PM9's process-exhaust rejection, and the ban on core-event pruning remain unchanged.
+PM8's WIP-byte exclusion, PM9's process-exhaust rejection, and [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s retention rules remain unchanged.
 
 ### D3. Live projection growth has a revisit trigger
 
 Live work, relation, membership, idempotency, operation, worker, message, observation, and workflow projections may grow without bound at single-operator pre-floor scale.
 A later accepted decision must restore a pruning mechanism before any of these conditions holds:
 
-1. Representative projection size measurably degrades authoritative query latency, fold time, or startup.
+1. Representative projection size measurably degrades authoritative query latency or startup.
 2. Deployment moves beyond one operator through another concurrent operator or a hosted installation.
 3. Backup snapshot size makes the absence of reclamation a recovery risk.
 
@@ -70,16 +66,15 @@ Research retirement does not delete earlier backup copies.
 
 ### D5. Deliberate absences stay absent
 
-There is no core-event pruning, WIP-byte content-addressed store, separate process-exhaust receipt, calendar expiration, or fixed sweep.
-The research aggregate remains outside retained events and historical work projections.
+There is no core-row pruning outside [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s documented rules, no WIP-byte content-addressed store, separate process-exhaust receipt, calendar expiration, or fixed sweep.
+The research aggregate remains outside historical work projections.
 Work publication and read inspection cannot become alternate retirement routes.
 Owner removal must preserve retained research or refuse before a foreign-key cascade can destroy it.
 
 ### D6. Coverage follows the replacement obligations
 
-Historical archive-cleanup tests do not prove explicit retirement or publication without deletion.
-Successor coverage must include preserved work-authority guarantees and the new research boundary witnesses.
-The manifest must not carry forward a satisfied state based only on the archive-cleanup anchors.
+Coverage must prove explicit retirement, publication without deletion, work-authority guarantees, and research boundary witnesses.
+The manifest must not claim a satisfied state without evidence for those obligations.
 
 ## Alternatives considered
 
@@ -95,7 +90,7 @@ Historical index rebuild remains derived, not a new work-authority writer.
 Explicit research retirement adds bounded destructive intent without changing deferred work pruning.
 Compaction note proof, exact history, frozen historical scope, and deduplicated query populations remain mandatory.
 
-The parent must integrate migration and replacement witnesses before deployment; no live store or activation belongs to this edit.
+Migration and conformance witnesses are required before deployment.
 
 ## Verification
 
@@ -104,4 +99,4 @@ and `internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted`.
 New candidate anchors include `internal/store.TestResearchRetirementCascadesContent`
 and `internal/agent.TestResearchRetireDryRunAndReplay`.
 Publication, every terminal route, owner removal, restart/replay, restore, and the pin/retire race still need integrated assessment.
-The successor coverage remains unmeasured rather than claiming that historical cleanup proves the new policy.
+Coverage remains unmeasured until the required witnesses prove these obligations.

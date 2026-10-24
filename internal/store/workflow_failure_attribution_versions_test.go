@@ -63,44 +63,18 @@ func workflowFailureCorrectionPayload(t *testing.T, actionID string, extra map[s
 	return raw
 }
 
-// workflowFailureDefinitionByRefVersion resolves one registered builtin
-// definition or fails the test.
-func workflowFailureDefinitionByRefVersion(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("%s version %d is not registered", ref, version)
-	}
-	return entry.Definition
-}
+// workflowFailureLiveFamilies names the live families, each resolved at its
+// one current definition (CD-0242 D4, D14).
+var workflowFailureLiveFamilies = []string{"workflow.implementation", "workflow.break_fix", "workflow.research"}
 
-// TestWorkflowFailureAttributionGateMatchesPromotedHeads pins the private
-// version gate the terminal wiring consumes: exactly implementation 31,
-// break_fix 28, and research 18 and above carry the failure-attribution
-// semantics, and every released version below — and every retired family —
-// stays outside the gate.
+// TestWorkflowFailureAttributionGateMatchesPromotedHeads pins the gate the
+// terminal wiring consumes: every live family's current definition carries
+// the failure-attribution semantics, and an unregistered definition does not.
 func TestWorkflowFailureAttributionGateMatchesPromotedHeads(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		ref     string
-		version int64
-		want    bool
-	}{
-		{"workflow.implementation", 30, false},
-		{"workflow.implementation", 31, true},
-		{"workflow.break_fix", 27, false},
-		{"workflow.break_fix", 28, true},
-		{"workflow.research", 17, false},
-		{"workflow.research", 18, true},
-		{"workflow.architecture_spike", 17, false},
-		{"workflow.ops_runbook", 18, false},
-		{"workflow.static_analysis", 15, false},
-		{"workflow.generic_one_off", 16, false},
-	}
-	for _, tc := range cases {
-		definition := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
-		if got := workflowFailureAttributionActive(definition); got != tc.want {
-			t.Errorf("%s version %d gate = %v, want %v", tc.ref, tc.version, got, tc.want)
+	for _, ref := range workflowFailureLiveFamilies {
+		if !workflowFailureAttributionActive(mustBuiltinDefinition(t, ref).Definition) {
+			t.Errorf("%s current definition is outside the attribution gate", ref)
 		}
 	}
 	if workflowFailureAttributionActive(WorkflowDefinition{Ref: "workflow.implementation"}) {
@@ -109,9 +83,9 @@ func TestWorkflowFailureAttributionGateMatchesPromotedHeads(t *testing.T) {
 }
 
 // TestWorkflowFailureAttributionCorrectionResolverMatchesPinVersion pins the
-// version-aware correction resolution: the promoted heads declare the
-// optional failure_attribution object field, every released predecessor
-// resolves the payload it shipped, and the engine law list stays classic.
+// correction resolution: each live family's current definition declares the
+// optional failure_attribution object field, and the engine law list stays
+// classic.
 func TestWorkflowFailureAttributionCorrectionResolverMatchesPinVersion(t *testing.T) {
 	t.Parallel()
 	declaresAttribution := func(action WorkflowActionDefinition) *WorkflowPayloadField {
@@ -123,26 +97,18 @@ func TestWorkflowFailureAttributionCorrectionResolverMatchesPinVersion(t *testin
 		}
 		return nil
 	}
-	promoted := []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 31},
-		{"workflow.break_fix", 28},
-		{"workflow.research", 18},
-	}
-	for _, tc := range promoted {
-		definition := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
+	for _, ref := range workflowFailureLiveFamilies {
+		definition := mustBuiltinDefinition(t, ref).Definition
 		for _, actionID := range []string{"reject_worker_result", "request_correction"} {
 			field := declaresAttribution(workflowCorrectionActionDefinitionFor(definition, actionID))
 			if field == nil {
-				t.Fatalf("%s v%d %s resolves no failure_attribution field", tc.ref, tc.version, actionID)
+				t.Fatalf("%s %s resolves no failure_attribution field", ref, actionID)
 			}
 			if field.ValueType != PayloadObject || field.Required || field.SchemaRef != "worker_failure_observation" {
-				t.Fatalf("%s v%d %s failure_attribution = %+v, want an optional object declaring worker_failure_observation", tc.ref, tc.version, actionID, field)
+				t.Fatalf("%s %s failure_attribution = %+v, want an optional object declaring worker_failure_observation", ref, actionID, field)
 			}
 		}
-		request := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
+		request := definition
 		var requestField *WorkflowPayloadField
 		for index := range request.ActionDefinitions {
 			if request.ActionDefinitions[index].ID != "request_correction" {
@@ -150,37 +116,18 @@ func TestWorkflowFailureAttributionCorrectionResolverMatchesPinVersion(t *testin
 			}
 			requestField = declaresAttribution(request.ActionDefinitions[index])
 		}
-		if tc.ref == "workflow.research" {
-			// Research declares request_correction on no version: the
+		if ref == "workflow.research" {
+			// Research declares no request_correction: the
 			// delivery gate correction composes onto implementation and
 			// break_fix only, so the version-aware resolver owns research's
 			// payload and the in-definition restatement does not apply.
 			if requestField != nil {
-				t.Fatalf("%s v%d declares request_correction in-definition; the graph changed under its chain", tc.ref, tc.version)
+				t.Fatalf("%s declares request_correction in-definition; the delivery gate correction composes onto implementation and break_fix only", ref)
 			}
 			continue
 		}
 		if requestField == nil {
-			t.Fatalf("%s v%d declares request_correction without the failure_attribution field", tc.ref, tc.version)
-		}
-	}
-	released := []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 30},
-		{"workflow.implementation", 22},
-		{"workflow.break_fix", 27},
-		{"workflow.break_fix", 14},
-		{"workflow.research", 17},
-		{"workflow.research", 9},
-	}
-	for _, tc := range released {
-		definition := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
-		for _, actionID := range []string{"reject_worker_result", "request_correction"} {
-			if field := declaresAttribution(workflowCorrectionActionDefinitionFor(definition, actionID)); field != nil {
-				t.Fatalf("%s v%d %s declares failure_attribution; a released pin changed under its pin", tc.ref, tc.version, actionID)
-			}
+			t.Fatalf("%s declares request_correction without the failure_attribution field", ref)
 		}
 	}
 	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
@@ -222,34 +169,8 @@ func TestWorkflowFailureAttributionPublishedVariantCarriesObservation(t *testing
 	}
 }
 
-// TestWorkflowFailureAttributionReleasedPinsRefuseObservationInput holds the
-// freeze boundary at the payload layer: a correction payload carrying the
-// observation refuses on every released pin, through the same live-document
-// validation admission runs.
-func TestWorkflowFailureAttributionReleasedPinsRefuseObservationInput(t *testing.T) {
-	t.Parallel()
-	observation := workflowFailureObservationInput(t)
-	released := []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 30},
-		{"workflow.break_fix", 27},
-		{"workflow.research", 17},
-	}
-	for _, tc := range released {
-		definition := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
-		for _, actionID := range []string{"reject_worker_result", "request_correction"} {
-			payload := workflowFailureCorrectionPayload(t, actionID, map[string]any{"failure_attribution": observation})
-			if err := validateWorkflowActionPayload(definition, actionID, payload); err == nil {
-				t.Fatalf("%s v%d admitted failure_attribution on %s; a released pin changed behavior", tc.ref, tc.version, actionID)
-			}
-		}
-	}
-}
-
 // TestWorkflowFailureAttributionPromotedPinsAdmitObservationInput proves the
-// promoted heads admit the direct observation as an optional input and refuse
+// live families' current definitions admit the direct observation as an optional input and refuse
 // the recorded block's core-derived members at the same boundary. The
 // generated document must carry the declared schemas first; a missing
 // definition names the regeneration instead of failing silently.
@@ -262,24 +183,16 @@ func TestWorkflowFailureAttributionPromotedPinsAdmitObservationInput(t *testing.
 		}
 	}
 	observation := workflowFailureObservationInput(t)
-	promoted := []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 31},
-		{"workflow.break_fix", 28},
-		{"workflow.research", 18},
-	}
-	for _, tc := range promoted {
-		definition := workflowFailureDefinitionByRefVersion(t, tc.ref, tc.version)
+	for _, ref := range workflowFailureLiveFamilies {
+		definition := mustBuiltinDefinition(t, ref).Definition
 		for _, actionID := range []string{"reject_worker_result", "request_correction"} {
 			without := workflowFailureCorrectionPayload(t, actionID, nil)
 			if err := validateWorkflowActionPayload(definition, actionID, without); err != nil {
-				t.Fatalf("%s v%d refused %s without the optional member: %v", tc.ref, tc.version, actionID, err)
+				t.Fatalf("%s refused %s without the optional member: %v", ref, actionID, err)
 			}
 			with := workflowFailureCorrectionPayload(t, actionID, map[string]any{"failure_attribution": observation})
 			if err := validateWorkflowActionPayload(definition, actionID, with); err != nil {
-				t.Fatalf("%s v%d refused the failure_attribution observation on %s: %v", tc.ref, tc.version, actionID, err)
+				t.Fatalf("%s refused the failure_attribution observation on %s: %v", ref, actionID, err)
 			}
 			for _, coreDerived := range []string{"origin", "identity", "input_results", "seq", "commit"} {
 				corePayload := workflowFailureCorrectionPayload(t, actionID, map[string]any{
@@ -287,7 +200,7 @@ func TestWorkflowFailureAttributionPromotedPinsAdmitObservationInput(t *testing.
 					coreDerived:           "core-derived",
 				})
 				if err := validateWorkflowActionPayload(definition, actionID, corePayload); err == nil {
-					t.Fatalf("%s v%d admitted the core-derived member %s on %s", tc.ref, tc.version, coreDerived, actionID)
+					t.Fatalf("%s admitted the core-derived member %s on %s", ref, coreDerived, actionID)
 				}
 			}
 		}
@@ -431,13 +344,11 @@ func TestWorkflowCorrectionAttributionFitsDerivedActionBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
 	}
-	// The size-capable packet5 identity mirrors the checks-repair packet4
-	// shape beside the recorded production-size members: the measurement
-	// basis's base commit and the direct-caller allowance's knowledge
-	// content hash are anchored scalars the walker bounds at their exact
-	// quoted serializations.
+	// The caller-capable packet5 identity mirrors the checks-repair packet4
+	// shape beside the direct-caller members: the allowance's knowledge
+	// content hash is an anchored scalar the walker bounds at its exact
+	// quoted serialization.
 	packet5Opt := workerPacketCapacityOptions(defs, "worker_packet5", "worker_packet5_worker_job", packetOpt.FindingRefMax)
-	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
 	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
 	packet5Parts, err := schemawire.Max(defs["worker_packet5"], "worker_packet5", packet5Opt)
 	if err != nil {

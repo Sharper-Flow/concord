@@ -31,9 +31,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a
 // contract fixture stays about the mechanism under test rather than about
-// architecture binding. Version 2 adds the current worker actions, which give the
-// registry a real supersession to prove against.
+// architecture binding. The worker fixture is a separate synthetic family;
+// neither family retains another definition.
 const workflowFixtureRef = "workflow.test_fixture"
+const workflowWorkerFixtureRef = "workflow.worker_test_fixture"
 
 // workflowFixtureWorkKind is the payload spelling of the fixture family's work
 // kind.
@@ -59,8 +60,8 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()
 	registered := make([]RegisteredDefinition, 0, 2)
 	for _, definition := range []WorkflowDefinition{
-		workflowFixtureShape(builtinImplementation(false), 1),
-		workflowFixtureShape(withWorkerActions(builtinImplementation(false), false), 2),
+		workflowFixtureShape(workflowFixtureBase(), 1),
+		workflowFixtureWorkerDefinition(),
 	} {
 		entry, err := registry.Register(definition)
 		if err != nil {
@@ -69,6 +70,30 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 		registered = append(registered, entry)
 	}
 	return registered
+}
+
+func workflowFixtureWorkerDefinition() WorkflowDefinition {
+	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()), 2)
+	definition.Ref = workflowWorkerFixtureRef
+	return definition
+}
+
+func workflowFixtureWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+	for _, actionID := range []string{"accept_worker_result", "record_worker_failure", "dispatch_worker"} {
+		definition.AvailableActions = append(definition.AvailableActions, actionID)
+		action := currentActionDefinition(actionID, false)
+		action.RequiredCapability = "work_transition"
+		if actionID == "dispatch_worker" {
+			action.RequiredCapability = WorkerDispatchCapability
+		}
+		definition.ActionDefinitions = append(definition.ActionDefinitions, action)
+		for i := range definition.StepGraph.Steps {
+			if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
+				definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, actionID)
+			}
+		}
+	}
+	return definition
 }
 
 func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition {
@@ -85,11 +110,6 @@ func workflowFixtureShape(definition WorkflowDefinition, version int64) Workflow
 	definition.WorkKind = WorkKindStaticAnalysis
 	changesProductTruth := false
 	definition.ChangesProductTruth = &changesProductTruth
-	// The fixture keeps the implementation step graph, so it must also keep
-	// the recovery-route table that graph owns: the fixture ref is outside
-	// the quarantined released range, and a table-less evaluator definition
-	// refuses at registration.
-	definition.RecoveryRoutes = implementationRecoveryRoutes()
 	return definition
 }
 
@@ -298,32 +318,6 @@ func advanceWorkflowTestInstanceToStep(ctx context.Context, s *Store, workID, ta
 			return err
 		}
 	}
-}
-
-// replayWorkflowAuthority is the corpus-only authority fixture seam. It uses
-// the production durable claim/completion protocol so condition folds can
-// validate evidence against a real completed operation; it never inserts a
-// durable_operations row directly.
-func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, principal, requestID string, evidence []string) error {
-	digest := "sha256:" + strings.Repeat("a", 64)
-	workflowTypeRef, workflowTypeVersion, stepID := "workflow.test", 1, "evidence"
-	_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
-	claimed, err := ClaimStepAuthorized(ctx, s, ClaimRequest{
-		OpID: opID, WorkID: workID, WorkflowTypeRef: workflowTypeRef, WorkflowTypeVersion: workflowTypeVersion,
-		StepID: stepID, StepKind: StepInternalSQLite, AcceptedInputsDigest: digest,
-		AcceptedScopeSnapshot: `{}`, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ContractDigest: testManifestDigest,
-	}, nil)
-	if err != nil {
-		return err
-	}
-	_, err = CompleteStep(ctx, s, CompleteRequest{
-		OpID: opID, AttemptEpoch: claimed.AttemptEpoch, ResultKind: ResultCompleted,
-		EvidenceRefs: evidence, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
-		CompletedAt: ptrTime(time.Date(2026, 8, 9, 0, 0, 1, 0, time.UTC)),
-	})
-	return err
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }

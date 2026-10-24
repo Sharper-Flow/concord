@@ -4,6 +4,7 @@
 // that wire the window opens, the worker runs, and no attempt is recorded, so
 // accept_worker_result refuses with "worker attempt does not exist" (issue #781).
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import { reviewBlockFixture, reviewFindingFixture } from "./review-test-fixture"
 import { createHash } from "node:crypto"
 import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
@@ -139,11 +140,11 @@ describe("completeDispatchedWorker", () => {
   })
 
   // CD-0197: the attempt readback carries a completed review report's typed
-  // verdict and per-severity counts, and stays free of the field when the
-  // report carried none. The verdict is report content only: it records no
+  // disposition and per-severity counts, and stays free of the field when the
+  // report carried none. The disposition is report content only: it records no
   // workflow verdict.
-  test("the attempt readback carries a reported review verdict and per-severity counts", async () => {
-    const reported = { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "a finding" }, { severity: "P3", confidence: "low", detail: "another" }] }
+  test("the attempt readback carries a reported disposition and per-severity counts", async () => {
+    const reported = reviewBlockFixture({ findings: [reviewFindingFixture({ detail: "a finding" }), reviewFindingFixture({ finding_id: "finding:second", severity: "P3", confidence: "low", detail: "another" })] })
     const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
       const windows = new DispatchWindows()
       windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
@@ -155,7 +156,7 @@ describe("completeDispatchedWorker", () => {
       const element = output.output.split("<concord_attempt>")[1]?.split("</concord_attempt>")[0]
       return JSON.parse(element!.trim()) as Record<string, unknown>
     }
-    expect((await attemptSummary({ review: reported })).review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 1, P2: 0, P3: 1 } })
+    expect((await attemptSummary({ review: reported })).review).toEqual({ disposition: "correction_required", findings: { P0: 0, P1: 1, P2: 0, P3: 1 } })
     expect("review" in (await attemptSummary())).toBe(false)
   })
 

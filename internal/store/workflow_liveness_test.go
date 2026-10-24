@@ -862,6 +862,24 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return raw, nil
 	}
+	if _, declared := fields["open_finding_ids"]; declared {
+		lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, workID)
+		if err != nil {
+			return nil, err
+		}
+		if ids := lineage.openFindingIDs(); len(ids) == 0 {
+			delete(fields, "open_finding_ids")
+		} else {
+			fields["open_finding_ids"], err = json.Marshal(ids)
+			if err != nil {
+				return nil, err
+			}
+		}
+		raw, err = json.Marshal(fields)
+		if err != nil {
+			return nil, err
+		}
+	}
 	bound := map[string]any{}
 	if _, declared := fields["contract_version"]; declared {
 		var version int64
@@ -1077,7 +1095,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	ctx := context.Background()
 	peerID := livenessPeerWorkID
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
+		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
 		{EventID: peerID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, peerID): 0}}); err != nil {
 		t.Fatal(err)

@@ -5,34 +5,24 @@
 - **Scope:** The one declared recovery-route table per workflow definition, the
   closed two-trigger contract, the registration refusals, the one reader every
   runtime cross-step correction feeds from, the producer mechanism the route
-  target must carry, the artifact-staleness fold and its admission halves, the
-  work-pin sequence that names a return, the liveness and conformance checks,
-  and the liveness-on-release pass for the 108 released definition versions
-- **Extends:** CD-0201 D1 with the typed route table and the producer rule;
-  CD-0201 D2 with the bit the liveness and conformance checks read; CD-0201
-  D3, D4 unchanged
-- **Amends:** CD-0143 D1 at its return target: the engine-owned
-  request_correction route reads the declared target rather than a work-kind
-  step order, and the unhealthy-verdict route is the one path the engine
-  admits after an accepted worker delivery with a current unhealthy verdict;
-  CD-0201 D1 at its folded-state coverage to include the artifact-staleness
-  frontier and the production frontier; CD-0204 D3 at its host claim: every
-  late-verdict step that the closed trigger unhealthy_verdict serves sits on
-  a step that declares the table's return, and the late record_verdict route
-  reaches the producer through the same reader
+  target must carry, the artifact-staleness state and its admission halves, the
+  work-pin sequence that names a return, and the liveness and conformance
+  checks
 - **Preserves:** CD-0172 D1/D2 and CD-0186 in full, including the
   complete-step supersede limit to implementation and break_fix, the
   convention-cutoff exact approval terminal, and the refusal of any other
   family or step on that route; CD-0143 D2, the return to the declared
-  external effect; CD-0143 D3, the bound on correction sequences; CD-0143 D4,
-  the fail-closed completion; CD-0164 population and wall keyed by the
-  declared target; CD-0115 D1, the frozen released definition content and
-  digests; CD-0122 D2, the outside-repair authorization this amendment runs
+  external effect; CD-0143 D4, the fail-closed completion; each correction
+  one admitted request bound to the declared target
+  ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget));
+  definitions from one canonical source with no retained released version
+  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
+  CD-0122 D2, the outside-repair authorization this amendment runs
   under; every other route refusal on every other route (CD-0186)
-- **Related:** CD-0013, CD-0059, CD-0067, CD-0115, CD-0116, CD-0122, CD-0124,
-  CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0164, CD-0166,
+- **Related:** CD-0013, CD-0059, CD-0067, CD-0116, CD-0122, CD-0124,
+  CD-0133, CD-0137, CD-0138, CD-0143, CD-0147, CD-0159, CD-0166,
   CD-0172, CD-0173, CD-0186, CD-0187, CD-0193, CD-0197, CD-0201, CD-0203,
-  CD-0204, CD-0206, CD-0207, and Concord (CON) issue 861
+  CD-0204, CD-0207, and Concord (CON) issue 861
 - **Approval:** The operator authorized completion of the
   declared-recovery-route contract under CD-0122 D2 as outside repair for
   CON-861. The latest managed proposal for CON-861, not a fabricated
@@ -40,10 +30,9 @@
 
 ## Context
 
-CD-0201 D1 puts workflow action admission in one function over one folded
+CD-0201 D1 puts workflow action admission in one function over one current
 state. CD-0201 D2 binds the liveness law over every registered definition
-version. CD-0201 D3 settles the post-rejection review debt on a ship or
-absent verdict. CD-0204 folds the acceptance-deliverables refusal and the
+version. CD-0204 merges the acceptance-deliverables refusal and the
 late record_verdict route into the same admission owner.
 
 A fresh review of the recovery half of CD-0201 found that the contract was
@@ -60,26 +49,27 @@ incomplete. Cross-step correction was admitted in five shapes:
 4. The pinned complete-step contract correction under CD-0172, which
    required the implementation or break_fix family and refused the others
    (CD-0186).
-5. The CON-846 trap, where a released generic_one_off pin under an
-   approved successor contract resolved no return at all because the
-   quarantine had not been authored.
+5. The CON-846 trap, where a generic_one_off instance under an
+   approved successor contract resolved no return at all because
+   no route table had been authored.
 
 Each shape carried its own step-order rule, and the result was three
 independent failures on a single defect:
 
-- The CON-846 shape: a released evaluator step with an unhealthy verdict
+- The CON-846 shape: an evaluator step with an unhealthy verdict
   and no admitted route to its producer.
 - The CON-861 shape: a stale artifact that the verifier's independent
-  judgment could not refuse, because the folded state did not carry the
+  judgment could not refuse, because the admission state did not carry the
   causal origin of the production event.
 - The bad-to-ok transition CD-0201 forbids: a `record_verdict` action that
   moved the work from a stale state to an unstale state without
   re-production at the declared producer.
 
 The structural fix is one table. The runtime reads the table through one
-function; registration validates the table through one gate; the artifact
-fold reads the table to bind the production frontier to the declared
-target; the work pin reads the table to name the next sequence. The
+function; registration validates the table through one gate; the
+artifact-staleness state reads the table to bind the production frontier
+to the declared target; the work pin reads the table to name the next
+sequence. The
 acceptor must know the target before it can admit the return, and the
 admission model must know the producer before it can decide whether a
 move would re-produce the artifact. A graph walk, a work-kind heuristic, a
@@ -87,18 +77,16 @@ whitelist, or a nearest-target order does not own that decision.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, attempt history, return targets, convergence, and real liveness checks remain required. Historical pins retain their signature rules.
-
+For `approval_policy=consequence_v1`, recovery correction requires the authenticated coordinator and exact diagnosis, strategy, predicates/findings, and bound evidence, without an operator approval. This qualifies the signature prerequisite and its conformance assertions below. Declared producer routes, artifact staleness, return targets, and real liveness checks remain required. Each correction is one admitted request with its own bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. One declared recovery-route table per family
 
 A workflow definition declares at most one recovery-route table
 (`WorkflowRecoveryRoute[]`) under the schema-version 1.3 key
-`recovery_routes`. The field is optional: an authored version may declare
-it, a released version does not, and the canonical-bytes function emits it
-under the `omitempty` tag so the absence of the field on a released
-manifest does not change its digest (CD-0115 D1). Each route is a typed
-record with four closed fields:
+`recovery_routes`. The field is optional, and the canonical-bytes function
+emits it under the `omitempty` tag so an absent field changes no derived
+digest ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Each route is a typed record with four closed fields:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -117,7 +105,7 @@ pair; the target must reach the route step through forward edges alone
 not be terminal; the target must not declare `approve_contract`; the
 target must carry an artifact-producing mechanism (D4); the route must not
 duplicate for one (step, trigger) pair. Same-step attempt recovery —
-`failed_attempt`, `rejected_attempt`, review-debt, the late-record
+`failed_attempt`, `rejected_attempt`, the late-record
 evidence path — stays with its existing owner and declares no route, so
 the runtime cross-step reader does not see it and the gate does not
 delegate a same-step return through the table.
@@ -132,29 +120,19 @@ registration.
 
 The closed two-trigger set is the only pair the runtime cross-step reader
 recognizes. Same-step attempt recovery keeps its own owner (the
-attempt-failure chain and the review-debt chain). The gate delegates to
+attempt-failure chain). The gate delegates to
 the evaluator's declared unhealthy-verdict target; the gate does not walk
 the graph, does not order the step slice by a kind, and does not pick a
 nearest-effect step.
 
 ### D2. The registration gate refuses an undeclared return
 
-A definition that names no recovery-route table and that has no
-table-less released (ref, version) in the quarantine refuses registration
+A definition that names no recovery-route table refuses registration
 the moment any of its steps records a verdict, confirms a premise, or
 hosts the late-verdict context. The coverage clause is the one clause
-the gate owns. A released version whose (ref, version) the quarantine
-does not name resolves no routes and refuses the same way, so a stranded
-pin on an unknown ref or version is not admitted with an empty table.
-A released version whose (ref, version) the quarantine names — the
-generic_one_off 1-to-13 range, the implementation 1-to-22 range, the
-break_fix 1-to-19 range, the research 1-to-13 range, the
-architecture_spike 1-to-14 range, the ops_runbook 1-to-15 range, and the
-static_analysis 1-to-12 range, the 108 released versions in total —
-resolves the quarantined routes, and the registration gate validates the
-resolved routes against that version's own graph. A released version
-whose graph yields a different route than its quarantine holds refuses
-the same way, so the quarantine and the graph cannot drift.
+the gate owns. The registration gate validates the declared routes
+against the definition's own graph, so the declared routes and the
+graph cannot drift.
 
 The gate also refuses:
 
@@ -166,43 +144,35 @@ The gate also refuses:
 - a non-upstream target — a target that does not reach the route step
   through forward edges;
 - two failure edges on one step — the registration-level bound every
-  released version also satisfies;
+  definition also satisfies;
 - an engine-unknown route action — an action outside the engine's closed
   recovery-action set.
 
-The quarantine range is the released-version-only contract for each
-family. The published numbers above are golden: a change to the range
-moves the digests of every released version above it through a new
-content freeze, which CD-0115 D1 forbids. The quarantined data
-themselves — the per-(ref, version) route slice — are golden per
-version. Authored versions declare their own table; the quarantine never
-guesses a table from a graph, a work kind, or a step slice.
+Definitions derive from one canonical source; no hand-maintained version
+pin or catalog list duplicates it, and no gate guesses a table from a
+graph, a work kind, or a step slice
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D3. One reader, one function, no whitelist
 
 The runtime cross-step correction reader is
 `workflowRecoveryRoutes(definition)`. The function returns a defensive
-copy: a nil or empty declared table falls through to the quarantine for
-the (ref, version), a declared table is the one owner of its (ref,
-version), and an unknown ref or a version above the quarantine range
-resolves nil. No caller walks the graph, orders the step slice, or
+copy, and a declared table is the one owner of its definition's routes.
+No caller walks the graph, orders the step slice, or
 reads a work kind to pick a target. No whitelist of step kinds or family
 names overrides the table. No nearest-effect step or nearest-verdict
 walk derives a return.
 
-The fold, the action guards, the work pin intents, the dispatch fold,
-the correction binding, the CD-0164 correction counting and three-attempt
-wall, the CD-0172 complete-step return, the late `record_verdict` route
-of CD-0204 D3, and the liveness and conformance replay all read through
-this one function. The folded state the admission model carries
+The staleness state, the action guards, the work pin intents, the dispatch
+admission, the correction binding, the CD-0172 complete-step return, the
+late `record_verdict` route
+of CD-0204 D3, and the liveness and conformance checks all read through
+this one function. The admission state the model carries
 (`RecoveryRoutes`) is the same slice the runtime reads, so the recorded
 move and the admitted intent cannot disagree about the return.
 
 The route-reader requirement governs live correction admission and live effects.
-Historical `request_correction` completions may use PM3's finite compatibility
-table to preserve a supported released writer's recorded return.
-This exception changes no declared or quarantined live route.
-Runtime replay must not infer a target through a graph walk, work-kind heuristic,
+Recovery must not infer a target through a graph walk, work-kind heuristic,
 or correction prose.
 
 ### D4. The producer rule names the artifact-producing mechanism
@@ -236,8 +206,8 @@ the accepted `accept_worker_result` at the target step, the
 `dispatch_worker` completion at the target step for the same worker
 attempt, and the capability dispatch event that carries one of
 `implementation`, `design`, or `research` as the capability class for
-that attempt. The dispatch and the capability events must precede the
-acceptance in the same event history, and all three must postdate the
+that attempt. The dispatch and the capability records must precede the
+acceptance for the same attempt, and all three must postdate the
 stale cause. A capability class outside the producing set fails closed:
 identity and class fail closed together, so a dispatch with an
 unrecognized class never refreshes the artifact. A review or
@@ -249,33 +219,32 @@ production: a `record_finding` at the research producer, a
 `record_delivery` at every other producer, each with its own owning
 	semantics.
 
-### D5. The artifact-staleness fold is the folded state the admission model reads
+### D5. Artifact staleness is current state the admission model reads
 
 A step inside a route's producer-to-evaluator span — the producer
-itself, every intermediate step, and the evaluator — folds the route
-target's artifact. A step no route spans folds false, because no
+itself, every intermediate step, and the evaluator — carries the route
+target's staleness. A step no route spans carries none, because no
 declared evaluation judges an artifact through it. The span is
 graph-derived: a target reaches the route step through forward edges,
 and the step reaches the route step through forward edges. The
-historical bit therefore survives the corrective return to the
+staleness bit therefore survives the corrective return to the
 producer and every step between producer and evaluator: a step advance
 is not a production event, a refine is not a production event, a
 return is not a production event, and a parked gate is not a
 production event.
 
-The fold reads event history only, never the singular active contract,
-so a duplicated projection folds the same answer the recovery that
-owns it reads. The fold is total over any projection state: an
-unreadable projection fails the fold with a typed refusal, and the
+The staleness bit is current store state, written in one transaction
+and checked by its expected version
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+An unreadable state fails typed, and the
 admission model carries the failure rather than assuming the bit is
 false.
 
-The artifact becomes stale on the latest of two events:
-
-- a recorded verdict whose kind is not `ok`, or whose entry is
-  incomparable with the approved result;
-- a contract supersession that changed the objective the artifact must
-  satisfy and that landed at or after the producer step.
+The artifact becomes stale on a recorded verdict whose kind is not `ok`,
+or whose entry is incomparable with the approved result. A contract
+supersession invalidates only the Review and proof whose recorded digests
+it changes
+([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 
 The artifact clears on the latest production event at the declared
 target that postdates the stale cause, where the production event is
@@ -291,9 +260,9 @@ set; the same is true for a single ok entry. A `confirm_premise`
 action while the bit is set refuses with the declared route as the
 remedy. A correction request_correction that the gate admits moves
 the work to the target step; only a fresh production there clears
-the bit. The CD-0164 population and three-attempt wall key their
-counting on the declared target, so the counting and the artifact
-fold read the same target.
+the bit. Each correction is one admitted request bound to the declared
+target, so the correction and the staleness state read the same target
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D6. The work pin names the sequence and the supersede holds the step
 
@@ -343,9 +312,9 @@ The liveness and conformance checks are exhaustive over every
 registered definition version. A seeded false healthy witness must
 fail the safety check, so a regression that drops the mirror
 cannot pass silently. The conformance replay reads the
-artifact-staleness bit the fold produces and replays the real
+artifact-staleness state and replays the real
 engine on witness paths. The conformance replay has no carveouts:
-the seeded unmirrored fold produces a witness, and the mirror that
+the seeded unmirrored state produces a witness, and the mirror that
 removes the witness is the test the conformance replay is.
 
 The liveness check on the artifact-staleness bit is total. A
@@ -358,21 +327,17 @@ the witnesses the check names, so a regression that drops the bit
 fails with a witness, not a pass. The replay runs the real engine
 on each witness path. The loader's artifact-staleness bit matches the
 abstract successor at return, dispatch, acceptance, and evaluator re-entry.
-Historical fence and hold state keep their existing semantics until a fresh start.
+Active work continues under the new model from verified current state
+([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 The liveness check is exhaustive across every registered
-definition version. A new authored version that fails the
+definition. A definition that fails the
 well-formed-exit or the reachable-state-reaches-terminal checks
-fails registration or the liveness test, with a witness. A
-released version whose quarantine routes fail the same checks fails
-the liveness test on the quarantined data, with a witness.
+fails registration or the liveness test, with a witness.
 
-Released pins receive routes on release without carryforward. The
-release pass runs the liveness check on the quarantined routes for
-each released (ref, version), and a release that fails the check
-refuses to ship. The release pass never carries a forward route
-from a prior version; the quarantine owns each version's routes,
-and the version's history is preserved across the release pass.
+Every registered definition is live-checked with its declared routes;
+definitions derive from one canonical source
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 The required public regressions are the D7 enumeration, frozen for
 the `workflow.generic_one_off` version 13 fixture the CON-846
@@ -392,11 +357,11 @@ Scenario: approved (verify) request_correction lands at execute
 Scenario: revision (verify) successor contract names the route
   Given a workflow.generic_one_off v13 instance at verify with an approved successor contract
   When the route reader resolves
-  Then it returns the quarantined routes the (ref, version) holds
+  Then it returns the declared routes the definition holds
 
 Scenario: unhealthy (verify) recorded bad verdict sets the bit
   Given a workflow.generic_one_off v13 instance at verify with a recorded bad verdict
-  When the loader folds the state
+  When the loader derives the state
   Then artifactStale is true
 
 Scenario: exact correction (verify) request_correction with the bound evidence
@@ -406,7 +371,7 @@ Scenario: exact correction (verify) request_correction with the bound evidence
 
 Scenario: fresh producer (verify) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery
-  When the loader re-folds the state
+  When the loader re-derives the state
   Then artifactStale is false
 
 Scenario: independent verification (verify) ok verdict records after fresh production
@@ -432,11 +397,11 @@ Scenario: approved (complete) request_correction lands at execute
 Scenario: revision (complete) successor contract names the route
   Given a workflow.generic_one_off v13 instance at complete with an approved successor contract
   When the route reader resolves
-  Then it returns the quarantined routes the (ref, version) holds
+  Then it returns the declared routes the definition holds
 
 Scenario: unhealthy (complete) recorded bad verdict sets the bit
   Given a workflow.generic_one_off v13 instance at complete with a recorded bad verdict
-  When the loader folds the state
+  When the loader derives the state
   Then artifactStale is true
 
 Scenario: exact correction (complete) request_correction with the bound evidence
@@ -446,7 +411,7 @@ Scenario: exact correction (complete) request_correction with the bound evidence
 
 Scenario: fresh producer (complete) record_delivery at execute clears the bit
   Given a workflow.generic_one_off v13 instance at execute with a fresh record_delivery
-  When the loader re-folds the state
+  When the loader re-derives the state
   Then artifactStale is false
 
 Scenario: independent verification (complete) ok verdict records after fresh production
@@ -460,11 +425,11 @@ Scenario: ok completion (complete) the instance receives the ok completion
   Then the admission admits confirm_premise and the instance completes
 ```
 
-Public-tool journeys cover every authored route and both routes on
-the released `workflow.generic_one_off` v13 pin named by CON-846.
-The coverage guard enumerates authored definitions and refuses a
-route without a journey. Released route goldens, frozen digest pins,
-and exhaustive liveness cover every quarantined version.
+Public-tool journeys cover every declared route and both routes on
+the `workflow.generic_one_off` version 13 fixture named by CON-846.
+The coverage guard enumerates definitions and refuses a
+route without a journey. Exhaustive liveness covers every registered
+definition.
 `.concord/docs/knowledge/coverage/CD-0209.json` names the test evidence
 for these distinct populations.
 
@@ -481,14 +446,13 @@ for these distinct populations.
   a different evaluator step. Two walks mean two owners; the gate
   inherits the table.
 - **A release-side carryforward of prior version routes.** Rejected:
-  the quarantine and the table are the only sources, and the
-  history of a released version stays the history of that version
-  (CD-0115 D1). A carryforward would let a quarantined shape drift
-  from the graph the next release reads.
+  definitions derive from one canonical source, and no prior
+  version is retained to carry forward
+  ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 - **A `dispatch_worker` completion alone as production.** Rejected:
   a dispatch is intent, not production. The acceptance at the
   target step is the production event, and the dispatch must
-  precede the acceptance in the same event history.
+  precede the acceptance for the same attempt.
 - **A fence-action production rule on `record_verdict` or
   `record_delivery` only.** Rejected: `record_finding` and
   `record_decision` are also typed production direct actions, and
@@ -515,13 +479,15 @@ The runtime cross-step correction admits one declared target per
 (step, trigger) pair. The gate refuses the same shape that CON-846
 admits: a definition whose steps record a verdict, confirm a
 premise, or host the late-verdict context, and that resolves no
-declared unhealthy-verdict route for the step. The folded state the
-admission model carries is the same slice the runtime reads, so
+declared unhealthy-verdict route for the step. The admission state the
+model carries is the same slice the runtime reads, so
 the recorded move and the admitted intent cannot disagree about
-the return. The artifact-staleness bit is folded once over event
-history and read by the admission model and the conformance
-replay identically; a regression that loses the mirror cannot
-pass silently because the seeded unmirrored fold produces a
+the return. The artifact-staleness bit is current store state read
+by the admission model and the conformance
+replay identically
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history));
+a regression that loses the mirror cannot
+pass silently because the seeded unmirrored state produces a
 witness.
 
 A start alone is never production. A `dispatch_worker` completion
@@ -532,46 +498,44 @@ production. The closed positive production classification is the
 only production rule, and a family that gains a new producing
 mechanism declares it here.
 
-CD-0164 population and the three-attempt wall key their counting
-on the declared target, so the counting and the artifact fold
-read the same target. CD-0143 D2, D3, D4 stay in force:
+Each correction is one admitted request bound to the declared target
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+CD-0143 D2 and D4 stay in force:
 `request_correction` returns the instance to the declared
-producer step, the bound on correction sequences holds,
+producer step,
 and the fail-closed completion keeps the latest approved
 predicate unhealthy or incomparable with the approved result
-refusing. CD-0115 D1 stays in force: the canonical bytes of every
-released version are unchanged, and the quarantined data own
-every released version's routes.
+refusing. Definitions derive from one canonical source, and no
+hand-maintained pin or catalog duplicates it
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-The release-on-route pass for the 108 released versions ships
-without carryforward. The history of a released version is
-preserved across the pass. A new authored version's routes ship
-with the version; a released version's routes ship with the
-quarantine; a regression that strands a released pin fails the
+Every registered definition is live-checked with its declared routes
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source));
+a regression that strands a declared route fails the
 liveness test with a witness.
 
-The provenance of operator approval, the CD-0164 population, and
-the wall stay keyed to the declared target. The covered evidence
+Each correction's recorded bindings stay keyed to the declared target
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+The covered evidence
 references for a `request_correction` are the bound evidence
 references the engine reads; a correction that names evidence the
 engine cannot bind refuses at the gate.
 
-The coverage shard names the registration, quarantine, production,
+The coverage shard names the registration, production,
 admission, liveness, conformance, and public-tool tests. Repository
 verification supplies this evidence, not a fabricated workflow record.
 
 ## Verification
 
-- `internal/store.TestReleasedDigestsIgnoreRecoveryRouteField` proves
-  every released version's canonical bytes and digest stay unchanged
-  when the field is absent or empty.
-- `internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion`
-  proves the quarantined routes are golden per (ref, version), and
-  the per-version graph invariants hold against the quarantined data.
-- `internal/store.TestCompleteStepCorrectionRoutesCoverOnlyTheSupportedFamilies`
+- `internal/store.TestRecoveryRouteAbsenceHasOneCanonicalEncoding` proves
+  absent and empty route tables omit the field and produce the same
+  canonical bytes and digest for a definition that needs no return.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  validates each current definition with its declared route table.
+- `internal/store.TestCurrentCompleteStepCorrectionRoutesCoverOnlySupportedFamilies`
   proves the CD-0172 D1 and CD-0186 boundary: only implementation
   and break_fix resolve a `disproved_premise_at_complete` route, the
-  route sits on the complete action step of that version, and the
+  route sits on the current complete action step, and the
   target is the implementation `execution` or break_fix `repair`
   step.
 - `internal/store.TestRecoveryRouteRegistrationRefusals` proves the
@@ -583,28 +547,25 @@ verification supplies this evidence, not a fabricated workflow record.
   target equal to the route step, target terminal, target with
   `approve_contract`, target not upstream, and a second failure
   edge all refuse at registration with a typed failure.
-- `internal/store.TestUnreleasedEvaluatorDefinitionsWithoutATableRefuse`
-  proves the CON-846 gate: a definition whose steps record a
-  verdict, confirm a premise, or host the late-verdict context
-  refuses registration when the quarantine does not name its (ref,
-  version) and the declared table is nil or empty.
-- `internal/store.TestAuthoredRecoveryRoutesOverrideTheQuarantine`
-  proves the D3 reader: a declared table wins over any quarantined
-  data for the same (ref, version), the returned slice is a
-  defensive copy, and the reader does not mutate the definition it
-  read.
-- `internal/store.TestWorkflowRecoveryRoutesDoNotMutateOldCanonicalDefinitions`
-  proves the canonical-bytes read is a pure read: a released
-  definition and a declared definition leave their canonical bytes
-  unchanged across a route read.
-- `internal/store.TestNewAuthoredVersionsDeclareRouteTables` proves
-  every authored version declares its D3 table, registers under
-  `ValidateWorkflowDefinition`, and covers the evaluator steps the
-  family's graph declares.
-- `internal/store.TestReleasedVersionsRegisterWithoutDeclaredTables`
-  proves the compatibility boundary: a released definition with a
-  nil table still registers, and its routes resolve through the
-  quarantine.
+- `internal/store.TestRecoveryRouteRegistrationRefusals` proves the
+  undeclared-return gate: removing the required route or its table
+  refuses validation and registration on the current definition.
+- `internal/store.TestCriterionAssociationRequiresItsOwnDeclaredLateReturn`
+  proves a late association needs its own declared return, an upstream
+  association declaration, one contract and missing applicable proof.
+  Artifact staleness alone opens no route.
+- `internal/store.TestCriterionAssociationAtPremiseQuestionWithoutDeclaration`
+  and `internal/store.TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight`
+  prove late association at a premise-question or terminal step holds that
+  step instead of taking its declared producer return.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves the D3 reader returns the declared table as a defensive copy.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves reading and modifying that copy leaves the current
+  definition's canonical bytes unchanged.
+- `internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive`
+  proves every current definition declares a table and passes
+  `ValidateWorkflowDefinition`, including its required-return coverage.
 - `internal/store.TestRecoveryRouteTargetMustProduceArtifact` proves
   the D4 producer rule: a target that carries no `dispatch_worker`,
   no fenced-start action, and no direct `record_finding`,
@@ -618,27 +579,30 @@ verification supplies this evidence, not a fabricated workflow record.
   and `internal/store.TestStaleArtifactCheckNamesSeededWitness` prove
   the D7 exhaustive liveness and the seeded false-healthy witness:
   the conformance replay names exactly the witnesses the mirror
-  removes, and the seeded unmirrored fold produces a witness.
+  removes, and the seeded unmirrored state produces a witness.
 - `internal/store.TestProductionBindsToDispatchOriginAndCapability`
   proves the D4 worker production frontier: an accepted worker
   result at the declared target clears the bit only when the dispatch and
-  capability events for the same attempt precede the acceptance in
-  the same event history and all three postdate the stale cause,
+  capability records for the same attempt precede the acceptance
+  and all three postdate the stale cause,
   and the capability class is `implementation`, `design`, or
   `research`.
-- `internal/store.TestResearchAndSpikeProducersClearStaleness` proves
-  direct production without a worker acceptance.
+- `internal/store.TestResearchProducerClearsStaleness` proves direct
+  production without a worker acceptance.
 - `internal/store.TestUnfencedCheckpointEpochUsesCausalPrefix` proves
-  repeated direct checkpoints keep distinct identities and replay
-  derives each epoch from the preceding event prefix.
-- `internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep`
-  enumerates authored routes and refuses missing public journeys.
-- `internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute`
-  proves approved revision, unhealthy evaluation, exact correction
-  approval, fresh production, independent evaluation, and completion.
-- `internal/agent.TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute`
-  proves both supported complete-step supersessions through fresh
-  production and completion without moving the step through fixture SQL.
+  repeated direct checkpoints keep distinct identities, each derived
+  from the causal prefix that precedes it.
+- `internal/store.TestCurrentReviewRoutesStayInsideExecution` and
+  `internal/store.TestExecutionReviewCorrectionRequiresItsOwningActions`
+  prove current execution/refine correction targets and require their
+  dispatch and Main-acceptance actions at registration.
+- `internal/agent.TestSpineCurrentReviewCorrectionAdmission` proves public
+  preflight/mutation agreement, scoped current-Review correction, no-effect
+  refusals and replay, and checked corrective execution before accepted ready
+  Review permits delivery.
+- `internal/agent.TestSpineCompleteStepContractRecovery` proves both current
+  complete-step returns, no-effect refusals and replay, and successor
+  completion on unchanged applicable proof without fixture step switches.
 - `python3 scripts/check-doc-contract.py` proves this record
   carries the current decision outline and passes the writing
   rules.

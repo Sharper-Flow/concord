@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0640a7637ce38cab86056117a0f0469b88a189c11dd1147d1be3f494d825bfa6",
+  "sha256": "sha256:4245cedbb1146827eb1e22e02822dbfba3ca629945c17bcdafdfd3a8c11b1ffa",
   "status": "accepted",
   "summary": "Adds local Git content-risk drift classes that suppress reclaim recommendations and moves Domain exclusivity from contract approval to execution start.",
   "tags": [

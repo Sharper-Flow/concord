@@ -6,12 +6,8 @@
 **Type:** Product-law reconciliation (floor definition against accepted contract).
 **Issue:** [#76](https://github.com/Sharper-Flow/concord/issues/76).
 **Refines:** [`priorities.md`](../priorities.md) first-usable floor condition 1.
-**Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes floor reach
-from the launcher to the host-started session and the agent read surface
-under the Snowball coordinator's operator-delegated approval.
-**Preserves:** C18 §12 anti-requirements 1 and 11 — the reach-versus-result-set
-boundary, whose textual home retired with the launcher TUI (CD-0219) and
-whose substance `priorities.md` and `design-constraints.md` own — and
+**Preserves:** The reach-versus-result-set boundary owned by `priorities.md`
+and `design-constraints.md`, and
 CD-0010.
 
 ## Context
@@ -27,10 +23,7 @@ answers. Only one was a real gap.
 
 ### The authoring gap is real
 
-At acceptance, the launcher performed exactly one action with an external
-effect: handing work identity to a fresh session, and `cmd/concord`
-registered no command that creates work. That entry route is retired; the
-host starts the session, and the authoring surface is unchanged. The whole
+The host starts the session. The whole
 authoring surface — `concord_work_define`,
 `concord_work_transition`, `concord_work_relate` — is reachable only through a
 grant envelope, and the operator holds no grant. The operator genuinely cannot
@@ -60,9 +53,6 @@ returning work or knowledge spanning several Products
 remains excluded by C18 §12 anti-requirement 11 and CD-0014, and is not part of
 the floor.
 
-Both documents are amended to state these distinctions explicitly rather than
-leaving them inferable.
-
 ## Rejected alternatives
 
 **An operator CLI capture path.** Work creation authorized as operator rather
@@ -85,25 +75,20 @@ need; no such need is demonstrated.
 
 ## Consequences
 
-- Condition 1 becomes claimable. `fc1-operator-work-capture` and
-  `fc1-full-product-scope` move to satisfied in the readiness manifest, evidenced
-  by this decision and the launcher contract rather than by new code. The
-  launcher contract and the launcher-delivered portfolio view retired under
-  CD-0219, so `fc1-full-product-scope` carries an out-of-scope state with that
-  retirement, and `fc1-session-handoff` is unmeasured pending the live
+- `fc1-operator-work-capture` is satisfied in the readiness manifest.
+  `fc1-full-product-scope` is out of scope, and `fc1-session-handoff`
+  is unmeasured pending the live
   host-started managed-entry witness.
-- C18 is unchanged in substance. Anti-requirement 11 gains a sentence
-  distinguishing reach from result sets; no anti-requirement is added or removed.
-- No new authorization path, no launcher write path, and no change to CD-0010.
+- Reach and cross-Product result sets are distinct under D2.
+- The session authoring route is the single authorization path under CD-0010.
 - If an operator authoring surface is later wanted, it arrives as its own
   decision with its own evidence, not as floor pressure.
 
 ## Verification
 
-- [`priorities.md`](../priorities.md) condition 1 and the C18 contract's §12
-  agreed in wording after this change; the C18 contract retired with the
-  launcher TUI under CD-0219.
+- [`priorities.md`](../priorities.md) condition 1 states the reach-versus-result-set
+  distinction.
 - [`floor-readiness.v1.json`](../floor-readiness.v1.json) records
   `fc1-operator-work-capture` satisfied and `fc1-full-product-scope` out of
-  scope with the launcher retirement, and `scripts/check-floor-readiness.py`
+  scope, and `scripts/check-floor-readiness.py`
   passes.

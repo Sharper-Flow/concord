@@ -6,7 +6,6 @@
   override route for placements outside `.concord/`, and the retirement of
   the root docs/, instructions/, and scenarios/ trees in this
   repository
-- **Amends:** CD-0114 (keeps the shard composition, moves the shard home)
 - **Related:** CD-0007, CD-0047, CD-0063, CD-0114, CD-0159
 - **Approval:** The operator approved this decision on work item
   `work-670cac419bcacb671879316b`, with the objective and the design
@@ -75,9 +74,9 @@ that override names.
 
 ### D3. The root trees are gone
 
-This repository carries no root docs/, instructions/, or scenarios/
-directory and no compatibility symlink for those paths. The placement check
-refuses the directory and the symlink alike. A new knowledge document lands
+The canonical knowledge homes in this repository are under `.concord/`.
+The placement check refuses root docs/, instructions/, or scenarios/
+directories and compatibility symlinks for those paths alike. A new knowledge document lands
 under `.concord/` by default, and the closure check keeps every unprocessed
 document visible.
 

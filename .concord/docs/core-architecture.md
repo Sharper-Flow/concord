@@ -1,6 +1,6 @@
 # Concord Core Architecture
 
-> **Status:** Direction recorded (2026-08-02; storage layer hardened 2026-08-05).
+> **Status:** Direction recorded.
 > Companion to [`priorities.md`](./priorities.md) and [`design-constraints.md`](./design-constraints.md).
 > **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0).
 > This is the single place a reader looks to understand how the runtime is layered.
@@ -11,9 +11,9 @@
 
 ## 0. SQLite execution authority and Linear planning authority
 
-The storage-engine authority question is **resolved.** SQLite is Concord's sole
-durable local execution authority: transactional state + durable event history,
-`synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
+SQLite is Concord's sole
+durable local execution authority: transactional current state and finite
+verified snapshots, `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
 authority per Concord installation/operator-machine; Product/Project remain logical
 scopes.** Full records:
@@ -53,8 +53,10 @@ catalog. Go-core is greenfield Concord code.
 
 - Domain model: Product, membership, lifecycle stage, bounded Domain relations,
   and work-item supersession.
-- Durable-state rules: append-only log discipline, projection transactions,
-  single-derivation enforcement (SQLite sole authority, CD-0002).
+- Durable-state rules: current-state transactions checked by expected version
+  and idempotency key, with no event log, fold, upcaster, or replay, and
+  single-derivation enforcement (SQLite sole authority per CD-0002;
+  [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Workflow/activity implementations: workflow types, gate logic, task
   orchestration, evidence policies.
 - Read-model projections: bounded Product-scoped reads, staleness computation,
@@ -113,40 +115,39 @@ is stated once; companion documents reference this section rather than restating
 
 | # | Invariant | Source | What it means structurally |
 |---|---|---|---|
-| 1 | **Single derivation** | postmortem C1 | All state derives from exactly one authoritative log (SQLite per CD-0002). No component holds a second writable authority. Projections are pure read-only derivations, rebuildable from the log. |
+| 1 | **Single derivation** | postmortem C1 | All current state derives from exactly one authoritative store (SQLite per CD-0002), no component holds a second writable authority, and no event log, fold, upcaster, or replay exists ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
 | 2 | **Atomic terminal transition** | postmortem C2 | Status, lifecycle, and gate completion commit together. Invalid combinations are unrepresentable. Terminal = one record/transition, not coordinated field updates. |
-| 3 | **Append-only, no destructive repair** | postmortem C2/C3 | The log is append-only. Corrections are new entries, never in-place rewrites. History is immutable; DELETE-of-history is forbidden at the type level. |
-| 4 | **Graded recovery** | postmortem C6 | Every reachable inconsistent state has an explicit repair path: reconcile → repair → rebuild → destroy. The recovery API exposes these as first-class verbs. |
+| 3 | **Current-state writes, no history** | postmortem C2/C3 | Each mutation writes current rows in one transaction, checked by an expected version and recorded by its idempotency key; no append-only history exists ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
+| 4 | **Graded recovery** | postmortem C6 | Every reachable inconsistent state has an explicit repair path: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
 | 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
-| 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. |
+| 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). |
 | 8 | **Bounded writer admission** | Priority 2 | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
 | 9 | **Bounded authoritative reads** | Priority 4 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
 | 10 | **Typed degradation** | Priority 4 | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
-| 11 | **Safe idle-boundary evolution** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Active executions stay pinned to their definition; idle work picks up the new version. Updates are additive and versioned. |
+| 11 | **Single-source definitions** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
 | 12 | **Architecture-bound Product truth** | Priority 1 | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
-A Go core topology must satisfy all twelve invariants. The first eleven are derived
-from the public predecessor postmortem's failure classes; they are not aspirational,
-they are evidence-backed. CD-0222 adds the twelfth from Concord's defining
-many-agent Product-concordance requirement.
+A Go core topology must satisfy all twelve invariants. The first eleven derive
+from the public predecessor postmortem's failure classes. Architecture-bound
+Product truth follows CD-0222's many-agent Product-concordance requirement.
 
 ---
 
 ## 3. Architecture decision tracker
 
-This table records accepted architecture decisions that previously remained open:
+This table records accepted architecture decisions:
 
-| Question | Why deferred | Where tracked |
+| Question | Current decision | Where tracked |
 |---|---|---|
 | **Product-memory membership** | **Resolved by PM5:** many-to-many role-only memberships, one canonical work identity, optional singular primary, derived cross-Product scope. | [`product-memory-membership.md`](./product-memory-membership.md). |
-| **Minimal agent tool surface** | **Resolved by CD-0005 and amended by CD-0042:** generated current tools, hidden verified context, `concord.ts` adapter, strict envelope, exact manifest digest, and deterministic pre-go-live evidence. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
+| **Minimal agent tool surface** | **CD-0005 and CD-0042:** generated current tools, hidden verified context, `concord.ts` adapter, strict envelope, exact manifest digest, and deterministic pre-go-live evidence. | [`decisions/CD-0005-concord-agent-tool-surface.md`](./decisions/CD-0005-concord-agent-tool-surface.md). |
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
-| **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, and falsifier-driven snapshots; CD-0238 moves point-in-time reconstruction out of the core. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
+| **Migrations / schema evolution** | **Resolved by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md):** schema and workflow-definition changes migrate current rows and keep finite verified snapshots; no upcasters, deterministic replay, or retained released-definition versions exist ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). | [`decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md`](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) (D2, D14); CD-0002 §7. |
 | **Product architecture and concurrent-law coordination** | **Resolved by CD-0222:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
-All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
+All rows in this table are defined explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
 implication from Go, storage, or CLI choice.
 
 ---
@@ -162,7 +163,7 @@ details; this table does not duplicate them.
 | CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
 | Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
 | Adapter transport and native workers | `adapter/opencode/concord.ts`, `adapter/opencode/dispatch.ts`, `adapter/opencode/packet.ts` | `dispatch.test.ts`, `lane_dispatch.test.ts`, report-protocol tests |
-| SQLite and event authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | One pooled connection, append-only log; `txscope_test.go`, `tx_subprocess_guard_test.go` |
+| SQLite and event authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | One pooled connection; `txscope_test.go`, `tx_subprocess_guard_test.go` |
 | Work context and evidence | `internal/store/work_context.go`, `internal/store/worker_packet_binding.go`, `internal/store/worker_context_findings.go` | Declared sources, frontier, exact subject and attempt; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and shared-write checks |
 | Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |

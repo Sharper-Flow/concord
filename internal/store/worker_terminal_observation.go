@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 )
 
-// Core-observed terminal delivery. A completed implementation-lane report
+// Core-observed terminal output. A completed editing-lane report
 // records one closed observed_delivery value the store observed itself at
 // the attempt's authorized worktree, and every terminal event derives its
 // consumed_context_frontier from the attempt's own dispatch authorization.
@@ -45,6 +45,7 @@ type workerTerminalDeliveryProof struct {
 	windowEpoch            int64
 	windowPacketDigest     string
 	windowWorktreeIdentity string
+	windowSubjectCommit    string
 	frontier               int64
 	frontierPresent        bool
 
@@ -95,7 +96,7 @@ type PrepareWorkerTerminalDeliveryRequest struct {
 
 // PrepareWorkerTerminalDelivery samples the dispatch window, attempt, and
 // claim identities with plain SQL reads, closes those reads, and — only for
-// a new completed implementation-lane attempt whose authorization recorded a
+// a new completed editing or review attempt whose authorization recorded a
 // worktree binding — observes HEAD and clean status at the claimed worktree
 // under one fixed deadline. An exact already-recorded event is a replay: the
 // preparation marks it and performs no Git calls. Every failure is a typed
@@ -112,10 +113,6 @@ type workerTerminalSample struct {
 	attempt WorkerAttempt
 	window  WorkerDispatchWindow
 	entries []WorktreeEntry
-	// jobBasisBase is the dispatched job's recorded measurement base, empty
-	// when the attempt bound no job or the job records no basis. It decides
-	// whether the probe observes the measured delta beside the delivery.
-	jobBasisBase string
 }
 
 // sampleWorkerTerminalDeliveryInto samples the terminal delivery state into
@@ -158,17 +155,6 @@ func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemp
 		return sample, err
 	}
 	sample.window = window
-	// The dispatched job's recorded basis decides whether this terminal
-	// observes the measured delta. The read is SQL only and rides the same
-	// snapshot as the window, so the probe and the ingest revalidate one
-	// authority.
-	job, jobErr := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
-	if jobErr != nil {
-		return sample, jobErr
-	}
-	if sample.jobBasisBase, err = workerJobBasisBase(ctx, q, workID, job); err != nil {
-		return sample, err
-	}
 	if window.WorktreeIdentity == "" {
 		return sample, nil
 	}
@@ -210,10 +196,15 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	proof.windowEpoch = sample.window.AttemptEpoch
 	proof.windowPacketDigest = sample.window.PacketDigest
 	proof.windowWorktreeIdentity = sample.window.WorktreeIdentity
+	proof.windowSubjectCommit = sample.window.SubjectCommit
 	proof.frontier, proof.frontierPresent = sample.window.ContextFrontier, sample.window.ContextFrontierPresent
-	if sample.attempt.CapabilityClass != "implementation" {
-		// Only the implementation lane is the delivery producer; other
-		// lanes record their frontier and no delivery observation.
+	lane, err := LookupLane(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	if err != nil {
+		return nil, err
+	}
+	editing := workerLaneEdits(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	reviewing := slices.Contains(lane.Capabilities, "inspect_diff")
+	if !editing && !reviewing {
 		return &WorkerTerminalPreparation{proof: proof}, nil
 	}
 	if sample.window.WorktreeIdentity == "" {
@@ -231,9 +222,21 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	observation, err := observeWorkerDelivery(ctx, runner, proof.probePath, sample.jobBasisBase)
+	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
+	defer cancel()
+	observation, err := observeWorkerDelivery(probeCtx, runner, proof.probePath, sample.window.SubjectCommit)
 	if err != nil {
 		return nil, err
+	}
+	if reviewing {
+		if observation.State != "clean" || (!editing && observation.Commit != sample.window.SubjectCommit) {
+			return nil, newFailure(KindUnauthorizedDispatch, workerTerminalObservationOp, "review requires a clean authorized output candidate", false, "restore the assigned candidate or finish and commit the scoped repair before reporting")
+		}
+		if observation.Commit != sample.window.SubjectCommit {
+			if _, err := runner.Run(probeCtx, proof.probePath, "merge-base", "--is-ancestor", sample.window.SubjectCommit, observation.Commit); err != nil {
+				return nil, workerDeliveryProbeFailure("review output ancestry", probeCtx, err)
+			}
+		}
 	}
 	proof.observation = observation
 	return &WorkerTerminalPreparation{proof: proof}, nil
@@ -262,12 +265,12 @@ func selectWorkerClaimEntry(entries []WorktreeEntry, identity string) (WorktreeE
 }
 
 // observeWorkerDelivery runs the read-only Git observation of one claimed
-// worktree under the single fixed probe deadline — status, HEAD, and, when
-// the dispatched job records a measurement basis, one numstat diff between
-// that recorded base and the observed commit with the shared diff flags
-// (CD-0225 D2). Dirty-but-reachable records dirty with no paths; a failed
-// command or the deadline produces a typed refusal.
-func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBase string) (*WorkerObservedDelivery, error) {
+// worktree under the single fixed probe deadline — status, HEAD, and, for a
+// clean tree whose dispatch recorded a subject commit, the changed-path set
+// between that subject and HEAD under the shared diff flags. A dirty tree
+// or a subject-less dispatch records no delta. A failed command or the
+// deadline produces a typed refusal.
+func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, subject string) (*WorkerObservedDelivery, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
@@ -283,60 +286,43 @@ func observeWorkerDelivery(ctx context.Context, runner GitRunner, path, basisBas
 		return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
 	observation := &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}
-	if basisBase == "" {
-		// A basis-free job measures nothing.
+	if observation.State != "clean" {
 		return observation, nil
 	}
-	observation.Base = basisBase
-	if observation.State == "dirty" {
-		// A dirty tree records the recorded base but no paths: it cannot
-		// establish a size, and acceptance refuses it as unavailable evidence.
-		return observation, nil
+	readTree := func(commit string) (string, error) {
+		raw, err := runner.Run(probeCtx, path, "rev-parse", "--verify", commit+"^{tree}")
+		if err != nil {
+			return "", workerDeliveryProbeFailure("candidate tree", probeCtx, err)
+		}
+		tree := strings.TrimSpace(string(raw))
+		if !worktreeSHAPattern.MatchString(tree) {
+			return "", newFailure(KindGitUnreachable, workerTerminalObservationOp, "the candidate tree is not one raw tree OID", true, "restore the referenced Git tree and retry the completion")
+		}
+		return tree, nil
 	}
-	numstat, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--numstat", "-z", basisBase, commit)...)
+	observation.Tree, err = readTree(commit)
 	if err != nil {
-		return nil, workerDeliveryProbeFailure("measured delta", probeCtx, err)
+		return nil, err
 	}
-	paths, parseErr := parseWorkerNumstat(numstat)
-	if parseErr != nil {
-		return nil, wrapFailure(KindGitUnreachable, workerTerminalObservationOp, "cannot parse the worktree's measured delta", true, "retry the same completion once the worktree is reachable", parseErr)
+	if subject == "" {
+		return observation, nil
 	}
-	observation.Paths = paths
+	observation.BaseTree, err = readTree(subject)
+	if err != nil {
+		return nil, err
+	}
+	names, err := runner.Run(probeCtx, path, append(workerDiffSharedDiffArgs(), "--name-only", "-z", subject, commit)...)
+	if err != nil {
+		return nil, workerDeliveryProbeFailure("changed paths", probeCtx, err)
+	}
+	observation.Base = subject
+	observation.ChangedPaths = []string{}
+	for _, name := range strings.Split(string(names), "\x00") {
+		if name != "" {
+			observation.ChangedPaths = append(observation.ChangedPaths, name)
+		}
+	}
 	return observation, nil
-}
-
-// parseWorkerNumstat parses one `git diff --numstat -z` output: each
-// NUL-terminated record is `added\tdeleted\tpath`, and a `-\t-` count pair
-// marks a binary path. Rename detection stays off, so a rename arrives as a
-// deletion record beside an addition record.
-func parseWorkerNumstat(raw []byte) ([]WorkerObservedPath, error) {
-	records := strings.Split(string(raw), "\x00")
-	var paths []WorkerObservedPath
-	for _, record := range records {
-		if record == "" {
-			continue
-		}
-		parts := strings.SplitN(record, "\t", 3)
-		if len(parts) != 3 {
-			return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record without two count columns and a path", true, "retry the same completion once the worktree is reachable")
-		}
-		path := WorkerObservedPath{Path: parts[2]}
-		if parts[0] == "-" && parts[1] == "-" {
-			path.Binary = true
-		} else {
-			added, addedErr := strconv.ParseInt(parts[0], 10, 64)
-			deleted, deletedErr := strconv.ParseInt(parts[1], 10, 64)
-			if addedErr != nil || deletedErr != nil || added < 0 || deleted < 0 {
-				return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record whose counts are not two nonnegative integers", true, "retry the same completion once the worktree is reachable")
-			}
-			path.Added, path.Deleted = added, deleted
-		}
-		if path.Path == "" {
-			return nil, newFailure(KindGitUnreachable, workerTerminalObservationOp, "the measured delta carries a numstat record with no path", true, "retry the same completion once the worktree is reachable")
-		}
-		paths = append(paths, path)
-	}
-	return paths, nil
 }
 
 func observedDeliveryState(status []byte) string {
@@ -362,18 +348,13 @@ func workerDeliveryProbeFailure(what string, probeCtx context.Context, err error
 // the ingest transaction. The frontier comes from the attempt's own
 // authorization; the observation comes only from the sealed preparation the
 // ingress sampled outside this transaction. Caller-authored derived bytes
-// refuse closed, and an append below the terminal delivery payload version
-// lands unchanged: that version never carried the derived identity, so the
-// store derives none for it.
+// refuse closed.
 func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (Event, error) {
 	switch event.Kind {
-	case WorkerCompleted:
-		if event.PayloadVersion < workerCompletedTerminalDeliveryVersion {
-			return event, nil
-		}
-	case WorkerFailed:
-		if event.PayloadVersion < workerFailedTerminalDeliveryVersion {
-			return event, nil
+	case WorkerCompleted, WorkerFailed:
+		registration, _ := registeredEventKind(event.Kind)
+		if event.PayloadVersion != registration.CurrentVersion {
+			return Event{}, unsupportedEventVersion(event, registration)
 		}
 	}
 	var rawMembers map[string]json.RawMessage
@@ -414,7 +395,10 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 		if deliveryErr != nil {
 			return Event{}, deliveryErr
 		}
-		if window.ContextFrontierPresent || payload.ObservedDelivery != nil {
+		if err := bindWorkerReceiptSubjectsTx(ctx, tx, event.SubjectID, payload.Evidence); err != nil {
+			return Event{}, err
+		}
+		if window.ContextFrontierPresent || payload.ObservedDelivery != nil || len(payload.Evidence) > 0 {
 			if window.ContextFrontierPresent {
 				frontier := window.ContextFrontier
 				payload.ConsumedContextFrontier = &frontier
@@ -444,19 +428,23 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 }
 
 // enrichWorkerObservedDeliveryTx attaches the prepared delivery observation
-// to a completed implementation-lane payload, refusing when the preparation
+// to a completed editing or review payload, refusing when the preparation
 // is missing or any sampled identity changed under the probe.
 func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event, window WorkerDispatchWindow, payload *WorkerCompletedPayload) error {
 	attempt, err := workerAttemptByIDCore(ctx, tx, payload.AttemptID)
 	if err != nil {
 		return err
 	}
-	if attempt.CapabilityClass != "implementation" || window.WorktreeIdentity == "" {
+	lane, err := workerAttemptLane(ctx, tx, payload.AttemptID)
+	if err != nil {
+		return err
+	}
+	if (!slices.Contains(lane.Capabilities, "edit_scoped_files") && !slices.Contains(lane.Capabilities, "inspect_diff")) || window.WorktreeIdentity == "" {
 		return nil
 	}
 	preparation := workerTerminalPreparationFrom(ctx)
 	if preparation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed implementation attempt reached the ingest seam without the core delivery observation", false, "record the completion through the authenticated worker evidence boundary")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed editing or review attempt reached the ingest seam without the core output observation", false, "record the completion through the authenticated worker evidence boundary")
 	}
 	proof := preparation.proof
 	if proof.replay {
@@ -469,7 +457,7 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if err != nil {
 		return err
 	}
-	if liveWindow.StartSeq != proof.windowStartSeq || liveWindow.AttemptEpoch != proof.windowEpoch || liveWindow.PacketDigest != proof.windowPacketDigest || liveWindow.WorktreeIdentity != proof.windowWorktreeIdentity || liveWindow.ContextFrontier != proof.frontier || liveWindow.ContextFrontierPresent != proof.frontierPresent {
+	if liveWindow.StartSeq != proof.windowStartSeq || liveWindow.AttemptEpoch != proof.windowEpoch || liveWindow.PacketDigest != proof.windowPacketDigest || liveWindow.WorktreeIdentity != proof.windowWorktreeIdentity || liveWindow.SubjectCommit != proof.windowSubjectCommit || liveWindow.ContextFrontier != proof.frontier || liveWindow.ContextFrontierPresent != proof.frontierPresent {
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the dispatch authorization changed under the terminal observation", true, "prepare the same completion again against the current authorization")
 	}
 	if attempt.LifecycleState != proof.attemptState || attempt.LaneID != proof.laneID || attempt.LaneVersion != proof.laneVersion || attempt.LaneDigest != proof.laneDigest {
@@ -498,42 +486,47 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the claimed worktree changed under the terminal observation", true, "prepare the same completion again against the current claim")
 	}
 	if proof.observation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery proof carries no observation for an implementation completion", false, "prepare the completion against a reachable claimed worktree")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared output proof carries no observation for an editing or review completion", false, "prepare the completion against a reachable claimed worktree")
 	}
-	// The measured size surface revalidates inside the transaction against
-	// the dispatched job's recorded basis (CD-0225 D2): the observation
-	// carries a base exactly when the job records a measurement basis, and
-	// that base is the recorded base_commit — never another foundation.
-	job, jobErr := workflowDispatchedJobForAttempt(ctx, tx, event.SubjectID, payload.AttemptID)
-	if jobErr != nil {
-		return jobErr
-	}
-	basisBase, basisErr := workerJobBasisBase(ctx, tx, event.SubjectID, job)
-	if basisErr != nil {
-		return basisErr
-	}
-	if basisBase == "" && (proof.observation.Base != "" || proof.observation.Paths != nil) {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation carries size content for a dispatched job that records no measurement basis", false, "prepare the completion against the recorded job")
-	}
-	if basisBase != "" && proof.observation.Base != basisBase {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatched job's recorded base_commit "+basisBase, false, "prepare the completion against the recorded job")
+	// The observed delta is measured from the authorization's own subject
+	// commit, or recorded absent for a subject-less authorization.
+	if proof.observation.Base != "" && proof.observation.Base != liveWindow.SubjectCommit {
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatch's recorded subject commit", false, "prepare the completion against the recorded authorization")
 	}
 	payload.ObservedDelivery = proof.observation
 	return nil
 }
 
-// workerJobBasisBase is the base_commit the job's recorded measurement basis
-// names, or empty for no job or a basis-free job.
-func workerJobBasisBase(ctx context.Context, q queryer, workID string, job *WorkerJobBinding) (string, error) {
-	if job == nil {
-		return "", nil
+// Receipt subjects come from the retained native producer, never the packet's
+// input candidate or a worker's subject claim. The fold still validates all
+// control, recipe, result, and current-subject joins.
+func bindWorkerReceiptSubjectsTx(ctx context.Context, q queryer, workID string, evidence []WorkerReportEvidence) error {
+	for _, entry := range evidence {
+		receipt := entry.OracleReceipt
+		if receipt == nil || receipt.RunRef == "" {
+			continue
+		}
+		producer, err := readOracleControlProducerTx(ctx, q, workID, receipt.RunRef, receipt.Result)
+		if err != nil {
+			return err
+		}
+		if producer == nil {
+			current, err := readCurrentOracleSubject(ctx, q, workID)
+			if err != nil {
+				return err
+			}
+			producer, err = readMatchedOracleControlProducerTx(ctx, q, workID, receipt, current)
+			if err != nil {
+				return err
+			}
+		}
+		if producer == nil || producer.Oracle == nil {
+			return oracleFailure(KindMissingEvidence, "reported receipt has no native producer", "execute the assigned control or report unavailable")
+		}
+		if receipt.SubjectCommit != "" && receipt.SubjectCommit != producer.Oracle.SubjectCommit {
+			return oracleFailure(KindMissingEvidence, "reported receipt subject differs from its producer", "use the producer's receipt unchanged")
+		}
+		receipt.SubjectCommit = producer.Oracle.SubjectCommit
 	}
-	content, err := readWorkerJobSizeContentTx(ctx, q, workID)
-	if err != nil {
-		return "", err
-	}
-	if entry, recorded := content[*job]; recorded && entry.basis != nil {
-		return entry.basis.BaseCommit, nil
-	}
-	return "", nil
+	return nil
 }

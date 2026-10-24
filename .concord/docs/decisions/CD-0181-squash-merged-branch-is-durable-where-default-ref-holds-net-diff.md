@@ -5,7 +5,6 @@
 - **Scope:** The durable gate for terminal worktree reclaim and the unpushed
   content class, for branches whose squash merge deleted the remote head
   branch
-- **Amends:** CD-0144 D1 at the derivation of the unpushed class
 - **Preserves:** CD-0144 D4 in full, the remote-ref count as the first way to
   pass, the clean-tree and observed-session gates, and operator approval for
   destructive removal
@@ -13,10 +12,8 @@
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-77b5c1691911819c7d94abcd`.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+Operator consent for destructive removal follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
+Other admission, safety, and evidence requirements remain required.
 
 ## Context
 

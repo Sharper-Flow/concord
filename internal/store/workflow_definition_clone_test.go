@@ -26,7 +26,7 @@ func jsonRoundTripWorkflowDefinition(t *testing.T, definition WorkflowDefinition
 // (before registration normalizes it) and each registered definition.
 func everyWorkflowDefinitionVersion(t *testing.T) []WorkflowDefinition {
 	t.Helper()
-	authored := builtinWorkflowDefinitionsWithHistory()
+	authored := BuiltinWorkflowDefinitions()
 	all := append([]WorkflowDefinition(nil), authored...)
 	for _, definition := range authored {
 		registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
@@ -56,7 +56,7 @@ func TestRegisteredWorkflowDefinitionsAreJSONRoundTripFixedPoints(t *testing.T) 
 	// The JSON-cloning registry stored round-tripped values. A registered
 	// definition that equals its own round trip is the value that registry
 	// stored, field for field, not only digest for digest.
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		registered, _ := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
 		if !reflect.DeepEqual(registered.Definition, jsonRoundTripWorkflowDefinition(t, registered.Definition)) {
 			t.Errorf("%s v%d: registered definition is not its own JSON round trip", definition.Ref, definition.Version)
@@ -68,7 +68,7 @@ func TestCloneWorkflowDefinitionDropsEmptyOmitEmptySlicesLikeJSON(t *testing.T) 
 	// No built-in version carries an empty non-nil omitempty slice today, so
 	// the every-version comparison cannot see this rule; a JSON round trip
 	// turns one into nil, and the clone must too.
-	definition := builtinWorkflowDefinitionsWithHistory()[0]
+	definition := BuiltinWorkflowDefinitions()[0]
 	definition.RecoveryRoutes = []WorkflowRecoveryRoute{}
 	definition.AvailableActions = []string{}
 	got := cloneWorkflowDefinition(definition)
@@ -94,7 +94,7 @@ func TestCloneWorkflowDefinitionSharesNoMemoryWithItsSource(t *testing.T) {
 
 func TestLookupReturnsADefinitionCallersCannotUseToMutateTheRegistry(t *testing.T) {
 	registry := NewWorkflowDefinitionRegistry()
-	source := builtinWorkflowDefinitionsWithHistory()[0]
+	source := BuiltinWorkflowDefinitions()[0]
 	if _, err := registry.Register(source); err != nil {
 		t.Fatal(err)
 	}

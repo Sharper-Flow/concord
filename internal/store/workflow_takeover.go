@@ -50,7 +50,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 //
 // A worker-lane dispatch takes over only an unfinished lane attempt another
 // session dispatched: its worker is running or its result awaits a decision.
-// A failed attempt is finished, and the next dispatch is a CD-0148 retry
+// A failed attempt is finished, and the next dispatch is a retry
 // whose approval binds the failed attempt.
 func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string
@@ -70,7 +70,7 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	}
 	var start workflowActionStartedPayload
 	if err := json.Unmarshal([]byte(raw), &start); err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow action start payload is malformed", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	var left int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?) AND seq>? AND json_extract(payload,'$.step_id')<>?`, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, startSeq, step).Scan(&left); err != nil {

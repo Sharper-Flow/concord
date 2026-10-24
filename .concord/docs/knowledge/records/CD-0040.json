@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e15d77afb6383ac5b56311ea5469494b06e387ba001e0d3b235a1cc77b09a7b7",
+  "sha256": "sha256:2b93911f613ceac1b166a10e65053a3af02fc362b6660afd60fa9ec38cda5544",
   "status": "accepted",
-  "summary": "External observations share typed provenance and append-only verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
+  "summary": "External observations share typed provenance and recorded verification; presence is broad, while absence and consequential use require pinned completeness and current proof.",
   "tags": [
     "external-state",
     "verification",

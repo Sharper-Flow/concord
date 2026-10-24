@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:76c71d5fcf7e927d8e49135d9bfdaf4e98e4be4d195bc330d6af186791991d59",
+  "sha256": "sha256:ff6ff652f534bbe33358292bfba3730f968a608f3d0c069b16dfc343840c76c1",
   "status": "accepted",
-  "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
+  "summary": "Preserves deferred terminal projection pruning, recorded current state under CD-0242 D2, Git note authority, immutable work IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer disposition.",
   "tags": [
     "retention",
     "compaction",

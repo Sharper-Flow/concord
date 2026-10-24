@@ -25,7 +25,7 @@ ALLOWED_OPERATOR_OVERRIDE = {"path", "product_id", "recorded_in", "reason"}
 MAX_OPERATOR_OVERRIDES = 32
 OPERATOR_OVERRIDE_PATH_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$")
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
-ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "authority", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale", "doc_contract_profile"}
+ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "sha256", "authority", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale", "doc_contract_profile"}
 # CD-0175: the authored outline generation a decision or spec record carries,
 # and the closed historical sets that bound the legacy profile per kind. Each
 # set is frozen in contracts/concord-knowledge-index.v1.schema.json
@@ -33,11 +33,11 @@ ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "t
 # scripts/check-knowledge-vocabulary.py, so authoring a profile claim is never
 # enough to escape the current outline.
 RECORD_PROFILES = {"legacy", "current"}
-LEGACY_DECISION_PROFILE_IDS = frozenset({"CD-0002", "CD-0003", "CD-0005", "CD-0006", "CD-0007", "CD-0008", "CD-0009", "CD-0010", "CD-0011", "CD-0012", "CD-0013", "CD-0014", "CD-0015", "CD-0016", "CD-0017", "CD-0018", "CD-0019", "CD-0020", "CD-0021", "CD-0022", "CD-0023", "CD-0024", "CD-0025", "CD-0026", "CD-0027", "CD-0028", "CD-0029", "CD-0030", "CD-0031", "CD-0033", "CD-0034", "CD-0035", "CD-0036", "CD-0037", "CD-0038", "CD-0039", "CD-0040", "CD-0041", "CD-0042", "CD-0043", "CD-0044", "CD-0045", "CD-0046", "CD-0047", "CD-0048", "CD-0049", "CD-0050", "CD-0051", "CD-0052", "CD-0053", "CD-0054", "CD-0055", "CD-0056", "CD-0057", "CD-0058", "CD-0059", "CD-0060", "CD-0061", "CD-0062", "CD-0063", "CD-0064", "CD-0065", "CD-0066", "CD-0067", "CD-0068", "CD-0069", "CD-0070", "CD-0071", "CD-0072", "CD-0073", "CD-0074", "CD-0075", "CD-0076", "CD-0077", "CD-0078", "CD-0079", "CD-0080", "CD-0081", "CD-0082", "CD-0083", "CD-0084", "CD-0085", "CD-0086", "CD-0087", "CD-0088", "CD-0089", "CD-0090", "CD-0091", "CD-0092", "CD-0093", "CD-0094", "CD-0095", "CD-0096", "CD-0097", "CD-0098", "CD-0102", "CD-0103", "CD-0104", "CD-0105", "CD-0106", "CD-0108", "CD-0109", "CD-0110", "CD-0111", "CD-0112", "CD-0113", "CD-0114", "CD-0115", "CD-0116", "CD-0117", "CD-0118", "CD-0119", "CD-0120", "CD-0121", "CD-0122", "CD-0124", "CD-0128", "CD-0129", "CD-0130", "CD-0132", "CD-0133", "CD-0134", "CD-0137", "CD-0138", "CD-0139", "CD-0140", "CD-0142", "CD-0143", "CD-0144", "CD-0145", "CD-0146", "CD-0147", "CD-0148", "CD-0149", "CD-0150", "CD-0151", "CD-0152", "CD-0153", "CD-0154", "CD-0155", "CD-0156", "CD-0157", "CD-0158", "CD-0159", "CD-0160", "CD-0161", "CD-0162", "CD-0163", "CD-0164", "CD-0165", "CD-0166", "CD-0167", "CD-0168", "CD-0169", "CD-0170", "CD-0171", "CD-0172", "CD-0173", "CD-0174"})
+LEGACY_DECISION_PROFILE_IDS = frozenset({"CD-0002", "CD-0003", "CD-0005", "CD-0006", "CD-0007", "CD-0008", "CD-0010", "CD-0011", "CD-0012", "CD-0013", "CD-0014", "CD-0015", "CD-0016", "CD-0017", "CD-0018", "CD-0019", "CD-0020", "CD-0021", "CD-0022", "CD-0023", "CD-0024", "CD-0026", "CD-0027", "CD-0028", "CD-0029", "CD-0030", "CD-0031", "CD-0033", "CD-0034", "CD-0035", "CD-0036", "CD-0037", "CD-0038", "CD-0039", "CD-0040", "CD-0042", "CD-0043", "CD-0044", "CD-0045", "CD-0046", "CD-0047", "CD-0048", "CD-0049", "CD-0050", "CD-0051", "CD-0052", "CD-0053", "CD-0054", "CD-0055", "CD-0056", "CD-0057", "CD-0058", "CD-0059", "CD-0060", "CD-0061", "CD-0062", "CD-0063", "CD-0064", "CD-0065", "CD-0067", "CD-0069", "CD-0070", "CD-0071", "CD-0072", "CD-0073", "CD-0074", "CD-0075", "CD-0076", "CD-0077", "CD-0078", "CD-0079", "CD-0080", "CD-0081", "CD-0082", "CD-0084", "CD-0085", "CD-0087", "CD-0088", "CD-0089", "CD-0090", "CD-0091", "CD-0092", "CD-0093", "CD-0094", "CD-0095", "CD-0096", "CD-0097", "CD-0098", "CD-0102", "CD-0103", "CD-0104", "CD-0105", "CD-0106", "CD-0108", "CD-0109", "CD-0110", "CD-0111", "CD-0112", "CD-0113", "CD-0114", "CD-0116", "CD-0117", "CD-0118", "CD-0119", "CD-0120", "CD-0122", "CD-0124", "CD-0128", "CD-0129", "CD-0130", "CD-0132", "CD-0133", "CD-0134", "CD-0137", "CD-0138", "CD-0139", "CD-0140", "CD-0142", "CD-0143", "CD-0144", "CD-0145", "CD-0146", "CD-0147", "CD-0149", "CD-0150", "CD-0151", "CD-0152", "CD-0153", "CD-0154", "CD-0156", "CD-0157", "CD-0159", "CD-0160", "CD-0161", "CD-0162", "CD-0163", "CD-0165", "CD-0166", "CD-0168", "CD-0169", "CD-0170", "CD-0172", "CD-0173", "CD-0174"})
 # The spec boundary is the spec record identifiers registered before the spec
 # outline amendment. Membership makes legacy available to author, never
 # asserted: an unprofiled spec record authors the current profile.
-LEGACY_SPEC_PROFILE_IDS = frozenset({"C14", "C15", "C17", "PM1", "PM10", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "TS1", "TS2", "TS3", "TS4", "TS5", "TS6", "TS7", "TS8", "TS9", "development-authority", "workflow-engine-contract"})
+LEGACY_SPEC_PROFILE_IDS = frozenset({"C15", "C17", "PM1", "PM10", "PM2", "PM3", "PM4", "PM5", "PM6", "PM8", "PM9", "TS1", "TS2", "TS3", "TS4", "TS5", "TS6", "TS7", "TS8", "TS9", "workflow-engine-contract"})
 ALLOWED_AUTHORITY = {"tier", "legislated_by", "contract_version"}
 AUTHORITY_TIERS = {"legislated", "derived"}
 # The bounded set the parser reads, mirroring knowledgeManifestSchemaAccepted in
@@ -52,15 +52,15 @@ ALLOWED_DOMAIN = {"domain_id", "name", "purpose", "parent_domain_id", "status", 
 ALLOWED_ARCHITECTURE_RELATION = {"kind", "target_domain_id", "governing_law_ids", "state"}
 KINDS = {"work_note", "constitution", "decision", "spec", "lesson", "reference", "research"}
 RECORD_KINDS = {"constitution", "decision", "spec", "lesson", "reference", "research"}
-# The record kinds split into two status tiers. A law-bearing record is accepted
-# or superseded; every other kind is published or superseded. `reference` covers
+# The record kinds split into two status tiers. A law-bearing record is accepted;
+# every other kind is published. `reference` covers
 # navigation and reference material, so there is no separate navigation kind.
 LAW_BEARING_KINDS = {"constitution", "decision", "spec"}
-# The law-relation graph, the domain registry's governing_law_ids, and the
-# supersedes symmetry rule are defined over decisions and specs alone. A
+# The law-relation graph and the domain registry's governing_law_ids are
+# defined over decisions and specs alone. A
 # constitution is law-bearing for status purposes without joining that graph.
 LAW_RELATION_SUBJECTS = {"decision", "spec"}
-LAW_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with"}
+LAW_KINDS = {"refines", "subordinate_to", "conflicts_with"}
 DISPOSITIONS = {"archived"}
 MAX_DISPOSITIONS = 1000
 MAX_DISPOSITION_REASON = 4096
@@ -509,7 +509,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         unknown = set(record) - ALLOWED_RECORD
         if unknown:
             fail(findings, f"{prefix}: unknown fields: {sorted(unknown)}")
-        required = ALLOWED_RECORD - {"successor", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale", "doc_contract_profile"}
+        required = ALLOWED_RECORD - {"law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale", "doc_contract_profile"}
         # CD-0159 arrived after schema 1.2 was published, so a 1.2 corpus
         # declares no authority object and the parser supplies the derived
         # tier. The field becomes required at 1.3, which is the version a
@@ -522,7 +522,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             continue
 
         relations = record.get("law_relations", [])
-        if not isinstance(relations, list) or len(relations) > 32:
+        if not isinstance(relations, list) or len(relations) > 64:
             fail(findings, f"{prefix}: law_relations must be a bounded array")
         elif not isinstance(record.get("kind"), str) or record.get("kind") not in LAW_RELATION_SUBJECTS:
             if relations:
@@ -584,16 +584,11 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         law_bearing = kind in LAW_BEARING_KINDS
         if (
             not isinstance(status, str)
-            or status not in {"accepted", "published", "superseded"}
+            or status not in {"accepted", "published"}
             or (status == "published" and law_bearing)
             or (status == "accepted" and not law_bearing)
         ):
             fail(findings, f"{prefix}: invalid status/kind combination")
-        successor = record.get("successor")
-        if status == "superseded" and not valid_id(successor):
-            fail(findings, f"{prefix}: superseded record requires a clean successor")
-        if status != "superseded" and "successor" in record:
-            fail(findings, f"{prefix}: successor is only valid for superseded records")
 
         # CD-0159 D3/D5: every record carries its authority tier. The standing
         # check asserts tier presence, the closed two-value enum, the
@@ -805,26 +800,8 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if key in relation_keys:
                 fail(findings, f"{prefix}: duplicate law relation, including reverse conflict")
             relation_keys.add(key)
-            if kind == "supersedes" and (
-                record.get("status") != "accepted"
-                or target.get("status") != "superseded"
-                or target.get("successor") != record.get("id")
-            ):
-                fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
-            if kind in {"supersedes", "refines", "subordinate_to"}:
+            if kind in {"refines", "subordinate_to"}:
                 graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
-    for record in records:
-        if not isinstance(record, dict) or not record.get("successor"):
-            continue
-        # CD-0200 fail-closed supersedes: the cross-source supersedes edge a
-        # qualified successor implies has no admitted declaration, so the
-        # successor must live in this manifest.
-        if isinstance(record.get("successor"), str) and "/" in record["successor"]:
-            fail(findings, "manifest.records: supersede within the declaring source or amend through the shared home")
-            continue
-        successor = by_id.get(record["successor"])
-        if not any(isinstance(r, dict) and r.get("kind") == "supersedes" and r.get("target_id") == record.get("id") for r in (successor or {}).get("law_relations", [])):
-            fail(findings, f"manifest.records: successor {record['successor']} lacks matching supersedes relation")
 
     def has_cycle(graph: dict[str, list[str]]) -> bool:
         visiting: set[str] = set()
@@ -844,26 +821,6 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
 
     if has_cycle(graph):
         fail(findings, "manifest: directed law relations contain a cycle")
-    for number, record in enumerate(records):
-        if not isinstance(record, dict) or record.get("status") != "superseded" or not isinstance(record.get("successor"), str):
-            continue
-        prefix = f"manifest.records[{number}]"
-        successor = record["successor"]
-        if successor == record.get("id"):
-            fail(findings, f"{prefix}: successor cannot be self")
-            continue
-        if "/" in successor:
-            fail(findings, f"{prefix}: supersede within the declaring source or amend through the shared home")
-            continue
-        target = by_id.get(successor)
-        if target is None:
-            fail(findings, f"{prefix}: successor is not declared in this manifest: {successor}")
-            continue
-        if target.get("kind") != record.get("kind"):
-            fail(findings, f"{prefix}: successor kind does not match")
-        expected_status = "accepted" if record.get("kind") in LAW_BEARING_KINDS else "published"
-        if target.get("status") != expected_status:
-            fail(findings, f"{prefix}: successor status is incompatible")
 
     decision_paths: dict[str, list[str]] = {}
     for path in sorted((ROOT / ".concord/docs/decisions").glob("CD-*.md"), key=lambda item: item.as_posix()):
@@ -887,7 +844,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         record = matches[0]
         if record.get("path") != expected_path or record.get("kind") != "decision":
             fail(findings, f"manifest: decision {identifier} does not map to its exact decision path/kind")
-        if record.get("status") not in {"accepted", "superseded"}:
+        if record.get("status") != "accepted":
             fail(findings, f"manifest: decision {identifier} has invalid status")
     discovered_decision_paths = {candidate for candidates in decision_paths.values() for candidate in candidates}
     for record in records:

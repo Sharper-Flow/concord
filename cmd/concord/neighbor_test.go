@@ -160,6 +160,9 @@ func prepareWorkerEvidenceNeighborRow(ctx context.Context, verb string) func(t *
 			seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 		}
 		request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-neighbor-"+strings.TrimPrefix(verb, "worker-")+"-01")
+		if verb == agent.WorkerEvidenceVerbFail {
+			assertion = wFailureObservation(t, request, assertion, attributionWorkerReportObservation())
+		}
 		request["assertion"] = signWorkerEvidence(t, key, assertion)
 		run := func() error {
 			var out, errOut bytes.Buffer

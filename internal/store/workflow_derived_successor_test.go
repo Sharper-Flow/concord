@@ -122,10 +122,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
 				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
 			}
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatalf("rebuild admitted successor: %v", err)
-			}
-			assertSuccessor()
 		})
 	}
 }

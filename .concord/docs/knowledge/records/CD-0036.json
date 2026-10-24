@@ -25,13 +25,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a6c2fe138895410ef7991b1fc0bb8a3689ad49d5e3dff97947ba41286122f785",
+  "sha256": "sha256:25e0c04fb551d0a353b621864593c0a4a18846c46ccebb0652620d67ea1c4a5e",
   "status": "accepted",
-  "summary": "Law revision identity is the law ID and content hash; same-ID amendments remain compatible, while an accepted superseding law strictly quiesces old workflow consumers until recovery.",
+  "summary": "Contract approval pins one content digest for each mandated law ID; a same-ID amendment stays compatible and is reported for reassessment, while deleting a pinned law marks stale exactly the contracts that pinned it until they recover onto current law.",
   "tags": [
     "workflow",
     "law",
-    "cutover"
+    "staleness"
   ],
-  "title": "Breaking law supersession strictly quiesces old consumers"
+  "title": "Deleting a pinned law marks dependent contracts stale"
 }

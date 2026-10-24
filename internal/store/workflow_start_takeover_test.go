@@ -3,27 +3,35 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
 // CD-0013 criterion 25 covers every callable fenced start, not one action:
-// on each live pin that keeps a callable start, another actor's start over a
-// held attempt refuses approval_required before it opens an epoch, and the
-// holder's own restart stays free.
+// on each start a current definition declares on a step, another actor's
+// start over a held attempt refuses approval_required before it opens an
+// epoch, and the holder's own restart stays free.
 func TestFencedStartTakeoverRequiresApprovalOnEveryCallableStart(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		name, ref, step, start string
-		version                int64
-	}{
-		{name: "implementation-execution", ref: "workflow.implementation", version: 19, step: "execution", start: "start_execution"},
-		{name: "implementation-refine", ref: "workflow.implementation", version: 19, step: "refine", start: "start_refine"},
-		{name: "break-fix-repair", ref: "workflow.break_fix", version: 24, step: "repair", start: "start_repair"},
-	} {
+	type startCase struct{ name, ref, step, start string }
+	var cases []startCase
+	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
+		for _, step := range mustBuiltinDefinition(t, ref).Definition.StepGraph.Steps {
+			for _, action := range step.Actions {
+				if strings.HasPrefix(action, "start_") {
+					cases = append(cases, startCase{name: strings.TrimPrefix(ref, "workflow.") + "-" + step.ID, ref: ref, step: step.ID, start: action})
+				}
+			}
+		}
+	}
+	if len(cases) == 0 {
+		t.Fatal("no current definition declares a callable fenced start")
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "fenced-start-takeover-" + tc.name
-			fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, tc.ref, tc.version, tc.step)
+			fixture := seedWorkflowReturnRouteFixture(t, workID, tc.ref, tc.step)
 			s := fixture.store
 			if err := runVerdictActionAs(t, s, workID, tc.start, json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 				t.Fatalf("holder %s: %v", tc.start, err)

@@ -8,7 +8,6 @@
   ([`agent-call-context-contract.md`](../agent-call-context-contract.md)), TS6
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md))
-- **Supersedes:** nothing
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits operator consent to its six classes. Consequence summaries and operation binding do not themselves create an approval requirement; all other checks remain required.
@@ -128,8 +127,7 @@ The major-cutover obligations are closed here:
    original prompt lacked the required summary; consumed approvals remain audit
    history.
 4. Old/new adapter-core compatibility tests prove fail-closed negotiation.
-5. Durable domain operations and event history do not change. Their replay uses
-   the new envelope; no event is rewritten.
+5. Durable domain operations and their current rows do not change.
 6. This record carries explicit operator acceptance.
 
 ## Rejected alternatives

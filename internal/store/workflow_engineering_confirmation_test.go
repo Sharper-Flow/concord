@@ -19,77 +19,41 @@ import (
 // contract version; deliverables stay required; historical events replay with
 // their original operator authority.
 
-// engineeringConfirmationSeed delivers the fixture item, writes the stored
-// decision fact onto the active contract, and records the routine actors.
+// engineeringConfirmationSeed parks a workflow.implementation item at
+// acceptance on the live journey and records the routine actors. domainsJSON
+// is the active contract's decision fact; "" leaves the fact absent.
 func engineeringConfirmationSeed(t *testing.T, workID, domainsJSON string) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
 	t.Helper()
-	s, owner = seedDeliveredItemAtAcceptance(t, workID)
-	reviewer, operator, coordinator = seedRoutineActors(t, s, workID)
-	seedEngineeringInvestigation(t, s, workID)
+	return engineeringConfirmationFixture(t, workID, domainsJSON, true, true)
+}
+
+// engineeringConfirmationFixture is engineeringConfirmationSeed with Main's
+// criterion association and the investigation each made optional.
+func engineeringConfirmationFixture(t *testing.T, workID, domainsJSON string, associate, investigation bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
+	t.Helper()
+	domains := []string{}
 	if domainsJSON != "" {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains=? WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, domainsJSON, workID); err != nil {
+		if err := json.Unmarshal([]byte(domainsJSON), &domains); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return s, owner, reviewer, operator, coordinator
+	f := rAcceptance(t, workID, domains, associate, investigation)
+	actors := recordApprovalActors(t, f.store, workID)
+	if domainsJSON == "" {
+		// No live approval writes an absent fact; the projection carries it.
+		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=? AND superseded_by IS NULL;
+			DELETE FROM fold_guard`, workID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return f.store, f.owner, actors.reviewer, actors.operator, actors.coordinator
 }
 
-// flipRoutineSelectionPin points the seeded instance's definition pin at the
-// synthetic consequence_v1 definition and registers it in a test-local
-// registry, so pin-reading owners resolve the declared policy. The event log
-// keeps its recorded bytes; the store is never rebuilt.
-func flipRoutineSelectionPin(t *testing.T, s *Store, workID string, definition WorkflowDefinition) DefinitionRegistry {
+// engineeringConfirmationDefinition is the live definition the seeds pin.
+func engineeringConfirmationDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
-	digest, err := WorkflowDefinitionDigest(definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET definition_digest=? WHERE work_id=?;
-		UPDATE workflow_contracts SET definition_digest=? WHERE work_id=? AND contract_version=1;
-		DELETE FROM fold_guard`, digest, workID, digest, workID); err != nil {
-		t.Fatal(err)
-	}
-	registry := NewWorkflowDefinitionRegistry()
-	registered, err := registry.Register(definition)
-	if err != nil {
-		t.Fatalf("consequence_v1 definition refused registration: %v", err)
-	}
-	if registered.Digest != digest {
-		t.Fatalf("local registry digest = %s, want %s", registered.Digest, digest)
-	}
-	return registry
-}
-
-// seedEngineeringInvestigation records the investigation artifact the
-// confirmation route demands: a work observation whose refs name the current
-// root Domain of the item's Product and another work item of that Product,
-// with the shared Issue-31 domain registry seeded beside them.
-func seedEngineeringInvestigation(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	otherWorkID := workID + "-compared"
-	seedWork(t, s, otherWorkID)
-	seedIssue31DomainRegistry(t, s)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+strings.Repeat("e", 16), workID, "technical investigation", `["root","`+otherWorkID+`"]`, `[]`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		_ = leaveFold(context.Background(), tx)
-		t.Fatal(err)
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	return mustBuiltinDefinition(t, "workflow.implementation").Definition
 }
 
 // seedRoutineReviewersForSelection records the reviewer/operator/coordinator
@@ -114,16 +78,6 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 		t.Fatal(err)
 	}
 	return reviewer, operator, coordinator
-}
-
-// reviewerForSeed reads the seeded independent reviewer for one work item.
-func reviewerForSeed(t *testing.T, s *Store, workID string) WorkflowActor {
-	t.Helper()
-	var reviewer WorkflowActor
-	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE agent_ref=? AND session_ref=?`, "agent/independent-reviewer", "session/"+workID+"-reviewer").Scan(&reviewer.PrincipalRef, &reviewer.ClientRef, &reviewer.AgentRef, &reviewer.SessionRef, &reviewer.ActorClass); err != nil {
-		t.Fatalf("reviewer for %s: %v", workID, err)
-	}
-	return reviewer
 }
 
 // runEngineeringConfirmation invokes the confirm_premise constructor directly
@@ -175,9 +129,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering coordinator confirmation succeeds", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
-		s, _, reviewer, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
+		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -209,7 +162,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-substitution"
 		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, operator), &operator, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), &operator, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "takes no operator substitution") {
 			t.Fatalf("engineering confirmation with an operator actor returned %v, want the no-substitution refusal", err)
@@ -220,7 +173,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-digest"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, "digest:human-question"))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, "digest:human-question"))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with a human digest returned %v, want the invalid-input refusal", err)
@@ -231,7 +184,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-choice"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(false, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(false, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("engineering confirmation with revise choice returned %v, want the invalid-input refusal", err)
@@ -241,37 +194,18 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("missing deliverables and investigation refuse through the constructor", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-deliverables"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
-		// No verdict is folded on this seed, so the acceptance deliverables
-		// the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, `[]`, false, true)
+		// Main has not associated the accepted Review with the criteria, so
+		// the acceptance deliverables the confirmation requires are absent.
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "recorded workflow verdict") {
-			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-verdict refusal", err)
+		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
+			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
 		}
-		// The investigation artifact is demanded on the no-question route:
-		// removing the recorded observation makes the same owner refuse.
+		// The investigation artifact is demanded on the no-question route.
 		noInvestigation := "engineering-confirm-investigation"
-		s2, _, reviewer, _, coordinator2 := engineeringConfirmationSeed(t, noInvestigation, `[]`)
-		foldRoutineVerdict(t, s2, noInvestigation, reviewer)
-		delTx, delErr := s2.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if delErr != nil {
-			t.Fatal(delErr)
-		}
-		if err := enterFold(context.Background(), delTx); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := delTx.Exec(`DELETE FROM work_observations WHERE work_id=?`, noInvestigation); err != nil {
-			_ = leaveFold(context.Background(), delTx)
-			t.Fatal(err)
-		}
-		if err := leaveFold(context.Background(), delTx); err != nil {
-			t.Fatal(err)
-		}
-		if err := delTx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		_, err = runEngineeringConfirmation(t, s2, routinePolicyDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
+		s2, _, _, _, coordinator2 := engineeringConfirmationFixture(t, noInvestigation, `[]`, true, false)
+		_, err = runEngineeringConfirmation(t, s2, engineeringConfirmationDefinition(t), noInvestigation, ownerRefForTest(t, coordinator2), nil, confirmationFields(true, ""))
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation artifact") {
 			t.Fatalf("engineering confirmation without investigation returned %v, want the missing-investigation refusal", err)
 		}
@@ -283,14 +217,13 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, `[]`)
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "engineering-confirm-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: coordinatorRef, OccurredAt: time.Unix(9, 50).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: coordinatorRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "engineering-confirm-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": coordinatorRef})
+		dispatch.Actor = coordinatorRef
+		dispatch.OccurredAt = time.Unix(9, 50).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized {
 			t.Fatalf("worker-authority confirmation returned %v, want the unauthorized refusal", err)
@@ -300,18 +233,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection admits engineering without a digest", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-engineering"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, coordinator := seedRoutineReviewersForSelection(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t)
-		registry := flipRoutineSelectionPin(t, s, workID, definition)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
-		seedEngineeringInvestigation(t, s, workID)
+		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, `[]`, true, true)
+		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -330,18 +253,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection refuses a human digest for engineering", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-digest"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t)
-		registry := flipRoutineSelectionPin(t, s, workID, definition)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
-		seedEngineeringInvestigation(t, s, workID)
+		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `[]`, true, true)
+		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -363,23 +276,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection keeps the digest requirement for decision work", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-decision"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t)
-		registry := flipRoutineSelectionPin(t, s, workID, definition)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
-		seedEngineeringInvestigation(t, s, workID)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
+		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `["product"]`, true, true)
+		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -398,17 +296,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("operator selection keeps the investigation requirement for engineering", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-selection-investigation"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
-		reviewer, _, _ := seedRoutineReviewersForSelection(t, s, workID)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
-		definition := routinePolicyDefinition(t)
-		registry := flipRoutineSelectionPin(t, s, workID, definition)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1;
-			DELETE FROM fold_guard`, workID); err != nil {
-			t.Fatal(err)
-		}
+		s, _, _, _, _ := engineeringConfirmationFixture(t, workID, `[]`, true, false)
+		registry := BuiltinWorkflowRegistry()
 		selectionVersion := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -427,9 +316,8 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering records the agent-class coordinator only", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
-		s, _, reviewer, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
-		foldRoutineVerdict(t, s, workID, reviewer)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, operator), nil, confirmationFields(true, ""))
+		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID, `[]`)
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
@@ -439,15 +327,14 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("decision-bearing keeps the verified operator and human context", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-decision"
-		s, _, reviewer, operator, coordinator := engineeringConfirmationSeed(t, workID, `["product"]`)
-		foldRoutineVerdict(t, s, workID, reviewer)
+		s, _, _, operator, coordinator := engineeringConfirmationSeed(t, workID, `["product"]`)
 		coordinatorRef := ownerRefForTest(t, coordinator)
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, "digest:human-question"))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, nil, confirmationFields(true, "digest:human-question"))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindApprovalRequired {
 			t.Fatalf("decision-bearing confirmation without an operator returned %v, want the approval requirement", err)
 		}
-		events, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, coordinatorRef, &operator, confirmationFields(true, "digest:human-question"))
+		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, coordinatorRef, &operator, confirmationFields(true, "digest:human-question"))
 		if err != nil {
 			t.Fatalf("decision-bearing operator confirmation refused: %v", err)
 		}
@@ -468,7 +355,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-null-fact"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID, "")
-		_, err := runEngineeringConfirmation(t, s, routinePolicyDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
+		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil, confirmationFields(true, ""))
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidInput {
 			t.Fatalf("null decision fact returned %v, want the fail-closed invalid-input refusal", err)
@@ -538,7 +425,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 			"supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"},
 			"successor_contract": successor,
 		})
-		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		currentVersion := readWorkVersion(t, s, workID)
 		supersede.Payload = mustJSONValue(map[string]any{"work_id": workID, "expected_version": currentVersion, "resulting_version": currentVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"}, "successor_contract": successor})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {
@@ -601,47 +488,6 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(new(any)); err == nil {
 			t.Fatal("the decision-bearing successor inherited a confirmation without an operator")
-		}
-	})
-
-	t.Run("old premise events replay with their original operator authority", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-old-replay"
-		s := openTemp(t)
-		defer s.Close()
-		seedDecisionDomainsItemFatal(t, s, workID, []string{})
-		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-		operatorRef := ownerRefForTest(t, operator)
-		version := readWorkVersion(t, s, workID)
-		recorded := workflowEventWithActor("engineering-old-operator-"+workID, WorkflowActorRecorded, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
-		// A recorded v1 confirmation carries no authority member; the upcast
-		// stamps the original operator authority and the stored bytes stay.
-		confirmed := workflowEventWithActor("engineering-confirm-old-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{recorded, confirmed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-			t.Fatalf("fold recorded v1 confirmation: %v", err)
-		}
-		var payload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "engineering-confirm-old-"+workID).Scan(&payload); err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(payload, "confirmation_authority") {
-			t.Fatalf("the stored v1 bytes gained an authority member: %s", payload)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1 AND confirmed_by=?`, workID, operatorRef).Scan(new(any)); err != nil {
-			t.Fatalf("operator confirmation row missing after replay: %v", err)
-		}
-		before := fullWorkflowProjectionSnapshot(t, s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild: %v", err)
-		}
-		if before != fullWorkflowProjectionSnapshot(t, s) {
-			t.Fatal("rebuild diverged across the recorded v1 confirmation")
-		}
-		// A forged authority member on a recorded v1 payload is authored
-		// bytes no store ever wrote.
-		forged := workflowEventWithActor("engineering-confirm-forged-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version + 2, "resulting_version": version + 3, "contract_version": 1, "confirming_actor_ref": operatorRef, "confirmation_authority": "operator"})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{forged}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err == nil {
-			t.Fatal("a v1-stamped payload carrying an authority member folded, want the upcast refusal")
 		}
 	})
 }

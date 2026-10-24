@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -109,13 +108,13 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 			rule:    "min_items=1",
 		},
 		{
-			// The batch entry keeps its own evidence bound: the generated
-			// entry schema refuses an empty evaluation_evidence inside the
-			// verdicts item.
+			// The batch entry keeps its own receipt bound: the generated
+			// entry schema refuses an empty receipt_refs inside the verdicts
+			// item.
 			name:    "wrong registered item bound",
 			action:  "record_verdict",
-			payload: `{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok","evaluation_evidence":[]}]}`,
-			field:   "evaluation_evidence",
+			payload: `{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":[]}]}`,
+			field:   "receipt_refs",
 			rule:    "minimum of 1",
 		},
 	}
@@ -147,47 +146,26 @@ func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	}
 }
 
-func TestRecordDesignPayloadContractsRemainVersioned(t *testing.T) {
-	registry := BuiltinWorkflowRegistry()
-	historical, ok := registry.Lookup("workflow.implementation", 5)
-	if !ok {
-		t.Fatal("workflow.implementation v5 is not registered")
-	}
-	current, ok := registry.Lookup("workflow.implementation", 6)
-	if !ok {
-		t.Fatal("workflow.implementation v6 is not registered")
-	}
-
-	findAction := func(definition WorkflowDefinition) WorkflowActionDefinition {
-		t.Helper()
-		for _, action := range definition.ActionDefinitions {
-			if action.ID == "record_design" {
-				return action
-			}
+func TestRecordDesignPayloadContractIsTyped(t *testing.T) {
+	definition := currentWorkflowDefinition(t)
+	var action WorkflowActionDefinition
+	for _, candidate := range definition.ActionDefinitions {
+		if candidate.ID == "record_design" {
+			action = candidate
 		}
+	}
+	if action.ID == "" {
 		t.Fatal("record_design is not declared")
-		return WorkflowActionDefinition{}
 	}
-	historicalAction := findAction(historical.Definition)
-	currentAction := findAction(current.Definition)
-	if !historicalAction.Payload.Closed || len(historicalAction.Payload.Fields) != 0 {
-		t.Fatalf("v5 record_design payload = %#v, want a closed empty payload", historicalAction.Payload)
-	}
-	if len(currentAction.Payload.Fields) != 3 {
-		t.Fatalf("v6 record_design payload has %d fields, want 3", len(currentAction.Payload.Fields))
+	if len(action.Payload.Fields) != 3 {
+		t.Fatalf("record_design payload has %d fields, want 3", len(action.Payload.Fields))
 	}
 	typed := json.RawMessage(`{"approach":"keep the pinned contract","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touched_refs":["work:item"]}`)
-	if err := validateWorkflowActionPayload(historical.Definition, "record_design", typed); err == nil {
-		t.Fatal("v5 accepted the v6 typed record_design payload")
+	if err := validateWorkflowActionPayload(definition, "record_design", typed); err != nil {
+		t.Fatalf("record_design refused its typed payload: %v", err)
 	}
-	if err := validateWorkflowActionPayload(historical.Definition, "record_design", json.RawMessage(`{}`)); err != nil {
-		t.Fatalf("v5 refused its empty record_design payload: %v", err)
-	}
-	if err := validateWorkflowActionPayload(current.Definition, "record_design", typed); err != nil {
-		t.Fatalf("v6 refused its typed record_design payload: %v", err)
-	}
-	if err := validateWorkflowActionPayload(current.Definition, "record_design", json.RawMessage(`{}`)); err == nil {
-		t.Fatal("v6 accepted the v5 empty record_design payload")
+	if err := validateWorkflowActionPayload(definition, "record_design", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("record_design accepted an empty payload")
 	}
 }
 
@@ -252,10 +230,10 @@ func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
 	definition := currentWorkflowDefinition(t)
-	// The canonical record_verdict batch carries the entry's evaluation
-	// evidence through the generated reference schema: the slash the
+	// The canonical record_verdict batch carries the entry's receipt
+	// references through the generated reference schema: the slash the
 	// reference rule admits must survive the item boundary.
-	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok","evaluation_evidence":["artifact:path/with/slash"]}]}`)); err != nil {
+	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":["artifact:path/with/slash"]}]}`)); err != nil {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
 	}
 	longLawID := "spec:" + strings.Repeat("a", 124)
@@ -267,7 +245,7 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	_ = requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
 }
 
-func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
+func TestRecordProposalPersistsAndReads(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "work-proposal-read"
@@ -311,26 +289,6 @@ func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
 	if first.Problem != "The problem statement preserves its text." || len(first.Affected) != 2 || first.Affected[1] != "The second affected system." || first.Constraints[0] != "The implementation constraint." || first.OpenQuestions[0] != "The unresolved question." {
 		t.Fatalf("workflow read proposal=%+v", first)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	second := read()
-	if !reflect.DeepEqual(first, second) {
-		t.Fatalf("proposal changed after replay: before=%+v after=%+v", first, second)
-	}
-}
-
-// historicalWorkflowDefinition returns one released definition version so a
-// test can hold a pin taken before a payload gained typed fields.
-func historicalWorkflowDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-		if definition.Ref == ref && definition.Version == version {
-			return definition
-		}
-	}
-	t.Fatalf("workflow definition %q version %d is absent", ref, version)
-	return WorkflowDefinition{}
 }
 
 func TestRecordProposalRefusesAnInvalidDocument(t *testing.T) {
@@ -351,18 +309,6 @@ func TestRecordProposalRefusesAnInvalidDocument(t *testing.T) {
 	} {
 		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(payload)); err == nil {
 			t.Errorf("%s: the transition accepted an invalid proposal document", name)
-		}
-	}
-}
-
-func TestRecordProposalKeepsTheEmptyCallOfAnEarlierPin(t *testing.T) {
-	for _, version := range []int64{4, 5, 6} {
-		definition := historicalWorkflowDefinition(t, "workflow.implementation", version)
-		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(`{}`)); err != nil {
-			t.Errorf("version %d refused its released empty call: %v", version, err)
-		}
-		if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(`{"problem":"The recorded problem."}`)); err == nil {
-			t.Errorf("version %d accepted a field it never declared", version)
 		}
 	}
 }

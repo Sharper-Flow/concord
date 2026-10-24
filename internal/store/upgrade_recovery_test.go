@@ -108,6 +108,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// the planning mirror, so undoMigration124 restores the pre-step schema
 	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
+	if _, err := db.ExecContext(context.Background(), workerCurrentFactsFixtureReversal); err != nil {
+		t.Fatalf("cannot restore the pre-139 worker facts: %v", err)
+	}
 	if err := dropMigration125Objects(context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-125 verify lease: %v", err)
 	}
@@ -132,7 +135,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err := undoMigration124(t, context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_resize_lineage; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments; DROP TABLE store_revision;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
 	if err := dropMigration120Objects(context.Background(), db); err != nil {

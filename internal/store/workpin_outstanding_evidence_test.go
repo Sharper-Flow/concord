@@ -126,7 +126,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireWorkPinOutstandingKinds(t, &pin, []string{"review", "verification"})
+	requireWorkPinOutstandingKinds(t, &pin, []string{"artifact", "review", "verification"})
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	if snapshot.WorkPin == nil || snapshot.WorkPin.Version != pin.Version || snapshot.WorkPin.Step != pin.Step {
 		t.Fatalf("continuity pin = %+v, direct pin = %+v", snapshot.WorkPin, pin)
 	}
-	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"review", "verification"})
+	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"artifact", "review", "verification"})
 }
 
 func TestWorkPinOutstandingEvidenceKindsIncludeRecoveryCheck(t *testing.T) {
@@ -247,7 +247,10 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, version := range []int64{current.Definition.Version, current.Definition.Version - 1} {
+		if _, ok := BuiltinWorkflowRegistry().Lookup(ref, current.Definition.Version-1); ok {
+			t.Fatalf("retired definition %s@%d remains executable", ref, current.Definition.Version-1)
+		}
+		for _, version := range []int64{current.Definition.Version} {
 			name := ref + "@" + strconv.FormatInt(version, 10)
 			t.Run(name, func(t *testing.T) {
 				registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)

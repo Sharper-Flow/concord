@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b2449e9204f3ad2552f2fc83afe7e0f117cdc4c04a49e1031c5373dac72354b5",
+  "sha256": "sha256:58f723a456a963617bd018eeec6ecb44575253bdca41f610f34af3d0cc6a4ea8",
   "status": "accepted",
   "summary": "A lane dispatches at a step only when the lane-step dispatch join admits the lane's capability class at that step's kind: read-only classes reach internal_sqlite and cross_authority steps, editing classes stay on external_effect steps, definition composition derives the action pair placement from the generated join, dispatch time refuses a lane the step kind does not admit, and the generator refuses a lane class the join does not name. Repeals the CD-0059 research-family exclusion (#892).",
   "tags": [

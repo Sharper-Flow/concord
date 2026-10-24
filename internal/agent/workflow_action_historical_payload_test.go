@@ -24,11 +24,11 @@ func TestWorkflowActionSchemaRefusesLegacyRecordDesignAndAdmitsTheTypedShape(t *
 	// retired authoring shape stays readable at the exact pinned versions
 	// through the historical decoder's design-content closure, without
 	// regaining a live authoring permission.
-	if err := payloadschema.ValidateInDocument(payloadschema.HistoricalDocument(), "workflow_design_content", historical); err == nil {
+	if err := payloadschema.ValidateInDocument(payloadschema.Document(), "workflow_design_content", historical); err == nil {
 		t.Fatal("frozen design-content closure admitted a fields-less record_design payload; the frozen reader must still bind the typed content")
 	}
 	typedContent := []byte(`{"approach":"keep the pinned contract","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touched_refs":["work:item"]}`)
-	if err := payloadschema.ValidateInDocument(payloadschema.HistoricalDocument(), "workflow_design_content", typedContent); err != nil {
+	if err := payloadschema.ValidateInDocument(payloadschema.Document(), "workflow_design_content", typedContent); err != nil {
 		t.Fatalf("frozen historical decoder refused the typed design content: %v", err)
 	}
 }

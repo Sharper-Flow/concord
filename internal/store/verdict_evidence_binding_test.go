@@ -3,38 +3,44 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
-// The "verdict evidence is not durably bound" refusal names every unbound
-// ref, and the WorkPin exposes the bound immutable_subject_ref set with kinds
-// at steps that declare record_verdict. A caller that cites a locator or
-// another non-bound form learns what qualifies without reading the raw store.
-
-// A verdict citing one bound ref and one unbound URL is refused with the URL
-// named and the qualifying form stated. The durable-binding requirement
-// itself is unchanged.
-func TestUnboundVerdictEvidenceRefusalNamesTheRef(t *testing.T) {
-	t.Parallel()
-	const workID = "issue974-named-refusal"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, false)
-	unbound := "https://github.com/Sharper-Flow/concord/issues/952#issuecomment-5594041977"
-
-	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{unbound, "attempt:" + workID}})
-	err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, reviewer)
-	if err == nil {
-		t.Fatal("verdict with an unbound ref was accepted")
+// seedLanelessResearchItem records a current research report and conclusion
+// without a worker dispatch, so the WorkPin evidence read has a bound artifact.
+func seedLanelessResearchItem(t *testing.T, workID string) (*Store, WorkflowActor) {
+	t.Helper()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), unbound) {
-		t.Fatalf("refusal err=%v, want it to name the unbound ref %q", err, unbound)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
+	if !ok {
+		t.Fatal("current workflow.research is not registered")
 	}
-	if !strings.Contains(err.Error(), "must equal a bound immutable_subject_ref") {
-		t.Fatalf("refusal err=%v, want it to state the qualifying ref form", err)
+	setup := []Event{
+		workflowEventWithActor("laneless-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEventWithActor("laneless-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEventWithActor("laneless-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "record the research report", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowActionCompletedFixture("laneless-approval-"+workID, workID, ownerRef, 5, "frame", "approve_contract"),
+		workflowActionCompletedFixture("laneless-finding-"+workID, workID, ownerRef, 6, "investigate", "record_finding"),
 	}
-	if strings.Contains(err.Error(), "attempt:"+workID) {
-		t.Fatalf("refusal err=%v, must not name the bound ref", err)
+	setup[2].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
 	}
+	if err := runVerdictActionAs(t, s, workID, "record_report", json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"evidence:research-report"}`), 0, owner); err != nil {
+		t.Fatalf("record research report: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_conclusion", json.RawMessage(`{}`), 0, owner); err != nil {
+		t.Fatalf("record research conclusion: %v", err)
+	}
+	return s, owner
 }
 
 // The WorkPin exposes the bound evidence set with kinds at a step that
@@ -94,7 +100,7 @@ func seedLanelessResearchItemAtFrame(t *testing.T, workID string) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 5)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}

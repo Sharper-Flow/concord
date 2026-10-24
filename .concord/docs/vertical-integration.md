@@ -4,8 +4,7 @@
 > [`product-data-model.md`](./product-data-model.md), [`workflows.md`](./workflows.md),
 > [`clarifications.md`](./clarifications.md).
 > **Purpose:** Record the ownership spectrum for lgrep and vision. Both retain
-> the product-scoping lean. episode is removed by CD-0106 and is no longer a
-> subject of this document.
+> the product-scoping lean.
 > **Origin:** User direction, 2026-07-25 ("we may want to consider…").
 
 ## Resolved direction (interface/audience boundary)
@@ -15,9 +14,8 @@ product-scope lgrep and vision. The operator-surface / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
 - The primary operator surface follows [`priorities.md`](./priorities.md).
-- Per CD-0108 (2026-09-03), Concord absorbs the **ZLauncher replacement**
-  role with its own session entry route. The R1 bootstrap
-  split is superseded; see [`clarifications.md`](./clarifications.md) R1.
+- The host owns operator session start and resume. Concord supplies managed work
+  context and verified worktree placement.
 - Any **admin panel** or web UI is an optional projection, not the operating center.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
@@ -45,7 +43,6 @@ integration?
 |---|---|
 | **lgrep** | Local code intelligence (semantic + symbol search). The code index. |
 | **vision** | MCP daemon that hosts/proxies MCP servers. The MCP infrastructure layer. |
-| **Session entry** | The named-work entry and session bootstrap route under CD-0108. lgrep and vision remain independent integrations. |
 
 ## Why the question arises
 
@@ -128,8 +125,8 @@ tool does not move the boundary for the other.
 | Doc | Link |
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the interface decision (R1). |
-| [`clarifications.md`](./clarifications.md) R7 | episode is removed under CD-0106; the knowledge ladder is observation, lesson, decision. |
-| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | CD-0219 retires the interactive TUI, and the session entry route is removed with it (CD-0108). The host owns operator session start and resume. |
+| [`clarifications.md`](./clarifications.md) R7 | The knowledge ladder is observation, lesson, decision. |
+| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The host owns operator session start and resume. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 

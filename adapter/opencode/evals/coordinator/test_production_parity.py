@@ -309,15 +309,19 @@ def claim_corpus_args():
 
 def start_corpus_args():
     """The shared start corpus as driven tool args, in execution order: the
-    adapter's input boundary answers every member except the corrected resume
-    and the valid capture before any effect. start-project-selector is the
-    Project selector the resume branch refuses: the branch carries work_id
-    alone, so the generated contract refuses the argument before any effect
-    on both boundaries."""
+    adapter's input boundary answers every member except the corrected
+    resumes and the valid capture before any effect. start-project-selector
+    is the Project selector the resume branch refuses: the branch carries
+    exactly one of work_id or issue_key, so the generated contract refuses
+    the argument, both selectors, and a malformed key before any effect on
+    both boundaries."""
     return {
         "start-mixed": {"work_id": WORK, "title": "Both shapes at once"},
         "start-corrected": {"work_id": WORK},
+        "start-issue-key-corrected": {"issue_key": "SYN-1"},
         "start-project-selector": {"work_id": WORK, "project_id": "synthetic-foreign-project"},
+        "start-both-selectors": {"work_id": WORK, "issue_key": "SYN-1"},
+        "start-malformed-issue-key": {"issue_key": "syn-1"},
         "cap-blank": capture_start_args(EMPTY_IDEMPOTENCY_KEY),
         "cap-whitespace": capture_start_args(WHITESPACE_IDEMPOTENCY_KEY),
         "cap-oversize": capture_start_args(OVERSIZE_IDEMPOTENCY_KEY),
@@ -568,16 +572,19 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
 
     def test_corrected_resume_passes_the_input_boundary_and_classifies_the_refusal_exit(self):
         observation = self.observed()
-        corrected = observation["start-corrected"]["envelope"]
         # Input admitted: the adapter reached the work-resume child for the
         # corrected shape, and the typed refusal exit is classified as the
         # genuine non-retry refusal.
-        self.assertIn("work-resume", observation["start-corrected"]["children"])
-        self.assertEqual(corrected.get("outcome"), "error")
-        captured = semantic_envelope(corrected)
-        triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
-        self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL),
-                        json.dumps(captured, indent=1))
+        for label in ("start-corrected", "start-issue-key-corrected"):
+            with self.subTest(corpus=label):
+                self.assertIn("work-resume", observation[label]["children"])
+                corrected = observation[label]["envelope"]
+                self.assertEqual(corrected.get("outcome"), "error")
+                captured = semantic_envelope(corrected)
+                triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
+                self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL),
+                                json.dumps(captured, indent=1))
+                self.assertEqual(captured["error"]["message"], DIRTY_ORIGIN_STDERR)
 
 
 class ProductionAdapterTransitionTupleTests(unittest.TestCase):
@@ -630,11 +637,11 @@ class RecordingDoubleParityTests(unittest.TestCase):
     def setUpClass(cls):
         cls.sdk_tool = plugin_tool_module()
 
-    def double_observation(self):
+    def double_observation(self, start=None):
         root = Path(tempfile.mkdtemp(prefix="concord-parity-double-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
         case = {
-            "start": SCENARIOS["default-checkout-resume"]["start"],
+            "start": start if start is not None else SCENARIOS["default-checkout-resume"]["start"],
             "transition": SCENARIOS["same-repository-second-project"]["transition"],
             "responses": {},
         }
@@ -676,6 +683,7 @@ class RecordingDoubleParityTests(unittest.TestCase):
         return {
             **{label: adapter_observation[label]["envelope"] for label in start_corpus_args()},
             "start-corrected-children": adapter_observation["start-corrected"]["children"],
+            "start-issue-key-corrected-children": adapter_observation["start-issue-key-corrected"]["children"],
             "cap-valid-children": adapter_observation["cap-valid"]["children"],
             **captured,
         }
@@ -698,7 +706,7 @@ class RecordingDoubleParityTests(unittest.TestCase):
         double = self.double_observation()
         production = self.production_capture()
         malformed_start = (label for label in start_corpus_args()
-                           if label not in ("start-corrected", "cap-valid"))
+                           if label not in ("start-corrected", "start-issue-key-corrected", "cap-valid"))
         malformed_claim = (label for label in claim_corpus_args() if label != "claim-corrected")
         for label in (*malformed_start, *malformed_claim):
             with self.subTest(corpus=label):
@@ -718,6 +726,12 @@ class RecordingDoubleParityTests(unittest.TestCase):
             # (past validateWorkStartArgs). Double: admitted, outcome ok.
             self.assertIn("work-resume", production["start-corrected-children"])
             self.assertEqual(double["start-corrected"]["envelope"].get("outcome"), "ok")
+        with self.subTest(corpus="start-issue-key-corrected"):
+            # Both boundaries admit the issue-key selector. Production reaches
+            # the work-resume child; the work_id-only fixture then refuses it
+            # as outside its grant, never as an input refusal.
+            self.assertIn("work-resume", production["start-issue-key-corrected-children"])
+            self.assertNotEqual(semantic_envelope(double["start-issue-key-corrected"]["envelope"])["error"]["kind"], "invalid_input")
         with self.subTest(corpus="cap-valid"):
             # Production: the valid capture passed the input boundary and
             # reached the bootstrap child. Double: the boundary admitted it
@@ -743,6 +757,18 @@ class RecordingDoubleParityTests(unittest.TestCase):
         self.assertEqual(corrected.get("outcome"), "ok")
         self.assertEqual(corrected.get("result", {}).get("path"), "/synthetic/worktrees/synthetic-work-other-project")
         self.assertIn("A turn-move boundary is active", observation["claim-corrected"]["notice"] or "")
+
+    def test_double_issue_key_matches_only_its_selector_and_preserves_genuine_refusal(self):
+        production = execute_adapter_corpus()["start-issue-key-corrected"]["envelope"]
+        for scenario in ("default-checkout-resume", "genuine-refusal-no-fallback"):
+            with self.subTest(scenario=scenario):
+                start = {**SCENARIOS[scenario]["start"], "admit": {"issue_key": "SYN-1"}}
+                observation = self.double_observation(start=start)
+                served = observation["start-issue-key-corrected"]["envelope"]
+                self.assertTrue(structural_equal(served, start["result"]))
+                self.assertEqual(observation["start-corrected"]["envelope"].get("outcome"), "error")
+                if scenario == "genuine-refusal-no-fallback":
+                    self.assert_double_matches_production(served, production, scenario)
 
     def test_double_trace_records_every_served_envelope_exactly(self):
         # Trace fidelity: calls.jsonl is append-order, so its entries map to

@@ -41,8 +41,15 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 			t.Fatalf("intent=%+v, want workflow action at pin version", intent)
 		}
 	}
-	if !reflect.DeepEqual(gotActions, step.Actions) {
-		t.Fatalf("intent actions=%v, want %v", gotActions, step.Actions)
+	var wantActions []string
+	for _, action := range step.Actions {
+		// A declaration is not admission: no worker result exists at proposal.
+		if action != "accept_worker_result" {
+			wantActions = append(wantActions, action)
+		}
+	}
+	if !reflect.DeepEqual(gotActions, wantActions) {
+		t.Fatalf("intent actions=%v, want %v", gotActions, wantActions)
 	}
 
 	var transactionPin WorkPin
@@ -264,7 +271,7 @@ func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
 		t.Fatalf("verified criteria=%+v, want one approved predicate", pin.VerifiedCriteria)
 	}
 	criterion := pin.VerifiedCriteria[0]
-	if criterion.PredicateID != "predicate:primary" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
+	if criterion.PredicateID != "predicate:return-route" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
 		t.Fatalf("verified criterion=%+v, want the approved check and ok verdict", criterion)
 	}
 }

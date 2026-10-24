@@ -94,9 +94,9 @@ func invokeRequestWireBytes(t *testing.T, defs map[string]any, opt schemawire.Op
 // date-times carry the core writer's RFC3339Nano UTC serialization, and
 // the three context members ride the context aggregate exactly once.
 // packet3 must derive identically to packet2; a divergence fails here.
-// The size-capable packet5 mirrors the checks-repair packet4 shape beside
-// the recorded production-size members, so every dispatch packet identity
-// composes from one inventory.
+// The caller-capable packet5 mirrors the checks-repair packet4 shape beside
+// the direct-caller members, so every dispatch packet identity composes from
+// one inventory.
 func derivedPacketFigures(t *testing.T, defs map[string]any, findingRefMax int) (packet2, packet3, packet4, packet5 int) {
 	t.Helper()
 	parts := make(map[string]int, 4)
@@ -114,7 +114,6 @@ func derivedPacketFigures(t *testing.T, defs map[string]any, findingRefMax int) 
 		case "worker_packet5":
 			jobRef = "worker_packet5_worker_job"
 			bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
-			bounds[jobPath+jobRef+"/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
 			bounds[jobPath+jobRef+"/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
 		}
 		bounds[jobPath+jobRef+"/acceptance_oracle"] = store.OracleCombinedMaxBytes

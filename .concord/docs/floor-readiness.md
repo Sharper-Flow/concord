@@ -12,20 +12,17 @@ below (the six usability-floor conditions) and
 release/install/privacy/Linux amd64 bar this manifest names `fc7`). A condition
 may carry its own `source`, overriding the manifest-level default.
 
-The manifest copies its conditions and never redefines them. That was previously
-an assertion; the checker now enforces it, requiring each condition's title to
+The manifest copies its conditions and never redefines them. The checker requires each condition's title to
 equal the first sentence of the corresponding item in its source section, one to
 one and in order. A dropped, added, reordered, or reworded condition fails, and a
 source section that cannot be resolved fails rather than passing vacuously.
 
 ## First-usable floor
 
-This section is history. The operator recorded the floor satisfied on
-2026-09-01. CI still validates the manifest, and the alpha rung of
+CI validates the manifest, and the alpha rung of
 [`maturity-readiness.v1.json`](./maturity-readiness.v1.json) requires the floor
 to stay met. Concord's current direction is in [`goals.md`](./goals.md) and
-[`priorities.md`](./priorities.md). The six conditions below keep their
-original words because the manifest copies their titles.
+[`priorities.md`](./priorities.md). The manifest copies the six condition titles below.
 
 1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
@@ -36,8 +33,7 @@ original words because the manifest copies their titles.
 
 ## Why it is a manifest
 
-The floor is the gate for a replacement-readiness claim, and until this manifest
-existed nothing recorded distance from it. Prose could not: a checklist that asserts its own
+The floor is the gate for a replacement-readiness claim. A checklist that asserts its own
 authority drifts silently, which is the failure
 [`feature-inventory.md`](./feature-inventory.md) avoids by declaring itself
 non-authorizing.
@@ -46,9 +42,7 @@ Authority here comes from mechanical checking rather than assertion. The
 validator rejects a satisfied item whose evidence does not resolve to an
 executable check, an outstanding item with no tracking issue, and an
 unmeasured item with no reason. A floor condition cannot silently carry no
-items at all. The first run of the validator against the first draft of the
-manifest rejected a fabricated decision-record path; the schema-2.0 tightening
-now rejects a satisfied item whose evidence is anything other than an anchor
+items at all. The validator rejects a satisfied item whose evidence is anything other than an anchor
 that resolves and — for executable anchors — that a required workflow
 actually invokes.
 

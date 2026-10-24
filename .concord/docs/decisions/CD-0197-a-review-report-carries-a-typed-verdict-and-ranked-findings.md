@@ -5,8 +5,6 @@
 - **Scope:** The `agent-lane-report.v1` review block; the lane manifest's
   per-lane required-report-block contract; the `worker.completed` payload
   boundary; the adapter admission and attempt summary
-- **Extends:** CD-0056 at D2, D4, D6, and D7, and the CD-0017 lane report
-  contract
 - **Preserves:** the worker authority boundary in full — a lane verdict
   records no transition, no workflow verdict, and no completion, and a worker
   still cannot accept its own result
@@ -27,7 +25,7 @@ nothing could tell them apart. `verdict_kind` on the workflow step is a
 different surface: it is the actor's own claim at `accept_worker_result`, not
 a lane output.
 
-A review exists to rank findings and to decide ship or no ship. That outcome
+A review ranks findings and reports its disposition. That outcome
 deserves a typed shape, the way `base_comparison` typed its checks in place.
 
 ## Decision
@@ -36,9 +34,10 @@ deserves a typed shape, the way `base_comparison` typed its checks in place.
 
 `agent-lane-report.v1` gains an optional top-level `review` object.
 The dispatch pins the report schema identity: `1.0` for pre-job reports,
-`1.1` for job-capable reports. The block carries:
+`1.1` for job-capable reports.
+A review report names one disposition, continue, correction required, revision required, or ready for final proof ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). The block
+carries:
 
-- `verdict`: `ship` or `no_ship`.
 - `findings`: an array of 0 to 64 findings.
 - Each finding: `severity` from the closed `P0`-`P3` scale, `confidence`
   from the closed `low`, `medium`, `high` set, and a detail of 1 to 512
@@ -76,16 +75,15 @@ The generator projects the requirement into the Go registry, the TypeScript
 registry, the lane contract docs, and the lane prompts. For the review lane,
 the typed block discharges the `severity` obligation, so severity has one
 source: a completed review report needs no separate free-text severity entry.
-The store fold and the adapter admission refuse a free-text severity entry
-beside the block. The gate is the carried block, not the live boundary, so
-stored completions replay exactly as they were accepted.
+The store admission and the adapter admission refuse a free-text severity entry
+beside the block. The gate is the carried block, not the live boundary; completions are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D3. The adapter and the store both refuse a review completion without the block
 
 The adapter refuses at admission (CD-0056 D7), because it is the only
 component that sees worker output. The store validates block shape at
-`worker.completed` and enforces the per-lane requirement in the fold
-(CD-0056 D4), because the fold is the one point where the attempt's lane and
+`worker.completed` acceptance and enforces the per-lane requirement there
+(CD-0056 D4), because acceptance is the one point where the attempt's lane and
 the reported block are both in hand. A refusal is not a completion: the
 caller records `worker.failed` with `invalid_report`.
 
@@ -95,31 +93,15 @@ manufacturing one.
 
 Oracle enforcement joins the attempt's dispatched job revision, not the
 current definition. Historical reports retain their recorded content and
-requirements; upcasting fabricates no tie, receipt, or closure.
+requirements; nothing fabricates a tie, receipt, or closure ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### D4. The verdict couplings are structural
+### D4. The review reports one of four dispositions
 
-The adapter and the store refuse a review block with a `ship` verdict and any
-`P0` finding, and one with a `no_ship` verdict and zero findings. A `P0` is
-by definition a ship blocker. A `no_ship` with no finding is an unexplained
-verdict. Nothing else is ranked or judged: the content of a finding stays a
-review question, not a validator question.
+The review reports one disposition, continue, correction required, revision required, or ready for final proof, and Main records its acceptance; an open in-scope blocking finding blocks both a new assignment and leaving execution ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
-An oracle-bound report also refuses `ship` with any delivery blocker,
-uncovered case, or oracle defect. A `no_ship` justified only by follow-ups
-below P0 refuses. An out-of-scope P0 follow-up remains a valid retained
-`no_ship` for the existing decision owner, without entering the repair open
-set. Severity stays independent of classification; P1 is not automatically
-blocking, and validators do not decide semantic scope.
+### D5. A recorded completion reads back unchanged
 
-### D5. Terminal payload versions preserve recorded content
-
-`worker.completed` version 6 carries typed oracle receipts, finding ties,
-and closures. The recorded source-version boundaries remain: review at v3,
-job binding at v4, and context findings at v5. Upcasts preserve old content
-without invented findings or success. Replay forgives requirements absent
-when the event was recorded. `worker.failed` stays at version 2 with context
-findings; it gains no oracle review or closure members.
+Each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 A dispatch recorded under the pre-CD-0197 review digest still resolves: the
 digest joins the lane's legacy set, and the completion answers to its
@@ -127,16 +109,7 @@ recorded dispatch requirements.
 
 ### D6. The lane verdict is report content only
 
-The lane verdict maps to no workflow field and records no transition. The
-coordinator reads the verdict and the per-severity finding counts from the
-attempt summary, and records the workflow verdict through `record_verdict`
-as today (CD-0056 D8; CD-0017 D4). An automatic mapping would hand a lane
-workflow authority, and reusing the `verdict_kind` vocabulary in the report
-would conflate two authorities.
-
-The shared work-context reader exposes canonical ranked IDs, bindings,
-openness, and prior receipts. These remain reported content, not native-run
-proof, criterion discharge, or automatic workflow acceptance.
+Main records its acceptance of the review's disposition, and the review report itself records no transition, no workflow verdict, and no completion ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ## Alternatives considered
 
@@ -152,21 +125,18 @@ proof, criterion discharge, or automatic workflow acceptance.
 - Bump the report to `schema_version` 2.0. Rejected: one lane's block would
   force every lane and the SQLite CHECK to move for a migration no stored row
   underwent.
-- Also refuse `ship` on a `P1` finding. Rejected: it turns a severity scale
-  into policy the operator has not set.
 
 ## Consequences
 
 A review report carries each finding with a closed severity and confidence,
-and carries an explicit ship decision. The coordinator reads the verdict and
+and names one disposition (D1). The coordinator reads the disposition and
 the finding counts as typed fields, and severity discharges through one
 source instead of prose.
 
-The lane verdict holds no workflow authority. The coordinator still owns the
-workflow verdict, so a ship verdict and a `verdict_kind` can disagree without
-either surface recording the other.
+The lane disposition holds no workflow authority: Main records its acceptance
+(D6), and the report itself records no transition.
 
-Stored completions replay unchanged, and a full rebuild succeeds. An
+Stored completions are current rows, so no replay or rebuild participates ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An
 in-flight attempt completes under its recorded dispatch requirements.
 
 ## Verification
@@ -175,27 +145,27 @@ in-flight attempt completes under its recorded dispatch requirements.
 Scenario: A review completion carries the typed block
   Given a dispatched review attempt
   When the coordinator records a completion that carries a valid review block
-  Then the attempt completes and the block stays durable in the event payload
+  Then the attempt completes and the block stays durable in the recorded completion
 
 Scenario: A review completion without the block is not a completion
   Given a dispatched review attempt
   When the coordinator records a completion that carries no review block
   Then the store refuses with a typed failure and the attempt stays dispatched
 
-Scenario: The verdict couplings refuse the two broken shapes
+Scenario: A disposition outside the four refuses
   Given a dispatched review attempt
-  When a completion carries a ship verdict with a P0 finding
-  Then the store refuses it, and a no_ship verdict with zero findings refuses too
+  When a completion names a disposition other than continue, correction required, revision required, or ready for final proof
+  Then the store refuses it and the attempt stays dispatched
 
 Scenario: Severity has one source
   Given a dispatched review attempt
   When a completion carries the typed block and a free-text severity entry
-  Then the store refuses it, and a block-only completion folds and replays
+  Then the store refuses it, and a block-only completion records and reads back unchanged
 
-Scenario: A stored completion replays without the block
+Scenario: A stored completion stays a recorded fact
   Given a stored review completion recorded before this requirement
-  When the log rebuilds
-  Then the replay reaches the same projection, twice
+  When the store reads it back
+  Then the recorded content is returned unchanged
 
 Scenario: The adapter refuses at admission and the summary carries typed counts
   Given a completed review report without the block
@@ -204,13 +174,13 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 ```
 
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
-- `go test ./internal/store/ -run 'TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock|TestReviewLaneBlockOnlyCompletionFoldsAndReplays'` proves the fifth scenario.
-- `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the verdict couplings and the closed scales at the store boundary.
-- `go test ./internal/store/ -run TestWorkerCompletedV2ReplaysWithoutTheReviewBlock` proves the fourth scenario.
-- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes.
+- `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half.
+- `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the closed scales at the store boundary.
+- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements.
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0197 identifier allocates once.
-- `TestOwnerOracleFinding`, `TestOwnerOracleLineage`, and `TestOwnerOracleReplay` cover classified verdicts, canonical lineage, and historical replay.
+- `TestOwnerOracleFinding` and `TestOwnerOracleLineage` cover classified
+  verdicts and canonical lineage.

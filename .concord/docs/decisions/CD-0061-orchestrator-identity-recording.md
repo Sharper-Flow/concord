@@ -7,11 +7,9 @@
 - **Related:** CD-0016 (context continuity), CD-0027 (typed restart excluded),
   CD-0049 (agent delivery and identity assertion), CD-0034 (host prompt
   provenance), issue #254
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes the session
-  assertion from launcher start to session preparation under the Snowball
-  coordinator's operator-delegated approval.
-- **Supersedes:** nothing; scopes CD-0027's exclusion and amends CD-0049's
-  consequences
+- **Approval:** Session-preparation identity assertion: Concord (CON) issue
+  CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated
+  approval.
 
 ## Context
 
@@ -81,17 +79,14 @@ terms.
 
 ### D2. Orchestrator identity is not recorded on a context boundary
 
-CD-0049's consequence that the D2 assertion populates the reserved
-`typed_agent_*` columns is amended: the assertion does not populate them, and
-CD-0016's clean-restart boundary does not become reachable through it. The
-amendment reaches that consequence only. CD-0049 D3 and its Invariant 3 stand
-unchanged, and the requirement to record an asserted identity is satisfied by D4
-below rather than withdrawn.
+Session preparation records the asserted orchestrator identity separately
+from workflow continuity boundaries, as D4 requires. The assertion does not
+populate `typed_agent_*` columns or make a clean-restart boundary reachable.
 
 A context boundary records a work item crossing a continuity boundary. A session
 identity assertion happens at session preparation, before managed action. A
 host-started session with no selected work stays identity-only, performs no
-preparation, and records no assertion (CD-0031 as amended). Recording one
+preparation, and records no assertion (CD-0031). Recording one
 as the other would misuse the boundary sequence and require a `restart` boundary
 kind that D1 keeps closed.
 
@@ -106,15 +101,15 @@ for. It does not foreclose reversal: a future decision restoring lane restart
 adds its storage in the same accepted change that reopens the capability, which
 is the sequence CD-0027's own consequences describe.
 
-### D4. A session assertion is recorded as a domain event
+### D4. A session assertion is recorded as a current row
 
-The asserted orchestrator identity is recorded as a domain event with
+The asserted orchestrator identity is recorded as a current row with
 `subject_type='session'`, carrying the asserted type, version, and ruleset
-digest. Events are Concord's durable monotonic spine, they need no new table, and
-they do not constitute a definition of an orchestrator persona, so CD-0049
+digest (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). The row needs no new
+table, and it does not constitute a definition of an orchestrator persona, so CD-0049
 Invariant 4 and CD-0016's exclusion of an `agent_definitions` table both hold.
 
-The event records what was asserted at a moment. It is evidence, not
+The row records what was asserted at a moment. It is evidence, not
 configuration, and nothing reads it back to decide what a session may do.
 
 ### D5. The ruleset digest covers the host artifacts the assertion observed
@@ -147,7 +142,7 @@ Issue #254 becomes implementable: the assertion slots beside the lane
 identity check in session-prepare, and its record has a home that no accepted
 decision forbids.
 
-Session preparation acquires a durable write: the typed assertion event of
+Session preparation acquires a durable write: the typed assertion record of
 D4. No entry surface performs a durable store write (CD-0108 as amended).
 
 The migration in D3 is forward-only and drops columns that hold no rows, so it

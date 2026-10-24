@@ -41,7 +41,6 @@ type manifestFixture struct {
 	Summary           string
 	Tags              []string
 	Scopes            KnowledgeRecordScopes
-	Successor         string
 	Evidence          []string
 	Content           string
 	CriterionBindings []KnowledgeCriterionBinding
@@ -96,7 +95,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
 			Authority: authority,
-			Scopes:    scopes, Successor: fixture.Successor, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
+			Scopes:    scopes, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 			CriterionBindings: append([]KnowledgeCriterionBinding{}, fixture.CriterionBindings...),
 		}
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {

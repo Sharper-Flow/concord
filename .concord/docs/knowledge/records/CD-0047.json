@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:801b432aae4142719484f82563d745e94900cde3eddb65f37c21a50211f3b56b",
+  "sha256": "sha256:1f5cd1123acc13edbe22a83fe18f8c78177256defb1f6ecfcf9ca4a9a2a2315c",
   "status": "accepted",
   "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction. Dead and superseded code, instructions, generated agents, and documentation are removed in the change that replaces them, and required checks refuse stale citations and unprojected agent definitions.",
   "tags": [

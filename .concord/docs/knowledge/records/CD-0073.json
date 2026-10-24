@@ -24,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c10785669ef23351b9ffea7b8e1ebd0b60b4f00e5e446c7b8d7f92fd8a3c0d14",
+  "sha256": "sha256:f33b46c24e17c62b7d79098eff226886a90e578b65e62c5a4922ea831a4905f6",
   "status": "accepted",
-  "summary": "D1 makes the corpus runner fail any scenario whose declared initial_state.fixture_override keys no binding read, so honoring an override and proving it become the same act; D2 fails a binding that reads a key the scenario never declared, guarding the contract in both directions; D3 keeps fixture_override free-form in the schema because closing the key set would have admitted the defect, whose keys were spelled correctly and simply unread; D4 deletes AJ6-compact-terminal-work's two override keys as false rather than implementing them, since compaction_required names no field in the system and canonical_home_project asserts proj-api against a resolver that returns proj-web. AJ5's binding now reads its two keys and checks the fold replay implements what they state.",
+  "summary": "D1 makes the corpus runner fail any scenario whose declared initial_state.fixture_override keys no binding read, so honoring an override and proving it become the same act; D2 fails a binding that reads a key the scenario never declared, guarding the contract in both directions; D3 keeps fixture_override free-form in the schema because closing the key set would have admitted the defect, whose keys were spelled correctly and simply unread; D4 deletes AJ6-compact-terminal-work's two override keys as false rather than implementing them, since compaction_required names no field in the system and canonical_home_project asserts proj-api against a resolver that returns proj-web. AJ5's binding now reads its two keys and checks the recorded state implements what they state.",
   "tags": [
     "corpus",
     "scenarios",

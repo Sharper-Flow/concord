@@ -4,9 +4,7 @@
 - **Date:** 2026-08-15
 - **Scope:** Context continuity; worker lane dispatch
 - **Related:** CD-0016 (context continuity), CD-0017 (typed workers), issue #120
-- **Amended:** CD-0148 (failed worker retries require a fresh approved dispatch)
-- **Supersedes:** nothing; records a deliberate exclusion against the
-  predecessor enumeration
+- Each launch is one admitted request with its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Context
 
@@ -52,13 +50,12 @@ fail-closed with an honest reason.
 
 ## Consequences
 
-- `WorkflowContinuitySnapshot` keeps reporting restart unavailable; the reason
-  now cites this record rather than any pending work.
+- `WorkflowContinuitySnapshot` reports restart unavailable with this record as
+  the reason.
 - The enumerated outcome resolves to *deliberately excluded with an accepted
-  reason*; the coverage tally's excluded count rises by one.
-- If the operator later wants mid-execution lane resumption, this record is
-  superseded, not silently narrowed: the schema const, the snapshot reason,
-  and this row change together in one accepted change.
+  reason*.
+- If the operator later wants mid-execution lane resumption, the schema const,
+  the snapshot reason, and this rule change together in one accepted change.
 
 ## Verification
 

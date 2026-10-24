@@ -2,10 +2,6 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRetiredPlanningEventsReplay"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestOverlapTerminalResolutionRejectsCycle"
     },
     {

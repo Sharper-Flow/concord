@@ -1598,8 +1598,6 @@
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "properties": {
@@ -1609,15 +1607,6 @@
               "maxLength": 256
             },
             "old_content_hash": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            },
-            "accepted_successor_law_id": {
-              "type": "string",
-              "minLength": 2,
-              "maxLength": 256
-            },
-            "accepted_successor_content_hash": {
               "type": "string",
               "pattern": "^sha256:[0-9a-f]{64}$"
             },
@@ -1859,42 +1848,6 @@
             }
           }
         },
-        "size_overrun": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The worker job revision an acceptance refused because its observed production size exceeds the recorded cap (CD-0225 D2). The refusal routes to the recorded split through record_worker_job.",
-          "required": [
-            "job_id",
-            "revision",
-            "cap",
-            "observed",
-            "subject"
-          ],
-          "properties": {
-            "job_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "revision": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "cap": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647
-            },
-            "observed": {
-              "type": "integer",
-              "minimum": 2
-            },
-            "subject": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-            }
-          }
-        },
         "supported_budget_seconds": {
           "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
           "type": "integer",
@@ -1956,8 +1909,6 @@
                 "required": [
                   "old_law_id",
                   "old_content_hash",
-                  "accepted_successor_law_id",
-                  "accepted_successor_content_hash",
                   "recovery_actions"
                 ],
                 "properties": {
@@ -1967,15 +1918,6 @@
                     "maxLength": 256
                   },
                   "old_content_hash": {
-                    "type": "string",
-                    "pattern": "^sha256:[0-9a-f]{64}$"
-                  },
-                  "accepted_successor_law_id": {
-                    "type": "string",
-                    "minLength": 2,
-                    "maxLength": 256
-                  },
-                  "accepted_successor_content_hash": {
                     "type": "string",
                     "pattern": "^sha256:[0-9a-f]{64}$"
                   },
@@ -2435,35 +2377,6 @@
             "required": [
               "consequence_summary"
             ]
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "size_overrun"
-            ]
-          },
-          "then": {
-            "properties": {
-              "kind": {
-                "const": "invalid_input"
-              },
-              "recovery_action": {
-                "required": [
-                  "required_refs"
-                ],
-                "properties": {
-                  "kind": {
-                    "const": "use_declared_route"
-                  },
-                  "required_refs": {
-                    "contains": {
-                      "const": "record_worker_job"
-                    }
-                  }
-                }
-              }
-            }
           }
         }
       ]

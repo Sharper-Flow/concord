@@ -2,11 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowSelfRepairBypassesOverlapForClassifiedWorkOnly"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority"
+      "value": "internal/store.TestWorkflowSelfRepairRequiresConcordAndRefusesWorkerAuthority"
     },
     {
       "kind": "go_test",

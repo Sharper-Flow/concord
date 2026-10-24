@@ -226,7 +226,7 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		SubjectID:      request.WorkID,
 		Actor:          request.Actor,
 		OccurredAt:     request.OccurredAt,
-		PayloadVersion: 1,
+		PayloadVersion: 2,
 		Payload:        encoded,
 	}
 	if _, err := AppendEvent(ctx, tx, event); err != nil {

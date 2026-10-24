@@ -21,7 +21,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 		"stopping_condition": "The recorded checks pass.", "ready": true,
 		"checks": []string{"go test ./..."}, "acceptance_oracle": agentOracleFieldsForWork(t, s, "work-1"),
 	}
-	addAgentJobSizeMembers(t, s, "work-1", fields)
+	addAgentJobCallerMembers(t, s, "work-1", fields)
 	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

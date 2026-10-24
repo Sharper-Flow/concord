@@ -10,7 +10,7 @@
         "schema_version": "1.3",
         "ref": "workflow.implementation",
         "version": 1,
-        "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
+        "digest": "sha256:0de6c645c47bb445d18e3d20218bfe0733ead99e00278e939d7df2b308e2686c",
         "work_kind": "implementation",
         "changes_product_truth": true,
         "step_graph": {
@@ -59,7 +59,11 @@
         "rigor_rules": [{"maturity": "prototype", "audience_band": "internal", "required_evidence_kinds": ["verification"]}],
         "staleness_rules": [],
         "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []},
-        "evaluator_independence": {"model_distinct": false}
+        "evaluator_independence": {"model_distinct": false},
+        "recovery_routes": [
+          {"step": "acceptance", "trigger": "unhealthy_verdict", "action": "request_correction", "target": "execution"},
+          {"step": "release", "trigger": "unhealthy_verdict", "action": "request_correction", "target": "execution"}
+        ]
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},
@@ -93,7 +97,6 @@
     {"id": "scenario-initial-state-float-invalid", "mutation": "invalid_float", "expected_error": "oneOf mismatch"},
     {"id": "scenario-unknown-error-kind", "mutation": "unknown_error_kind", "expected_error": "undeclared scenario error kind"},
     {"id": "scenario-rejection-removed-surface-version", "mutation": "removed_surface_version_rejection", "expected_error": "unknown properties"},
-    {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
     {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
   ],
   "structured_scenario_negative_cases": [
@@ -101,6 +104,10 @@
     {"id": "structured-unknown-request-field", "mutation": "unknown_request_field", "expected_error": "unknown structured request field"},
     {"id": "structured-dangling-fixture-reference", "mutation": "dangling_fixture_ref", "expected_error": "dangling fixture reference"},
     {"id": "structured-unknown-fault-kind", "mutation": "unknown_fault_kind", "expected_error": "unknown structured fault kind"},
-    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"}
+    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"},
+    {"id": "structured-grant-actor-mismatch", "mutation": "grant_actor", "expected_error": "actor-ID derivation mismatch"},
+    {"id": "structured-setup-actor-mismatch", "mutation": "setup_actor", "expected_error": "dangling fixture reference setup actor"},
+    {"id": "structured-request-action-mismatch", "mutation": "request_action", "expected_error": "request action mismatch"},
+    {"id": "structured-request-scope-mismatch", "mutation": "request_scope", "expected_error": "request scope mismatch"}
   ]
 }

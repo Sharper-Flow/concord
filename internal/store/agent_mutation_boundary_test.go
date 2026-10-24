@@ -35,21 +35,16 @@ func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("touch idempotency record: %v", err)
 	}
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return UpdateMutationEventRefsTx(ctx, tx, MutationEventRefsUpdate{Key: key, ResultEventIDs: `["event-1"]`, ObservedAt: now.Add(2 * time.Second)})
-	}); err != nil {
-		t.Fatalf("update mutation result: %v", err)
-	}
 	record, found, err = s.LookupMutationIdempotency(ctx, key)
 	if err != nil || !found || record.ResultPayload != `{"ok":true}` || record.ChangedRefs != `[]` {
-		t.Fatalf("updated idempotency record = (%+v, %t, %v)", record, found, err)
+		t.Fatalf("touched idempotency record = (%+v, %t, %v)", record, found, err)
 	}
 	var events, observed string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT result_event_ids,last_observed_at FROM idempotency_records WHERE idempotency_key='mutation-key'`).Scan(&events, &observed); err != nil {
 		t.Fatal(err)
 	}
-	if events != `["event-1"]` || observed != now.Add(2*time.Second).Format(time.RFC3339Nano) {
-		t.Fatalf("event update=(%s, %s)", events, observed)
+	if events != `[]` || observed != now.Add(time.Second).Format(time.RFC3339Nano) {
+		t.Fatalf("touched record=(%s, %s)", events, observed)
 	}
 	var replayed int
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT replayed_count FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey).Scan(&replayed); err != nil {
@@ -100,21 +95,21 @@ func TestReplayNamespacesRemainPartitioned(t *testing.T) {
 		before[i] = replayNamespaceRow(t, s, key)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return UpdateMutationEventRefsTx(ctx, tx, MutationEventRefsUpdate{Key: identities[0], ResultEventIDs: `["committed-workflow-event"]`, ObservedAt: time.Unix(11, 0).UTC()})
+		return TouchMutationIdempotencyTx(ctx, tx, identities[0], time.Unix(11, 0).UTC())
 	}); err != nil {
 		t.Fatal(err)
 	}
 	for i, key := range identities {
 		record, found, err := s.LookupMutationIdempotency(ctx, key)
-		if err != nil || !found || record.CanonicalDigest != records[i].CanonicalDigest || record.OperationID != records[i].OperationID || record.ResultPayload != records[i].ResultPayload || record.ChangedRefs != records[i].ChangedRefs || record.AuthorizedScopeSnapshot != records[i].AuthorizedScopeSnapshot {
+		if err != nil || !found || record.CanonicalDigest != records[i].CanonicalDigest || record.OperationID != records[i].OperationID || record.ResultEventIDs != records[i].ResultEventIDs || record.ResultPayload != records[i].ResultPayload || record.ChangedRefs != records[i].ChangedRefs || record.AuthorizedScopeSnapshot != records[i].AuthorizedScopeSnapshot {
 			t.Fatalf("namespace %d lookup=%+v found=%t err=%v", i, record, found, err)
 		}
 		if i != 0 && replayNamespaceRow(t, s, key) != before[i] {
-			t.Fatalf("workflow reference update changed another namespace: %+v", key)
+			t.Fatalf("workflow replay touch changed another namespace: %+v", key)
 		}
 	}
 	if replayNamespaceRow(t, s, identities[0]) == before[0] {
-		t.Fatal("workflow reference update did not reach its exact namespace")
+		t.Fatal("workflow replay touch did not reach its exact namespace")
 	}
 	if got := countRows(t, s, "idempotency_records"); got != len(identities) {
 		t.Fatalf("partitioned row count=%d, want %d", got, len(identities))

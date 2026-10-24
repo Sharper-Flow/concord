@@ -345,10 +345,8 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 // designated shared-law home. A relation target outside the declaring
 // manifest names its source Project; the rebuild refuses a target Project
 // outside the source set, a target law a projected peer does not hold, a
-// conflicts_with pair across sources, any cross-source supersedes edge
-// (fail closed: supersede within the declaring source or amend through the
-// shared home), and — from a non-home source only — any
-// supersedes/refines/subordinate_to edge toward the shared home's law: no
+// conflicts_with pair across sources, and — from a non-home source only — any
+// refines/subordinate_to edge toward the shared home's law: no
 // inferred precedence, and conflicts block until an accepted relation or
 // amendment resolves them. The shared home may declare precedence toward
 // member source law; the reverse refuses at the source's own rebuild.
@@ -420,14 +418,6 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 			if relation.Kind == "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "cross-source conflicts_with between "+record.ID+" and "+relation.SourceProjectID+"/"+relation.TargetID+" blocks the rebuild", false, "resolve the conflict through an accepted amendment before indexing either side")
 			}
-			// A cross-source supersedes edge is refused fail closed (CD-0200):
-			// a supersession is one source's own law change, so the successor
-			// and its supersedes edge live in the target's declaring source,
-			// and shared-law amendment runs through the shared home. No
-			// agreement check can admit the edge.
-			if relation.Kind == "supersedes" {
-				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "supersede within the declaring source or amend through the shared home: "+record.ID+" declares supersedes toward "+relation.SourceProjectID+"/"+relation.TargetID, false, "supersede the law inside its own source's manifest, or amend the shared law through its authoring home")
-			}
 			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, db, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
 			}
@@ -458,7 +448,7 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 		for _, relation := range record.LawRelations {
 			var targetNode string
 			switch relation.Kind {
-			case "supersedes", "refines", "subordinate_to":
+			case "refines", "subordinate_to":
 				if relation.SourceProjectID != "" {
 					targetNode = relation.SourceProjectID + "/" + relation.TargetID
 				} else {
@@ -509,14 +499,14 @@ func appendFederatedPersistedRelationEdges(ctx context.Context, q queryer, sourc
 		if source.HomeProjectID == skip.HomeProjectID && source.HomeLocatorID == skip.HomeLocatorID {
 			continue
 		}
-		rows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('supersedes','refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
+		rows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the derived law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
 		}
 		if err := scanFederatedRelationEdges(rows, source.HomeProjectID, "", graph); err != nil {
 			return err
 		}
-		rows, err = q.QueryContext(ctx, `SELECT source_law_id,target_project_id,target_law_id FROM law_cross_source_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('supersedes','refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
+		rows, err = q.QueryContext(ctx, `SELECT source_law_id,target_project_id,target_law_id FROM law_cross_source_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the derived cross-source law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
 		}

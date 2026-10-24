@@ -30,17 +30,27 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 	for _, stage := range []string{"before-start", "missing-epoch-proof", "green-proof"} {
 		t.Run(stage, func(t *testing.T) {
 			const workID = "delivery-admission-agreement"
-			fixture := refineProofFixture(t, workID, "workflow.implementation", 18)
-			if stage != "before-start" {
-				refineProofStartRefine(t, fixture, workID)
+			// Before the start the reviewed candidate parks at refine with no
+			// refine action recorded; otherwise the refine start is fenced.
+			step := "refine"
+			if stage == "before-start" {
+				step = "execution"
 			}
-			if stage == "green-proof" {
-				refineProofSeedGreenRun(t, fixture.store, workID, strings.Repeat("e", 64))
+			c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
+			if stage == "before-start" {
+				parkWorkflowInstanceAt(t, c.f.store, workID, "refine")
 			}
+			if stage != "missing-epoch-proof" {
+				acceptDeliveryBindFresh(t, c, "agreement")
+			}
+			fixture := struct{ store *Store }{c.f.store}
 			pin := issue1013Pin(t, fixture.store, workID)
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
 			conformanceCheckpoint(t, fixture.store, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
-				step: pin.Step, debt: ReviewDebtNone, contracts: 1,
+				step: pin.Step, contracts: 1,
+				review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+				jobs:   "satisfied", jobsScope: "project", integration: stage != "missing-epoch-proof",
+				dispatched: stage != "before-start", engineering: true,
 				started: stage != "before-start", proof: stage == "green-proof",
 			}, stage)
 			decision := workflowAdmit(definition, state, "record_delivery")
@@ -138,9 +148,9 @@ func TestDeliveryGuardConsumesTheSharedMandateDecision(t *testing.T) {
 
 func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	const workID = "delivery-proof-snapshot"
-	fixture := refineProofFixture(t, workID, "workflow.implementation", 18)
-	refineProofStartRefine(t, fixture, workID)
-	refineProofSeedGreenRun(t, fixture.store, workID, strings.Repeat("e", 64))
+	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
+	acceptDeliveryBindFresh(t, c, "snapshot")
+	fixture := struct{ store *Store }{c.f.store}
 	ctx := context.Background()
 	tx, err := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -151,7 +161,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, runs, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
+	state, runs, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, entry.Definition, "refine", "workflow_action", BuiltinWorkflowRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +175,9 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
 		}
 		if cached {
-			g.admissionState, g.admissionDecision, g.deliveryProofRuns = &state, &decision, runs
+			g.admissionState, g.admissionDecision, g.deliveryProofRuns, g.deliveryIntegrationRuns = &state, &decision, runs, integrationRuns
 		}
-		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "go-vet", Invocation: "go vet ./..."})
+		g.request.ProjectTooling = refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"})
 		if err := guardDeliveryAdmission(&g); err != nil {
 			t.Fatalf("cached=%v: declared proof refused: %v", cached, err)
 		}

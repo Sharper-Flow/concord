@@ -115,11 +115,16 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 	// process liveness alone and takes the worktree.
 	vacate := func(eventID, sessionRef string) {
 		t.Helper()
-		payload := jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"` + sessionRef + `","source_directory":"` + claimed.Entry.Path + `"}`)
+		payload := jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"` + sessionRef + `","source_directory":"` + claimed.Entry.Path + `","destination_directory":"/data/repo-main"}`)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: eventID, Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-			Actor: sessionRef, OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: 1, Payload: payload,
+			Actor: sessionRef, OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.session_vacated"), Payload: payload,
 		}}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+			WorkID: "work-w", SessionRef: sessionRef, LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(23, 0).UTC(),
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -176,11 +181,16 @@ func TestAuditReclaimRejectsLegacyOccupancyWithoutApproval(t *testing.T) {
 	}
 
 	// session_vacate is the one non-destructive release for a legacy row.
-	vacatePayload := jsonRaw(`{"work_id":"work-legacy","project_id":"project-w","session_ref":"ses-legacy","source_directory":"` + legacyPath + `"}`)
+	vacatePayload := jsonRaw(`{"work_id":"work-legacy","project_id":"project-w","session_ref":"ses-legacy","source_directory":"` + legacyPath + `","destination_directory":"/data/repo-main"}`)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "vacate-legacy", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-legacy",
-		Actor: "ses-legacy", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: 1, Payload: vacatePayload,
+		Actor: "ses-legacy", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.session_vacated"), Payload: vacatePayload,
 	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{
+		WorkID: "work-legacy", SessionRef: "ses-legacy", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(43, 0).UTC(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-legacy"), "project-w", "wt-work-legacy") != "" {

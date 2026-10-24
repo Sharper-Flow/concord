@@ -7,20 +7,17 @@
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-20; the
   public record is
   [issue #210 comment](https://github.com/Sharper-Flow/concord/issues/210#issuecomment-5359122989)
-- **Related:** CD-0017 (D1, D4, D7), CD-0034,
+- **Related:** CD-0017 (D1, D4), CD-0034,
   [`capability-placement.md`](../capability-placement.md) §3–§4,
   [`predecessor-operational-coverage.md`](../predecessor-operational-coverage.md) §3–§4
 - **Preserves:** The closed lane registry and its digest; `agent-lane-packet.v1` and
-  `agent-lane-report.v1`; CD-0034 provenance recording; CD-0017 D7's evaluation
-  boundary
-- **Supersedes:** nothing
+  `agent-lane-report.v1`; CD-0034 provenance recording
 
 ## Context
 
 The lane registry is structurally complete. Four lanes are closed, versioned, and
 digest-pinned; each pins a model; packet and report schemas are strict; dispatch is
-fenced; the worker authority boundary is proved by negative tests; a validator fails
-on drift between the registry and its evaluation harness.
+fenced; the worker authority boundary is proved by negative tests.
 
 The generated lane agent definitions are deliberately thin. They restate the lane
 purpose, the packet and report contract, the refusal boundary, and the evidence
@@ -84,25 +81,17 @@ rather than an unfinished one.
 
 ### D4. The coverage rows name the owner
 
-The rows that defer methodology are amended to state that the deferred capability is
-host-owned. The row already excluding behavioural methodology is the governing
-precedent, not an exception to it. A reader can then tell, from the coverage record
-alone, that Concord owes nothing further.
+Coverage rows that defer methodology name the host as its owner. The coverage
+record alone must show that Concord owes no further methodology capability.
 
 ## Consequences
 
 - Methodology is not versioned with the lane registry. It is hashed per dispatch.
 - A methodology change moves the `host_provenance` digest while the lane digest
-  holds. This is the visibility CD-0034 was accepted to produce, now carrying real
-  content rather than only operator safety policy.
-- A D7 evaluation baseline is reproducible only against both digests. Methodology
-  authored after a baseline invalidates that baseline by construction, so the
-  baseline in issue #212 must be taken after methodology is in place.
+  holds.
 - Lane behaviour is not reproducible from the release artifact alone. Reproducing a
   run requires the recorded provenance manifest as well as the release. This is the
   accepted cost of D1.
-- `contracts/agent-lanes.v1.json` and `contracts/agent-lane-packet.schema.json` are
-  unchanged by this decision. No version moves and no digest churns.
 
 ## Rejected alternatives
 

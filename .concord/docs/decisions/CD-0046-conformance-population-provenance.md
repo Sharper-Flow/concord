@@ -16,8 +16,6 @@
   accepted load profile, the correctness-precedes-latency precedence, and
   the diagnostic entry point under `CONCORD_CONFORMANCE_UNPACED=1`. The
   threshold itself and the pacing profile are untouched.
-- **Supersedes:** nothing; amends the wording of a population-authority claim
-  CD-0011 already decided the substance of
 
 ## Context
 
@@ -62,9 +60,8 @@ The conformance verdict's population authority is established by the CI
 workflow setting the required-check signal
 (`CONCORD_ACCEPTANCE_RUNNER=1`). That signal is the *provenance of the
 invocation*. It does not measure host isolation: a busy CI runner still
-passes the check; a quiet laptop that exports the signal would too. The
-mechanism being replaced overstated itself as "structural", and this
-replacement does not. No code or document describes the signal as
+passes the check; a quiet laptop that exports the signal would too.
+No code or document describes the signal as
 establishing isolation.
 
 The signal's role is narrower:
@@ -100,8 +97,7 @@ the run independently.
 
 ### D3. The verdict is gated on the resolved authority, not the profile
 
-`classifySustainedFalsifier` previously tested the runner profile literal.
-It now takes the resolved authority and gates on it. An accepted `passed`
+`classifySustainedFalsifier` takes the resolved authority and gates on it. An accepted `passed`
 or `fired` is reachable only when the authority is accepted; every other
 authority, including one with the threshold exceeded, remains `inconclusive`.
 
@@ -124,8 +120,7 @@ the other three pass through to the existing `inconclusive` reporting.
 
 ### D5. CD-0011's "structural" wording is amended to match the enforceable claim
 
-CD-0011 §*Accepted load profile calibration* replaces "Population authority
-is structural" with a sentence stating that population authority is
+CD-0011 §*Accepted load profile calibration* states that population authority is
 established by the required-check signal the workflow sets, not by host
 isolation. The falsifier list, the retention decision, the accepted load
 profile, and the correctness-precedes-latency precedence are preserved.
@@ -213,8 +208,8 @@ bug. The resolver makes the rule visible to any future reader of
   `load_average_one_minute` on every `ConformanceReport`.
 - `.github/workflows/ci.yml` sets `CONCORD_ACCEPTANCE_RUNNER: "1"` on the
   acceptance-conformance step.
-- CD-0011 §*Accepted load profile calibration* is amended to state
-  provenance, not "structural" isolation.
+- CD-0011 §*Accepted load profile calibration* states invocation provenance,
+  not measured host isolation.
 - The record shard `.concord/docs/knowledge/records/CD-0046.json` records CD-0046 once,
   composed by `scripts/knowledge_index.py`.
 - `python3 scripts/check-doc-links.py`,

@@ -90,10 +90,7 @@ func (s *Store) CreateProductWithProject(ctx context.Context, request ProductCre
 		"stage_audience_commitment": request.StageAudienceCommitment,
 	})
 	projectPayload, _ := json.Marshal(projectCreatedEventPayload(request.ProjectDisplayName, request.ProjectStageMaturityOverride, request.ProjectStageAudienceCommitmentOverride))
-	projectPayloadVersion := 1
-	if request.ProjectStageMaturityOverride != "" {
-		projectPayloadVersion = 2
-	}
+	projectPayloadVersion := 2
 	membershipPayload, _ := json.Marshal(map[string]any{
 		"product_id": request.ProductID, "project_id": request.ProjectID, "role": request.Role,
 		"reason": request.Reason, "expected_version": 1, "resulting_version": 2,
@@ -120,10 +117,7 @@ func (s *Store) CreateProjectForProduct(ctx context.Context, request ProjectCrea
 	}
 	when := s.now()
 	projectPayload, _ := json.Marshal(projectCreatedEventPayload(request.DisplayName, request.StageMaturityOverride, request.StageAudienceCommitmentOverride))
-	projectPayloadVersion := 1
-	if request.StageMaturityOverride != "" {
-		projectPayloadVersion = 2
-	}
+	projectPayloadVersion := 2
 	membershipPayload, _ := json.Marshal(map[string]any{
 		"product_id": request.ProductID, "project_id": request.ProjectID, "role": request.Role,
 		"reason": request.Reason, "expected_version": request.ExpectedProductVersion, "resulting_version": request.ExpectedProductVersion + 1,

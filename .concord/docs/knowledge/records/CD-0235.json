@@ -25,13 +25,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a3809f293184076bc91e760dc8c52406dd8b8ec91d36e18ab21f1982f60e3fab",
+  "sha256": "sha256:452dca1a851ad5e1a90acec9f42299e97e7fee330c26882b8e1e6f2a1ef7023a",
   "status": "accepted",
-  "summary": "The verdict actor, distinct from the executor, evaluates outcome strength and records verdict_kind and incomparable_with_approved. Completion refuses with outcome_mismatch unless every approved predicate's latest verdict is ok and comparable. Until a check catalog or surface registry exists, no registry resolves surface and check_ref values; approval checks their grammar and the verdict actor interprets them.",
+  "summary": "Under CD-0242 D5 no separate final evaluator or verdict-actor distinctness exists: Review judges a weaker or incomparable delivery against the approved criteria and reports one disposition that Main records. Completion follows CD-0242 D9. Until a check catalog or surface registry exists, no registry resolves surface and check_ref values; approval checks their grammar and the verifying review interprets them.",
   "tags": [
     "workflow",
     "outcomes",
     "evidence"
   ],
-  "title": "The independent verdict is the outcome strength evaluation"
+  "title": "The outcome strength evaluation is Review's judgment"
 }

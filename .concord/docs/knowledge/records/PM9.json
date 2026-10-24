@@ -33,9 +33,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8214a8bc6e04acd31c2eb58b9fc56b08a4ec73177e2e9e35923d031004b65646",
+  "sha256": "sha256:87a64196df444cd1d17a16f444ff447d05d06ef0a8b10372971bb5ff688f602c",
   "status": "accepted",
-  "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; the durable sequence is the only receipt.",
+  "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; closure publishes one completion receipt (CD-0242 D9).",
   "tags": [
     "pm9",
     "process-exhaust",

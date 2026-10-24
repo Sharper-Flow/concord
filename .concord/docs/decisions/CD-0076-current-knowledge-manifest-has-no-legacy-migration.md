@@ -8,26 +8,13 @@
   stated that pre-launch repository history creates no runtime compatibility
   obligation.
 - **Related:** CD-0222 D9.2, CD-0042 D1, CD-0062 D1-D3
-- **Amends:** CD-0222 D9.2 and CD-0062 D3
 - **Preserves:** CD-0222 D2-D3 and CD-0062 D1-D2/D4-D5
-- **Supersedes:** The requirement to migrate schema 1.0 or 1.1 knowledge
-  manifests and the transient undecided-root marker
 
 ## Context
 
-CD-0222 D9.2 specified a deterministic upcast from component-scoped knowledge
-manifests. CD-0062 D3 later required that upcast to mark a root home as
-undecided instead of inventing a Product-wide claim.
-
-The repository implemented that path as `MigrateLegacyKnowledgeManifest`, but
-no command, agent operation, or store-open path called it. The current authored
-manifest already uses schema 1.2 and Domain scopes. Concord remains pre-launch,
-so no released client or persisted installation depends on schema 1.0 or 1.1
-knowledge-manifest input.
-
-Keeping an unwired migration does not preserve compatibility. It preserves a
-second contract that no Product path performs, while the current parser still
-accepts obsolete inputs.
+A manifest migration that no command, agent operation, or store-open path
+calls supplies no compatibility guarantee. Maintaining it adds a second
+interpretation contract that no Product path performs.
 
 ## Decision
 
@@ -45,14 +32,9 @@ repository surface.
 
 ### D2. The legacy migration contract ends before launch
 
-`MigrateLegacyKnowledgeManifest` and its migration-only helpers, marker, tests,
-and validator branch are removed. Concord does not add a flag, compatibility
+Concord does not add a flag, compatibility
 shim, startup migration, or operator command for schema 1.0 or 1.1 manifests.
 
-This decision amends CD-0222 D9.2 by ending its legacy-manifest upcast. It also
-amends CD-0062 D3 by ending the undecided-marker rule that existed only for that
-upcast. Those clauses remain historical statements of the accepted design at
-their dates. They no longer govern current behavior.
 
 ### D3. Root-home rationale validation remains current law
 
@@ -64,17 +46,15 @@ continues through the SQLite projection for PM1.Q10 as CD-0062 D4 requires.
 
 - The current manifest has one accepted shape and one validation path.
 - Schema 1.0 and 1.1 knowledge manifests fail before record processing.
-- The reachability exception for the unwired migration is removed with the
-  function it named.
 - Advance knowledge import remains outside this decision. Issue #295 owns that
-  work and cannot reintroduce the deleted compatibility path implicitly.
+  work and cannot implicitly add another manifest interpretation path.
 - Historical decision records keep their original text. This record states the
   current amendment without rewriting earlier decisions into false history.
 
 ## Rejected alternatives
 
 **Wire the migration during store open.** Rejected because the Product has no
-released compatibility cohort and no current input that needs the upcast.
+released compatibility cohort and no upcast exists ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Expose an operator migration command.** Rejected for the same reason. A new
 surface would make obsolete repository history into a supported runtime case.

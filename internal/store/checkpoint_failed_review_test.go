@@ -12,15 +12,17 @@ import (
 	"time"
 )
 
-// dispatchCheckpointReviewAttempt drives one review-lane attempt at the named
+// dispatchCheckpointReviewAttempt drives one review-lane attempt at the verify
 // checkpoint step through the dispatch_worker action and the lane actor
 // dispatch, and returns the attempt epoch the action started.
-func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, stepID, attemptID string) int64 {
+func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, attemptID string) int64 {
 	t.Helper()
+	const stepID = "verify"
 	s := fixture.store
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	consumeCurrentCorrection(t, s, workID, packet)
 	binding := attachReadyWorkerJobIfJobCapable(t, s, workID, stepID, fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
@@ -33,7 +35,7 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
+	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {
@@ -122,6 +124,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	}
 	attemptID := "attempt:accepted-delivery:" + workID
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	consumeCurrentCorrection(t, s, workID, packet)
 	if job != nil {
 		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	}
@@ -135,26 +138,17 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: job,
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(laneDispatchPayload)}}}); err != nil {
 		t.Fatal(err)
 	}
 	entry, err := activeWorktreeEntryForProject(ctx, s.DatabaseForTesting(), "verify_worktree", workID, "project")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The delivered edit is the dispatched job's own work: on a size-capable
-	// pin the job's measurement basis inventories one scope, so the edit
-	// lands inside it. A pre-size pin keeps the historical root edit.
+	// The delivered edit is the dispatched job's own work at the root: the
+	// retired measurement basis no longer moves the edit into an inventoried
+	// path (CD-0242 D6).
 	editPath := "implementation.txt"
-	if job != nil {
-		content, contentErr := readWorkerJobSizeContentTx(ctx, s.DatabaseForTesting(), workID)
-		if contentErr != nil {
-			t.Fatal(contentErr)
-		}
-		if sizeEntry, recorded := content[*job]; recorded && sizeEntry.basis != nil && len(sizeEntry.basis.Paths) > 0 {
-			editPath = filepath.Join(sizeEntry.basis.Paths[0].Path, "implementation.txt")
-		}
-	}
 	if directory := filepath.Dir(editPath); directory != "." {
 		if err := os.MkdirAll(filepath.Join(entry.Path, directory), 0o755); err != nil {
 			t.Fatal(err)
@@ -176,10 +170,9 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	if qualified, err := readCurrentOracleSubject(ctx, s.DatabaseForTesting(), workID); err != nil || qualified != subject {
 		t.Fatalf("qualified subject = %q err = %v, want the delivered commit %q", qualified, err, subject)
 	}
-	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,
-		ProductionSize: completionProductionSizeForTest(t, s, workID, job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {
@@ -196,31 +189,121 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	}
 }
 
+// failCheckpointReviewAttempt lands the review attempt's attributed terminal
+// failure through the live worker-evidence seam; the pinned definition
+// derives its failure record in the same commit (CD-0198 D5).
 func failCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	lane := reviewGateLane(t, "review")
-	failed := Event{EventID: "checkpoint-failed-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "review lane failed"})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failed}}); err != nil {
+	failed := s2WorkerFailedAttributedEvent(workID, attemptID, "checkpoint-failed-"+attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, "review lane failed", time.Unix(31, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, failed); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // seedCheckpointFailedReview leaves a break-fix item at its verify checkpoint
-// with an ok verdict and one failed review-lane attempt. The contract does not
-// require review evidence, so the failed attempt is the only thing between
-// the operator and the premise confirmation.
+// with one failed review-lane attempt. The contract does not require review
+// evidence, so the failed attempt is the only thing between the operator and
+// the premise confirmation.
 func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "verify", []string{"verification"}, []string{"verification", "artifact"})
-	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, "verify"), "verify")
-	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
-		t.Fatalf("record_verdict refused: %v", err)
-	}
-	attemptID := "attempt:" + workID + ":failed-review"
-	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "verify", attemptID)
+	fixture, attemptID, epoch := seedCheckpointReviewAttempt(t, workID, "failed-review")
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
 	return fixture, attemptID, epoch
+}
+
+// seedCheckpointReviewAttempt leaves a break-fix item at its verify
+// checkpoint with one dispatched review-lane attempt and no terminal.
+func seedCheckpointReviewAttempt(t *testing.T, workID, label string) (workflowReturnRouteFixture, string, int64) {
+	t.Helper()
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.break_fix"), "verify", []string{"verification"}, []string{"verification", "artifact"})
+	// The criterion is discharged on a current reviewed candidate: a captured
+	// command receipt, an accepted Review assessing it supported, and the
+	// record_verdict association of that receipt.
+	f := workContextFixture{store: fixture.store, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
+	var branch string
+	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "branch", "-m", branch)
+	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}
+	run, err := f.store.VerifyWorktree(t.Context(), j.request("checkpoint-proof", nil))
+	if err != nil || run.ExitCode != 0 {
+		t.Fatalf("capture candidate command receipt: %+v, %v", run, err)
+	}
+	qAcceptCriterionReview(t, f, repo, run.OperationRef)
+	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload(run.OperationRef, "predicate:return-route"), 0, f.owner); err != nil {
+		t.Fatalf("associate the captured proof: %v", err)
+	}
+	// The operator's own gate asks its question over a recorded
+	// investigation of a current Domain.
+	insertInvestigationGateObservation(t, fixture.store, workID, "obs:"+strings.Repeat("c", 16), []string{"root"})
+	attemptID := "attempt:" + workID + ":" + label
+	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, attemptID)
+	return fixture, attemptID, epoch
+}
+
+// completeCheckpointReviewAttempt lands the review attempt's completed report
+// on the current candidate through the live worker-evidence seam and leaves it
+// undispositioned: no acceptance or rejection follows.
+func completeCheckpointReviewAttempt(t *testing.T, s *Store, workID, attemptID, disposition string) {
+	t.Helper()
+	lane := reviewGateLane(t, "review")
+	job, err := workflowDispatchedJobForAttempt(t.Context(), s.DatabaseForTesting(), workID, attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := []WorkerReportEvidence{}
+	for _, obligation := range lane.EvidenceObligations {
+		if obligation != "severity" {
+			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the checkpoint's current candidate."})
+		}
+	}
+	event := Event{EventID: attemptID + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: job, Review: currentReviewBlockForTest(t, s, workID, attemptID, disposition)})}
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: event.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, event)
+}
+
+// confirmCheckpointPremise records the engineering premise confirmation: the
+// authenticated coordinator selects confirm itself, with no operator
+// substitution and no human decision-context digest.
+func confirmCheckpointPremise(t *testing.T, s *Store, workID string, coordinator WorkflowActor) error {
+	t.Helper()
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, "confirm_premise")
+	if err != nil {
+		return err
+	}
+	version := readWorkVersion(t, s, workID)
+	operationID := fmt.Sprintf("checkpoint-confirm-%s-%d", workID, version)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: "confirm", Payload: json.RawMessage(`{"contract_version":1}`), Actor: coordinator,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: coordinator.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// consumeCurrentCorrection carries the work pin's current correction into the
+// packet, as a packet built from the pin does; a derived failure record opens
+// that correction.
+func consumeCurrentCorrection(t *testing.T, s *Store, workID string, packet map[string]any) {
+	t.Helper()
+	if correction := issue1013Pin(t, s, workID).Correction; correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
 }
 
 func requireDispatchHoldRefusal(t *testing.T, err error, context string) {
@@ -232,24 +315,22 @@ func requireDispatchHoldRefusal(t *testing.T, err error, context string) {
 }
 
 // TestCheckpointFailedReviewRecordsAndReleasesTheGate pins the recovery route
-// for a failed review at a confirmation step: the failure record is admitted
-// there, holds the step, and dispositions the attempt, so the operator's own
-// gate opens.
+// for a failed review at a confirmation step: the failed terminal derives the
+// failure record there, the record holds the step and dispositions the
+// attempt, so the operator's own gate opens.
 func TestCheckpointFailedReviewRecordsAndReleasesTheGate(t *testing.T) {
 	const workID = "checkpoint-failed-review-recovery"
 	fixture, attemptID, epoch := seedCheckpointFailedReview(t, workID)
 	s := fixture.store
 
-	err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
-	requireDispatchHoldRefusal(t, err, "confirm_premise over the unrecorded failed review")
-
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_worker_failure at the verify checkpoint refused: %v", err)
+	records := s2DerivedFailureRecords(t, s, workID, attemptID)
+	if len(records) != 1 || records[0]["step"] != "verify" || records[0]["epoch"] != epoch {
+		t.Fatalf("checkpoint failure records = %+v, want one derived at verify epoch %d", records, epoch)
 	}
 	if step := currentStep(t, s, workID); step != "verify" {
-		t.Fatalf("step after record_worker_failure = %q, want verify", step)
+		t.Fatalf("step after the failure record = %q, want verify", step)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+	if err := confirmCheckpointPremise(t, s, workID, fixture.owner); err != nil {
 		t.Fatalf("confirm_premise refused after the failed review was recorded: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "complete" {
@@ -257,20 +338,26 @@ func TestCheckpointFailedReviewRecordsAndReleasesTheGate(t *testing.T) {
 	}
 }
 
-// TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold pins that a
-// dispatch window no worker ever used is not a disposition: the failed
-// attempt keeps holding the operator's gate.
-func TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold(t *testing.T) {
-	const workID = "checkpoint-failed-review-unspawned"
-	fixture, _, _ := seedCheckpointFailedReview(t, workID)
+// TestCheckpointUnspawnedDispatchKeepsTheReviewHold pins that a dispatch
+// window no worker ever used neither holds nor releases (CD-0187 D3): the
+// completed, undispositioned Review attempt keeps holding the operator's
+// gate. A failed attempt cannot stand here, because its terminal derives the
+// failure record that releases the hold (CD-0198 D5).
+func TestCheckpointUnspawnedDispatchKeepsTheReviewHold(t *testing.T) {
+	const workID = "checkpoint-review-unspawned"
+	fixture, attemptID, _ := seedCheckpointReviewAttempt(t, workID, "completed-review")
 	s := fixture.store
+	completeCheckpointReviewAttempt(t, s, workID, attemptID, "ready_for_final_proof")
+	requireDispatchHoldRefusal(t, confirmCheckpointPremise(t, s, workID, fixture.owner), "confirm_premise over the completed undispositioned Review")
 
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":unspawned", "review", laneVersion, laneDigest)
+	consumeCurrentCorrection(t, s, workID, packet)
+	attachReadyWorkerJobIfJobCapable(t, s, workID, "verify", fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("second review dispatch at the verify checkpoint refused: %v", err)
 	}
-	err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
+	err := confirmCheckpointPremise(t, s, workID, fixture.owner)
 	requireDispatchHoldRefusal(t, err, "confirm_premise after an unspawned dispatch window")
 	if step := currentStep(t, s, workID); step != "verify" {
 		t.Fatalf("step after the refused confirmation = %q, want verify", step)
@@ -278,30 +365,30 @@ func TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold(t *testing.T) {
 }
 
 // TestCheckpointFailedReviewPinMatchesTheFoldGate pins the pin side of the
-// recovery: the pin advertises the hold-mode failure record exactly while the
-// fold admits it, stops advertising once the record dispositions the attempt,
-// and the recovery leaves the pinned definition digest unchanged.
+// recovery: the failed terminal derives the failure disposition (CD-0198 D5),
+// so the pin never offers a caller-authored failure record, the fold refuses
+// one, the gate opens, and the pinned digest stays.
 func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 	const workID = "checkpoint-failed-review-pin"
 	fixture, attemptID, epoch := seedCheckpointFailedReview(t, workID)
 	s := fixture.store
 
 	pin := issue1013Pin(t, s, workID)
-	if !issue1013HasIntent(pin, "record_worker_failure") {
-		t.Fatalf("pin hides the checkpoint failure record the fold admits: %#v", pin.NextValidIntents)
+	if issue1013HasIntent(pin, "record_worker_failure") {
+		t.Fatalf("pin advertises a caller-authored failure record: %#v", pin.NextValidIntents)
 	}
-	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "record_worker_failure" && intent.ReasonCode != "worker_failure_recovery" {
-			t.Fatalf("failure record reason = %q, want worker_failure_recovery", intent.ReasonCode)
-		}
+	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 || records[0]["epoch"] != epoch {
+		t.Fatalf("derived failure records = %+v, want one disposition at epoch %d", records, epoch)
 	}
 	var digestBefore string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&digestBefore); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_worker_failure at the verify checkpoint refused: %v", err)
+	err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || !strings.Contains(failure.Detail, "not declared on the current step") {
+		t.Fatalf("caller-authored failure record = %v, want the current-step refusal", err)
 	}
 
 	pin = issue1013Pin(t, s, workID)
@@ -315,6 +402,12 @@ func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 	if digestAfter != digestBefore {
 		t.Fatalf("recovery moved the pinned digest: before=%s after=%s", digestBefore, digestAfter)
 	}
+	if err := confirmCheckpointPremise(t, s, workID, fixture.owner); err != nil {
+		t.Fatalf("confirm_premise refused after the derived failure record: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "complete" {
+		t.Fatalf("step after premise confirmation = %q, want complete", step)
+	}
 }
 
 // TestEffectStepStaleCompletedAttemptCannotAdvance pins the effect-step side
@@ -323,7 +416,7 @@ func TestCheckpointFailedReviewPinMatchesTheFoldGate(t *testing.T) {
 // the earlier completed attempt cannot advance the step with its own epoch.
 func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	const workID = "effect-step-stale-completed-attempt"
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "repair")
 	ownerRef, err := WorkflowActorRef(fixture.owner)
@@ -355,9 +448,18 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// later dispatch and completion keep their recorded order.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, staleAttemptID, "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		workerCompleteEventForLane(workID, "effect-stale-completed-"+workID, staleAttemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID)),
+		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)})},
 	}}); err != nil {
+		t.Fatal(err)
+	}
+	staleCompletion := workerCompleteEventForLane(workID, "effect-stale-completed-"+workID, staleAttemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	var stalePayload WorkerCompletedPayload
+	if err := json.Unmarshal(staleCompletion.Payload, &stalePayload); err != nil {
+		t.Fatal(err)
+	}
+	stalePayload.Review = currentReviewBlockForTest(t, s, workID, staleAttemptID, "ready_for_final_proof")
+	staleCompletion.Payload = mustJSONValue(stalePayload)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{staleCompletion}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -370,13 +472,15 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 		t.Fatalf("second dispatch at the repair step refused: %v", err)
 	}
 
-	// The acceptor is distinct from the worker, so the epoch fence is the
-	// only guard between the stale report and the step advance.
+	// The acceptor is distinct from the worker. The current dispatch is the
+	// latest attempt, so the stale report is no longer an undispositioned
+	// completed result and admission refuses its acceptance before the
+	// epoch fence reads it.
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/effect-stale-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 	err = runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+staleAttemptID+`","attempt_epoch":1}`), 0, acceptor)
 	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || (!strings.Contains(failure.Detail, "epoch does not match") && !strings.Contains(failure.Detail, "dispatch is stale")) {
-		t.Fatalf("stale accept = %v, want the epoch-mismatch or stale refusal", err)
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "requires an undispositioned completed worker result") {
+		t.Fatalf("stale accept = %v, want the settled-result refusal", err)
 	}
 	if step := currentStep(t, s, workID); step != "repair" {
 		t.Fatalf("step after the refused stale accept = %q, want repair", step)
@@ -393,21 +497,21 @@ func TestCheckpointRetryDispatchSupersedesTheFailedReview(t *testing.T) {
 	s := fixture.store
 
 	retryID := "attempt:" + workID + ":retry"
-	retryEpoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "verify", retryID)
+	retryEpoch := dispatchCheckpointReviewAttempt(t, fixture, workID, retryID)
 
 	err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+failedAttemptID+`","attempt_epoch":1}`), 0, fixture.owner)
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, "not declared on the current step") {
 		t.Fatalf("record of the superseded attempt = %v, want the current-step refusal", err)
 	}
-	err = runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
+	err = confirmCheckpointPremise(t, s, workID, fixture.owner)
 	requireDispatchHoldRefusal(t, err, "confirm_premise over the live retry attempt")
 
 	failCheckpointReviewAttempt(t, s, workID, retryID)
-	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+retryID+`","attempt_epoch":`+fmt.Sprint(retryEpoch)+`}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_worker_failure for the retry attempt refused: %v", err)
+	if records := s2DerivedFailureRecords(t, s, workID, retryID); len(records) != 1 || records[0]["epoch"] != retryEpoch {
+		t.Fatalf("retry failure records = %+v, want one derived at epoch %d", records, retryEpoch)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+	if err := confirmCheckpointPremise(t, s, workID, fixture.owner); err != nil {
 		t.Fatalf("confirm_premise refused after the retry attempt was recorded: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "complete" {

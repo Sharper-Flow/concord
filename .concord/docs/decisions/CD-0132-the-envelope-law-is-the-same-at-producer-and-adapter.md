@@ -9,8 +9,6 @@
   work-f0b589d86cab4ccfe4875866 on 2026-09-10, after issue 1039 showed the
   two validators disagreeing on the same envelope.
 - **Related:** CD-0040, CD-0075, issue 757, issue 1039
-- **Amends:** Nothing. This record adds the parity rule the envelope
-  contract implied but no validator enforced.
 - **Preserves:** Closed-world envelope validation, effect truth on partial
   application, and generated-artifact single-sourcing
 

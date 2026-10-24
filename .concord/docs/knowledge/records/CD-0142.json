@@ -36,9 +36,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:11f9bf8c09906fe754c5739236eed044c746562cb88318a109bcd344b4f4d9f1",
+  "sha256": "sha256:89d5a2db3fa8ba39d25883db81bd109a4e0d0832476fc632288cd02ea0adbb07",
   "status": "accepted",
-  "summary": "Shelving and cancellation use a typed, fenced, replay-safe removal operation that preserves the planning handoff and exact event history, removes owned execution projections, keeps Linear issues open, and gives renewed work a fresh identity. Liveness remains read-time evidence and never authorizes removal.",
+  "summary": "Shelving and cancellation use a typed, fenced, recovery-safe removal operation that preserves the planning handoff and records exact removal receipts as current rows, removes owned execution projections, keeps Linear issues open, and gives renewed work a fresh identity. Liveness remains read-time evidence and never authorizes removal.",
   "tags": [
     "product-law",
     "workflow",

@@ -14,7 +14,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay"
+      "value": "internal/store.TestOutsideRepairReconcileBothLiveLifecycles"
     },
     {
       "kind": "go_test",

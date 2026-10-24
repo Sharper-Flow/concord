@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,11 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
+	identity := fmt.Sprintf("%s-%d", workID, version)
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
 	startAction := "start_repair"
 	if entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID); entryErr != nil {
 		t.Fatal(entryErr)
@@ -76,45 +82,42 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 		// started event, so the fixture crafts that shape.
 		startAction = "checkpoint_repair"
 	}
-	start := workflowEventWithActor("repin-start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
+	start := workflowEventWithActor("repin-start-"+identity, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair",
-		"action_id": startAction, "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
-		"idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
+		"action_id": startAction, "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
+		"idempotency_identity": "start:" + identity, "actor_ref": ownerRef,
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
 	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "attempt:" + workID
+	attemptID := "attempt:" + identity
 	// The completion below resolves the attempt's original dispatch Project
 	// through its authorization window, so the window opens before the
 	// generic dispatch records the worker's own evidence.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "repair", ownerRef)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+identity, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.Actor = ownerRef
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+identity, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID, latestStepStartEpoch(t, s, workID, "repair")
 }
 
-// registryRepinSuccessorPayload is the fully supplied operator-approved
+// registryRepinSuccessorPayload is the fully supplied engineering
 // successor contract whose architecture binding pins registryHash.
 func registryRepinSuccessorPayload(contractVersion int64, registryHash, workID string, predecessor int64, domainModifies ...string) json.RawMessage {
 	if domainModifies == nil {
 		domainModifies = []string{}
 	}
-	return mustJSONValue(map[string]any{
+	fields := map[string]any{
 		"contract_version":              contractVersion,
+		"decision_domains":              []string{},
 		"predecessor_contract_versions": []int64{predecessor},
 		"premise":                       "re-pin the approved contract to the rescanned Domain registry",
 		"outcome_predicates": []map[string]any{{
@@ -132,7 +135,13 @@ func registryRepinSuccessorPayload(contractVersion int64, registryHash, workID s
 			DomainRegistryContentHash: registryHash, HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: domainModifies, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
-	})
+	}
+	if len(domainModifies) != 0 {
+		fields["law_change_reason"] = "keep the approved Domain authority under the rescanned registry"
+		fields["law_change_removes_user_visible_behavior"] = false
+		fields["law_change_touches_security_or_data_safety"] = false
+	}
+	return mustJSONValue(fields)
 }
 
 func activeStaleRegistryContract(t *testing.T, s *Store, workID string) (int64, int) {
@@ -153,13 +162,13 @@ func activeStaleRegistryContract(t *testing.T, s *Store, workID string) (int64, 
 // a completed, unaccepted worker attempt when a Domain registry rescan drifts
 // the hash its approved contract pins. The attempt disposition records under
 // the subject's own stale pin, so the enclosed item settles its attempt, and
-// an operator-approved supersede_contract whose successor pins the current
+// a supersede_contract whose successor pins the current
 // registry hash is the one admissible re-pin (CD-0222 D7).
 func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 	const workID = "stale-registry-repin"
 	ctx := context.Background()
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	attemptID, attemptEpoch := seedStaleRegistryWorkerAttempt(t, s, workID, owner)
 	currentHash := driftStaleRegistryFixture(t, s)
@@ -196,7 +205,7 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 	}
 
 	staleSuccessor := registryRepinSuccessorPayload(2, registryFixtureHash(), workID, 1)
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", staleSuccessor, owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", staleSuccessor, 0, owner)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.Detail != "architecture binding Domain registry hash is stale" {
 		t.Fatalf("stale-hash successor error=%v, want stale_requires_review from the successor binding gate", err)
@@ -208,12 +217,12 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 	// The agent route resolves the action and runs the read-only preflight
 	// before it executes, so both public gates must admit the re-pin too.
 	if _, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
-		t.Fatalf("resolver under the subject's stale pin = %q approval %q err=%v, want operator-approved supersede_contract", action.ID, action.Approval, err)
+		t.Fatalf("resolver under the subject's stale pin = %q approval %q err=%v, want the declared supersede_contract metadata", action.ID, action.Approval, err)
 	}
 	if err := issue1013Preflight(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner); err != nil {
 		t.Fatalf("preflight of the current-hash successor: %v", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), 0, owner); err != nil {
 		t.Fatalf("current-hash successor supersede: %v", err)
 	}
 	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
@@ -254,7 +263,7 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 	const workID = "stale-registry-repin-accept"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	attemptID, attemptEpoch := seedStaleRegistryWorkerAttempt(t, s, workID, owner)
 	currentHash := driftStaleRegistryFixture(t, s)
@@ -271,7 +280,7 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 		t.Fatalf("accept under the stale pin recorded %d completion events, want 1", recorded)
 	}
 
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), 0, owner); err != nil {
 		t.Fatalf("current-hash successor supersede after the acceptance: %v", err)
 	}
 	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
@@ -285,46 +294,54 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 // recovery only through the boundary, so a verdict never records under a pin
 // the rescan stranded. The recovery refuses on the owning transaction and on
 // the admission inspection, the accepted successor law re-pins through the
-// ordinary stale recovery, and the held verdict records under the re-pinned
-// contract afterwards. Research's complete step resolves the late recovery
-// and classifies the successor as an ordinary re-pin, so the journey runs on
-// a retained family's eligible step.
+// ordinary stale recovery, and the held receipt association records under the
+// re-pinned contract afterwards. Research's complete step owns the late recovery.
 func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	const workID = "stale-registry-late-verdict"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.research", "complete")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("fixture step = %q, want complete", got)
 	}
-	// The rescan: the contract's mandated law is superseded by an accepted
-	// successor, so the pinned revision reads stale.
+	f := workContextFixture{store: s, workID: workID, owner: owner}
+	pack := seedResearchContextPack(t, f, "repin-research-proof")
+	bindResearchPack(t, f, pack.PackID, 1, true)
+	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+	selection["product_wide_rationale"] = "The selected research supports the re-pinned research contract."
+	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+		t.Fatalf("selected research receipt: %+v err=%v", view, err)
+	}
+	// The rescan deletes the pinned law, so the contract reads stale.
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	execStaleRegistryInFold(t, s,
 		`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`,
-		`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
+		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
+		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
-		`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`,
 		`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
 	)
 
-	// The canonical heads author the batched verdict alone, so the held
-	// verdict rides the one-entry batch with the evidence the fixture bound.
-	lateVerdict := func(contractVersion int64, verdict string) json.RawMessage {
+	// The current declaration accepts criterion-to-receipt associations only.
+	lateVerdict := func(contractVersion int64, receipt string) json.RawMessage {
 		return mustJSONValue(map[string]any{
 			"contract_version": contractVersion,
-			"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "verdict_kind": verdict, "evaluation_evidence": []string{"evidence:return-route-verification"}}},
+			"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "receipt_refs": []string{receipt}}},
 		})
 	}
-	// The action executor cannot author its own verdict, so the held verdict
-	// is judged by the reviewer actor the dispatch named.
+	// The non-worker coordinator associates the research producer's receipt.
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-judge", SessionRef: "session/" + workID + "-judge", ActorClass: ActorAgent}
 
-	err := runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(1, "ok"), 0, reviewer)
+	err = runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(1, view.ResearchFindings[0].ViewID), 0, reviewer)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract consumes a superseded law revision" {
-		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the superseded revision", err)
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract pins a deleted law" {
+		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the deleted revision", err)
 	}
-	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, "ok"), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, view.ResearchFindings[0].ViewID), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
 		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
 	}
 	var recorded int
@@ -339,7 +356,8 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	// successor law and carries no Domain write authority.
 	successor := mustJSONValue(map[string]any{
 		"contract_version": 2, "predecessor_contract_versions": []int64{1},
-		"premise": "re-pin the approved contract to the accepted successor law",
+		"decision_domains": []string{},
+		"premise":          "re-pin the approved contract to the accepted successor law",
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "outcome",
 			"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
@@ -347,10 +365,10 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:two"}, "law_modifies": []string{},
 		"rigor_class":      "prototype_internal",
-		"supersede_reason": "the approved contract consumes a superseded law revision",
+		"supersede_reason": "the approved contract pins a deleted law",
 		"audit_evidence":   []string{"evidence:law-rescan"},
 	})
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, owner); err != nil {
 		t.Fatalf("successor-law supersede: %v", err)
 	}
 	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
@@ -375,12 +393,16 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The re-pin reopens the held verdict: a non-ok verdict records under the
-	// successor, holds the step, and leaves the recovery route open.
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{
-		"contract_version": 2,
-		"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "verdict_kind": "outcome_mismatch", "incomparable_with_approved": true, "evaluation_evidence": []string{"evidence:return-route-verification"}}},
-	}), 0, reviewer); err != nil {
+	// A late receipt association records under the successor without advancing
+	// the held completion step.
+	view, err = readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+		t.Fatalf("selected research receipt: %+v err=%v", view, err)
+	}
+	if err := workflowCriterionReceipt(context.Background(), s.DatabaseForTesting(), workID, "predicate:return-route", view.ResearchFindings[0].ViewID, ""); err != nil {
+		t.Fatalf("re-pinned research receipt does not qualify: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(2, view.ResearchFindings[0].ViewID), 0, reviewer); err != nil {
 		t.Fatalf("late record_verdict after the re-pin: %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.contract_version')=2`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
@@ -422,7 +444,7 @@ func TestStaleRegistryOverlapRefusalBesideAPeerStalePin(t *testing.T) {
 	const workID = "stale-registry-repin-peer"
 	const peerID = "stale-registry-repin-peer-other"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -431,18 +453,18 @@ func TestStaleRegistryOverlapRefusalBesideAPeerStalePin(t *testing.T) {
 	rescanned := driftStaleRegistryFixture(t, s)
 	// The subject re-pins first: contract v2 pins the rescanned hash and keeps
 	// the one shared Domain write the peer also claims.
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, workID, 1, "root"), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, workID, 1, "root"), 0, owner); err != nil {
 		t.Fatalf("subject re-pin: %v", err)
 	}
 	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
 
 	// supersede_contract is one of the four closed recovery routes the
 	// unresolved-overlap refusal carries, so the resolver exposes the
-	// operator-approved recovery action beside the stranded peer.
+	// recovery action beside the stranded peer.
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
 		t.Fatalf("resolver of the overlap recovery route beside a stale peer pin: %v", err)
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(3, rescanned, workID, 2, "root"), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(3, rescanned, workID, 2, "root"), 0, owner); err != nil {
 		t.Fatalf("supersede_contract beside a stale peer pin: %v", err)
 	}
 	if version, active := activeStaleRegistryContract(t, s, workID); version != 3 || active != 1 {
@@ -482,13 +504,13 @@ func TestStaleRegistryOverlapRefusalBesideAPeerStalePin(t *testing.T) {
 func TestStaleRegistryRePinRefusesWithoutRegistry(t *testing.T) {
 	const workID = "stale-registry-repin-no-registry"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	execStaleRegistryInFold(t, s,
 		`DELETE FROM domains WHERE product_id='product'`,
 		`DELETE FROM domain_registries WHERE product_id='product'`,
 	)
-	err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, registryRescannedHash(), workID, 1), owner, operator)
+	err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, registryRescannedHash(), workID, 1), 0, owner)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnknownScope {
 		t.Fatalf("supersede without a registry error=%v, want unknown_scope", err)
@@ -504,18 +526,13 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+workID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID
@@ -534,7 +551,7 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 func TestStaleRegistryRescanReleasesTheEnclosedCompleteStepAttempt(t *testing.T) {
 	const workID = "stale-registry-complete-attempt"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	ownerRef, actorErr := WorkflowActorRef(owner)
 	if actorErr != nil {
@@ -551,8 +568,8 @@ func TestStaleRegistryRescanReleasesTheEnclosedCompleteStepAttempt(t *testing.T)
 	driftStaleRegistryFixture(t, s)
 
 	lateVerdict := mustJSONValue(map[string]any{
-		"contract_version": 1, "predicate_id": "predicate:return-route", "verdict_kind": "outcome_mismatch",
-		"evaluation_evidence": []string{"evidence:return-route-verification"}, "incomparable_with_approved": true,
+		"contract_version": 1,
+		"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "receipt_refs": []string{"evidence:return-route-verification"}}},
 	})
 	// The action executor cannot author its own verdict, so the held verdict
 	// is judged by the reviewer actor the dispatch named.
@@ -579,7 +596,8 @@ func TestStaleRegistryRescanReleasesTheEnclosedCompleteStepAttempt(t *testing.T)
 	rescanned := registryRescannedHash()
 	completeCorrection := mustJSONValue(map[string]any{
 		"contract_version": 2, "predecessor_contract_versions": []int64{1},
-		"premise": "re-pin the approved contract to the rescanned Domain registry",
+		"decision_domains": []string{},
+		"premise":          "re-pin the approved contract to the rescanned Domain registry",
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
@@ -595,7 +613,7 @@ func TestStaleRegistryRescanReleasesTheEnclosedCompleteStepAttempt(t *testing.T)
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", completeCorrection, owner, operator)
+	err = runVerdictActionAs(t, s, workID, "supersede_contract", completeCorrection, 0, owner)
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
 		t.Fatalf("complete-step correction with the attempt unsettled error=%v, want the complete-step state gate's invalid_operation refusal", err)
 	}
@@ -614,7 +632,7 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 	const peerID = "stale-overlap-sequence-peer"
 	ctx := context.Background()
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -664,9 +682,16 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 
 	// The re-pin cures the subject's own pin; the peer stays stale.
 	currentHash := registryRescannedHash()
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1, "root"), owner, operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1, "root"), 0, owner); err != nil {
 		t.Fatalf("subject re-pin beside the stale peer footprint: %v", err)
 	}
+	// A successor closes the prior result's eligibility interval. Keep that
+	// boundary, then exercise overlap sequencing with a current result.
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", accept, 0, acceptor); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("predecessor result stayed eligible after supersession: %v", err)
+	}
+	attemptID, attemptEpoch = seedStaleRegistryWorkerAttempt(t, s, workID, owner)
+	accept = mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch})
 
 	// With no recorded resolution the unresolved overlap still vetoes the
 	// subject's admission, and the peer's stale pin never becomes the

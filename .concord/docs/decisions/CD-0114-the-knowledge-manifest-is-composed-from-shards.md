@@ -8,9 +8,6 @@
   Concord work-b3491716e9c393763f2e32ec, after two same-day pull requests
   that each added one decision record conflicted on the committed aggregate.
 - **Related:** CD-0008, CD-0019, CD-0020, CD-0047
-- **Amends:** CD-0020 (the manifest-primary knowledge-index shape). The
-  manifest document keeps its schema, its strict blob proofs, and its scope
-  modes. What changes is where it lives: in shards, composed on read.
 
 ## Context
 
@@ -113,8 +110,8 @@ The repository carries neither .concord/docs/concord-knowledge-index.v1.json
 nor .concord/docs/law-coverage.v1.json. `scripts/generate-knowledge-index.py --update` and
 `scripts/generate-law-coverage.py --update` normalise shards and write no file
 beside them. `scripts/renumber-cd.py` regenerates nothing that lists records.
-The Go aggregate marshaler and its byte-format tests are removed, since no
-code writes the aggregate. The conflict class this record names has no
+Knowledge publication writes record and coverage shards, never an aggregate.
+The conflict class this record names has no
 remaining surface in the knowledge plane; the generated contract files under
 `contracts/` and `internal/agent/` still conflict when two branches change the
 same schema, which is a real conflict and regenerates after a rebase.

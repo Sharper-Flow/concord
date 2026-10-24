@@ -41,6 +41,7 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 	fields := map[string]any{
 		"contract_version": 1,
 		"premise":          "change the subject path",
+		"decision_domains": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{
 			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
@@ -86,15 +87,14 @@ func failureKindOf(err error) string {
 }
 
 // CD-0236 D1: approval reads no caller-supplied ground-truth label. The
-// current definition's schema refuses both label carriers, and a definition
-// older than the payload schema decides a labelled request as if it were
-// unlabelled.
+// current definition admits the unlabelled request and refuses both label
+// carriers. CD-0242 D14 retains no older definition to bypass that schema.
 func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	cases := []struct{ kind, label string }{{"exists", "subject-present"}, {"absent", "subject-absent"}}
 	for _, tc := range cases {
-		for _, prefix := range []string{"work-vacuity-live-predicate-", "work-vacuity-live-action-", "work-vacuity-v2-unlabelled-", "work-vacuity-v2-labelled-"} {
+		for _, prefix := range []string{"work-vacuity-live-predicate-", "work-vacuity-live-action-", "work-vacuity-live-unlabelled-"} {
 			seedWork(t, s, prefix+tc.kind)
 		}
 	}
@@ -105,11 +105,10 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	historical, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 2)
-	if !ok {
-		t.Fatal("workflow.implementation v2 is not registered")
-	}
 	for _, tc := range cases {
+		if err := approveWithGroundTruthLabel(t, s, live, "work-vacuity-live-unlabelled-"+tc.kind, tc.kind, "", false); err != nil {
+			t.Fatalf("current-pin approve_contract without a label = %v, want it admitted", err)
+		}
 		for _, inPredicate := range []bool{true, false} {
 			prefix := "work-vacuity-live-action-"
 			if inPredicate {
@@ -119,14 +118,6 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 			if kind := failureKindOf(labelled); kind != string(KindInvalidPayload) {
 				t.Errorf("current-pin approve_contract with %s label %q (in predicate: %t) = %v, want the payload schema to refuse it (%s)", tc.kind, tc.label, inPredicate, labelled, KindInvalidPayload)
 			}
-		}
-		unlabelled := approveWithGroundTruthLabel(t, s, historical, "work-vacuity-v2-unlabelled-"+tc.kind, tc.kind, "", false)
-		withLabel := approveWithGroundTruthLabel(t, s, historical, "work-vacuity-v2-labelled-"+tc.kind, tc.kind, tc.label, false)
-		if unlabelled != nil {
-			t.Fatalf("v2 approve_contract without a label = %v, want it admitted", unlabelled)
-		}
-		if failureKindOf(withLabel) != failureKindOf(unlabelled) {
-			t.Errorf("v2 approve_contract decided a %s predicate differently on label %q: labelled = %v, unlabelled = %v", tc.kind, tc.label, withLabel, unlabelled)
 		}
 	}
 }

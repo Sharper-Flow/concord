@@ -159,16 +159,10 @@ func deriveWorkerFailureIntegration(ctx context.Context, q queryer, workID strin
 // that resolves nothing beside a resolved one, and a locator that names two
 // leases each refuse; two sources that name different leases refuse.
 func resolveWorkerFailureIntegrationLease(ctx context.Context, q queryer, workID string, sources []WorkerFailureSource) (*workerFailureIntegrationLease, error) {
-	query := workerFailureIntegrationLeaseQuery
-	if isWorkflowReplay(ctx) {
-		// Rebuild stages this same operational authority before clearing the
-		// projections. The snapshot remains available throughout replay.
-		query = strings.Replace(query, "FROM worktree_verify_leases", "FROM temp.rebuild_operational_worktree_verify_leases", 1)
-	}
 	var resolved *workerFailureIntegrationLease
 	unresolved := []string{}
 	for _, source := range sources {
-		rows, err := q.QueryContext(ctx, query, workID, source.Locator, source.Locator)
+		rows, err := q.QueryContext(ctx, workerFailureIntegrationLeaseQuery, workID, source.Locator, source.Locator)
 		if err != nil {
 			return nil, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the cited verify lease", true, "retry once the operational state is readable", err)
 		}

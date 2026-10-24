@@ -298,25 +298,15 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 	}
 }
 
-// legacyApprovalPolicyDefinitionForRef resolves the newest registered version
-// of a built-in family that answers consent under the released legacy
-// policy. Journeys that exercise operator substitution, operator-approved
-// retries, or operator-approved returns pin it: instances captured before the
-// consequence_v1 promotion keep those flows.
-func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) store.RegisteredDefinition {
+// Consent fixtures resolve the current family, just like live work.
+func legacyApprovalPolicyDefinitionForRef(t testing.TB) store.RegisteredDefinition {
 	t.Helper()
+	const ref = "workflow.implementation"
 	live, err := store.LiveWorkflowDefinitionForRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for version := live.Definition.Version; version >= 1; version-- {
-		registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
-		if ok && registered.Definition.ApprovalPolicy == "" {
-			return registered
-		}
-	}
-	t.Fatalf("%s registers no legacy approval-policy version", ref)
-	return store.RegisteredDefinition{}
+	return live
 }
 
 // seedLegacyApprovalPolicyWork pins work-1 to the newest implementation
@@ -327,7 +317,7 @@ func legacyApprovalPolicyDefinitionForRef(t testing.TB, ref string) store.Regist
 func seedLegacyApprovalPolicyWork(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	ctx := context.Background()
-	registered := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
+	registered := legacyApprovalPolicyDefinitionForRef(t)
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: actor, Now: fixedTime()})

@@ -18,7 +18,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleLegacyPinStaysOracleFree"
+      "value": "internal/store.TestOwnerOracleActiveDerivesFromDeclaredMember"
     },
     {
       "kind": "go_test",
@@ -71,6 +71,10 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestCombinedAcceptanceAdmitsBehindIntegrationEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate"
     },
     {
       "kind": "go_test",

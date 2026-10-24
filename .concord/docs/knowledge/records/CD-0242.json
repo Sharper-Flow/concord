@@ -1,0 +1,155 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-21T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0242",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0002"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0008"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0036"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0130"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0137"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0173"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0197"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0205"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0213"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0218"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0220"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0229"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0230"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0235"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0239"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM1"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM3"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM9"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS7"
+    },
+    {
+      "kind": "refines",
+      "target_id": "compaction-retention-policy"
+    },
+    {
+      "kind": "refines",
+      "target_id": "workflow-engine-contract"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM5"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "PM10"
+    },
+    {
+      "kind": "refines",
+      "target_id": "C15"
+    },
+    {
+      "kind": "refines",
+      "target_id": "TS8"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0102"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md",
+  "product_wide_rationale": "Knowledge-first workflows replace the event-sourced state authority, the stage-exit and execution-loop rules, evidence binding, resumption, recovery, and the cutover path for every Domain, so the change reaches the whole Product rather than one child Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:919364f548b742da008081a7303b9add957512586556004cef839fff2b6f1fab",
+  "status": "accepted",
+  "summary": "Product knowledge and completion receipts hold durable outcomes and a shared local store holds resumable current work. Each mutation writes current rows checked by an expected version and its idempotency key; no event log or replay exists. Stage exits are the unit of enforcement, families compose shared stages, and Main controls the execution loop. Attempts carry their own authority instead of budgets, revisions invalidate only dependents, and receipts bind evidence to subjects. Completion needs proof, approvals, delivery, and publication. Fresh sessions resume from current state, and refusals name admitted actions. The cutover is one documented migration with a verified snapshot, and generated contracts derive from one source.",
+  "tags": [
+    "state",
+    "workflow",
+    "knowledge",
+    "recovery"
+  ],
+  "title": "Knowledge-first workflows keep current state, not history"
+}

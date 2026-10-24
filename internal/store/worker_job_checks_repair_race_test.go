@@ -64,12 +64,8 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	oneOpenRepairA := func(stage string) {
 		t.Helper()
 		candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(candidates) != 1 || candidates[0].Repairing != *revA || !candidates[0].Funded {
-			t.Fatalf("candidates %s = (%#v, %v), want exactly the one funded repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
-		}
-		fundings, err := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(fundings) != 1 || fundings[jobID].Repairing != *revA {
-			t.Fatalf("fundings %s = (%#v, %v), want the one funded repair A", stage, fundings, err)
+		if err != nil || len(candidates) != 1 || candidates[0] != *revA {
+			t.Fatalf("candidates %s = (%#v, %v), want exactly repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
 		}
 	}
 
@@ -102,7 +98,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 		t.Fatalf("repair B = %s@%d, want the revision beside %d", revB.JobID, revB.Revision, revA.Revision)
 	}
 
-	// A accepts and opens: exactly one funded candidate stands for the job.
+	// A accepts and opens: exactly one candidate stands for the job.
 	acceptChecksRepairAttempt(t, s, workID, attemptA, acceptor)
 	oneOpenRepairA("behind the accepted repair A")
 
@@ -142,16 +138,4 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	}
 	oneOpenRepairA("behind the refused second acceptance")
 
-	// Rebuild parity: the refused acceptance left no event, so the log folds
-	// the same single open repair from scratch.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	if after := readWorkVersion(t, s, workID); after != version {
-		t.Fatalf("rebuilt work version = %d, want %d", after, version)
-	}
-	if state, ref := jobRow(*revB); state != "recorded" || ref != "" {
-		t.Fatalf("the rebuilt refused repairing revision = %s via %q, want recorded with no disposition", state, ref)
-	}
-	oneOpenRepairA("behind the rebuild")
 }

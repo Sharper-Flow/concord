@@ -13,8 +13,7 @@
   the unread keys while binding AJ6)
 - **Preserves:** Every existing assertion, invariant, and deferral; the free-form
   typing of `fixture_override` in `contracts/agent-jobs-scenarios.schema.json`;
-  AJ5's fold-replay override and the version accounting it depends on
-- **Supersedes:** Nothing. This closes a gap the corpus never covered.
+  AJ5's initial-state override and the version accounting it depends on
 
 ## Context
 
@@ -22,7 +21,7 @@ Two of the 23 agent-jobs scenarios declare `initial_state.fixture_override`, a
 block stating the non-default world a scenario needs before its job runs.
 
 `AJ5-atomic-supersession` declares two keys, and its binding honors them by
-replaying two legitimate fold events through the store. `AJ6-compact-terminal-work`
+writing the required current state through the store. `AJ6-compact-terminal-work`
 declares two keys, and nothing reads either one.
 
 Nothing detected the difference. The runner passes the whole scenario to a
@@ -99,8 +98,8 @@ precondition compaction actually requires.
 ## Consequences
 
 - An unread override is now a test failure naming the exact keys, not silence.
-- AJ5's binding reads its two keys and checks the replay implements what they
-  state, so the corpus and the binding can no longer drift apart unnoticed.
+- AJ5's binding reads its two keys and checks the recorded state implements what
+  they state, so the corpus and the binding can no longer drift apart unnoticed.
 - The stale comment in `agent_jobs_compaction_bindings_test.go` explaining that
   AJ6's override went unread is deleted along with the override.
 - Future scenario authors get a runtime answer instead of a convention: declare a
@@ -116,8 +115,9 @@ who wrote them. A key-name check proves a name is legal, never that anything rea
 it.
 
 **Teaching the runner to apply every override key generically.** Rejected because
-the preconditions do not share a shape. AJ5's override is "replay two fold events
-so version accounting stays intact," which does not reduce to assigning a value
+the preconditions do not share a shape. AJ5's override requires writing two
+work-state transitions so version accounting stays intact, which does not reduce
+to assigning a value
 to a path. A generic applier would grow a case per scenario inside the runner —
 the same per-scenario code that exists today, moved somewhere it is harder to
 read, and still with nothing checking that the case ran.

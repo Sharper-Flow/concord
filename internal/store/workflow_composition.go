@@ -9,8 +9,7 @@ import (
 // WorkflowComposition is the source of a workflow definition (CD-0229 D2). It
 // holds the family policy and the ordered part pins; compiling it yields the
 // definition fields CD-0013 D1 lists, so the canonical manifest and its
-// digest are unchanged in shape. A released composition is frozen like the
-// definition it compiles to (D3).
+// digest cover the resolved current definition (CD-0242 D14).
 type WorkflowComposition struct {
 	Ref                   string
 	Version               int64
@@ -22,14 +21,8 @@ type WorkflowComposition struct {
 	CompositionRules      WorkflowCompositionRules
 	EvaluatorIndependence WorkflowEvaluatorIndependence
 	ApprovalPolicy        string
-	// ProgressPolicy is the composition-level progress-policy discriminator
-	// (CD-0164 D2a). Absence compiles the released legacy definition shape;
-	// WorkflowProgressPolicyObligationSatisfactionV1 declares the
-	// obligation-satisfaction policy and compiles the canonical satisfaction
-	// taxonomy onto the resolved actions.
-	ProgressPolicy       string
-	ActionCatalogVersion int
-	Parts                []WorkflowPartUse
+	ActionCatalogVersion  int
+	Parts                 []WorkflowPartUse
 }
 
 // CompileWorkflowComposition compiles a composition against the built-in
@@ -103,9 +96,6 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 	if composition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 		actions = withConsequenceConfirmPremise(actions)
 	}
-	if composition.ProgressPolicy == WorkflowProgressPolicyObligationSatisfactionV1 {
-		actions = withObligationSatisfactionTaxonomy(actions)
-	}
 	changesProductTruth := workKindMayChangeProductTruth(composition.WorkKind)
 	definition := cloneWorkflowDefinition(WorkflowDefinition{
 		Ref: composition.Ref, Version: composition.Version, WorkKind: composition.WorkKind, ChangesProductTruth: &changesProductTruth,
@@ -113,7 +103,7 @@ func CompileWorkflowComposition(composition WorkflowComposition) (WorkflowDefini
 		AvailableActions: available, ActionDefinitions: actions,
 		RequiredEvidenceKinds: composition.RequiredEvidenceKinds, OutcomeSchema: composition.OutcomeSchema, RigorRules: composition.RigorRules,
 		StalenessRules: composition.StalenessRules, CompositionRules: composition.CompositionRules, EvaluatorIndependence: composition.EvaluatorIndependence,
-		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy, ProgressPolicy: composition.ProgressPolicy,
+		RecoveryRoutes: routes, ApprovalPolicy: composition.ApprovalPolicy,
 	})
 	if err := ValidateWorkflowDefinition(definition); err != nil {
 		return WorkflowDefinition{}, err
@@ -131,13 +121,10 @@ func mustCompileWorkflowComposition(composition WorkflowComposition) WorkflowDef
 	return definition
 }
 
-// builtinWorkflowCompositions lists every released composition.
+// builtinWorkflowCompositions lists one current composition per live family.
 func builtinWorkflowCompositions() []WorkflowComposition {
 	return []WorkflowComposition{
-		implementationCompositionV33(), implementationConsequenceV34(), implementationCompositionV35(), implementationCompositionV36(),
-		breakFixCompositionV30(), breakFixConsequenceV31(), breakFixCompositionV32(), breakFixCompositionV33(),
-		researchCompositionV20(), researchConsequenceV21(), researchObligationV22(),
-		implementationObligationV37(), breakFixObligationV34(),
+		currentImplementationComposition(), currentBreakFixComposition(), currentResearchComposition(),
 	}
 }
 
@@ -167,21 +154,22 @@ func forwardOnlyComposition(successors ...WorkKind) WorkflowCompositionRules {
 	return WorkflowCompositionRules{ForwardLinkOnly: true, AllowedSuccessorWorkKinds: successors, ForbiddenCompositions: []WorkflowForbiddenComposition{}}
 }
 
-func implementationCompositionV33() WorkflowComposition {
+func currentImplementationComposition() WorkflowComposition {
 	return WorkflowComposition{
-		Ref: "workflow.implementation", Version: 33, WorkKind: WorkKindImplementation,
+		Ref: "workflow.implementation", Version: 37, WorkKind: WorkKindImplementation,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
 		CompositionRules:     forwardOnlyComposition(WorkKindBreakFix, WorkKindResearch),
-		ActionCatalogVersion: 1,
+		ActionCatalogVersion: 3,
 		Parts: []WorkflowPartUse{
 			{Ref: "part.proposal", Version: 1},
 			{Ref: "part.alignment", Version: 1},
 			{Ref: "part.design", Version: 1},
 			{Ref: "part.planning", Version: 1, StepID: "planning"},
-			{Ref: "part.execution", Version: 1},
-			{Ref: "part.refine", Version: 1},
+			{Ref: "part.execution", Version: 1, RecoveryTo: "execution"},
+			{Ref: "part.refine", Version: 1, RecoveryTo: "execution"},
 			{Ref: "part.delivery", Version: 1},
 			{Ref: "part.verdict", Version: 1, StepID: "acceptance", FailureTo: "refine", RecoveryTo: "execution"},
 			{Ref: "part.close", Version: 1, StepID: "release", RecoveryTo: "execution", DisprovedPremiseRoute: true},
@@ -189,19 +177,20 @@ func implementationCompositionV33() WorkflowComposition {
 	}
 }
 
-func breakFixCompositionV30() WorkflowComposition {
+func currentBreakFixComposition() WorkflowComposition {
 	return WorkflowComposition{
-		Ref: "workflow.break_fix", Version: 30, WorkKind: WorkKindBreakFix,
+		Ref: "workflow.break_fix", Version: 34, WorkKind: WorkKindBreakFix,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateAbsent, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
 		CompositionRules:     forwardOnlyComposition(WorkKindImplementation, WorkKindResearch),
-		ActionCatalogVersion: 1,
+		ActionCatalogVersion: 3,
 		Parts: []WorkflowPartUse{
 			{Ref: "part.diagnosis", Version: 1},
 			{Ref: "part.planning", Version: 1, StepID: "planning"},
-			{Ref: "part.repair", Version: 1},
-			{Ref: "part.refine", Version: 1},
+			{Ref: "part.repair", Version: 1, RecoveryTo: "repair"},
+			{Ref: "part.refine", Version: 1, RecoveryTo: "repair"},
 			{Ref: "part.delivery", Version: 1},
 			{Ref: "part.verdict", Version: 1, StepID: "verify", LeadAction: "bind_evidence", FailureTo: "refine", RecoveryTo: "repair"},
 			{Ref: "part.close", Version: 1, StepID: "complete", RecoveryTo: "repair", DisprovedPremiseRoute: true},
@@ -209,9 +198,10 @@ func breakFixCompositionV30() WorkflowComposition {
 	}
 }
 
-func researchCompositionV20() WorkflowComposition {
+func currentResearchComposition() WorkflowComposition {
 	return WorkflowComposition{
-		Ref: "workflow.research", Version: 20, WorkKind: WorkKindResearch,
+		Ref: "workflow.research", Version: 22, WorkKind: WorkKindResearch,
+		ApprovalPolicy:        WorkflowApprovalPolicyConsequenceV1,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceArtifact},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateOutcome}, AllowedOutcomeTokens: []string{"no_change", "resolved", "report_recorded"}},
 		RigorRules:            workflowPrototypeRigorRules(), StalenessRules: []WorkflowStalenessRule{},
@@ -225,17 +215,6 @@ func researchCompositionV20() WorkflowComposition {
 			{Ref: "part.close", Version: 1, StepID: "complete", RecoveryTo: "investigate"},
 		},
 	}
-}
-
-// withConsequencePolicy promotes a released composition to the next version
-// under the consequence_v1 approval policy (CD-0230 D5). Engineering
-// contract approval, premise confirmation, and completion admit without an
-// operator challenge; the declared decision domains, a serious law change,
-// crucial size, and destructive effects still reach the operator.
-func withConsequencePolicy(composition WorkflowComposition) WorkflowComposition {
-	composition.Version++
-	composition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
-	return composition
 }
 
 // withConsequenceConfirmPremise declares the human decision-context digest
@@ -267,94 +246,4 @@ func withConsequenceConfirmPremise(actions []WorkflowActionDefinition) []Workflo
 		}
 	}
 	return selected
-}
-
-func implementationConsequenceV34() WorkflowComposition {
-	return withConsequencePolicy(implementationCompositionV33())
-}
-
-func breakFixConsequenceV31() WorkflowComposition {
-	return withConsequencePolicy(breakFixCompositionV30())
-}
-
-func researchConsequenceV21() WorkflowComposition {
-	return withConsequencePolicy(researchCompositionV20())
-}
-
-// Checks-repair heads retain their predecessor's consequence policy and parts,
-// and repin only the action catalog for the repair authoring and packet members.
-func implementationCompositionV35() WorkflowComposition {
-	composition := implementationConsequenceV34()
-	composition.Version = 35
-	composition.ActionCatalogVersion = 2
-	return composition
-}
-
-func breakFixCompositionV32() WorkflowComposition {
-	composition := breakFixConsequenceV31()
-	composition.Version = 32
-	composition.ActionCatalogVersion = 2
-	return composition
-}
-
-// implementationCompositionV36 ships the size-capable implementation head
-// (CD-0225 D1, CD-0227 D1): v35's every surface — the consequence_v1
-// approval policy and the checks-repair authoring members included — with
-// the v3 action catalog, whose record_worker_job adds the optional size
-// members beside the repair authoring members and the closed split variant.
-// A job under this head carries all three size members or none.
-func implementationCompositionV36() WorkflowComposition {
-	composition := implementationCompositionV35()
-	composition.Version = 36
-	composition.ActionCatalogVersion = 3
-	return composition
-}
-
-// breakFixCompositionV33 ships the size-capable break-fix head: v32's every
-// surface with the v3 action catalog.
-func breakFixCompositionV33() WorkflowComposition {
-	composition := breakFixCompositionV32()
-	composition.Version = 33
-	composition.ActionCatalogVersion = 3
-	return composition
-}
-
-// withObligationSatisfactionTaxonomy declares each compiled action's
-// satisfaction kind from the canonical action mapping (CD-0164 D2a). The
-// copy leaves the shared catalog declarations unmutated; validation binds
-// the compiled result to the same mapping, so a compiled definition and its
-// declared taxonomy cannot disagree.
-func withObligationSatisfactionTaxonomy(actions []WorkflowActionDefinition) []WorkflowActionDefinition {
-	selected := slices.Clone(actions)
-	for index := range selected {
-		selected[index].SatisfactionKind = workflowActionSatisfactionKind(selected[index].ID)
-	}
-	return selected
-}
-
-// withObligationSatisfactionPolicy promotes a released composition to the
-// next version under the obligation-satisfaction progress policy (CD-0164
-// D2a). Parts, approval policy, and action catalog stay pinned; the compiled
-// definition declares the policy and the closed satisfaction taxonomy on the
-// fresh head alone.
-func withObligationSatisfactionPolicy(composition WorkflowComposition) WorkflowComposition {
-	composition.Version++
-	composition.ProgressPolicy = WorkflowProgressPolicyObligationSatisfactionV1
-	return composition
-}
-
-// The obligation-satisfaction heads retain their predecessors' consequence
-// policy, parts, and action catalog — the v3 catalog on the implementation
-// and break-fix heads; the compiled definition declares the progress policy
-// and its closed satisfaction taxonomy.
-func implementationObligationV37() WorkflowComposition {
-	return withObligationSatisfactionPolicy(implementationCompositionV36())
-}
-
-func breakFixObligationV34() WorkflowComposition {
-	return withObligationSatisfactionPolicy(breakFixCompositionV33())
-}
-
-func researchObligationV22() WorkflowComposition {
-	return withObligationSatisfactionPolicy(researchConsequenceV21())
 }

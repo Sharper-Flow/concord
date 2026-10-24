@@ -5,14 +5,12 @@ import (
 	"testing"
 )
 
-// workCreatedEventWithUrgency creates a work.created v2 event with a declared
+// workCreatedEventWithUrgency creates a work.created event with a declared
 // urgency and priority. Used by CD-0018 urgency tests.
 func workCreatedEventWithUrgency(id, eventID, urgency string, priority int64) Event {
-	event := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
+	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
 		"work_kind": "task", "title": id, "priority": priority, "urgency": urgency,
 	})
-	event.PayloadVersion = 2
-	return event
 }
 
 // seedWorkWithUrgency seeds a work item at creation time with a declared urgency
@@ -96,7 +94,6 @@ func TestCD0018UrgencyInvalidValueRejected(t *testing.T) {
 	event := operationEvent("bad-urgency", "work.created", SubjectWorkItem, "bad", map[string]any{
 		"work_kind": "task", "title": "bad", "priority": 10, "urgency": "critical",
 	})
-	event.PayloadVersion = 2
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	assertFailureKind(t, err, KindInvalidPayload)
 }

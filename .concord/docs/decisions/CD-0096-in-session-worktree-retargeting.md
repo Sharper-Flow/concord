@@ -9,15 +9,6 @@
   2026-09-01 (issue #689).
 - **Related:** CD-0088, CD-0090, CD-0092, CD-0093, CD-0094, CD-0095, CD-0104,
   issue #689
-- **Amends:** CD-0093 D2 at the session-directory clause only
-- **Amended by:** CD-0104 at Context, D1, D3 Take over, D5, and D6. The
-  effective target was a stored copy of the session directory, kept because
-  the session could not move. CD-0098 moved the session, and CD-0104 removed
-  the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand. CD-0105 at D3
-  Destroy names the trigger this tier left unnamed. CD-0118 at D3 Destroy
-  widens approval-free removal to unstarted work under its own gate. CD-0212
-  at D3 Destroy re-binds the git gates to one immutable live `HEAD`
-  observation and separates stored-ref deletion from directory removal.
 
 **Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Occupancy, identity, and other non-consent checks remain required.
@@ -51,35 +42,21 @@ resolve. This record names that binding the effective target, makes it
 retargetable along one typed route, and tiers the authority for touching any
 other worktree in the same Project.
 
-*Amended by CD-0104.* The first property did not survive CD-0098, which moves
-the host session. Once the directory can change, the effective target is a
-stored copy of a fact the host reports, and CD-0104 D1 removes it. The second
-property stands, and the tiers in D3 stand with it.
+Work start moves the host session. Later Concord operations use the
+host-reported directory and the current claim, with the tiered authority in D3.
 
 ## Decision
 
 ### D1. A session may adopt its current work item's canonical worktree as the effective target
 
-*Amended by CD-0104 D1.* There is no stored effective target and no retarget
+There is no stored effective target and no retarget
 operation. A session enters its work item's canonical worktree through
 `concord_work_start`, which moves the session (CD-0098), and later Concord
-operations resolve the tree from the directory the host reports per call. The
-original clause follows for the record.
-
-A running session bound to a current work item may create or claim that item's
-canonical worktree and retarget the session's effective target to it. The
-retarget is persistent. Later Concord operations that resolve a tree resolve
-through the effective target, and the host process directory stays unchanged.
-
-CD-0093 D2 is amended at this clause only. The directory its D1 resolves remains
-the one directory for agent definition resolution, the registry probe, and host
-execution, and it is still established first. The effective target is a distinct
-binding, initially the resolved start directory, and this amendment adds the one
-typed route that changes it.
+operations resolve the tree from the directory the host reports per call.
 
 ### D2. The effective target comes from identity, never from input
 
-No operation in this record accepts a worktree path from a caller. The retarget
+No operation in this record accepts a worktree path from a caller. Work start
 derives the canonical worktree from the registered Project locator and the
 current work identity, through the same `worktree-locate` policy CD-0088 D2
 names. A directory the store cannot derive does not exist as a target.
@@ -90,8 +67,8 @@ Access to a worktree of another work item in the same Project follows four
 tiers. Each tier is a typed authority, and no tier implies the one above it.
 
 **Inspect.** Reading files, Git status, and diffs is allowed against any active
-worktree in the same Project. Inspection is read-only and never changes the
-persistent effective target.
+worktree in the same Project. Inspection is read-only and never moves the
+session.
 The `oracle_output` mode reads retained native-verify output for the same work
 and ambient Project through its producer run reference, without an active tree.
 It starts no process, creates no lease, and records no mutation or page bytes.
@@ -112,16 +89,10 @@ Bounded result metadata contains descriptors, not raw stream bodies.
 No separate output store, dispatch authority, or evidence kind is created.
 Existing scope, budget, lease, and mutation-refusal gates remain mandatory.
 
-**Take over.** *Amended by CD-0104 D5.* There is no typed transfer, because
+**Take over.** There is no typed transfer, because
 there is no stored holder to transfer from. A session that needs to edit
 another work item's worktree starts that work item. Two sessions in one
-worktree are refused only at the command level, by the Verify lease. The
-original clause follows for the record.
-
-Editing, committing, pushing, and retargeting to another work item's worktree
-require a typed authority transfer. An active owner must release its
-authority, or the operator must approve an override. A takeover refused for
-authority fails typed, naming the owner identity and the recovery action.
+worktree are refused only at the command level, by the Verify lease.
 
 **Destroy.** Removing a worktree reclaims merged terminal work under the
 CD-0095 store gates. A dirty tree refuses, and an unmerged branch refuses.
@@ -136,43 +107,25 @@ this tier defines the gates, not the trigger.
 
 Holding, claiming, or targeting a worktree changes no capability boundary.
 Authority still flows only from the typed operation grants CD-0092 and CD-0094
-define. A session retargeted into a canonical worktree holds the same authority
-it held before the retarget.
+define. Moving a session into a canonical worktree grants no Product authority.
 
 ### D5. Continuity re-pins the target and the lease
 
-*Amended by CD-0104 D1.* The pinned continuity projection carries the reading
-session's active verify leases and no target. There is no target version to
-pin. The original clause follows for the record.
-
-The pinned continuity projection carries the effective target and any active
-lease. The CD-0090 per-turn re-pin re-asserts both each turn. A Concord
-operation whose pinned target version is stale fails closed with a typed
-refusal, because a silently re-derived target is a directory change no one
-authorized.
+The pinned continuity projection carries the reading session's active verify
+leases.
 
 ### D6. The bootstrap route and its identity guarantees are unchanged
 
-*Amended by CD-0104 D3.* `concord_work_start` is the one route, and it replays
+`concord_work_start` is the one route, and it replays
 to convergence on its derived key. `session-prepare` still refuses a directory
-other than the active claimed worktree and records nothing. There is no
-in-session route to converge with. The original clause follows for the record.
-
-CD-0088 keeps its whole authority envelope. `concord_work_start` remains the
-pre-launch route, `session-prepare` still refuses a directory other than the
-active claimed worktree, and the read-back identity check is unchanged. The
-in-session route converges on the same stored worktree claim, so the two routes
-cannot produce two owners.
+other than the active claimed worktree and records nothing. Preparation
+validates the destination, and work start verifies the landing.
 
 ## Consequences
 
 - A session can move from Product-state work in the default checkout to
-  implementation in the canonical worktree without ending. The retarget is
-  durable and survives context boundaries through the per-turn re-pin.
-- The host process directory and the effective target stop being the same
-  thing. Host surfaces that read the process directory keep reading the start
-  directory. This record changes what Concord operations resolve, and the gap
-  is named here rather than hidden.
+  implementation in the canonical worktree without ending. Later operations
+  use the host-reported directory and current claim.
 - Reading and verifying another session's worktree need no transfer, so review
   and verification do not wait on ownership inside one Project.
 - An ownership conflict surfaces as a typed refusal that names the owner and

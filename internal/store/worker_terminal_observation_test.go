@@ -49,7 +49,7 @@ func workerTerminalEventThroughSeamCtx(t *testing.T, ctx context.Context, s *Sto
 	t.Helper()
 	if event.Kind == WorkerCompleted {
 		event = workerCompletionAtClaim(t, s, event)
-		event = workerCompletionWithReportedSize(t, ctx, s, event)
+		event = workerCompletionWithReportedSize(t, event)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkerEvidenceOperationTx(ctx, tx, event)
@@ -68,37 +68,10 @@ var unobservedTreeForTest = strings.Repeat("e", 40)
 // sealed-observation seam the production_size a compliant worker reports,
 // bound to the sealed observed tree. A builder's synthetic unobserved tree
 // is rebound to the sealed one; an authored tree stays as written.
-func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Store, event Event) Event {
+func workerCompletionWithReportedSize(t *testing.T, event Event) Event {
 	t.Helper()
-	prepared := workerTerminalPreparationFrom(ctx)
-	if prepared == nil || prepared.proof.observation == nil {
-		return event
-	}
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ProductionSize != nil && payload.ProductionSize.Tree != unobservedTreeForTest {
-		return event
-	}
-	if payload.ProductionSize == nil {
-		event = withReportedSizeForTest(t, s, event, prepared.proof.observation.Commit)
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if payload.ProductionSize != nil {
-		payload.ProductionSize.Tree = prepared.proof.observation.Commit
-		content, err := readWorkerJobSizeContentTx(ctx, s.db, event.SubjectID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		count, unavailable := workerJobReportedLineCount(content[*payload.WorkerJob].basis, prepared.proof.observation)
-		if unavailable == "" {
-			payload.ProductionSize.Count = count
-		}
-		event.Payload = mustJSONValue(payload)
-	}
+	// The retired production_size member records nothing (CD-0242 D6); the
+	// seam keeps its call site and carries no member.
 	return event
 }
 
@@ -107,25 +80,9 @@ func workerCompletionWithReportedSize(t *testing.T, ctx context.Context, s *Stor
 // the named delivered tree. A completion that already carries the member,
 // another lane, or an uncapped job passes unchanged, so binding tests keep
 // their authored bytes.
-func withReportedSizeForTest(t *testing.T, s *Store, event Event, tree string) Event {
+func withReportedSizeForTest(t *testing.T, event Event) Event {
 	t.Helper()
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ProductionSize != nil || payload.WorkerJob == nil {
-		return event
-	}
-	var class string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, event.SubjectID, payload.AttemptID).Scan(&class); err != nil || class != "implementation" {
-		return event
-	}
-	job, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, payload.AttemptID)
-	if err != nil || job == nil {
-		return event
-	}
-	payload.ProductionSize = completionProductionSizeForTest(t, s, event.SubjectID, job, tree)
-	event.Payload = mustJSONValue(payload)
+	// The retired production_size member records nothing (CD-0242 D6).
 	return event
 }
 
@@ -180,15 +137,15 @@ func workerFixtureDirectory(t *testing.T, s *Store, workID string) string {
 
 // stubbedDeliveryRunner answers the delivery probe without touching the
 // filesystem: the frontier subtests attribute the authorization frontier,
-// and the real Git behavior is the CLI tests' subject. The measured-delta
-// probe answers with an empty numstat, the clean zero-delta observation.
+// and the real Git behavior is the CLI tests' subject. The changed-path
+// probe answers with no names, the clean zero-delta observation.
 type stubbedDeliveryRunner struct{}
 
 func (stubbedDeliveryRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
 	switch {
 	case len(args) > 0 && args[0] == "status":
 		return nil, nil
-	case slices.Contains(args, "--numstat"):
+	case slices.Contains(args, "--name-only"):
 		return nil, nil
 	}
 	return []byte(strings.Repeat("a", 40)), nil
@@ -280,7 +237,7 @@ func implementDispatchEvidenceEvent(workID, attemptID string, lane LaneDefinitio
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: &job,
 	}
-	return Event{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
+	return Event{EventID: attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
 }
 
 func TestWorkerTerminalConsumedFrontier(t *testing.T) {
@@ -321,12 +278,9 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 		}
 		boundJob := job
-		// The stubbed runner answers HEAD with the synthetic a-OID, so the
-		// capped job's folded size report binds that observed tree.
-		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-frontier-f", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: evidence, WorkerJob: &boundJob,
-			ProductionSize: completionProductionSizeForTest(t, s, fixture.workID, &boundJob, strings.Repeat("a", 40)),
 		})}
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-f")
@@ -363,7 +317,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
+		completion := workerCompletedContextFindingsEvent(workID, "complete-frontier-zero", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID), s, completion)
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "complete-frontier-zero")
 		if !consumedPresent {
@@ -375,10 +329,9 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 	})
 
 	t.Run("a failed terminal without findings carries the same frontier", func(t *testing.T) {
-		// The frontier joins the dispatch authorization alone, so this
-		// subtest pins the latest head that predates the attribution
-		// requirement and records the failed terminal without an observation.
-		breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+		// Findings may be absent; the current terminal still carries its host
+		// failure observation and the frontier from its original authorization.
+		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
 		}
@@ -405,8 +358,8 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, attemptID, lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		failure := workerFailedContextFindingsEvent(fixture.workID, "failed-frontier-f", attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
-		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, failure.EventID), s, failure)
+		failure := workerFailedContextFindingsEvent(fixture.workID, "failed-frontier-f", attemptID, preferredModelForLane(lane), WorkerFailureWorkerError, nil, CurrentEventPayloadVersion(WorkerFailed))
+		workerTerminalEventThroughSeamCtx(t, prepareWorkerTerminalDelivery(t, s, fixture.workID, attemptID, failure.EventID), s, withWorkerFailureObservation(t, failure))
 		consumed, consumedPresent := rawTerminalFrontier(t, s, "failed-frontier-f")
 		if !consumedPresent {
 			t.Fatal("the failed terminal carries no consumed_context_frontier; a failure without findings still owes its authorization frontier")
@@ -427,7 +380,7 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-frontier-historical", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, fixture.workID))
 		workerTerminalEventThroughSeam(t, s, completion)
 		if _, present := dispatchCompletionFrontier(t, s, fixture.workID, attemptID); present {
 			t.Fatal("a historical authorization carries a recorded frontier; raw history must stay absent")
@@ -459,7 +412,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
+	completion := workerCompletedContextFindingsEvent(workID, "complete-claim-state-drift", attemptID, preferredModelForLane(lane), lane, nil, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))
 	prepareCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completion.EventID)
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-1'`, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)

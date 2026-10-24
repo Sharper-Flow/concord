@@ -110,20 +110,19 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
-	if bound != 33 {
-		t.Fatalf("bound evidence events = %d, want 33", bound)
+	if bound != 35 {
+		t.Fatalf("bound evidence events = %d, want 35 (five fixture bindings plus thirty bulk bindings)", bound)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/"+workID)
+	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
 	completion := workflowEventWithActor("over32-completion-"+workID, WorkflowCompleted, workID, operator, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator,
 		"premise_confirmed": true, "evidence_count": bound, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64),
 		"impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("completion with %d bound evidence events failed: %v", bound, err)
 	}

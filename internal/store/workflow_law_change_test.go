@@ -425,8 +425,41 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		workID := "law-change-enact-derived"
 		s := seedLawChangeFixture(t, workID)
 		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeSmall)
 		if err := enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil); err != nil {
 			t.Fatalf("a derived non-serious change refused at completion: %v", err)
+		}
+	})
+	t.Run("operator crucial override requires exact text approval", func(t *testing.T) {
+		workID := "law-change-enact-override"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeSmall)
+		insertWorkSizeOverrideApproval(t, s, workID, 1)
+		if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size-"+workID, WorkSizeCrucial)); err != nil {
+			t.Fatal(err)
+		}
+		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindApprovalRequired, "operator crucial enactment")
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise", workflowLawChangeTextPinsField: lawChangePins("law-agent")}), []string{"law-agent"}, nil, []string{})
+		if err != nil || !change.Crucial || !change.Serious {
+			t.Fatalf("effective crucial size did not make law serious: %+v, %v", change, err)
+		}
+	})
+	t.Run("operator small override governs over a crucial model", func(t *testing.T) {
+		workID := "law-change-enact-small-override"
+		s := seedLawChangeFixture(t, workID)
+		seedLawChangeLaw(t, s, "law-agent", "derived", "agent-surface")
+		seedLawChangeSize(t, s, workID, WorkSizeCrucial)
+		insertWorkSizeOverrideApproval(t, s, workID, 1)
+		if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size-"+workID, WorkSizeSmall)); err != nil {
+			t.Fatal(err)
+		}
+		if err := enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil); err != nil {
+			t.Fatalf("effective small size refused completion: %v", err)
+		}
+		change, err := deriveLawChange(t, s, workID, lawChangeV1, lawChangeFields(t, map[string]any{workflowLawChangeReasonField: "revise"}), []string{"law-agent"}, nil, []string{})
+		if err != nil || change.Crucial || change.Serious {
+			t.Fatalf("model size overruled the operator: %+v, %v", change, err)
 		}
 	})
 
@@ -485,15 +518,6 @@ func TestLawChangeEnactmentRequiresDerivedTierAndOneDomain(t *testing.T) {
 		if err != nil || !change.Serious {
 			t.Fatalf("removing laws homed in two child Domains = %+v, %v; want serious", change, err)
 		}
-	})
-
-	t.Run("a superseded revision also carries derived", func(t *testing.T) {
-		t.Parallel()
-		workID := "law-change-enact-superseded"
-		s := seedLawChangeFixture(t, workID)
-		seedLawChangeLaw(t, s, "law-agent", "legislated", "agent-surface")
-		lawChangeFold(t, s, `UPDATE law_subjects SET status='superseded' WHERE law_id='law-agent'`)
-		requireFailureKind(t, enactLawChange(t, s, workID, nonSerious(), []string{"law-agent"}, nil), KindMissingEvidence, "superseded revision without derived tier")
 	})
 
 }
@@ -693,8 +717,8 @@ func TestLawChangeApprovalRequiresConsumedIdentity(t *testing.T) {
 	requireFailureKind(t, err, KindUnauthorized, "operator differs from consumed approval")
 }
 
-func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
-	const workID = "law-change-replay"
+func TestLawChangeFoldRequiresDeclarationAndConsumedApproval(t *testing.T) {
+	const workID = "law-change-current"
 	definition := approvalRouteDefinition(t)
 	registry, registered := newResolutionRegistry(t, definition)
 	s, owner := seedResolutionSelection(t, workID, registry, registered)
@@ -702,76 +726,36 @@ func TestLawChangeReplayKeepsRecordedApproval(t *testing.T) {
 	seedLawChangeLaw(t, s, "law-agent", "derived", "root")
 	change := withLawChangeBaseline(t, s, workID, &WorkflowLawChange{Reason: "revise", LawIDs: []string{"law-agent"}, DomainIDs: []string{}, Serious: true, TouchesSecurityOrDataSafe: true, TextPins: lawChangePins("law-agent"), Approval: lawChangeApprovalProof()}, []string{"law-agent"}, nil, false)
 	version := readWorkVersion(t, s, workID)
-	event := workflowTypedEvent("law-replay", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
+	event := workflowTypedEvent("law-current", WorkflowContractApproved, workID, ownerRefForTest(t, owner), time.Unix(30, 0), version, map[string]any{
 		"contract_version": 1, "premise": "The law change preserves its exact approved text.",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:law", "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"spec_mandate": []string{"law-agent"}, "law_modifies": []string{"law-agent"}, "law_revisions": lawChangePins("law-agent"), "law_boundary_version": 1,
 		"decision_domains": []string{}, "law_change": change,
 	})
-	for _, vector := range []struct {
-		name        string
-		source      int
-		omit        bool
-		wantFailure bool
-	}{
-		{name: "current source cannot omit law change", source: 6, omit: true, wantFailure: true},
-		{name: "old source cannot forge law change", source: 5, wantFailure: true},
-		{name: "old source retains historical absence", source: 5, omit: true},
-	} {
-		t.Run(vector.name, func(t *testing.T) {
-			candidate := event
-			candidate.replaySourcePayloadVersion = vector.source
-			if vector.omit {
-				var fields map[string]json.RawMessage
-				if err := json.Unmarshal(candidate.Payload, &fields); err != nil {
-					t.Fatal(err)
-				}
-				delete(fields, "law_change")
-				candidate.Payload = mustJSONValue(fields)
-			}
-			tx := lawChangeTx(t, s)
-			scope, err := beginFold(context.Background(), tx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := scope.bindRegistry(tx, registry); err != nil {
-				t.Fatal(err)
-			}
-			err = foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, candidate, scope)
-			_ = tx.Rollback()
-			if vector.wantFailure {
-				requireFailureKind(t, err, KindInvalidPayload, vector.name)
-			} else if err != nil {
-				t.Fatalf("historical absence refused: %v", err)
-			}
-		})
-	}
-	// No mutable approval row exists. The live fold must refuse; replay uses
-	// the proof recorded at the original live admission instead.
+	t.Run("current source cannot omit law change", func(t *testing.T) {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(event.Payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		delete(fields, "law_change")
+		candidate := event
+		candidate.Payload = mustJSONValue(fields)
+		tx := lawChangeTx(t, s)
+		defer tx.Rollback()
+		scope, err := beginFold(context.Background(), tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := scope.bindRegistry(tx, registry); err != nil {
+			t.Fatal(err)
+		}
+		requireFailureKind(t, foldWorkflowContractApproved(context.Background(), tx, candidate, scope), KindInvalidPayload, "current source cannot omit law change")
+	})
+	// No consumed approval exists, so live admission must refuse.
 	tx := lawChangeTx(t, s)
-	scope, err := beginFold(context.Background(), tx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := scope.bindRegistry(tx, registry); err != nil {
-		t.Fatal(err)
-	}
+	defer tx.Rollback()
 	requireFailureKind(t, validateLiveWorkflowLawChangeTx(context.Background(), tx, workID, workflowContractApprovedPayload{LawChange: change, LawModifies: []string{"law-agent"}}, false), KindApprovalRequired, "live admission without the consumed approval")
-	if err := foldWorkflowContractApproved(workflowReplayContext(context.Background()), tx, event, scope); err != nil {
-		t.Fatalf("recorded proof refused during replay: %v", err)
-	}
-	var encoded string
-	if err := tx.QueryRow(`SELECT law_change FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&encoded); err != nil {
-		t.Fatal(err)
-	}
-	var restored WorkflowLawChange
-	if err := json.Unmarshal([]byte(encoded), &restored); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(&restored, change) {
-		t.Fatalf("replay changed the consent proof: got %+v, want %+v", restored, change)
-	}
 }
 
 // TestLawChangeRegistryCountUsesEnactedEntries holds that completion compares
@@ -1120,41 +1104,51 @@ func lawChangeConstructorFixture(t *testing.T, workID string) (*Store, WorkflowD
 
 // lawChangeConstructorItem initializes one consequence_v1 item on a copy of
 // the live break-fix or frozen generic definition.
+// lawChangeConstructorActor is the executing coordinator every constructor
+// item initializes under.
+var lawChangeConstructorActor = WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:law", AgentRef: "agent:law", SessionRef: "session:law", ActorClass: ActorAgent}
+
+// lawChangeConstructorItem initializes one constructor item. The
+// Product-changing item runs a consequence_v1 copy of the live break_fix
+// family under its own registry; the non-Product-changing item runs the
+// builtin workflow.research definition, the one live family that changes no
+// Product truth, under the builtin registry.
 func lawChangeConstructorItem(t *testing.T, s *Store, workID string, productChanging bool) (WorkflowDefinition, DefinitionRegistry, string) {
 	t.Helper()
-	ref := "workflow.break_fix"
-	lookup := LiveWorkflowDefinitionForRef
-	if !productChanging {
-		ref = "workflow.generic_one_off"
-		lookup = BuiltinWorkflowDefinitionForRef
+	var registry DefinitionRegistry
+	var registered RegisteredDefinition
+	if productChanging {
+		live, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(live.Definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var definition WorkflowDefinition
+		if err := json.Unmarshal(raw, &definition); err != nil {
+			t.Fatal(err)
+		}
+		definition.Ref, definition.Version, definition.ApprovalPolicy = "workflow.law-change-constructor-test", 1, WorkflowApprovalPolicyConsequenceV1
+		registry, registered = newResolutionRegistry(t, definition)
+	} else {
+		var err error
+		registry = BuiltinWorkflowRegistry()
+		registered, err = BuiltinWorkflowDefinitionForRef("workflow.research")
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	live, err := lookup(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(live.Definition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var definition WorkflowDefinition
-	if err := json.Unmarshal(raw, &definition); err != nil {
-		t.Fatal(err)
-	}
-	definition.Ref, definition.Version, definition.ApprovalPolicy = "workflow.law-change-constructor-test", 1, WorkflowApprovalPolicyConsequenceV1
-	if !productChanging {
-		definition.Ref = "workflow.law-change-generic-constructor-test"
-	}
-	if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != productChanging {
+	if registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != productChanging {
 		t.Fatal("the constructor fixture's Product-changing classification does not match")
 	}
-	registry, registered := newResolutionRegistry(t, definition)
-	actor := WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:law", AgentRef: "agent:law", SessionRef: "session:law", ActorClass: ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Registry: registry, Actor: actor, Now: time.Unix(10, 0).UTC()})
+		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Registry: registry, Actor: lawChangeConstructorActor, Now: time.Unix(10, 0).UTC()})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return registered.Definition, registry, ownerRefForTest(t, actor)
+	return registered.Definition, registry, ownerRefForTest(t, lawChangeConstructorActor)
 }
 
 // lawChangeConstructorFields composes contract fields with the fixture
@@ -1246,8 +1240,8 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string) {
 	t.Helper()
 	ctx := context.Background()
-	reviewer := WorkflowActor{PrincipalRef: "principal:law", ClientRef: "client:review", AgentRef: "agent:review", SessionRef: "session:review", ActorClass: ActorAgent}
-	reviewerRef := ownerRefForTest(t, reviewer)
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "conclude")
+	proof := lawChangeResearchProof(t, s, workID)
 	expected := readWorkVersion(t, s, workID)
 	version := expected
 	var events []Event
@@ -1255,7 +1249,6 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 		events = append(events, workflowTypedEvent(fmt.Sprintf("%s-ready-%d", workID, version), kind, workID, actor, time.Unix(13, 0).UTC(), version, values))
 		version++
 	}
-	appendEvent(WorkflowActorRecorded, reviewerRef, map[string]any{"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
 	tx := lawChangeTx(t, s)
 	contract, err := workflowCompletionContractRows(ctx, tx, workID)
 	if err != nil {
@@ -1278,16 +1271,20 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 		seedWorkflowAuthority(t, s, runRef, workID, "principal:law", runRef, []string{ref})
 		appendEvent(WorkflowEvidenceBound, ownerRef, map[string]any{"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": "principal:law", "producer_run_ref": runRef, "producer_watermark": runRef, "observed_at": "2026-10-19T00:00:00Z"})
 	}
-	appendEvent(WorkflowVerdictRecorded, reviewerRef, map[string]any{"contract_version": contract.Version, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"law-agent"}, "incomparable_with_approved": false})
-	if err := tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
-		t.Fatalf("seed completion evidence and independent verdict: %v", err)
-	}
-	lawChangeFold(t, s, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-10-19T00:00:00Z')`, workID, ownerRef)
-	for _, step := range definition.StepGraph.Steps {
-		if slices.Contains(step.Actions, "complete") {
-			setWorkflowStepForOperatorVerdictTest(t, s, workID, step.ID)
+	if len(events) > 0 {
+		if err := tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
+			t.Fatalf("seed completion evidence: %v", err)
 		}
 	}
+	// Main associates the selected sourced research finding with the
+	// approved criterion through the public action route.
+	association := fmt.Sprintf(`{"verdicts":[{"predicate_id":"predicate:primary","receipt_refs":[%q]}]}`, proof)
+	if err := runApprovalActionTx(t, s, registry, workID, "record_verdict", lawChangeConstructorActor, nil, "", "", association); err != nil {
+		t.Fatalf("Main's criterion association over the research proof: %v", err)
+	}
+	lawChangeFold(t, s, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-10-19T00:00:00Z')`, workID, ownerRef)
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "complete")
+	version = readWorkVersion(t, s, workID)
 	tx = lawChangeTx(t, s)
 	request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, OperationID: workID + "-complete", Now: time.Unix(14, 0).UTC()}
 	completion, err := workflowCompletionEventForDefinition(ctx, tx, registry, definition, request, ownerRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
@@ -1307,6 +1304,26 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 	if state != "completed" || lifecycle != "completed" {
 		t.Fatalf("instance state = %q, lifecycle = %q; want both completed", state, lifecycle)
 	}
+}
+
+// lawChangeResearchProof selects one sourced finding of a bound research pack
+// on the research item's work context and returns the view identity a
+// research criterion receipt cites.
+func lawChangeResearchProof(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	f := workContextFixture{store: s, workID: workID, owner: lawChangeConstructorActor}
+	pack := seedResearchContextPack(t, f, workID+"-pack")
+	bindResearchPack(t, f, pack.PackID, 1, true)
+	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+	selection["product_wide_rationale"] = "The selected research supports the Product-wide conclusion."
+	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
+		t.Fatalf("record the research selection: %v", err)
+	}
+	view, err := readWorkContextView(t.Context(), s.DatabaseForTesting(), workID)
+	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+		t.Fatalf("the research item carries no single selected finding: %+v %v", view, err)
+	}
+	return view.ResearchFindings[0].ViewID
 }
 
 // TestLawChangeThroughTheRealConstructors drives the approve_contract and
@@ -1361,6 +1378,8 @@ func TestLawChangeThroughTheRealConstructors(t *testing.T) {
 		generic, genericRegistry, genericOwner := lawChangeConstructorItem(t, s, workID, false)
 		fields := lawChangeConstructorFields(t, s, 1, []string{"law-agent"}, []string{})
 		delete(fields, "architecture_binding")
+		// The non-Product-changing family admits only outcome tokens.
+		fields["outcome_predicates"] = json.RawMessage(`[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]`)
 		constructLawChangeContract(t, s, generic, genericRegistry, workID, genericOwner, fields)
 		const moverID = "law-change-ctor-registry-mover"
 		seedWork(t, s, moverID)

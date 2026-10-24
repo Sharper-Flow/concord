@@ -4,29 +4,21 @@
 - **Date:** 2026-10-05
 - **Scope:** The worker-job revision record, its binding through the packet,
   the dispatch evidence, the report, and the acceptance; the step hold of a
-  local acceptance; the correction window of a failed job
-- **Refines:** CD-0164 D1 and D2, which count every dispatch and reset the
-  count on any accepted result
-- **Amends:** CD-0198 D4 at a job-capable refine step: a plain accept of a
-  job-bound attempt is local acceptance, not a refusal
-- **Preserves:** CD-0067, the core-authorized packet; CD-0115, released
-  definition content and digests; CD-0148, the exact retry approval and fresh
-  fencing; CD-0201, the single admission derivation and the liveness law
+  local acceptance; the acceptance of a failed job's terminal result
+- **Refines:** Each launch is one admitted request with its own scope, assignment, and subject bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget))
+- **Preserves:** CD-0067, the core-authorized packet; CD-0201, the single
+  admission derivation and the liveness law; each launch carries its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget))
 - **Related:** CD-0137, CD-0192
-- **Amended by:** [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D4 (the recorded observer and phase are an eligibility condition of the
-  `host_changed` basis)
 - **Amended:** 2026-10-19, approved by the operator as exact text for
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
-  D4 adds the checks repair and amends CD-0148 and CD-0164: the escalation
-  wall admits the one confirming review a checks repair funds, without a
-  convergence basis. The change is serious under P12: an accepted ship
-  verdict on that review closes a failed job's correction window, the wall
-  admits a dispatch no basis bought, and the repair reason is a
-  caller-supplied claim that grants authority. The Domain test counts one
+  D4 adds the checks repair; each launch is one admitted request with its own authority ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). The change
+  is serious under P12: an accepted ship verdict on that review settles the
+  failed job's terminal result. The repair dispatch carries its own
+  authority. The repair reason is a caller-supplied claim that feeds the
+  admission checks. The Domain test counts one
   child Domain, `workflow-engine`. It changes no UI/UX.
 - **Approval:** The operator approved contract version 1 of
-  `work-e46f4308fb5dad191fcbe259`. That contract names CD-0164 and CD-0198 as
+  `work-e46f4308fb5dad191fcbe259`. That contract names CD-0198 as
   modified law and adds this record.
   On 2026-10-07, the operator approved the carried edits under CD-0122 D2.
   The outside repair also serves the approved contract's explicit verification
@@ -42,14 +34,12 @@ At a refine step, an ordinary accept must assert delivery (CD-0198 D4). A
 successful partial job therefore cannot get its own disposition without a
 whole-work delivery assertion.
 
-CD-0164 D2 resets the correction count on any accepted result. With local
-acceptance, an unrelated successful job would then erase the budget of a failed
-job.
+With local acceptance, each job's disposition comes from its own dispatched
+revision and report; each terminal result is accepted or rejected once ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ## Decision
 
-For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, independence, and convergence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor. Historical pins retain their original signature requirements.
-
+For `approval_policy=consequence_v1`, failed retry and correction require exact transactional state/evidence bindings, not operator approval. Parent-contract, immutable job/oracle, preparation, packet, receipt, delivery, integration, and independence obligations remain unchanged. Premise confirmation remains required with CD-0013 D11's class-appropriate actor.
 
 ### D1. A worker-job revision is an immutable record under the work item
 
@@ -127,7 +117,7 @@ Preparation precedes the ready job record; the native owner derives a digest
 over the exact owner, case, and control bundle except its readiness references.
 The recorded job must match that bundle and parent authority exactly.
 Dispatch requires preparation bound to the same candidate and runtime environment.
-A readiness refusal creates no attempt and spends no dispatch budget.
+A readiness refusal creates no attempt.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
 
@@ -155,8 +145,7 @@ stays the complete parent premise.
 
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
-A satisfied revision refuses a new dispatch (except the D4 confirming
-review), on resume and on the first ask.
+A satisfied revision refuses a new dispatch, on resume and on the first ask.
 
 The host derives canonical report identity from the authorized packet. Worker
 echoes cannot select another job, revision, attempt, or subject. The store
@@ -186,18 +175,17 @@ Execution requires current clean `HEAD`, current core `subject_commit`, and
 the recorded dispatch commit to be nonempty and equal.
 A missing or mismatched value refuses with zero test-program launches.
 A path identity, caller assertion, or current context cannot replace the
-recorded commit. Historical completions without the field refuse execution;
-no upcast, packet-body copy, or candidate inference fills the absence.
+recorded commit. Completions recorded before the field refuse execution; a recorded absence stays absent, with no copy or inference filling it ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 The producer rechecks applicability at lease acquisition, before test launch,
 and at release; changed authorization cannot produce qualified pass evidence.
 A finalized native replay returns retained evidence without another launch.
 Managed lanes gain no Concord tools; the authenticated native host owns this
 execution through the existing verify operation and its capability grant.
 This observation grants neither semantic acceptance nor independent authority.
-No new dispatch window, authorization row, or retry budget is implied.
+No new dispatch window or authorization row is implied.
 
-An earlier definition version refuses `inputs.worker_job`. A step without
-`record_worker_job` also refuses it. The lane-step join keeps its existing
+A definition whose step does not declare `record_worker_job` refuses
+`inputs.worker_job`. The lane-step join keeps its existing
 capability limits. Verification requires nonempty recorded checks. The worker
 receives that job's objective, checks, and stopping condition, not an instruction
 to execute the complete parent premise. The dispatch binds the job to its exact
@@ -212,9 +200,7 @@ receipts remain visible as regression baselines, not current-subject proof.
 Independent evidence, per-predicate verdicts, and operator authority remain
 required by their existing owners.
 
-Amended 2026-10-13 for the delivery observation and the review subject
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-a completed implementation-lane completion carries the store's own clean or
+A completed implementation-lane completion carries the store's own clean or
 dirty `observed_delivery` when the store observed its claimed worktree
 (CD-0067 D2); an authorization with no recorded worktree binding keeps
 explicit absence. The
@@ -249,9 +235,7 @@ replace the anchor. A delivery from another work item, Project, or worktree
 cannot host the review, and a cancelled or superseded work item cannot review.
 Historical completions without the observation refuse the review. The
 approved remedy is a fresh implementation attempt, never a fabricated
-observation. This join resets no correction budget, refunds no attempt, and
-opens no approval challenge; the walls of CD-0164 and CD-0148 hold exactly
-as before.
+observation. This join opens no approval challenge.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -263,19 +247,21 @@ the dispatch record. The caller never supplies it.
 Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Both routes run one
 complete delivery admission — the same function, not two. That admission
-includes the fenced start, the refine proof, the declared tooling, the review
-debt (including any unconfirmed checks repair), the verdicts, the operator
+includes the fenced start, the refine proof, the declared tooling, the accepted ready-for-final-proof
+Review of the current candidate, the verdicts, the operator
 checkpoint, and — where the work has recorded
 worker jobs — the satisfied required jobs and the integration evidence. Local
 acceptances and their count prove no integration and no delivery:
 `record_delivery` refuses while a required job's latest revision is
 unsatisfied, and refuses without qualifying core-owned worktree verification
-evidence: a green, unchanged-tree verify run of every required Project, bound
-after the required job acceptances, after every required job's recorded
-result population, and after the phase start, in log order. The result
-population anchors the combined route too: a run acquired before the final
-pending job completed did not observe the integrated whole, whatever its
-binding order. A
+evidence: a green, unchanged-tree verify run of every required Project,
+bound to the current integrated candidate that includes every required job's
+accepted result
+([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it),
+[D8](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)).
+The combined route uses the same rule: a run on an earlier candidate did not
+observe the integrated whole, and a run on the unchanged integrated candidate
+did, whatever its order relative to the final completion. A
 binding that merely mentions an acceptance, the acceptance count, or
 timestamps alone prove nothing. The combined accept counts its own accepting
 revision as satisfied for the population check — its pending disposition
@@ -287,130 +273,24 @@ acceptance behind missing integration evidence refuses exactly as
 Each job-capable step also declares `record_delivery`. A held step therefore
 keeps its exit, and no new phase-exit action is necessary.
 
-### D4. Only the satisfying acceptance closes a failed job's window (refines CD-0164 D1-D2)
+### D4. Each terminal result is accepted or rejected once
 
-CD-0164 D1 holds: each dispatched attempt counts, whatever its failure kind.
-CD-0164 D2 changes for job-bound failures.
-
-A job-bound attempt that fails, or whose completed result is rejected, makes
-its recorded revision unresolved. While a revision is unresolved, an accepted
-result opens a new window only when its recorded disposition names that job
-and carries the same recorded obligation. When several revisions are
-unresolved, the window opens when the last of them is satisfied.
-
-An acceptance of an unrelated job does not change the window, the count, or
-the exact retry approval. The same is true for an acceptance without a job, a
-new job name, a lane change, and a contract supersession. Recording a new
-revision does not reset the count. An acceptance satisfies an unresolved
-revision only when it discharges the recorded obligation itself: the accepted
-revision must carry the same objective, stopping condition, scope, predicates,
-checks, prerequisites, unresolved references, and reserved integration work as
-the unresolved revision. Its oracle must retain every previously required
-control byte-identically, including recipe pin, arguments, expected result,
-and evidence role. Added cases and controls can strengthen coverage; deletion
-or recipe re-pinning cannot discharge the earlier obligation. Acceptance
-still requires the dispatched revision's result and existing independent
-authority. Job identity alone is not satisfaction — a rewritten
-revision with an unrelated objective carries a different obligation and leaves
-the failed revision's window open. The satisfying routes are to retry the
-unresolved revision itself under the CD-0148 exact approval, to re-record the
-same obligation as a new revision and accept that, or to repair its checks
-under the rule below.
-
-A failure can come from the revision's own checks: a check that no admitted
-lane can execute or decide as written. The coordinator asserts this cause in
-the repair. The core cannot decide it; only the review below confirms it.
-
-A newer revision of the same job repairs that defect only when it is recorded
-under the same contract version as each revision it names, its acceptance
-oracle is byte-identical to theirs, and every other recorded job content
-field except its readiness evidence is byte-identical, including any
-CD-0225 size cap and measurement basis, so that only the checks differ.
-The core-derived revision number and digest change with the new record.
-The repairing record names every unresolved revision of the job that it
-repairs and states why their checks could not be executed or decided. The
-core records the old checks of each named revision beside the new checks,
-and refuses a repair whose other content differs from any named revision.
-A revision that a split replaced (CD-0225 D3) cannot be repaired. This rule
-applies only from the first definition version of each family that declares
-the repair; released pins keep the rule above (CD-0115, D6). The byte-identical
-oracle deliberately freezes its readiness references; only the job's
-readiness evidence is excepted. If the named revisions' oracles differ, no
-checks repair can name them together.
-
-An accepted result of the repairing revision satisfies the named revisions
-for readiness only. It opens no correction window and resets no attempt
-count. The repair is unconfirmed from that acceptance until its confirming
-review ends, and a repairing revision without an accepted result opens no
-repair. At most one unconfirmed repair may be open per job. The accepted
-repair funds exactly one independent confirming review dispatch for that
-job, even at the wall. It funds no authoring attempt or other dispatch.
-The core binds that review to the repairing acceptance and the exact
-repairing revision, which its packet carries in `inputs.worker_job`; it is
-the one dispatch a satisfied revision admits. It must be dispatched after
-that acceptance. The review packet carries the old checks, the new checks,
-and the stated reason.
-That review confirms that the old checks could not be executed or decided
-as written, and that each requirement of the old checks survives in the
-new checks or in the retained oracle. Delivery refuses while this review
-debt stands.
-
-Only acceptance of that review's ship verdict confirms the repair and
-satisfies the named revisions' failed obligations. It opens the correction
-window with the CD-0164 D2 productive reset only when no other recorded
-revision stays unresolved. A completed ship report awaiting
-acceptance leaves the repair unconfirmed. A failed or abandoned confirming
-review, a rejected review result, or a no_ship verdict voids the repair:
-the named revisions become unresolved again, the review counts as a
-non-progress attempt, and the old and new checks stay on record. A contract
-supersession before the ship verdict is accepted voids the repair the same
-way; a review not yet dispatched counts nothing. These outcomes reset
-nothing and restore no funded review dispatch. A new repair of those
-revisions after a voided repair gains no admission of its own: its dispatch
-needs the authority CD-0148 already requires, and at the wall only a
-store-derived convergence basis admits it. The repair adds no basis and no
-authority beyond its one funded review. The voided repairing revision stays
-latest and satisfied, and delivery still reads the latest revision, as on
-the existing rewritten-revision route.
-If a failed or rejected confirming review also leaves the repairing revision
-unresolved, recovery first re-records and accepts that revision's own
-obligation; a later repair names only revisions whose checks could not run.
+Each launch is one admitted request with its own scope, assignment, and subject bindings; each terminal result is accepted or rejected once ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 A recorded revision also keeps the parent contract authority it was recorded
 under. After a contract supersession, a revision recorded under the superseded
 contract is no longer ready and the core refuses its dispatch until a new
 revision is recorded under the active contract.
 
-A failure without a job binding keeps CD-0164 D2 unchanged. The three-attempt
-limit, the two comparators of CD-0164 D4, and the approval wall of CD-0148 do
-not change, except that the wall admits the one confirming review a checks
-repair funds.
-
-CD-0164 D2a may qualify coordinator-side satisfaction for the nonprogress window on a definition that declares that policy. It does not discharge a failed revision or confirm a checks repair. This section remains the sole authority for those satisfactions, and unrelated success resets no failed job's window.
-
-### D5. The combined accept keeps CD-0198 D4 for delivery (amends CD-0198 D4)
+### D5. The combined accept keeps CD-0198 D4 for delivery
 
 On a job-capable pin the payload-blind admission of `accept_worker_result` is
 local acceptance, so it does not apply the delivery admission. An accept that
 carries the delivery fields applies the one delivery admission at its guard,
 before any effect, with the same integration evidence, fenced start, refine
-proof, review debt, verdict, and operator gates as `record_delivery`. At a
+proof, Review disposition, and operator gates as `record_delivery`. At a
 refine step, a plain accept of an attempt without a job still refuses. That
 accept would assert neither a job disposition nor a delivery.
-
-### D6. Historical pins and histories keep their behavior
-
-The new versions do not change a released definition. No item moves to a new
-version without its own revision. The core never creates a job from a task
-string or from checkpoint prose. A history without a job binding folds and
-counts as it did before. The packet, the report, the dispatch evidence, and
-the completion carry the binding as an optional member, and every reader
-treats its absence as no job.
-
-`workflow.implementation` version 27 and `workflow.break_fix` version 24
-require the oracle through the declared `record_worker_job` payload.
-Released pins retain their oracle-free shape and behavior. Replay never
-invents an oracle or uses today's registry to reinterpret historical content.
 
 ### D7. Failure attribution preserves source and authority
 
@@ -435,9 +315,9 @@ Coordinator integration attribution names the failed standalone verification
 run by its verify-lease or operation reference. The core resolves the run's
 observed subject from the lease result, and clean unchanged runs only. The
 lease records, at acquire time and in its own insert transaction, the highest
-committed event sequence then visible. No Git read and no second read path
+committed store sequence then visible. No Git read and no second read path
 supplies it. The input population is exactly the accepted job revisions of
-this work item whose acceptance event sequence is at or below that watermark,
+this work item whose acceptance store sequence is at or below that watermark,
 with their digests and result references. The coordinator supplies only the
 run reference, never a population, a commit, or a sequence. A mutated or
 aborted run, or a run without a clean subject, cannot anchor integration
@@ -457,20 +337,12 @@ message 2048 bytes, and diagnosis 1024 bytes. Overflow refuses whole.
 Attribution cannot truncate a source into a different claim.
 
 Attribution supplies no verification evidence, effect, retry, delivery, or
-acceptance authority. Every dispatched attempt still counts. Exact retry
-approval, the convergence wall, independent verdicts, and the sole delivery
-admission keep their owners. The store reads a recorded observer and phase
-only as one eligibility condition of the `host_changed` convergence basis
-(CD-0239 D4); the basis also needs the live leased process claim and time
-conditions of CD-0239 D1, which prove neither host repair nor authenticated
-host identity.
+acceptance authority. Each launch carries its own authority, and independent verdicts and the sole delivery admission keep their owners ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
-Existing event, attempt, and history reads expose attribution with its source
-version. Released definitions keep their original behavior. Historical
-attribution absence upcasts to an explicit unavailable origin. That origin is
-separate from completion evidence origin. Upcasts invent no job, subject,
-source, or cause. Live and rebuild folds validate the same retained structural
-joins without current-host reads.
+Existing attempt and terminal-record reads expose attribution with its source
+version. An attribution absence reads as an explicit unavailable origin. That
+origin is separate from completion evidence origin. No read invents a job,
+subject, source, or cause. Admission validates the same retained structural joins without current-host reads.
 
 ## Alternatives considered
 
@@ -482,19 +354,14 @@ joins without current-host reads.
   remaining work.
 - Add a caller-selected advance flag to the accept. Rejected: a second exit
   owner beside delivery admission.
-- Count only failed or judgeable attempts. Rejected: CD-0164 D1 forbids free
-  retries.
-- Give each job its own free retry budget. Rejected: renaming a job would
-  restore the budget.
-- Change the released definitions in place. Rejected: CD-0115 forbids it.
+- Change the released definitions in place. Rejected: definitions generate from one canonical source, so an in-place edit drifts from the source ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ## Consequences
 
 A coordinator records a bounded job before a worker
 dispatch on a new pin. The adapter selects the one ready revision from the
 work pin and refuses zero or several ready revisions. A successful job gets a
-disposition while the parent work stays open. An unrelated success no longer
-restores the budget of a failed job. Whole-work delivery still requires the
+disposition while the parent work stays open. No job holds an attempt budget or correction window; each launch is one admitted request with its own scope, assignment, and subject bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). Whole-work delivery still requires the
 complete delivery admission.
 
 ## Verification
@@ -570,62 +437,11 @@ Scenario: Terminal acceptance refuses an unobserved subject change
   Then the action refuses with stale_requires_review
   And the action records no durable effect
 
-Scenario: An unrelated accepted job keeps the failed job's window
+Scenario: A launch carries its own authority with no correction window
   Given a job-bound attempt that failed or whose result was rejected
-  When the coordinator accepts a different job, or a rewritten revision of the same job
-  Then the correction count and the retry approval do not change
-  And only an acceptance carrying the same recorded obligation closes the window
-
-Scenario: A checks repair satisfies only the named revisions and waits for review
-  Given a repair-capable definition and revisions 2 and 3 of one job failed on checks no lane can execute
-  When the coordinator records revision 4 that changes only the checks and names revisions 2 and 3
-  And an attempt on revision 4 completes and is accepted
-  Then revisions 2 and 3 are satisfied for readiness only
-  And the repairing acceptance opens no correction window and resets no attempt count
-  And exactly one confirming review dispatch for that job is admitted even at the wall
-  And that review carries the satisfied repairing revision as its job binding
-  And no authoring attempt or other dispatch is funded by the repair
-  And delivery refuses until that review ships and is accepted
-  And a second unconfirmed repair for this job refuses while the review debt stands
-  And a repairing revision whose result is failed or rejected opens no unconfirmed repair
-  And only acceptance of that ship verdict confirms the repair
-  And that acceptance opens the productive window only when no other recorded revision stays unresolved
-  And a repair that changes any other content, names a split-replaced revision, or crosses a contract version refuses with no effect
-
-Scenario: A confirming no_ship review voids the checks repair without renewing attempts
-  Given one unconfirmed checks repair whose confirming review was dispatched
-  When that review completes with no_ship
-  Then the repair is void and every named revision becomes unresolved again
-  And the review counts as non-progress and the old and new checks remain recorded
-  And the voided repair funds no further dispatch
-  And a new repair of those revisions gains no dispatch admission of its own
-  And its dispatch needs the authority CD-0148 already requires and at the wall a store-derived convergence basis
-  And released pins without the repair declaration retain their original admission and counting
-
-Scenario: A confirming review fails before its verdict
-  Given an accepted checks repair whose one funded confirming review was dispatched
-  When that review fails or is abandoned before reporting a verdict
-  Then the repair is void and every named revision becomes unresolved again
-  And the review counts as non-progress and resets no count or window
-  And the repair funds no replacement dispatch
-  And a repeat gains no admission of its own and at the wall needs a store-derived convergence basis
-  And an eligible host failure can use the existing host_changed basis
-
-Scenario: A rejected confirming review result cannot confirm a repair
-  Given an accepted checks repair whose confirming review completed with a ship report
-  And the repair is unconfirmed pending disposition
-  When the coordinator rejects that result
-  Then the repair is void and every named revision becomes unresolved again
-  And the review counts as non-progress and restores no funded review dispatch
-  And a repeat gains no admission of its own and at the wall needs a store-derived convergence basis
-
-Scenario: A contract supersession voids an unconfirmed checks repair
-  Given an accepted checks repair whose confirming review has no accepted ship verdict
-  When the operator supersedes the contract
-  Then the repair is void and every named revision becomes unresolved again
-  And a confirming review not yet dispatched counts nothing and stays unfunded
-  And the voided repair's review debt no longer refuses delivery
-  And no repair under the active contract can name those revisions
+  When the coordinator admits the next launch for that assignment
+  Then no attempt count, correction window, convergence basis, or escalation wall gates it
+  And its scope, prerequisite, ownership, and safety checks refuse unsafe admission
 
 Scenario: Stale job authority is refused after supersession
   Given a revision recorded under contract version 1
@@ -637,7 +453,7 @@ Scenario: Every reachable state stays live on the new versions
   Given each registered definition version
   When the admission model explores local acceptance as a held successor
   Then each reachable state reaches the terminal state
-  And the real fold equals the model after a local acceptance
+  And the recorded state equals the model after a local acceptance
 
 Scenario: A report cannot tie evidence outside its dispatched job
   Given a job-bound dispatch whose parent declares a predicate outside the job
@@ -675,20 +491,32 @@ Scenario: A lease without a watermark reports the population unavailable
   Then the input population reports unavailable
   And no timestamp backfill supplies it
 
-Scenario: Rebuild equals live for attribution joins
-  Given an attribution-bearing event log
-  When the store rebuilds its projections
-  Then recorded source joins and historical unavailable origins equal the
-  live read
+Scenario: Attribution joins read from current rows
+  Given recorded attribution with its source joins
+  When the store reads it back
+  Then recorded source joins and unavailable origins read unchanged, with no rebuild
 ```
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.
 - `go test ./internal/store/ -run 'TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery|TestWorkerJobDispatchRequiresRecordedRevision'` proves the second scenario.
 - `go test ./internal/store/ -run 'TestCombinedAcceptanceRequiresIntegration|TestCombinedAcceptanceAdmitsBehindIntegrationEvidence|TestIntegrationCoverageRequiresEveryRequiredProject|TestIntegrationToolingRequiresDeclaredQualifyingRuns'` proves the delivery-integration half: both routes share one admission, and absent, partial, wrong-Project, stale, failed, dirty, and undeclared-tool integration all refuse while a fully proven combined route stays reachable and atomic.
-- `go test ./internal/store/ -run 'TestUnrelatedAcceptedJobPreservesCorrectionWindow|TestSatisfyingAcceptedJobResetsCorrectionWindow|TestPartialSatisfactionPreservesOtherUnresolvedJobs'` proves the third scenario's identity half.
-- `go test ./internal/store/ -run 'TestReviewRejectedJobWindow|TestReviewRewrittenRevisionResetsFailedJob|TestReviewWorkerJobPredicateShape|TestReviewUnsatisfiedJobPhaseExit|TestReviewJobAuthoritySurvivesSupersession'` proves the third and fourth scenarios' closure, integration, and authority halves. A rejected result joins the unresolved window. A rewritten revision cannot discharge it. `record_delivery` refuses behind unsatisfied jobs and unbound integration evidence. Stale contract authority refuses dispatch. The predicate grammar admits the report schema's short predicate ids.
-- `go test ./internal/store/ -run 'TestWitnessUnrelatedLocalAcceptHoldsSameStepWall|TestWitnessRewrittenJobKeepsExactRetryBinding|TestWitnessCombinedAcceptRejectsPreResultIntegration'` proves the exact retry-binding half the review probes established: a held local acceptance resets no same-step wall, a rewritten revision consumes no correction authority, and a combined acceptance refuses integration evidence acquired before the final job completed.
-- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model folds the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance replay exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
+- The failed-job correction-window and rewritten-revision probes bind the
+  CD-0242 D6 anchor: no attempt count, correction window, or convergence basis
+  exists, and each launch is admitted on its own scope and safety checks. Until
+  that change lands, `python3 scripts/check-knowledge-index.py` is the
+  executable anchor for this record's law registration.
+- `go test ./internal/store/ -run 'TestReviewWorkerJobPredicateShape|TestReviewUnsatisfiedJobPhaseExit|TestReviewJobAuthoritySurvivesSupersession'`
+  proves the closure and authority halves: `record_delivery` refuses behind
+  unsatisfied jobs and unbound integration evidence, stale contract authority
+  refuses dispatch, and the predicate grammar admits the report schema's short
+  predicate ids.
+- `go test ./internal/store/ -run 'TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate'`
+  proves a combined acceptance refuses integration evidence bound
+  to a candidate the final job changed, and admits evidence bound to the unchanged
+  integrated candidate. The same-step wall and rewritten-revision
+  correction-authority probes bind the CD-0242 D6 anchor: no attempt count,
+  correction authority, or window exists.
+- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model derives the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance check exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
 - `bun test adapter/opencode/packet.test.ts adapter/opencode/dispatch_route_end_to_end.test.ts` proves the adapter selects the one ready revision and that the real route holds the step until delivery.
-- `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure, authority, and immutable replay.
-- `TestOwnerOracleRequiredOnOracleCapablePin`, `TestOwnerOracleLegacyPinStaysOracleFree`, and `TestOwnerOracleJobDebt` cover version enforcement and retained obligations.
+- `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure and authority joins; the implementing change binds the current-state anchor for immutable recorded revisions (CD-0242 D2).
+- `TestOwnerOracleRequiredOnOracleCapablePin`, `TestOwnerOracleActiveDerivesFromDeclaredMember`, and `TestOwnerOracleJobDebt` cover current declaration enforcement and retained obligations.

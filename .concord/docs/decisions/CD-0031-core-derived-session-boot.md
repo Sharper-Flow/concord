@@ -4,11 +4,6 @@
 **Approval date:** 2026-08-16.
 **Approval:** Operator-approved GitHub issue #100 and implementation direction.
 **Related:** C18, CD-0016, CD-0017, CD-0018, CD-0029, CD-0030, issues #57, #99, #100.
-**Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the pre-OpenCode launch obligation
-under the Snowball coordinator's operator-delegated approval. The packet
-is consumed by work-start preparation and the per-turn continuity hook.
-
-> **Subsequent decision:** CD-0090 registers a per-turn runtime continuity hook in the adapter plugin entry. The "OpenCode host hooks and plugins are unnecessary" clause in §Consequences records the state when CD-0031 was accepted: the boot packet covered session start, and CD-0090 closes the mid-session window the boot packet cannot.
 
 ## Decision
 
@@ -17,8 +12,7 @@ packet through work-start preparation. Concord derives the packet from the
 canonical CD-0016 continuity projection. The host hands Product/work identity
 only; it does not read workflow state or decide what happens next.
 
-The `concord session` child process and its pre-OpenCode launch obligation
-are removed. Work-start preparation reads one boundary record, renders the
+Work-start preparation reads one boundary record, renders the
 same `ContinuityPayload` returned by `concord_work_trace.continuity` through
 the retained packet renderer, and validates the packet before the session
 takes a managed action. A derivation or validation failure stops before
@@ -36,10 +30,8 @@ managed action. The per-turn hook re-renders the same bytes through
   complete `spec_mandate`, pending operator decision, latest checkpoint,
   unresolved failure, boundary watermark, pending-message count, un-promoted observations, and typed restart availability.
 
-Amended 2026-10-13 for the separate boot-packet bound
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-the packet is capped by its own 65,536-byte boot-packet bound, no longer by
-reference to the agent-envelope bound. The envelope's request and response
+The packet is capped by its own 65,536-byte boot-packet bound, independently of
+the agent-envelope bound. The envelope's request and response
 budgets are different populations and move independently. Session boot reads
 one boundary record, not the full history. The packet is authoritative
 at its watermark; consequential work still rereads continuity because CD-0016
@@ -74,11 +66,10 @@ C18 remains unchanged in substance:
 
 ## Consequences
 
-The top-level operator session now has a stronger context boundary than prose
+The top-level operator session has a stronger context boundary than prose
 instructions: it receives durable intent before its first managed action.
-OpenCode host hooks and plugins are unnecessary. A host-started session with
+CD-0090 registers the per-turn runtime continuity hook in the adapter plugin entry.
+A host-started session with
 no selected work stays identity-only and derives no workflow packet.
 
-The hand-written OpenCode adapter version and range now come from the generated
-manifest version. This removes a drift path that otherwise made any post-3.0
-adapter reject the core despite shipping the matching generated contract.
+The OpenCode adapter and core bind the exact current generated manifest digest.

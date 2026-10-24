@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ac14c96f72f008223acd06cee401df85af06dfa362f2b2c1b248f0c7e74f34da",
+  "sha256": "sha256:dd9a1f742785fdca018de446406d4f8b1c010da103a029bb30b346332cdb0816",
   "status": "accepted",
   "summary": "Approval checks predicate grammar and the omission refusal, but does not decide whether a predicate already held before execution and reads no caller-supplied ground-truth label. Independent review fails a delivery whose approved predicate already held before execution, and premise confirmation does not confirm a premise that rests on one.",
   "tags": [

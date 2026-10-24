@@ -22,6 +22,9 @@ host approval bridge.
 
 ## Contract
 
+Every recorded write is one current-row mutation; no event append exists
+([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
+
 The approval bridge applies only to core-minted challenges required by CD-0013 D11, not every consequential mutation. Routine and engineering routes must not create host consent prompts or fabricated approval records. On a decision-bearing challenge, transport the complete typed `work_decision` summary unchanged; the host displays its work, contract version, and decision domains alongside the existing bound facts. Missing required approval transport still fails closed.
 
 The binding contract is sections 1 through 5: the adapter boundary and its
@@ -52,7 +55,7 @@ decisions require. The continuity hook re-asserts core-derived state without
 approval, gating, or payload-validation
 authority, as [CD-0090 D1–D2](./decisions/CD-0090-per-turn-continuity-re-pin-hook.md#d1-runtime-hooks-and-authority-hooks-are-different-classes)
 requires. Every domain decision, scope resolution, authorization check, approval
-binding, expected-version check, idempotency decision, event append, recovery
+binding, expected-version check, idempotency decision, recorded write, recovery
 state, and result classification stays in the Go core.
 
 ## 2. Process and transport

@@ -7,12 +7,9 @@ import (
 	"testing"
 )
 
-// The approval classification owner is one pure policy reader over a verified
-// definition, the action, declared decision domains, and typed consequence
-// facts. The discriminator approval_policy=consequence_v1 is definition-owned:
-// absence selects the released legacy policy, unknown values refuse, and no
-// registered current definition carries the new value, so current authoring is
-// unchanged.
+// The pure policy reader classifies declared decision domains and typed
+// consequences. Synthetic definitions witness the absent-policy contract;
+// current Product families carry consequence_v1.
 
 // approvalPolicyDefinition builds a minimal definition value for the pure
 // reader: the registry owns full definition validation, the reader owns policy
@@ -64,7 +61,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				}
 			}
 		}
-		legacy := legacyApprovalPolicyHeads(t)[0]
+		legacy := approvalPolicyDefinition("", "record_verdict", "complete", "request_correction", "confirm_premise", "dispatch_worker", "approve_contract")
 		overrides := map[string]WorkflowApprovalConsent{}
 		for _, action := range legacy.ActionDefinitions {
 			result, err := ClassifyWorkflowApproval(legacy, action.ID, WorkflowApprovalFacts{OperatorRequired: true})
@@ -85,13 +82,6 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			if declared != WorkflowApprovalConsent(legacyActionApproval(t, legacy, actionID)) {
 				t.Errorf("legacy operator-required override moved undeclared-gate action %s to %q, want its declared metadata", actionID, declared)
 			}
-		}
-		retry, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
-		if err != nil {
-			t.Fatalf("legacy failed-retry classification refused: %v", err)
-		}
-		if retry.Consent != WorkflowConsentRequired {
-			t.Fatalf("legacy failed-retry-below-wall consent = %q, want required", retry.Consent)
 		}
 		plain, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
@@ -256,12 +246,12 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if engineeringConfirmation.Class != WorkflowApprovalClassDecision || engineeringConfirmation.Consent != WorkflowConsentNone {
 			t.Fatalf("operator-required engineering confirmation classified %s/%s, want decision/none", engineeringConfirmation.Class, engineeringConfirmation.Consent)
 		}
-		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
+		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
 			t.Fatalf("new-policy failed-retry classification refused: %v", err)
 		}
 		if retry.Class != WorkflowApprovalClassRoutine || retry.Consent != WorkflowConsentNone {
-			t.Fatalf("new-policy failed retry classified %s/%s, want routine/none with binding revalidation", retry.Class, retry.Consent)
+			t.Fatalf("new-policy dispatch classified %s/%s, want routine/none", retry.Class, retry.Consent)
 		}
 	})
 
@@ -284,7 +274,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
 			}
 		}
-		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		for _, definition := range BuiltinWorkflowDefinitions() {
 			want := ""
 			if slices.Contains(generations[definition.Ref], definition.Version) {
 				want = WorkflowApprovalPolicyConsequenceV1
@@ -354,11 +344,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 // newest version that answers consent under the released legacy policy.
 func legacyApprovalPolicyHeads(t *testing.T) []WorkflowDefinition {
 	t.Helper()
-	var heads []WorkflowDefinition
-	for _, head := range BuiltinWorkflowDefinitions() {
-		heads = append(heads, legacyApprovalPolicyDefinitionForRef(t, head.Ref).Definition)
-	}
-	return heads
+	return []WorkflowDefinition{workflowFixtureDefinition(t, 1).Definition, workflowFixtureDefinition(t, 2).Definition}
 }
 
 func headDigestForTest(t *testing.T, definition WorkflowDefinition) string {

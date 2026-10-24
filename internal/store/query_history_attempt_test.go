@@ -59,13 +59,13 @@ func TestTimelineWorkerAttemptIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			event, err := decodeTimelineEvent("event-1", 1, kind, "actor-1", "2026-10-17T00:00:00Z", raw)
+			event, err := decodeTimelineEvent("event-1", 1, kind, "actor-1", "2026-10-17T00:00:00Z", 2, raw)
 			if err != nil || event.AttemptID != attemptID {
 				t.Fatalf("%s attempt identity = %q, error %v; want %q", kind, event.AttemptID, err, attemptID)
 			}
 		}
 		for _, raw := range []string{`{"attempt_id":12}`, `{"attempt_id":null}`, `{"attempt_id":""}`} {
-			_, err := decodeTimelineEvent("event-1", 1, kind, "actor-1", "2026-10-17T00:00:00Z", []byte(raw))
+			_, err := decodeTimelineEvent("event-1", 1, kind, "actor-1", "2026-10-17T00:00:00Z", 2, []byte(raw))
 			var failure *Failure
 			if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation {
 				t.Fatalf("%s malformed attempt identity %s returned %v", kind, raw, err)
@@ -73,7 +73,7 @@ func TestTimelineWorkerAttemptIdentity(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{`{}`, `{"attempt_id":"unrelated"}`} {
-		event, err := decodeTimelineEvent("event-1", 1, "work.created", "actor-1", "2026-10-17T00:00:00Z", []byte(raw))
+		event, err := decodeTimelineEvent("event-1", 1, "work.created", "actor-1", "2026-10-17T00:00:00Z", 2, []byte(raw))
 		if err != nil || event.AttemptID != "" {
 			t.Fatalf("non-worker event acquired attempt identity %q: %v", event.AttemptID, err)
 		}

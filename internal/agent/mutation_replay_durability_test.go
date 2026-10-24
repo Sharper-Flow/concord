@@ -28,7 +28,7 @@ func holdReplayDurabilityReader(t *testing.T, s *store.Store) func() {
 	}
 	t.Cleanup(func() { _ = snapshot.Rollback() })
 	var count int
-	if err := snapshot.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&count); err != nil {
+	if err := snapshot.QueryRowContext(ctx, "SELECT count(*) FROM idempotency_records").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return func() {
@@ -81,9 +81,9 @@ func requireReplayReaderPinsWAL(t *testing.T, s *store.Store) {
 
 func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 	t.Parallel()
-	for _, legacy := range []bool{false, true} {
+	for _, normalCommit := range []bool{false, true} {
 		name := "durable_result"
-		if legacy {
+		if normalCommit {
 			name = "normal_result"
 		}
 		t.Run(name, func(t *testing.T) {
@@ -98,17 +98,22 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				Tool: "concord_work_transition", Operation: "workflow_action",
 				Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`),
 			}
-			if legacy {
+			var originalPayload string
+			if normalCommit {
 				before := s.DurableCommits()
 				seedCurrentWorkflowActionReplay(t, s, env, request.Input, "completed")
 				if s.DurableCommits() != before {
-					t.Fatal("legacy result fixture committed durably")
+					t.Fatal("NORMAL response fixture committed durably")
+				}
+				if err := s.DatabaseForTesting().QueryRow(`SELECT result_payload FROM idempotency_records WHERE idempotency_key='durability-replay'`).Scan(&originalPayload); err != nil {
+					t.Fatal(err)
 				}
 			} else {
 				first, err := Dispatch(ctx, s, service, request, env)
 				if err != nil || first.Outcome != OutcomeOK || first.Error != nil {
 					t.Fatalf("workflow under pinned reader: response=%+v error=%+v err=%v", first, first.Error, err)
 				}
+				originalPayload = string(first.Result)
 			}
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workOneVersion(t, s)
@@ -122,6 +127,9 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				replay, err := Dispatch(ctx, s, service, request, env)
 				if err != nil || replay.Outcome != OutcomeOK || replay.Error != nil || !replay.Replayed {
 					t.Fatalf("workflow replay pinned=%t: response=%+v error=%+v err=%v", pinned, replay, replay.Error, err)
+				}
+				if string(replay.Result) != originalPayload {
+					t.Fatalf("durable replay changed the committed response: got=%s want=%s", replay.Result, originalPayload)
 				}
 				if err := replay.Validate(); err != nil {
 					t.Fatal(err)
@@ -147,6 +155,10 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	release := holdReplayDurabilityReader(t, s)
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`)}
 	seedCurrentWorkflowActionReplay(t, s, env, request.Input, "completed")
+	var originalPayload string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_payload FROM idempotency_records WHERE idempotency_key='durability-replay'`).Scan(&originalPayload); err != nil {
+		t.Fatal(err)
+	}
 	before := s.DurableCommits()
 	metadataBefore := replayMetadataCount(t, s, "durability-replay")
 	beforeEvents := countWorkflowEvents(t, s)
@@ -178,7 +190,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err = Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != OutcomeOK || !response.Replayed {
+	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || string(response.Result) != originalPayload {
 		t.Fatalf("replay after writer release: response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)

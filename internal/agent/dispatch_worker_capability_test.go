@@ -29,7 +29,7 @@ func TestDispatchWorkerRefusesPrincipalWithoutWorkerDispatchCapability(t *testin
 	// workflow-instance preflight so the test exercises the
 	// RequiredCapability check that mutations.go reads from the registry.
 	registry := store.BuiltinWorkflowRegistry()
-	entry, ok := registry.Lookup("workflow.implementation", 1)
+	entry, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("workflow.implementation is not registered")
 	}
@@ -66,7 +66,7 @@ func TestWorkerDispatchCapabilityIsStructurallyNonAuthorizable(t *testing.T) {
 	ctx := context.Background()
 	_, service, authority, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	registry := store.BuiltinWorkflowRegistry()
-	entry, ok := registry.Lookup("workflow.implementation", 1)
+	entry, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("workflow.implementation is not registered")
 	}

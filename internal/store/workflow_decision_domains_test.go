@@ -11,9 +11,9 @@ import (
 // The typed decision fact is a contract-owned array on workflow.contract_approved
 // and its successor construction. The closed canonical set is preference,
 // product, ui_ux; [] is engineering; NULL on the projection column is
-// historical absence, never engineering. These tests pin the storage-layer
-// round trip alone: no public action field exists in this slice, so events are
-// constructed directly at explicit payload versions.
+// historical absence, never engineering. Current approvals require the fact;
+// the read decoder and projection hash still distinguish a stored NULL from [].
+// Storage events are constructed directly at explicit payload versions.
 
 // decisionDomainsContract builds one contract-approved payload for a research
 // fixture with an optional decision_domains value (nil omits the member).
@@ -47,7 +47,7 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 5)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}
@@ -65,7 +65,7 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 // the test on any refusal.
 func seedDecisionDomainsItemFatal(t *testing.T, s *Store, workID string, domains any) string {
 	t.Helper()
-	if err := seedDecisionDomainsItem(t, s, workID, domains, workflowContractDecisionDomainsPayloadVersion); err != nil {
+	if err := seedDecisionDomainsItem(t, s, workID, domains, eventKindRegistry[WorkflowContractApproved].CurrentVersion); err != nil {
 		t.Fatalf("seed decision domains item: %v", err)
 	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -88,6 +88,20 @@ func storedDecisionDomains(t *testing.T, s *Store, workID string, contractVersio
 		return ""
 	}
 	return *raw
+}
+
+// seedStoredDecisionDomainAbsence isolates the read/hash representation of a
+// stored NULL without claiming that a current approval may author that shape.
+func seedStoredDecisionDomainAbsence(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		_, err := tx.tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=?;
+			DELETE FROM fold_guard`, workID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // decisionContractCount counts the contract rows a work item holds.
@@ -117,26 +131,19 @@ func projectedDecisionDomains(t *testing.T, s *Store, workID string) []string {
 func TestDecisionDomains(t *testing.T) {
 	t.Parallel()
 
-	t.Run("missing and null are historical absence", func(t *testing.T) {
+	t.Run("current approvals refuse missing and null facts atomically", func(t *testing.T) {
 		t.Parallel()
-		s := openTemp(t)
-		defer s.Close()
-		seedDecisionDomainsItemFatal(t, s, "decision-missing", nil)
-		if stored := storedDecisionDomains(t, s, "decision-missing", 1); stored != "" {
-			t.Fatalf("a contract without the fact stored %q, want NULL absence", stored)
-		}
-		if domains := projectedDecisionDomains(t, s, "decision-missing"); domains != nil {
-			t.Fatalf("a contract without the fact projected %v, want nil absence", domains)
-		}
-		// An explicit JSON null member decodes to the same historical absence.
-		s2 := openTemp(t)
-		defer s2.Close()
-		seedDecisionDomainsItemFatal(t, s2, "decision-null", json.RawMessage("null"))
-		if stored := storedDecisionDomains(t, s2, "decision-null", 1); stored != "" {
-			t.Fatalf("a null decision_domains stored %q, want NULL absence", stored)
-		}
-		if domains := projectedDecisionDomains(t, s2, "decision-null"); domains != nil {
-			t.Fatalf("a null decision_domains projected %v, want nil absence", domains)
+		for name, domains := range map[string]any{"missing": nil, "null": json.RawMessage("null")} {
+			s := openTemp(t)
+			workID := "decision-" + name
+			err := seedDecisionDomainsItem(t, s, workID, domains, eventKindRegistry[WorkflowContractApproved].CurrentVersion)
+			if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "requires the declared decision-domain fact") {
+				t.Fatalf("%s decision fact error = %v, want the declared-fact refusal", name, err)
+			}
+			if decisionContractCount(t, s, workID) != 0 || readWorkVersion(t, s, workID) != 2 {
+				t.Fatalf("%s refusal changed the contract population or work version", name)
+			}
+			s.Close()
 		}
 	})
 
@@ -193,7 +200,7 @@ func TestDecisionDomains(t *testing.T) {
 			"oversized": {"preference", "product", "ui_ux", "preference"},
 		} {
 			s := openTemp(t)
-			if err := seedDecisionDomainsItem(t, s, "decision-refuse-"+name, domains, workflowContractDecisionDomainsPayloadVersion); err == nil {
+			if err := seedDecisionDomainsItem(t, s, "decision-refuse-"+name, domains, eventKindRegistry[WorkflowContractApproved].CurrentVersion); err == nil {
 				t.Errorf("%s decision set folded, want refusal", name)
 			}
 			s.Close()
@@ -248,7 +255,7 @@ func TestDecisionDomains(t *testing.T) {
 			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:domain-audit"},
 			"successor_contract": successor,
 		})
-		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor"): version}}); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
 		}
@@ -263,7 +270,7 @@ func TestDecisionDomains(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy clone preserves the recorded fact", func(t *testing.T) {
+	t.Run("current supersession refuses the legacy clone route atomically", func(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
@@ -277,53 +284,15 @@ func TestDecisionDomains(t *testing.T) {
 			"previous_contract_version": 1, "new_contract_version": 2,
 			"supersede_reason": "legacy revision", "audit_evidence": []string{"evidence:clone-audit"},
 		})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-clone"): version}}); err != nil {
-			t.Fatalf("legacy clone refused: %v", err)
+		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{clone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-clone"): version}})
+		if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "cannot use the legacy clone route") {
+			t.Fatalf("legacy clone error = %v, want the current supersession refusal", err)
 		}
-		if stored := storedDecisionDomains(t, s, "decision-clone", 2); stored != `["ui_ux"]` {
-			t.Fatalf("cloned successor stored %q, want the predecessor's recorded fact carried forward", stored)
+		if decisionContractCount(t, s, "decision-clone") != 1 || readWorkVersion(t, s, "decision-clone") != version {
+			t.Fatal("refused clone changed the contract population or work version")
 		}
-	})
-
-	t.Run("old payload versions upcast with absence preserved", func(t *testing.T) {
-		t.Parallel()
-		for name, version := range map[string]int{
-			"v1": 1,
-			"v4": workflowContractDecisionDomainsPayloadVersion - 1,
-		} {
-			s := openTemp(t)
-			if err := seedDecisionDomainsItem(t, s, "decision-old-"+name, nil, version); err != nil {
-				t.Fatalf("recorded v%s replay refused: %v", name, err)
-			}
-			var payload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "decision-contract-decision-old-"+name).Scan(&payload); err != nil {
-				t.Fatal(err)
-			}
-			if containsJSONMember(payload) {
-				t.Errorf("replay upcast injected the typed fact into historical bytes: %s", payload)
-			}
-			if stored := storedDecisionDomains(t, s, "decision-old-"+name, 1); stored != "" {
-				t.Errorf("old v%s replay stored %q, want NULL absence", name, stored)
-			}
-			before := fullWorkflowProjectionSnapshot(t, s)
-			hashBefore, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("rebuild: %v", err)
-			}
-			if before != fullWorkflowProjectionSnapshot(t, s) {
-				t.Errorf("v%s replay rebuild diverged from the live projection", name)
-			}
-			hashAfter, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if hashBefore != hashAfter {
-				t.Errorf("v%s replay rebuild moved the full projection hash", name)
-			}
-			s.Close()
+		if stored := storedDecisionDomains(t, s, "decision-clone", 1); stored != `["ui_ux"]` {
+			t.Fatalf("refused clone changed the predecessor's recorded fact to %q", stored)
 		}
 	})
 
@@ -351,7 +320,7 @@ func TestDecisionDomains(t *testing.T) {
 			"supersede_reason": "successor claims a fact its recorded supersession predates", "audit_evidence": []string{"evidence:boundary-audit"},
 			"successor_contract": successor,
 		})
-		forged.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion - 1
+		forged.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion - 1
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{forged}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor-boundary"): version}}); err == nil {
 			t.Fatal("a supersession recorded below its own boundary installed a successor carrying the fact, want refusal")
 		}
@@ -364,7 +333,7 @@ func TestDecisionDomains(t *testing.T) {
 			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:boundary-audit"},
 			"successor_contract": successor,
 		})
-		declared.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		declared.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{declared}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor-boundary"): version}}); err != nil {
 			t.Fatalf("declared successor correction refused: %v", err)
 		}
@@ -374,58 +343,12 @@ func TestDecisionDomains(t *testing.T) {
 		if stored := storedDecisionDomains(t, s, "decision-successor-boundary", 2); stored != `["preference","ui_ux"]` {
 			t.Fatalf("successor stored %q, want the corrected set", stored)
 		}
-		before := fullWorkflowProjectionSnapshot(t, s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("successor rebuild: %v", err)
-		}
-		if before != fullWorkflowProjectionSnapshot(t, s) {
-			t.Fatal("successor rebuild diverged from the live projection")
-		}
-
-		// A supersession recorded at its own boundary while carrying a replay
-		// marker of that boundary must still install a fact-bearing successor:
-		// the inner provenance derives from the supersession's own version
-		// boundary, so a boundary marker is not a pre-boundary source. The
-		// marker is a synthetic prepared event (set directly on the declared
-		// Event, which an already-current payload preserves); it simulates the
-		// provenance a legitimately recorded supersession gains when a later
-		// event-family version bumps its upcast chain. It claims no released
-		// version beyond the current one.
-		s2 := openTemp(t)
-		defer s2.Close()
-		futureOwner := seedDecisionDomainsItemFatal(t, s2, "decision-successor-future", []string{"product"})
-		var futureVersion int64
-		if err := s2.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='decision-successor-future'`).Scan(&futureVersion); err != nil {
-			t.Fatal(err)
-		}
-		future := workflowEventWithActor("decision-boundary-future", WorkflowContractSuperseded, "decision-successor-future", futureOwner, map[string]any{
-			"work_id": "decision-successor-future", "expected_version": futureVersion, "resulting_version": futureVersion + 1,
-			"previous_contract_version": 1, "new_contract_version": 2,
-			"supersede_reason": "correct the declared decision domains", "audit_evidence": []string{"evidence:boundary-audit"},
-			"successor_contract": successor,
-		})
-		future.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
-		future.replaySourcePayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
-		if err := applyWorkflowTestOperation(context.Background(), s2, Operation{Events: []Event{future}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "decision-successor-future"): futureVersion}}); err != nil {
-			t.Fatalf("a supersession at its own boundary with a boundary marker lost its successor's declared fact: %v", err)
-		}
-		if stored := storedDecisionDomains(t, s2, "decision-successor-future", 2); stored != `["preference","ui_ux"]` {
-			t.Fatalf("boundary-marker successor stored %q, want the corrected set", stored)
-		}
-		futureBefore := fullWorkflowProjectionSnapshot(t, s2)
-		if err := RebuildFromLog(context.Background(), s2); err != nil {
-			t.Fatalf("boundary-marker successor rebuild: %v", err)
-		}
-		if futureBefore != fullWorkflowProjectionSnapshot(t, s2) {
-			t.Fatal("boundary-marker successor rebuild diverged from the live projection")
-		}
 	})
 
 	t.Run("the decision fact moves the full production hash", func(t *testing.T) {
 		t.Parallel()
 		hashes := map[string]string{}
 		for name, domains := range map[string]any{
-			"absent":      nil,
 			"engineering": []string{},
 			"declared":    []string{"product"},
 		} {
@@ -435,17 +358,15 @@ func TestDecisionDomains(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("rebuild: %v", err)
-			}
-			second, err := WorkflowProjectionHash(context.Background(), s)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if first != second {
-				t.Errorf("%s fact rebuild moved the full production hash", name)
-			}
 			hashes[name] = first
+			if name == "engineering" {
+				seedStoredDecisionDomainAbsence(t, s, "decision-hash")
+				absent, err := WorkflowProjectionHash(context.Background(), s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				hashes["absent"] = absent
+			}
 			s.Close()
 		}
 		if hashes["absent"] == hashes["engineering"] {
@@ -460,7 +381,7 @@ func TestDecisionDomains(t *testing.T) {
 		t.Parallel()
 		s := openTemp(t)
 		defer s.Close()
-		if err := seedDecisionDomainsItem(t, s, "decision-forged", []string{"product"}, workflowContractDecisionDomainsPayloadVersion-1); err == nil {
+		if err := seedDecisionDomainsItem(t, s, "decision-forged", []string{"product"}, eventKindRegistry[WorkflowContractApproved].CurrentVersion-1); err == nil {
 			t.Fatal("a payload carrying decision_domains at the pre-boundary version folded, want refusal")
 		}
 		var count int
@@ -472,20 +393,6 @@ func TestDecisionDomains(t *testing.T) {
 		}
 	})
 
-	t.Run("rebuild equality", func(t *testing.T) {
-		t.Parallel()
-		s := openTemp(t)
-		defer s.Close()
-		seedDecisionDomainsItemFatal(t, s, "decision-rebuild", []string{"product"})
-		before := fullWorkflowProjectionSnapshot(t, s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild: %v", err)
-		}
-		after := fullWorkflowProjectionSnapshot(t, s)
-		if before != after {
-			t.Fatal("rebuild diverged from the live projection with a decision fact recorded")
-		}
-	})
 }
 
 // containsJSONMember reports whether an encoded object carries the

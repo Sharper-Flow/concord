@@ -29,9 +29,6 @@ const (
 	payloadProductKey       = "payload"
 	payloadLawPath          = ".concord/docs/decisions/CD-0101.md"
 	payloadLawBody          = "The child Domain owns synchronization law.\n"
-	payloadSupersededID     = "CD-0100"
-	payloadSupersededPath   = ".concord/docs/decisions/CD-0100.md"
-	payloadSupersededBody   = "Synchronization law used to live at the root.\n"
 	payloadResourceMetadata = `{}`
 )
 
@@ -137,7 +134,7 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 
 // domainPayloadRepo commits a manifest declaring a root Domain and one child
 // that depends on it under a governing law, plus the accepted decision homed to
-// the child with applicability out to the root, and the decision it superseded.
+// the child with applicability out to the root.
 func domainPayloadRepo(dir string) (string, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
@@ -145,9 +142,6 @@ func domainPayloadRepo(dir string) (string, error) {
 	}
 	if err := writeKnowledgeFile(repo, payloadLawPath, payloadLawBody); err != nil {
 		return "", fmt.Errorf("pm1fixture: write populated accepted decision: %w", err)
-	}
-	if err := writeKnowledgeFile(repo, payloadSupersededPath, payloadSupersededBody); err != nil {
-		return "", fmt.Errorf("pm1fixture: write populated superseded decision: %w", err)
 	}
 	manifest := store.KnowledgeManifest{
 		SchemaVersion:  "1.2",
@@ -170,16 +164,8 @@ func domainPayloadRepo(dir string) (string, error) {
 				ID: PayloadLawID, Kind: "decision", Path: payloadLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Synchronization authority", Summary: "The child Domain owns synchronization law", Tags: []string{},
 				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: payloadSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{PayloadChildDomainID}, TagIDs: []string{}},
 				HomeDomainID: PayloadChildDomainID, AppliesToDomainIDs: []string{PayloadRootDomainID}, SHA256: ContentDigest(payloadLawBody),
-			},
-			{
-				ID: payloadSupersededID, Kind: "decision", Path: payloadSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
-				Title: "Root synchronization authority", Summary: "Retired synchronization law", Tags: []string{},
-				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}, Successor: PayloadLawID,
-				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{PayloadChildDomainID}, TagIDs: []string{}},
-				HomeDomainID: PayloadChildDomainID, SHA256: ContentDigest(payloadSupersededBody),
 			},
 		},
 	}

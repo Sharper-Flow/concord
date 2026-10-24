@@ -135,30 +135,23 @@ func TestObservationUnicodeAnchorsPersistAndRefuseWithoutEffects(t *testing.T) {
 					t.Fatalf("%s: %v", field, err)
 				}
 			}
-			for _, rebuild := range []bool{false, true} {
-				if rebuild {
-					if err := RebuildFromLog(ctx, s); err != nil {
-						t.Fatal(err)
-					}
+			if anchor == "work" {
+				page, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-99"})
+				if err != nil || len(page.Observations) != 1 {
+					t.Fatalf("page=%+v err=%v", page, err)
 				}
-				if anchor == "work" {
-					page, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-99"})
-					if err != nil || len(page.Observations) != 1 {
-						t.Fatalf("page=%+v err=%v", page, err)
-					}
-					o := page.Observations[0]
-					if o.Statement != statement || !reflect.DeepEqual(o.Refs, refs) || !reflect.DeepEqual(o.Tags, tags) {
-						t.Fatal("work observation changed its Unicode content")
-					}
-				} else {
-					rows, err := observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
-					if err != nil || len(rows) != 1 {
-						t.Fatalf("rows=%+v err=%v", rows, err)
-					}
-					o := rows[0]
-					if o.Statement != statement || !reflect.DeepEqual(o.Refs, refs) || !reflect.DeepEqual(o.Tags, tags) {
-						t.Fatal("Domain observation changed its Unicode content")
-					}
+				o := page.Observations[0]
+				if o.Statement != statement || !reflect.DeepEqual(o.Refs, refs) || !reflect.DeepEqual(o.Tags, tags) {
+					t.Fatal("work observation changed its Unicode content")
+				}
+			} else {
+				rows, err := observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
+				if err != nil || len(rows) != 1 {
+					t.Fatalf("rows=%+v err=%v", rows, err)
+				}
+				o := rows[0]
+				if o.Statement != statement || !reflect.DeepEqual(o.Refs, refs) || !reflect.DeepEqual(o.Tags, tags) {
+					t.Fatal("Domain observation changed its Unicode content")
 				}
 			}
 		})

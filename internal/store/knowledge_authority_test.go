@@ -552,7 +552,7 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 
 func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 	t.Parallel()
-	for _, family := range []string{"workflow.implementation", "workflow.static_analysis"} {
+	for _, family := range []string{"workflow.implementation", "workflow.research"} {
 		t.Run(family, func(t *testing.T) {
 			s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 			defer s.Close()
@@ -586,17 +586,6 @@ func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 	}
 }
 
-func TestCorruptDefinitionPinRefusesStrictly(t *testing.T) {
-	t.Parallel()
-	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
-	defer s.Close()
-	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, _ := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, "sha256:"+strings.Repeat("f", 64), []string{"CD-8751"}, nil)
-	err := s.RebuildKnowledgeIndex(context.Background(), home)
-	assertFailureKind(t, err, KindDefinitionDigestMismatch)
-}
-
 func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T) {
 	t.Parallel()
 	// Committed manifest metadata selects the whole population. Synthetic
@@ -627,7 +616,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	}
 	legislatedInRange := map[string]bool{
 		"CD-0190": true, "CD-0191": true, "CD-0193": true, "CD-0194": true, "CD-0200": true,
-		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0206": true, "CD-0208": true,
+		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0208": true,
 	}
 	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
 	for _, record := range manifest.Records {

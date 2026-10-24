@@ -297,6 +297,13 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 		binding["contract_version"] = contractVersionValue
 	}
 	inputs := map[string]any{"task": task, "binding": binding, "report_protocol": reportProtocol}
+	reviewInput, err := currentWorkerReviewInput(ctx, tx, workID, lane, definition)
+	if err != nil {
+		return nil, err
+	}
+	if reviewInput != nil {
+		inputs["review_input"] = reviewInput
+	}
 	if err := retryPacketWorkerJobTx(ctx, tx, definition, workID, currentStep, lane, rejectedAttempt, inputs); err != nil {
 		return nil, err
 	}
@@ -375,7 +382,7 @@ func retryPacketWorkerJobTx(ctx context.Context, tx *sql.Tx, definition Workflow
 		// A size-capable implementation retry carries the same computed
 		// caller exclusions first dispatch would, so the packet binds the
 		// work's other corrections identically.
-		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+		if lane.CapabilityClass == "implementation" && workflowCallerScopeActive(definition) {
 			exclusions, exclusionsErr := workerJobCallerExclusionsTx(ctx, tx, workID, view.Binding.JobID)
 			if exclusionsErr != nil {
 				return exclusionsErr
@@ -397,7 +404,7 @@ func retryPacketRecordsTx(ctx context.Context, tx *sql.Tx, workID string, inputs
 	} else if lawContext != nil {
 		inputs["law_context"] = lawContext
 	}
-	if design, _, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
+	if design, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
 		return err
 	} else if design != nil {
 		inputs["design_record"] = design
@@ -477,7 +484,7 @@ func retryPacketOutcomePredicatesTx(ctx context.Context, tx *sql.Tx, workID stri
 	for _, predicate := range predicates {
 		var payload json.RawMessage
 		if json.Unmarshal([]byte(predicate.OutcomePayload), &payload) != nil {
-			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		decoded = append(decoded, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": payload})
 	}

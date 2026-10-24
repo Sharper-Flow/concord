@@ -105,7 +105,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	// The approval helper derives its actor ref from the law-context actor
 	// identity, so initialization records exactly that actor.
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}

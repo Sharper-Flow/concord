@@ -36,10 +36,24 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	}
 	setup := []Event{
 		workflowEvent("d7-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("d7-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("d7-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
+	}
+	if workID == "d7-accept_worker_result" {
+		// Acceptance now joins the requested terminal result before the
+		// consequential-boundary check. Give that boundary an actual result
+		// to consume, before introducing the overlapping contracts.
+		attempt := "attempt:" + workID
+		recordWorkerFixtureDispatchAuthorization(t, s, workID, attempt, "execution", actorRef)
+		lane := reviewGateLane(t, "implementation")
+		dispatch := workerDispatchEvent(workID, attempt+":dispatched", lane, map[string]any{"attempt_id": attempt, "packet_digest": "sha256:" + strings.Repeat("b", 64)})
+		completed := workerCompleteEventForLane(workID, attempt+":completed", attempt, lane, time.Unix(3, 0).UTC(), workerFixtureDirectory(t, s, workID))
+		completed = workerCompletionAtClaim(t, s, completed)
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	hash := "sha256:" + strings.Repeat("d", 64)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -192,6 +206,9 @@ func assertD7TypedRefusal(t *testing.T, err error, workID, otherID string) {
 // owning-transaction coordinator the agent mutation surface uses.
 func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID string, actor WorkflowActor, version int64) error {
 	payload := mustJSONValue(map[string]any{})
+	if actionID == "accept_worker_result" {
+		payload = mustJSONValue(map[string]any{"attempt_id": "attempt:" + workID, "attempt_epoch": 1})
+	}
 	preflight := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor}
 	execution := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
@@ -254,37 +271,6 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
-		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
-		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
-	})
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// runSupersedeDuplicateRecoveryFold drives the duplicate-contract recovery
-// through the fold with the operator approval binding the recovery's
-// operator-approved route records: the operator identity names the consumed
-// approval, and the binding fields are the ones admission verified.
-func runSupersedeDuplicateRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
-	t.Helper()
-	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:approval-duplicate-recovery", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	operationID := "supersede-duplicate-" + workID + "-" + strconv.FormatInt(version, 10)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload,
-		Actor: actor, OperatorActor: &operator, OperatorApprovalRef: "approval-duplicate-recovery",
-		ApprovalOperationDigest: "sha256:" + strings.Repeat("b", 64),
-		ApprovalScopeJSON:       `{"work_ids":["` + workID + `"]}`,
-		ApprovalVersionsJSON:    `{"work":` + strconv.FormatInt(version, 10) + `}`,
-		ApprovalConsequence:     "contract_recovery",
-		AcceptedInputsDigest:    "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
 	})

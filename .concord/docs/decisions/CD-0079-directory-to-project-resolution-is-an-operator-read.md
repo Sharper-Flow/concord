@@ -66,8 +66,7 @@ duplicate database access or double-hop through this verb anyway.
 ### D2. The verb does not authenticate its caller
 
 No operator verb authenticates the operator. `worktree-locate` and
-`predecessor-inventory` are already unauthenticated reads, and the launcher
-renders portfolio state through the store with no grant at all. Concord's trust
+`predecessor-inventory` are unauthenticated reads. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.
 
@@ -93,8 +92,9 @@ adapter, or the generated manifest. CD-0005 invariant 2 derives the agent
 surface from accepted jobs and never from CLI inventory. An agent needing this
 answer already receives it as `ambient_project_id` in its envelope.
 
-The verb appends no event and opens no second authorization path into work
-creation, so CD-0021's rejection of an operator authoring surface is untouched.
+The verb writes nothing and opens no second authorization path into work
+creation, so CD-0021's rejection of an operator authoring surface is untouched
+(reads write no rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 
 ## Consequences
 
@@ -111,12 +111,10 @@ creation, so CD-0021's rejection of an operator authoring surface is untouched.
 ## Rejected alternatives
 
 **Gate the verb behind an interactive-terminal check.** Rejected because
-host-script integration is the whole purpose. The launcher requires an
-interactive terminal because a human reads it. This verb exists for a program.
+host-script integration is the whole purpose. This verb exists for a program.
 
-**Gate the verb behind a durable identity-assertion event, as `concord session`
-does.** Rejected because `session` mints identity for a session that will act.
-This verb answers a question and returns. Recording an event for every host
+**Gate the verb behind a durable identity-assertion event.** Rejected because
+this verb answers a question and returns. Recording an event for every host
 refresh would make a read into a write.
 
 **Return the Project without the Product hop.** Rejected because the host's
@@ -138,8 +136,8 @@ because it produces a durable grant record as a side effect of asking.
 - `TestProjectResolveRefusesUnregisteredRepository` proves the typed refusal and
   that no payload is written on refusal.
 - `TestProjectResolveWritesNothing` proves D3's read-only claim by comparing
-  durable counts across `domain_events`, `agent_grants`, `agent_approvals`,
-  `agent_approval_challenges`, `idempotency_records`, and `durable_operations`.
+  durable store counts before and after the call
+.
 - `TestProjectResolveRequiresDirectory` proves the verb refuses an absent or
   empty directory.
 - `TestRunHelpListsExactCommandFormsAndStdinShapes` and

@@ -1,7 +1,7 @@
 import { agentLanes, laneForIdentity, laneToolRequirements, type AgentLane } from "./generated-agent-lanes"
 import { dispatchDirectoryIdentityMismatch, dispatchWindows, type DispatchRecord, type DispatchWindows } from "./dispatch-window"
 import { defaultRunner, readExportOpeningPacket, readWorkerSessionBody, type DispatchRunner } from "./dispatch"
-import { reviewSubjectFailure } from "./worker_subject"
+import { repairingReview, reviewSubjectFailure } from "./worker_subject"
 import { hostControlPlane, type HostControlPlane, type RouteResult, type SessionReader } from "./move-session"
 
 export class WorkerCapabilityError extends Error {}
@@ -41,6 +41,7 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
   const windows = options.windows ?? dispatchWindows()
   // A weak key releases the child's binding with its settled dispatch packet.
   const children = new WeakMap<DispatchRecord, string>()
+  const entered = new WeakSet<DispatchRecord>()
   // Membership can require authentication, never grant it. A settled child
   // stays fenced without making unrelated host work depend on Concord scope.
   const managedChildren = new Set<string>()
@@ -144,11 +145,18 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     }
     const mismatch = dispatchDirectoryIdentityMismatch(record.workerDirectoryIdentity, info.directory)
     if (mismatch) throw new WorkerCapabilityError(mismatch)
-    const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
-    if (!lane) throw new WorkerCapabilityError("the authorized packet names an unregistered lane identity")
-    const subjectFailure = await reviewSubjectFailure(lane, record.packet, record.workerDirectory, signal, options.subjectRunner ?? defaultRunner)
-    if (subjectFailure) throw new WorkerCapabilityError(subjectFailure.detail)
+    const registered = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
+    if (!registered) throw new WorkerCapabilityError("the authorized packet names an unregistered lane identity")
+    // A historical read-only packet cannot acquire edits from today's registry.
+    const lane = (registered.capabilities as readonly string[]).includes("inspect_diff") && !repairingReview(registered, record.packet)
+      ? { ...registered, capabilities: registered.capabilities.filter((c) => c !== "edit_scoped_files") } as unknown as AgentLane
+      : registered
+    if (!entered.has(record) || !repairingReview(lane, record.packet)) {
+      const subjectFailure = await reviewSubjectFailure(lane, record.packet, record.workerDirectory, signal, options.subjectRunner ?? defaultRunner)
+      if (subjectFailure) throw new WorkerCapabilityError(subjectFailure.detail)
+    }
     if (windows.activeAttempt(parentSessionID) !== record) throw new WorkerCapabilityError("worker session has no active authorized attempt")
+    entered.add(record)
     return { dispatch: record, parentSessionID, sessionID, lane }
   }
 
@@ -162,6 +170,10 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     if (!context) return
     if (!toolAllowedByCapabilities(context.lane.capabilities, input.tool)) {
       throw new WorkerCapabilityError(`lane ${context.lane.id} does not grant tool ${input.tool}`)
+    }
+    if (input.tool === "concord_worker_check") {
+      const subjectFailure = await reviewSubjectFailure(context.lane, context.dispatch.packet, context.dispatch.workerDirectory, AbortSignal.timeout(5_000), options.subjectRunner ?? defaultRunner, "terminal")
+      if (subjectFailure) throw new WorkerCapabilityError(subjectFailure.detail)
     }
     if (input.tool.startsWith("lgrep_") && dispatchDirectoryIdentityMismatch(context.dispatch.workerDirectoryIdentity, output.args.path)) {
       throw new WorkerCapabilityError("local repository tools require the dispatched repository path")

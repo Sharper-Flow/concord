@@ -140,10 +140,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-// migrateOpen applies the migration scope every opener shares: a stamped
-// release applies additive steps only, and an unstamped build migrates only a
-// fresh store. The offline fold-guard recovery reuses it, because it must
-// reach a stranded database that ordinary Open refuses.
+// migrateOpen applies additive steps for a stamped release; an unstamped
+// build migrates only a fresh store.
 func (s *Store) migrateOpen(ctx context.Context) error {
 	var err error
 	unstampedFresh := false
@@ -322,11 +320,12 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 // applies, and the column's default marks every recorded row breaking, which
 // is the conservative read the manifest check expects.
 func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
-	tx, err := beginOrdinaryTx(ctx, db)
+	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
 			"retry once the database is writable", err)
 	}
+	tx := write.Tx
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
 		_ = tx.Rollback()
 		return wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
@@ -404,9 +403,8 @@ func (s *Store) finishOpen(ctx context.Context) error {
 }
 
 // refuseStrandedFoldGuard refuses an open whose database carries a committed
-// fold_guard row. The row is not retryable state: projections may have drifted
-// from the log while it stranded, so the operator must run the offline
-// recovery, which clears the row and rebuilds every projection from the log.
+// fold_guard row. The row is not retryable state: current rows may be
+// inconsistent, so the operator must restore a verified backup into a new path.
 func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
 	var stranded int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard`).Scan(&stranded); err != nil {
@@ -418,7 +416,7 @@ func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
 	}
 	return newFailure(KindInvariantViolation, "open",
 		fmt.Sprintf("%d committed fold_guard row(s) guard the projections, and no fold scope owns them", stranded), false,
-		"stop concord processes and run concord recover-fold-guard offline to clear the stranded guard and rebuild projections from the event log")
+		"stop concord processes and run concord restore from a verified backup into a new path, then swap the restored database into place")
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.
@@ -445,9 +443,31 @@ func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Ti
 		return wrapFailure(KindUnavailable, "open", "cannot create the installation cursor key", true,
 			"retry once the operating system random source is available", err)
 	}
-	_, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
+	tx, err := beginOrdinaryTx(ctx, db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot begin installation cursor key creation", true,
+			"retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',?,?)`, key, when.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return wrapFailure(KindUnavailable, "open", "cannot persist the installation cursor key", true,
+			"retry once the database is writable", err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot confirm installation cursor key creation", true,
+			"retry once the database is readable", err)
+	}
+	if inserted == 0 {
+		if err := tx.Rollback(); err != nil {
+			return wrapFailure(KindUnavailable, "open", "cannot roll back ignored installation cursor key creation", true,
+				"retry once the database is writable", err)
+		}
+		return nil
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot commit the installation cursor key", true,
 			"retry once the database is writable", err)
 	}
 	return nil

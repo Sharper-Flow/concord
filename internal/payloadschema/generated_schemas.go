@@ -354,6 +354,12 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "canonical_note_result": {
       "additionalProperties": false,
+      "not": {
+        "required": [
+          "status",
+          "successor_id"
+        ]
+      },
       "properties": {
         "candidates": {
           "items": {
@@ -381,13 +387,13 @@ const GeneratedPayloadSchemaDocument = `{
         "status": {
           "enum": [
             "accepted",
-            "superseded",
             "published"
           ],
           "type": "string"
         },
         "successor_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/id",
+          "description": "A work-note successor, never a law replacement."
         }
       },
       "required": [
@@ -1360,6 +1366,9 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/worker_packet5_worker_job"
               },
               "type": "array"
+            },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input"
             },
             "spec_mandate": {
               "items": {
@@ -2732,6 +2741,48 @@ const GeneratedPayloadSchemaDocument = `{
         "items": {
           "items": {
             "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "successor_id"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "note"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "constitution",
+                        "decision",
+                        "specification"
+                      ],
+                      "type": "string"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  }
+                }
+              }
+            ],
             "properties": {
               "commit_oid": {
                 "$ref": "#/$defs/id"
@@ -2767,13 +2818,13 @@ const GeneratedPayloadSchemaDocument = `{
               "status": {
                 "enum": [
                   "accepted",
-                  "superseded",
                   "published"
                 ],
                 "type": "string"
               },
               "successor_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/id",
+                "description": "A work-note successor, never a law replacement."
               }
             },
             "required": [
@@ -2937,6 +2988,507 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "lane_report_oracle_finding": {
+      "additionalProperties": false,
+      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "classification": {
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair.",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "type": "string"
+        },
+        "continues_finding_id": {
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string",
+          "x-maxBytes": 512
+        },
+        "evidence_refs": {
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string",
+            "x-maxBytes": 256
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "failure_family": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/lane_report_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "variant_of": {
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "type": "object"
+    },
+    "lane_report_oracle_law_binding": {
+      "additionalProperties": false,
+      "properties": {
+        "clause": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string",
+          "x-maxBytes": 512
+        },
+        "source": {
+          "additionalProperties": false,
+          "properties": {
+            "content_hash": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "kind": {
+              "const": "knowledge"
+            },
+            "law_id": {
+              "maxLength": 256,
+              "minLength": 2,
+              "type": "string"
+            },
+            "source_id": {
+              "maxLength": 128,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "source_id",
+            "law_id",
+            "content_hash"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "source",
+        "clause"
+      ],
+      "type": "object"
+    },
+    "lane_report_resolved_finding": {
+      "additionalProperties": false,
+      "description": "One evidenced closure claim of a previously open ranked finding. A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "properties": {
+        "evidence_refs": {
+          "description": "The producer-captured current-subject evidence the closure names, as the control requires.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string",
+            "x-maxBytes": 256
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "finding_id": {
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "evidence_refs"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_assessment": {
+      "additionalProperties": false,
+      "properties": {
+        "assessment": {
+          "enum": [
+            "supported",
+            "unproved",
+            "mismatch"
+          ],
+          "type": "string"
+        },
+        "predicate_id": {
+          "maxLength": 128,
+          "minLength": 11,
+          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "receipt_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        }
+      },
+      "required": [
+        "predicate_id",
+        "assessment",
+        "receipt_refs"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_block": {
+      "additionalProperties": false,
+      "properties": {
+        "assessments": {
+          "items": {
+            "$ref": "#/$defs/lane_report_review_assessment"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
+        },
+        "disposition": {
+          "description": "An attributed Review disposition, not permission to advance. Main accepts the exact report through accept_worker_result. Blocking dispositions remain valid reports.",
+          "enum": [
+            "continue",
+            "correction_required",
+            "revision_required",
+            "ready_for_final_proof"
+          ],
+          "type": "string"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/lane_report_review_finding"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "input_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "output_candidate": {
+          "$ref": "#/$defs/lane_report_review_candidate"
+        },
+        "remaining_obligations": {
+          "items": {
+            "$ref": "#/$defs/lane_report_review_obligation"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "resolved_findings": {
+          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "items": {
+            "$ref": "#/$defs/lane_report_resolved_finding"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array",
+          "x-maxArrayBytes": 8192
+        }
+      },
+      "required": [
+        "disposition",
+        "input_candidate",
+        "output_candidate",
+        "dependencies",
+        "assessments",
+        "findings",
+        "remaining_obligations"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_candidate": {
+      "additionalProperties": false,
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "tree": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "commit",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_dependencies": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "architecture_digest"
+            ]
+          },
+          "properties": {
+            "architecture_not_applicable": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "architecture_not_applicable": {
+              "const": false
+            }
+          },
+          "required": [
+            "architecture_digest"
+          ]
+        }
+      ],
+      "properties": {
+        "architecture_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "architecture_not_applicable": {
+          "type": "boolean"
+        },
+        "criteria": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content_digest": {
+                "maxLength": 71,
+                "minLength": 71,
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "predicate_id": {
+                "maxLength": 128,
+                "minLength": 11,
+                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "predicate_id",
+              "content_digest"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "criteria",
+        "architecture_not_applicable"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_finding": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "type": "boolean"
+        },
+        "closure_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string",
+          "x-maxBytes": 512
+        },
+        "evidence_refs": {
+          "$ref": "#/$defs/lane_report_review_refs"
+        },
+        "finding_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^\\S+$",
+          "type": "string"
+        },
+        "in_scope": {
+          "type": "boolean"
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_report_oracle_finding"
+        },
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "confidence",
+        "detail",
+        "finding_id",
+        "in_scope",
+        "blocking",
+        "status",
+        "evidence_refs",
+        "closure_refs"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_obligation": {
+      "additionalProperties": false,
+      "properties": {
+        "input_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "needed_proof": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string",
+          "x-maxBytes": 512
+        },
+        "obligation_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "owner_ref": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "subject_ref": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "owner_ref",
+        "subject_ref",
+        "input_digest",
+        "needed_proof"
+      ],
+      "type": "object"
+    },
+    "lane_report_review_refs": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 2,
+        "pattern": "^\\S+$",
+        "type": "string",
+        "x-maxBytes": 128
+      },
+      "maxItems": 32,
+      "minItems": 0,
+      "type": "array",
+      "uniqueItems": true
+    },
     "law_id": {
       "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
       "examples": [
@@ -2959,7 +3511,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose two writers are operator-approved resolve_overlap and the size revision that changes a work item's effective size (CD-0237). The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation through operator-approved resolve_overlap. Size revisions update the same work item without supersession. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is defense-in-depth behind this structural control.",
       "enum": [
         "needed",
         "in_progress",
@@ -7532,7 +8084,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "reject_retry": {
       "additionalProperties": false,
-      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available.",
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal leaves the rejection unwritten and the rejection-only escape available.",
       "properties": {
         "lane_id": {
           "$ref": "#/$defs/id",
@@ -10011,14 +10563,6 @@ const GeneratedPayloadSchemaDocument = `{
     "retained_workflow_correction_context": {
       "additionalProperties": false,
       "properties": {
-        "attempt_count": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
         "diagnosis": {
           "type": "string"
         },
@@ -10029,9 +10573,6 @@ const GeneratedPayloadSchemaDocument = `{
             "verification"
           ],
           "type": "string"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "evidence_refs": {
           "items": {
@@ -10078,9 +10619,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",
@@ -10174,8 +10712,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -12525,7 +13062,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "operator_size": {
           "$ref": "#/$defs/work_size_class",
-          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval, and reason is the override's reason. A size change supersedes the item with a forward-linked successor (CD-0237)."
+          "description": "The operator's size for the work item (CD-0229 D6). It needs a consumed operator approval; reason explains the override. The effective size changes in place on the same work item."
         },
         "priority": {
           "description": "Bounds: -100..100 value inclusive",
@@ -12543,7 +13080,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "size_inputs": {
           "$ref": "#/$defs/work_size_inputs",
-          "description": "Reruns the size model on fresh declared inputs; reason says why. The core re-derives every other input. A size change supersedes the item with a forward-linked successor (CD-0237)."
+          "description": "Reruns the model on fresh declared inputs; reason explains why. The core re-derives every other input and updates the size in place without a successor."
         },
         "tags": {
           "description": "Bounds: <=32 items inclusive",
@@ -13160,9 +13697,8 @@ const GeneratedPayloadSchemaDocument = `{
         "project_id": {
           "$ref": "#/$defs/id"
         },
-        "retry_window": {
-          "$ref": "#/$defs/workflow_retry_window",
-          "description": "CD-0164 D5: the active retry populations, counts, limits, and counting prefix, read where the wall is applied. The correction context's attempt_count is not always this whole-work nonprogress count."
+        "review": {
+          "$ref": "#/$defs/workflow_review_state"
         },
         "self_repair": {
           "oneOf": [
@@ -14266,7 +14802,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "estimated_production_lines": {
-          "description": "Production lines you expect to add or change, tests excluded. Bounds: 1..100000 value inclusive",
+          "description": "Production lines you expect to add or change, tests excluded; a relative-size estimate, not a delivered-code measurement or assignment cap. Bounds: 1..100000 value inclusive",
           "maximum": 100000,
           "minimum": 1,
           "type": "integer"
@@ -14302,7 +14838,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_size_summary": {
       "additionalProperties": false,
-      "description": "The work item's current size record: the effective size (the operator's size when one is recorded, otherwise the versioned model's), the model's own size and any operator size, the model version, and when the model recorded it. Absent when the work was never sized.",
+      "description": "The work item's current effective size, model decision, optional operator override, model version, and recording time. Absent when work has never been sized.",
       "properties": {
         "model_size": {
           "$ref": "#/$defs/work_size_class"
@@ -15296,15 +15832,6 @@ const GeneratedPayloadSchemaDocument = `{
                 "asserted"
               ],
               "type": "string"
-            },
-            "supplemental_classifications": {
-              "description": "Bounds: 1..64 items inclusive",
-              "items": {
-                "$ref": "#/$defs/worker_job_measured_path"
-              },
-              "maxItems": 64,
-              "minItems": 1,
-              "type": "array"
             }
           },
           "required": [
@@ -17938,18 +18465,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string",
               "x-maxBytes": 128
             },
-            "evidence_kind": {
-              "enum": [
-                "verification",
-                "review",
-                "approval",
-                "commit",
-                "durable_note",
-                "native_run",
-                "artifact"
-              ],
-              "type": "string"
-            },
             "evidence_refs": {
               "description": "Bounds: 1..32 items inclusive",
               "items": {
@@ -20513,170 +21028,143 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "Bounds: >=1 value inclusive"
         },
         "fields": {
-          "oneOf": [
-            {
-              "additionalProperties": false,
-              "description": "Bounds: <=32 properties inclusive",
-              "maxProperties": 32,
-              "properties": {
-                "acceptance_oracle": {
-                  "$ref": "#/$defs/worker_acceptance_oracle"
-                },
-                "checks": {
-                  "description": "Bounds: 0..64 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "maxItems": 64,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "direct_caller_allowance": {
-                  "$ref": "#/$defs/worker_job_direct_caller_allowance"
-                },
-                "job_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "type": "string",
-                  "x-maxBytes": 128,
-                  "x-minBytes": 2
-                },
-                "measurement_basis": {
-                  "$ref": "#/$defs/worker_job_measurement_basis"
-                },
-                "objective": {
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                },
-                "path_scope": {
-                  "description": "Bounds: 0..64 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "maxItems": 64,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "predicate_ids": {
-                  "description": "Bounds: 0..8 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/id",
-                    "description": "Bounds: 1..128 code points inclusive"
-                  },
-                  "maxItems": 8,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "prerequisites": {
-                  "description": "Bounds: 0..64 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_prerequisite"
-                  },
-                  "maxItems": 64,
-                  "minItems": 0,
-                  "type": "array"
-                },
-                "production_size_max": {
-                  "description": "Bounds: 1..2147483647 value inclusive",
-                  "maximum": 2147483647,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                "readiness_evidence": {
-                  "description": "Bounds: 0..16 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/reference",
-                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-                  },
-                  "maxItems": 16,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                },
-                "ready": {
-                  "type": "boolean"
-                },
-                "repair_reason": {
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                },
-                "repair_revisions": {
-                  "description": "Bounds: 1..64 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_repair_revision",
-                    "description": "Bounds: 1..9223372036854775807 value inclusive"
-                  },
-                  "maxItems": 64,
-                  "minItems": 1,
-                  "type": "array"
-                },
-                "reserved_integration": {
-                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 4096
-                },
-                "stopping_condition": {
-                  "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive",
-                  "maxLength": 2048,
-                  "minLength": 1,
-                  "pattern": "\\S",
-                  "type": "string",
-                  "x-maxBytes": 2048
-                },
-                "unresolved_refs": {
-                  "description": "Bounds: 0..64 items inclusive",
-                  "items": {
-                    "$ref": "#/$defs/worker_job_text",
-                    "description": "Bounds: 1..256 code points inclusive"
-                  },
-                  "maxItems": 64,
-                  "minItems": 0,
-                  "type": "array",
-                  "uniqueItems": true
-                }
-              },
-              "required": [
-                "job_id",
-                "objective",
-                "stopping_condition",
-                "ready",
-                "acceptance_oracle"
-              ],
-              "type": "object"
+          "additionalProperties": false,
+          "description": "Bounds: <=32 properties inclusive",
+          "maxProperties": 32,
+          "properties": {
+            "acceptance_oracle": {
+              "$ref": "#/$defs/worker_acceptance_oracle"
             },
-            {
-              "additionalProperties": false,
-              "description": "Bounds: <=32 properties inclusive",
-              "maxProperties": 32,
-              "properties": {
-                "split": {
-                  "$ref": "#/$defs/worker_job_split2"
-                }
+            "checks": {
+              "description": "Bounds: 0..64 items inclusive",
+              "items": {
+                "$ref": "#/$defs/worker_job_text",
+                "description": "Bounds: 1..256 code points inclusive"
               },
-              "required": [
-                "split"
-              ],
-              "type": "object"
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "direct_caller_allowance": {
+              "$ref": "#/$defs/worker_job_direct_caller_allowance"
+            },
+            "job_id": {
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "objective": {
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "path_scope": {
+              "description": "Bounds: 0..64 items inclusive",
+              "items": {
+                "$ref": "#/$defs/reference",
+                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "predicate_ids": {
+              "description": "Bounds: 0..8 items inclusive",
+              "items": {
+                "$ref": "#/$defs/id",
+                "description": "Bounds: 1..128 code points inclusive"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "prerequisites": {
+              "description": "Bounds: 0..64 items inclusive",
+              "items": {
+                "$ref": "#/$defs/worker_job_prerequisite"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "readiness_evidence": {
+              "description": "Bounds: 0..16 items inclusive",
+              "items": {
+                "$ref": "#/$defs/reference",
+                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "ready": {
+              "type": "boolean"
+            },
+            "repair_reason": {
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "repair_revisions": {
+              "description": "Bounds: 1..64 items inclusive",
+              "items": {
+                "$ref": "#/$defs/worker_job_repair_revision",
+                "description": "Bounds: 1..9223372036854775807 value inclusive"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            "reserved_integration": {
+              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "stopping_condition": {
+              "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "unresolved_refs": {
+              "description": "Bounds: 0..64 items inclusive",
+              "items": {
+                "$ref": "#/$defs/worker_job_text",
+                "description": "Bounds: 1..256 code points inclusive"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
             }
-          ]
+          },
+          "required": [
+            "job_id",
+            "objective",
+            "stopping_condition",
+            "ready",
+            "acceptance_oracle"
+          ],
+          "type": "object"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id",
@@ -24879,64 +25367,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "worker_job_measured_path": {
-      "additionalProperties": false,
-      "description": "One measured inventory entry: a normalized relative repository path and its closed classification. A generated exclusion requires its owning generator reference; every other classification carries none.",
-      "properties": {
-        "class": {
-          "description": "The closed classification vocabulary. Production paths enter the counted delta; test, documentation, and verified generated outputs do not.",
-          "enum": [
-            "production",
-            "test",
-            "documentation",
-            "generated"
-          ],
-          "type": "string"
-        },
-        "generator_ref": {
-          "description": "The owning generator's normalized relative repository path. Required when class is generated; refused on every other classification. Bounds: 1..512 code points inclusive",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        },
-        "path": {
-          "description": "A normalized relative repository-contained path, unique within the inventory. Bounds: 1..512 code points inclusive",
-          "maxLength": 512,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "path",
-        "class"
-      ],
-      "type": "object"
-    },
-    "worker_job_measurement_basis": {
-      "additionalProperties": false,
-      "description": "The measurement basis that binds one recorded job's production-size cap (CD-0225 D1): the immutable Git base commit the delta is counted against and the exact path inventory with its classifications. An editing job under a size-capable definition carries it beside the cap; a read-only job carries neither.",
-      "properties": {
-        "base_commit": {
-          "description": "The raw commit oid of the clean integration foundation the production delta is measured against, never an arbitrary recent commit.",
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "type": "string"
-        },
-        "paths": {
-          "description": "The explicit edit paths known before dispatch, each classified once. Every path must be contained by the job's path_scope. Bounds: 1..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_measured_path"
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array"
-        }
-      },
-      "required": [
-        "base_commit",
-        "paths"
-      ],
-      "type": "object"
-    },
     "worker_job_prerequisite": {
       "additionalProperties": false,
       "properties": {
@@ -24968,324 +25398,6 @@ const GeneratedPayloadSchemaDocument = `{
       "maximum": 9223372036854775807,
       "minimum": 1,
       "type": "integer"
-    },
-    "worker_job_split": {
-      "additionalProperties": false,
-      "description": "The closed split variant of record_worker_job (CD-0225 D3): one atomic record that replaces the current predecessor revision with two or more new successor jobs under the predecessor's cap, with an evidenced allocation of the predecessor's measured paths. The store checks reference coverage and exact retained content, not prose equivalence.",
-      "properties": {
-        "allocation": {
-          "description": "The evidenced allocation of the predecessor's measured paths to successors. Every predecessor inventory path is allocated.",
-          "items": {
-            "$ref": "#/$defs/worker_job_split_allocation"
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array"
-        },
-        "predecessor": {
-          "additionalProperties": false,
-          "description": "The predecessor's current recorded revision, named exactly by job_id, revision, and digest.",
-          "properties": {
-            "digest": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "job_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
-            },
-            "revision": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          "required": [
-            "job_id",
-            "revision",
-            "digest"
-          ],
-          "type": "object"
-        },
-        "successors": {
-          "description": "The successor jobs, each a new job_id recorded at revision 1 with the ordinary job content.",
-          "items": {
-            "$ref": "#/$defs/worker_job_split_successor"
-          },
-          "maxItems": 64,
-          "minItems": 2,
-          "type": "array"
-        }
-      },
-      "required": [
-        "predecessor",
-        "successors",
-        "allocation"
-      ],
-      "type": "object"
-    },
-    "worker_job_split2": {
-      "additionalProperties": false,
-      "properties": {
-        "allocation": {
-          "description": "Bounds: 1..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_split_allocation"
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array"
-        },
-        "predecessor": {
-          "additionalProperties": false,
-          "properties": {
-            "digest": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "job_id": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "revision": {
-              "description": "Bounds: 1..2147483647 value inclusive",
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          "required": [
-            "job_id",
-            "revision",
-            "digest"
-          ],
-          "type": "object"
-        },
-        "replaced_attempt": {
-          "additionalProperties": false,
-          "description": "The exact completed overrun attempt this split replaces. Supplemental classifications serve only its overrun evidence; they change no inventory or descendant authority.",
-          "properties": {
-            "attempt_epoch": {
-              "description": "Bounds: 1..2147483647 value inclusive",
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "attempt_id": {
-              "$ref": "#/$defs/reference",
-              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "supplemental_classifications": {
-              "description": "Bounds: 1..64 items inclusive",
-              "items": {
-                "$ref": "#/$defs/worker_job_measured_path"
-              },
-              "maxItems": 64,
-              "minItems": 1,
-              "type": "array"
-            }
-          },
-          "required": [
-            "attempt_id",
-            "attempt_epoch"
-          ],
-          "type": "object"
-        },
-        "successors": {
-          "description": "Bounds: 2..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_split_successor"
-          },
-          "maxItems": 64,
-          "minItems": 2,
-          "type": "array"
-        }
-      },
-      "required": [
-        "predecessor",
-        "successors",
-        "allocation"
-      ],
-      "type": "object"
-    },
-    "worker_job_split_allocation": {
-      "additionalProperties": false,
-      "description": "One allocation entry: the successor that owns the listed predecessor paths and the evidence for the assignment.",
-      "properties": {
-        "evidence_refs": {
-          "description": "The evidence for the assignment. Bounds: 1..16 items inclusive",
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "job_id": {
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "type": "string",
-          "x-maxBytes": 128,
-          "x-minBytes": 2
-        },
-        "paths": {
-          "description": "Normalized relative repository paths, each inside the named successor's path_scope. Bounds: 1..64 items inclusive",
-          "items": {
-            "description": "Bounds: 1..512 code points inclusive",
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        }
-      },
-      "required": [
-        "job_id",
-        "paths",
-        "evidence_refs"
-      ],
-      "type": "object"
-    },
-    "worker_job_split_successor": {
-      "additionalProperties": false,
-      "description": "One successor job's content: the ordinary record_worker_job members. Its revision, Project scope, contract version, and digest are core-derived exactly as for an ordinary recording.",
-      "properties": {
-        "acceptance_oracle": {
-          "$ref": "#/$defs/worker_acceptance_oracle"
-        },
-        "checks": {
-          "description": "Bounds: 0..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_text",
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "direct_caller_allowance": {
-          "$ref": "#/$defs/worker_job_direct_caller_allowance"
-        },
-        "job_id": {
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive",
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "type": "string",
-          "x-maxBytes": 128,
-          "x-minBytes": 2
-        },
-        "measurement_basis": {
-          "$ref": "#/$defs/worker_job_measurement_basis"
-        },
-        "objective": {
-          "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-          "maxLength": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string",
-          "x-maxBytes": 4096
-        },
-        "path_scope": {
-          "description": "Bounds: 0..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "predicate_ids": {
-          "description": "Bounds: 0..8 items inclusive",
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "maxItems": 8,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "prerequisites": {
-          "description": "Bounds: 0..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_prerequisite"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "production_size_max": {
-          "description": "Bounds: 1..2147483647 value inclusive",
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "readiness_evidence": {
-          "description": "Bounds: 0..16 items inclusive",
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "maxItems": 16,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "ready": {
-          "type": "boolean"
-        },
-        "reserved_integration": {
-          "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive",
-          "maxLength": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string",
-          "x-maxBytes": 4096
-        },
-        "stopping_condition": {
-          "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive",
-          "maxLength": 2048,
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string",
-          "x-maxBytes": 2048
-        },
-        "unresolved_refs": {
-          "description": "Bounds: 0..64 items inclusive",
-          "items": {
-            "$ref": "#/$defs/worker_job_text",
-            "description": "Bounds: 1..256 code points inclusive"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        }
-      },
-      "required": [
-        "job_id",
-        "objective",
-        "stopping_condition",
-        "ready",
-        "acceptance_oracle"
-      ],
-      "type": "object"
     },
     "worker_job_text": {
       "description": "Bounds: 1..256 code points inclusive",
@@ -25867,6 +25979,10 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
               "type": "string"
             },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input",
+              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
+            },
             "task": {
               "maxLength": 4096,
               "minLength": 1,
@@ -26273,7 +26389,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_packet5": {
       "additionalProperties": false,
-      "description": "The size-capable packet identity the size-capable definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the recorded production-size members and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the size content rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the size-bearing packets the packet5 declaration admits.",
+      "description": "The caller-scope packet identity the definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the direct-caller allowance and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the caller scope rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the caller-scope packets the packet5 declaration admits.",
       "properties": {
         "attempt_id": {
           "$ref": "#/$defs/id"
@@ -26326,6 +26442,10 @@ const GeneratedPayloadSchemaDocument = `{
               "const": "concord-worker-result-v1",
               "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
               "type": "string"
+            },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input",
+              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
             },
             "task": {
               "maxLength": 4096,
@@ -26388,7 +26508,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_packet5_worker_job": {
       "additionalProperties": false,
-      "description": "The selected ready worker-job revision a packet5 attempt executes: the packet2/3 worker_job shape plus the optional core-recorded checks_repair metadata (CD-0205 D4), the recorded production-size members, and the dispatch-time caller exclusions (CD-0225 D1, CD-0227 D1). The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
+      "description": "The selected ready worker-job revision a packet5 attempt executes: the packet2/3 worker_job shape plus the optional core-recorded checks_repair metadata (CD-0205 D4), the recorded direct-caller allowance, and the dispatch-time caller exclusions (CD-0227 D1). The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
       "properties": {
         "acceptance_oracle": {
           "$ref": "#/$defs/worker_acceptance_oracle",
@@ -26434,10 +26554,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 2,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "type": "string"
-        },
-        "measurement_basis": {
-          "$ref": "#/$defs/worker_job_measurement_basis",
-          "description": "The recorded measurement basis of this revision: the immutable base commit and the classified path inventory. Optional and omitted on every read-only revision."
         },
         "objective": {
           "maxLength": 4096,
@@ -26495,12 +26611,6 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 64,
           "minItems": 0,
           "type": "array"
-        },
-        "production_size_max": {
-          "description": "The recorded production-size cap (CD-0225 D1). Optional and omitted on every read-only revision; carried beside the measurement basis by every editing revision.",
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
         },
         "project_scope": {
           "maxLength": 128,
@@ -26878,6 +26988,121 @@ const GeneratedPayloadSchemaDocument = `{
       "maxItems": 8,
       "minItems": 1,
       "type": "array"
+    },
+    "worker_packet_review_candidate": {
+      "additionalProperties": false,
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "tree": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "commit",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "worker_packet_review_dependencies": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "architecture_digest"
+            ]
+          },
+          "properties": {
+            "architecture_not_applicable": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "architecture_not_applicable": {
+              "const": false
+            }
+          },
+          "required": [
+            "architecture_digest"
+          ]
+        }
+      ],
+      "properties": {
+        "architecture_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "architecture_not_applicable": {
+          "type": "boolean"
+        },
+        "criteria": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content_digest": {
+                "maxLength": 71,
+                "minLength": 71,
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "predicate_id": {
+                "maxLength": 128,
+                "minLength": 11,
+                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "predicate_id",
+              "content_digest"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "criteria",
+        "architecture_not_applicable"
+      ],
+      "type": "object"
+    },
+    "worker_packet_review_input": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "$ref": "#/$defs/worker_packet_review_dependencies"
+        },
+        "input_candidate": {
+          "$ref": "#/$defs/worker_packet_review_candidate"
+        }
+      },
+      "required": [
+        "input_candidate",
+        "dependencies"
+      ],
+      "type": "object"
     },
     "worker_packet_work_record": {
       "additionalProperties": false,
@@ -27729,14 +27954,6 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_correction_context": {
       "additionalProperties": false,
       "properties": {
-        "attempt_count": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "attempt_limit": {
-          "$ref": "#/$defs/version"
-        },
         "diagnosis": {
           "maxLength": 4096,
           "type": "string"
@@ -27748,9 +27965,6 @@ const GeneratedPayloadSchemaDocument = `{
             "verification"
           ],
           "type": "string"
-        },
-        "escalated": {
-          "type": "boolean"
         },
         "evidence_refs": {
           "items": {
@@ -27798,9 +28012,6 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "disposition",
-        "attempt_count",
-        "attempt_limit",
-        "escalated",
         "predicate_ids",
         "evidence_refs",
         "source_event_id",
@@ -28259,8 +28470,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -28490,47 +28700,6 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 1,
       "type": "string"
     },
-    "workflow_progress_anchor": {
-      "additionalProperties": false,
-      "description": "CD-0164 D5: one derived retry-window boundary's exact global event-log position. event_id and kind are the domain_events row at seq, never the history page's per-kind version and never a timestamp inferred from a report. A boundary with no qualifying event is explicit null on the carrying window, never a zero value.",
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/id",
-          "description": "The workflow action whose recorded completion is the qualified satisfaction, where one exists."
-        },
-        "event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "kind": {
-          "$ref": "#/$defs/short"
-        },
-        "obligation_id": {
-          "$ref": "#/$defs/obligation_id"
-        },
-        "qualification": {
-          "enum": [
-            "satisfying_worker_acceptance",
-            "required_evidence_bound",
-            "comparable_predicate_satisfied",
-            "required_premise_confirmed",
-            "comparable_healthy_verdict_baseline"
-          ],
-          "type": "string"
-        },
-        "seq": {
-          "maximum": 9007199254740991,
-          "minimum": 1,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "event_id",
-        "kind",
-        "seq",
-        "qualification"
-      ],
-      "type": "object"
-    },
     "workflow_proposal_record": {
       "additionalProperties": false,
       "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
@@ -28738,19 +28907,9 @@ const GeneratedPayloadSchemaDocument = `{
         "ready": {
           "type": "boolean"
         },
-        "retry_window": {
-          "$ref": "#/$defs/workflow_retry_window",
-          "description": "CD-0164 D5: the active retry populations, counts, limits, and counting prefix, read in the same transaction as the rest of the projection."
-        },
         "stale_law_revision": {
           "additionalProperties": false,
           "properties": {
-            "accepted_successor_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "accepted_successor_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
@@ -28768,8 +28927,6 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "type": [
@@ -28971,149 +29128,87 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "workflow_retry_window": {
+    "workflow_review_state": {
       "additionalProperties": false,
-      "description": "CD-0164 D5: the readable retry window behind the dispatch wall, derived from the same immutable event-prefix interpretation admission uses. Anchors are explicit null when no qualifying event exists. Worker-satisfaction, nonprogress, and healthy-verdict boundaries stay distinguishable, and unresolved obligation identities are bounded with an explicit omitted count, never silent truncation.",
       "properties": {
-        "blocking_population": {
-          "enum": [
-            "none",
-            "nonprogress",
-            "correction",
-            "both"
-          ],
-          "type": "string"
+        "accepted_review": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "actor_ref": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "report": {
+                  "$ref": "#/$defs/lane_report_review_block"
+                },
+                "report_digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "report_ref": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "report_ref",
+                "report_digest",
+                "actor_ref",
+                "report"
+              ],
+              "type": "object"
+            }
+          ]
         },
-        "convergence_basis": {
-          "description": "The one-use basis a convergence-admitted retry consumed, or the empty string when no basis is currently available; a one-use basis is not a renewed window.",
-          "enum": [
-            "",
-            "findings_shrinking",
-            "approach_changed",
-            "host_changed",
-            "split_leaf_progress"
-          ],
-          "type": "string"
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/lane_report_review_candidate"
+            }
+          ]
         },
-        "correction_escalated": {
+        "continue_consumed": {
           "type": "boolean"
         },
-        "count": {
-          "minimum": 0,
-          "type": "integer"
+        "dependencies": {
+          "$ref": "#/$defs/lane_report_review_dependencies"
         },
-        "dispatch_count": {
-          "description": "CD-0164 D1/D4: the open correction window's dispatched attempts since the last accepted productive result. It escalates the failure and rejection path at dispatch_count >= dispatch_limit.",
-          "minimum": 0,
-          "type": "integer"
+        "dependencies_current": {
+          "type": "boolean"
         },
-        "dispatch_limit": {
-          "$ref": "#/$defs/version"
-        },
-        "funded_confirming_reviews": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "limit": {
-          "$ref": "#/$defs/version"
-        },
-        "nonprogress_anchor": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_progress_anchor"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "omitted_unresolved_obligations": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "policy": {
-          "enum": [
-            "worker_acceptance",
-            "obligation_satisfaction_v1"
-          ],
-          "type": "string"
-        },
-        "population": {
-          "enum": [
-            "distinct_failed_rejected_no_ship"
-          ],
-          "type": "string"
-        },
-        "prefix": {
-          "maximum": 9007199254740991,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "step": {
-          "$ref": "#/$defs/short",
-          "description": "The workflow step the window's counts and blocking population were derived for."
-        },
-        "unresolved_obligation_count": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "unresolved_obligations": {
+        "findings": {
           "items": {
-            "$ref": "#/$defs/obligation_id"
+            "$ref": "#/$defs/lane_report_review_finding"
           },
-          "maxItems": 32,
-          "type": "array",
-          "uniqueItems": true
+          "type": "array"
         },
-        "verification_baseline": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_progress_anchor"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "group_id": {
+          "$ref": "#/$defs/id"
         },
-        "verification_count": {
-          "description": "CD-0164 D4: recorded request_correction actions since the comparable-healthy baseline, including the open request. It escalates the verification path at verification_count > verification_limit.",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "verification_limit": {
-          "$ref": "#/$defs/version"
-        },
-        "worker_satisfaction_anchor": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_progress_anchor"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "publication_outstanding": {
+          "type": "boolean"
         }
       },
       "required": [
-        "population",
-        "policy",
-        "count",
-        "limit",
-        "prefix",
-        "nonprogress_anchor",
-        "worker_satisfaction_anchor",
-        "verification_baseline",
-        "dispatch_count",
-        "dispatch_limit",
-        "verification_count",
-        "verification_limit",
-        "correction_escalated",
-        "blocking_population",
-        "convergence_basis",
-        "funded_confirming_reviews",
-        "unresolved_obligations",
-        "unresolved_obligation_count",
-        "omitted_unresolved_obligations"
+        "candidate",
+        "accepted_review",
+        "findings",
+        "continue_consumed",
+        "dependencies_current",
+        "publication_outstanding"
       ],
       "type": "object"
     },
@@ -29208,8 +29303,12 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_verdict_batch_entry": {
       "additionalProperties": false,
       "properties": {
-        "evaluation_evidence": {
-          "description": "Bounds: 1..32 items inclusive",
+        "predicate_id": {
+          "$ref": "#/$defs/id",
+          "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
+        },
+        "receipt_refs": {
+          "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive",
           "items": {
             "$ref": "#/$defs/reference",
             "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
@@ -29218,27 +29317,11 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 1,
           "type": "array",
           "uniqueItems": true
-        },
-        "incomparable_with_approved": {
-          "type": "boolean"
-        },
-        "predicate_id": {
-          "$ref": "#/$defs/id",
-          "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
-        },
-        "verdict_kind": {
-          "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred.",
-          "enum": [
-            "ok",
-            "outcome_mismatch",
-            "insufficient_evidence"
-          ],
-          "type": "string"
         }
       },
       "required": [
         "predicate_id",
-        "verdict_kind"
+        "receipt_refs"
       ],
       "type": "object"
     },

@@ -9,7 +9,7 @@ import (
 )
 
 // The completion record must agree with the event log it summarizes (#856).
-// The fixture binds three evidence events, records one ok verdict, and
+// The fixture binds evidence, associates current criterion proof, and
 // confirms the premise; the completed payload must carry those facts, not
 // the literal zero, the absent-fields default, and the constant "ok".
 func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
@@ -24,7 +24,7 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/record-integrity")
+	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/record-integrity")
 	event, err := workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "record-integrity", ExpectedVersion: version, OperationID: "record-integrity-complete", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, actorRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	if err != nil {
 		t.Fatalf("completion event was refused: %v", err)
@@ -36,18 +36,16 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if got, _ := payload["premise_confirmed"].(bool); !got {
 		t.Error("premise_confirmed is false while the log holds an operator premise confirmation for this contract")
 	}
-	if got, _ := payload["evidence_count"].(float64); got != 3 {
-		t.Errorf("evidence_count = %v, want 3 (the log binds verification, review, and artifact evidence)", got)
+	if got, _ := payload["evidence_count"].(float64); got != 5 {
+		t.Errorf("evidence_count = %v, want five bindings (three required kinds, captured receipt, and spec)", got)
 	}
 	if got, _ := payload["final_verdict_kind"].(string); got != "ok" {
 		t.Errorf("final_verdict_kind = %q, want the recorded verdict kind %q", got, "ok")
 	}
 }
 
-// A lane dispatch rotates the executing-actor lease, not authorship (#801).
-// The owner who started the delivery step stays the delivery author of
-// record, so the evaluator-distinctness check must refuse that owner even
-// while the lane holds the executing lease.
+// A lane dispatch rotates the executing-actor lease, not Main's authority to
+// associate captured proof. The worker cannot perform Main's acceptance work.
 func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -72,12 +70,13 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 		t.Fatal(err)
 	}
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+	dispatch := Event{EventID: "rot-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "rot-worker-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
+	completed := workerCompleteEventForLane(workID, "rot-worker-completed", attemptID, lane, time.Unix(3, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	completed.Actor = "worker:host"
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
 		t.Fatalf("recording the dispatched lane attempt: %v", err)
 	}
@@ -105,21 +104,18 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	// The owner authored the delivery: evaluating it is self-evaluation and
-	// must refuse, lane lease or no lane lease.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef, "", false); err == nil {
-		t.Error("the delivery author cleared the evaluator-distinctness check while the lane held the executing lease")
-	} else if !strings.Contains(err.Error(), "evaluate") && !strings.Contains(err.Error(), "author") && !strings.Contains(err.Error(), "distinct") {
-		t.Errorf("owner verdict refusal came from an unexpected gate: %v", err)
+	// Main may associate proof even after authoring a delivery; the proof's
+	// captured producer, not Main's verdict word, establishes the result.
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, ownerRef); err != nil {
+		t.Errorf("Main lost proof-association authority when the lease rotated: %v", err)
 	}
-	// The dispatched lane executed on the step, so it cannot sign the verdict
-	// either: independence holds against every step executor.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, laneRef, "", false); err == nil {
+	// The dispatched lane remains a worker, not Main.
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, laneRef); err == nil {
 		t.Error("a lane that executed on the delivery step cleared the evaluator-distinctness check")
 	}
 	// An agent that executed nothing on this work item remains an acceptable
 	// evaluator.
-	if err := workflowCompletionActorDistinct(ctx, tx, workID, outside, "", false); err != nil {
+	if err := workflowCompletionActorDistinct(ctx, tx, workID, outside); err != nil {
 		t.Errorf("an agent that executed nothing must remain an acceptable evaluator: %v", err)
 	}
 }
@@ -142,7 +138,7 @@ func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
 	digest := workflowFixtureDefinition(t, 2).Digest
 	setup := []Event{
 		workflowEvent("eref-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("eref-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("eref-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("eref-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("eref-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("eref-design", workID, ownerRef, 6, "design", "record_design"),

@@ -294,11 +294,11 @@ def test_doc_contract_field_divergence_is_reported() -> None:
 
 def test_law_kind_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["lawRelation"]["properties"]["kind"]["enum"] = ["supersedes"]
+    schema["$defs"]["lawRelation"]["properties"]["kind"]["enum"] = ["refines"]
     findings = validate(schema)
     assert findings == [
         "LAW_KINDS: enforced by the checker, absent from the schema: "
-        "conflicts_with, refines, subordinate_to"
+        "conflicts_with, subordinate_to"
     ]
 
 

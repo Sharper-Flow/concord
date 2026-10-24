@@ -46,8 +46,14 @@ func checkNativeOracleProducerTx(ctx context.Context, q queryer, work string, r 
 	if !nativeOracleDispatchMatches(d, p, o) {
 		return errOracleReceiptRefused
 	}
-	// The execution must still join the complete preparation it named: the
-	// same candidate, contract, bundle, pinned inputs, and environment.
+	if p.ReviewRepair != nil {
+		if err := validateNativeReviewRepairTx(ctx, q, work, d, p.ReviewRepair); err != nil {
+			return errOracleReceiptRefused
+		}
+	}
+	// The original preparation qualifies assignment readiness and the pinned
+	// harness. A repairing execute prepares C in its own immutable snapshot:
+	// metadata/compile (or target collection) stages must precede its test.
 	prep, err := readOraclePreparationReceiptTx(ctx, q, work, r.ProjectID, o.PreparationRunRef)
 	if err != nil {
 		return err
@@ -129,11 +135,22 @@ func readNativeOracleAuthorizingDispatchTx(ctx context.Context, q queryer, work 
 }
 
 func nativeOracleDispatchMatches(d workflowActionCompletedPayload, p nativeOraclePlan, o *NativeOracleResult) bool {
-	return d.ActionID == "dispatch_worker" && d.WorkerAttemptID == o.AttemptID && d.AttemptEpoch == o.AttemptEpoch && d.WorkerPacketDigest == o.WorkerPacketDigest && d.WorkerSubjectCommit == o.SubjectCommit && d.WorkerWorktreeIdentity == p.WorktreeIdentity && d.WorkerLaneID != "" && d.WorkerJob != nil && *d.WorkerJob == *o.WorkerJobBinding
+	subject := o.SubjectCommit
+	if p.ReviewRepair != nil {
+		if p.ReviewRepair.Commit != o.SubjectCommit || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneVersion, d.WorkerLaneDigest) {
+			return false
+		}
+		subject = p.ReviewRepair.Base
+	}
+	return d.ActionID == "dispatch_worker" && d.WorkerAttemptID == o.AttemptID && d.AttemptEpoch == o.AttemptEpoch && d.WorkerPacketDigest == o.WorkerPacketDigest && d.WorkerSubjectCommit == subject && d.WorkerWorktreeIdentity == p.WorktreeIdentity && d.WorkerLaneID != "" && d.WorkerJob != nil && *d.WorkerJob == *o.WorkerJobBinding
 }
 
 func nativeOraclePreparationJoins(prep *NativeOraclePreparation, p nativeOraclePlan, o *NativeOracleResult, envDigest, envIdentity string) bool {
-	if prep == nil || prep.SubjectCommit != o.SubjectCommit || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
+	preparationSubject := o.SubjectCommit
+	if p.ReviewRepair != nil {
+		preparationSubject = p.ReviewRepair.Base
+	}
+	if prep == nil || prep.SubjectCommit != preparationSubject || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != envIdentity || prep.BuildEnvironmentDigest != envDigest {
 		return false
 	}
 	if p.Target != nil {

@@ -72,12 +72,9 @@ func TestWorkSizeOverrideGovernsBesideTheModelResult(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("override-sized-2", "override", WorkSizeModelVersion, WorkSizeLarger, larger), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	decision, _ = readEffectiveWorkSizeForTest(t, s, "override")
 	if decision.Effective != WorkSizeCrucial || decision.Model.Size != WorkSizeLarger || decision.Model.Sequence != 2 {
-		t.Fatalf("after a rerun and replay: %+v; want the operator's size to govern over the model's larger", decision)
+		t.Fatalf("after a rerun: %+v; want the operator's size to govern over the model's larger", decision)
 	}
 }
 
@@ -164,6 +161,14 @@ func TestWorkSizeOverrideEventRefusesANonOperatorActor(t *testing.T) {
 	err := applyWorkEvent(t, s, event, nil)
 	assertFailureKind(t, err, KindUnauthorized)
 	assertNoWorkSizeOverride(t, s, "agent")
+}
+
+func TestWorkSizeOverrideRefusesLiveCarriedHistory(t *testing.T) {
+	s := openTemp(t)
+	sizedWork(t, s, "carried")
+	event := operationEvent("carried-override", WorkSizeOverridden, SubjectWorkItem, "carried", workSizeOverriddenPayload{ModelSequence: 1, Size: WorkSizeCrucial, Reason: "historical carry", CarriedFromEventID: "other-override"})
+	assertFailureKind(t, applyWorkEvent(t, s, event, nil), KindInvalidOperation)
+	assertNoWorkSizeOverride(t, s, "carried")
 }
 
 func TestWorkSizeOverrideTableIsFoldOnly(t *testing.T) {

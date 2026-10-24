@@ -54,7 +54,7 @@ func conflictSizedWorkEvent(t *testing.T, eventID, workID string) store.Event {
 	if err != nil {
 		t.Fatalf("encode the size event: %v", err)
 	}
-	return store.Event{EventID: eventID, Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}
+	return store.Event{EventID: eventID, Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkSized), Payload: payload}
 }
 
 // createConflictWork seeds one plain task work item with a primary membership
@@ -62,7 +62,7 @@ func conflictSizedWorkEvent(t *testing.T, eventID, workID string) store.Event {
 func createConflictWork(t *testing.T, ctx context.Context, s *store.Store, id, projectID string) {
 	t.Helper()
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"` + id + `","priority":1}`)},
+		{EventID: id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + id + `","priority":1}`)},
 		{EventID: id + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"` + projectID + `","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, id): 0}}); err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func conflictLaterAssessment(t *testing.T, s *store.Store, workID string) {
 	if err != nil {
 		t.Fatalf("encode the later assessment event: %v", err)
 	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: workID + "-size-later", Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: workID + "-size-later", Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkSized), Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
 }

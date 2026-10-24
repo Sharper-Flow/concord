@@ -4,11 +4,6 @@
 - **Date:** 2026-10-17
 - **Scope:** Merge-mode classification in `concord ci-wait`; the verb's
   `gh api` read boundary and its `repo` input
-- **Amends:** [CD-0228](CD-0228-merge-waits-report-observed-check-failures-unless-github-reports-unstable.md)
-  D1 and D2;
-  [CD-0161](CD-0161-the-ci-wait-checks-verdict-blocks-only-on-a-dirty-merge-state.md) D2;
-  [CD-0160](CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md)
-  D1, D4, and D7
 - **Preserves:** Head supersession, merged and closed precedence, the
   `UNSTABLE` exception for check failures, checks mode, bounded slices,
   carried deadlines, and the closed report statuses
@@ -74,8 +69,8 @@ decided the pull request will not merge from this entry. The report reason
 names the removal and GitHub's reason string, for example
 `the merge queue removed the pull request without merging (failed_checks)`.
 
-This amends CD-0160 D4: a merge wait can report `failure` without a failed
-check. The report keeps `checks` from the head rollup, and it can carry no
+A merge wait can report `failure` without a failed check.
+The report keeps `checks` from the head rollup, and it can carry no
 failure entry.
 
 ### D3. Naming the failed queue run is best-effort detail
@@ -86,7 +81,7 @@ run whose conclusion is not success, skipped, or neutral becomes a failure
 entry with its name, URL, class, and failed-log excerpt under CD-0160 D4. The
 first entry supplies `run_url`.
 
-This amends CD-0160 D7. A failed run-list read, a missing commit, or no
+A failed run-list read, a missing commit, or no
 failed run leaves the failure entries empty. The removal remains the verdict.
 The run list is report detail, like the log excerpt, and never a second
 verdict.
@@ -99,12 +94,12 @@ without the pull request is an error, never an absent queue.
 
 ### D5. Every gh api call is a fixed query
 
-This amends CD-0160 D1. The verb calls `gh api` only for fixed REST
+The verb calls `gh api` only for fixed REST
 endpoints read with `GET` and for the one constant GraphQL query document of
 D1. Owner, name, and number travel as GraphQL variables. Every `gh`
 invocation stays a query.
 
-The `repo` input now names API paths, so it must be exactly two plain
+The `repo` input names API paths, so it must be exactly two plain
 segments: an owner and a repository name joined by one slash. Each segment
 holds only ASCII letters, digits, `.`, `_`, and `-`, and is never `.` or
 `..`. A request with any other value is `refused`. Every poll repeats the
@@ -124,9 +119,8 @@ ends as `error`. Neither case reaches a `gh` call.
 
 ## Consequences
 
-Each merge poll costs one GraphQL request more. A merge wait on a repository
-without a merge queue reads an empty timeline and behaves as before, except
-that a failed queue read is an `error`.
+Each merge poll includes one GraphQL queue request. A merge wait on a repository
+without a merge queue reads an empty timeline; a failed queue read is an `error`.
 
 Only the reasons `failed_checks` and `merged` have been observed. Every other
 reason counts as a drop. GitHub's auto-merge state after a removal was not
@@ -134,7 +128,7 @@ probed, so a removal that GitHub enqueues again later still ends the wait.
 The queue run list names runs of the merge-group commit. It cannot prove that
 a listed failure caused the removal.
 
-A `repo` value with other characters, such as a host prefix, is now refused.
+A `repo` value with other characters, such as a host prefix, is refused.
 The `concord_ci_watch` input schema already refuses every such value.
 
 ## Verification

@@ -2,21 +2,17 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-20
-- **Amended:** 2026-10-18. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 1145](https://linear.app/sharper-flow/issue/CON-1145).
-  In checks mode, D2 judges the watched head's checks after the pull request
-  merges or closes.
 - **Scope:** The `concord ci-wait` PR selector classification; the report's
   `merge_state` field; the `ci-wait` utility registry entry and purpose
 - **Approval:** The operator reviewed live dispatch evidence of green pull
   requests timing out on `mergeStateStatus UNKNOWN` and approved this
-  amendment.
+  amendment. The coordinator approved this record under the operator's delegation
+  on 2026-10-18 for
+  [Concord (CON) issue 1145](https://linear.app/sharper-flow/issue/CON-1145).
 - **Related:** CD-0149, CD-0157, CD-0160
 - **Preserves:** The CD-0160 verb ownership, one bounded slice, carried
   deadline, head-SHA supersession, narrowed command allowance, and explicit
   error reporting
-- **Amends:** CD-0160 D1 (the `mode` input), D2 (the `merged` and `closed`
-  statuses), and D4
 
 ## Context
 
@@ -88,11 +84,9 @@ omitted when empty, so the SHA and run selectors emit no empty field.
 
 ### D4. The utility entry moves to version 3
 
-The registry entry moves to version 3: the request gained a mode field and the
-report gained statuses. The purpose states the input contract: the caller
+The purpose states the input contract: the caller
 passes a repository and one selector, and this utility owns all polling
-through the verb. The CD-0160 D6 denial of caller-side polling methods stands
-unchanged.
+through the verb. CD-0160 D6 forbids caller-side polling methods.
 
 ## Consequences
 
@@ -103,8 +97,6 @@ unchanged.
 - A merge-mode wait can still time out while GitHub has not computed
   mergeability. No claim is made that `UNKNOWN` resolves on demand.
 - The manifest digest moves, and all generated projections regenerate.
-- CD-0160 D4's merge-state clause is amended as recorded here; its other
-  clauses stand.
 
 ## Verification
 

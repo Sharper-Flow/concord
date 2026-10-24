@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestReleasedDigestsIgnoreRecoveryRouteField"
+      "value": "internal/store.TestLiveHeadsAreTheirCompiledCompositions"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion"
+      "value": "internal/store.TestCurrentReviewRoutesStayInsideExecution"
     },
     {
       "kind": "go_test",
@@ -14,11 +14,23 @@
     },
     {
       "kind": "go_test",
+      "value": "internal/store.TestCriterionAssociationRequiresItsOwnDeclaredLateReturn"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCriterionAssociationAtPremiseQuestionWithoutDeclaration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestProductionBindsToDispatchOriginAndCapability"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestResearchAndSpikeProducersClearStaleness"
+      "value": "internal/store.TestResearchProducerClearsStaleness"
     },
     {
       "kind": "go_test",
@@ -38,19 +50,27 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+      "value": "internal/agent.TestSpineReviewRepairsCandidateThroughMainDelivery"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep"
+      "value": "internal/store.TestDeliveryGateCorrectionAdmitsInapplicableReview"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute"
+      "value": "internal/store.TestCurrentRecoveryRoutesAreDeclaredAndDefensive"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute"
+      "value": "internal/store.TestExecutionReviewCorrectionRequiresItsOwningActions"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSpineCurrentReviewCorrectionAdmission"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSpineCompleteStepContractRecovery"
     }
   ],
   "id": "CD-0209",

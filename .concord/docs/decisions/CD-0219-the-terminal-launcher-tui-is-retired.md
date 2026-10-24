@@ -12,14 +12,8 @@
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
   approval record. Its authority tier is `derived` under CD-0159 D3.
-- **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0222,
+- **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
-- **Amends:** CD-0014 (the rendering stack retires with the TUI); CD-0108 D1
-  through D3 (the interactive remake clauses retire; D4 stands); CD-0163
-  (the placement boundary re-homes to the session entry route)
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the session entry route this
-  record preserved, under the Snowball coordinator's operator-delegated
-  approval. D4's kept clauses bind the surviving managed surfaces.
 - **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0090, CD-0163
   D1, CD-0176 D3, CD-0098, the store-write-free managed-entry boundary, and
   the verified worktree claim, occupancy, landing, and vacate rules
@@ -31,10 +25,7 @@ is deleted end to end: internal/launcher, the `concord launcher` verb, the
 bare-invocation TUI route, and the `charm.land` Bubble Tea, bubbles, and
 lipgloss modules. Bare `concord` prints usage.
 
-The entry-route duties this record preserved retired with the entry route.
-The launch-layer removal takes `concord zl`, the argv[0] forwarding,
-`--resume-last`, `--project`, the `concord session` boot command, the
-host-registered opener, and the operator repair launcher. The host starts
+The host starts
 and resumes operator sessions, and a host-started session enters managed
 work through `concord_work_start` (CD-0098).
 
@@ -60,12 +51,9 @@ store reads (the store query contracts).
 ### D3. Obligations whose subject was the TUI are vacated
 
 - CD-0048: the S2 answer-stack clauses are vacated with the screen.
-  Store event, replay, and query contracts remain unchanged.
-  This deletion introduces no recency column or new fold obligation.
-- CD-0083: the no-color render anchors and the operator screen-reader
-  obligation are vacated with the render surface; the C14 §9
-  screen-reader/no-color render condition retires with them. CD-0014's
-  validation-failure falsifier retires with CD-0014's rendering decision.
+  The store's current-state and query contracts remain unchanged
+  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+  This deletion introduces no recency column.
 - CD-0222: the Domain graph claims no launcher consumer; the registry
   authoring obligation and the adopted repository navigation stand.
 - The launcher-rendered floor items `fc1-portfolio-visibility`,
@@ -76,13 +64,13 @@ store reads (the store query contracts).
 
 ### D4. Kept clauses keep their surviving owners
 
-The session entry route is removed. CD-0078 D1 through D3,
+CD-0078 D1 through D3,
 CD-0163 D1, CD-0176 D3, CD-0093, and CD-0031 bind host-started managed
 sessions through work start, session-prepare, and the per-turn hook. The
 context, identity, registry-probe, and terminal-placement proofs live with
 the surfaces that own those behaviors. The worktree claim, occupancy,
-landing, and vacate rules are untouched: verified placement, collision
-protection, and release-under-live-work refusals keep their owners.
+landing, and vacate rules require verified placement, collision
+protection, and release-under-live-work refusals.
 
 ## Alternatives considered
 

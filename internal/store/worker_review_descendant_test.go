@@ -19,33 +19,41 @@ func descendantReviewFixture(t *testing.T, id string) (*candidateJourney, string
 		t.Fatal(err)
 	}
 	gitRunStore(t, dir, "branch", "-m", branch)
-	reviewSubjectImplementComplete(t, f, "anchor-a", "anchor-a-completed", true)
+	reviewSubjectImplementComplete(t, f, "anchor-a", "anchor-a-completed")
 	reviewSubjectAccept(t, f.store, id, "anchor-a")
+	acceptCurrentReviewForTest(t, f, dir, "continue")
 	j := &candidateJourney{fixture: f, s: f.store, workID: id, repo: dir}
 	j.observeRun(t, "refine-a")
 	return j, head
 }
 
-type reviewAncestryOutageRunner struct{}
+type reviewAncestryOutageRunner struct{ ancestryCalls int }
 
-func (reviewAncestryOutageRunner) Run(ctx context.Context, path string, args ...string) ([]byte, error) {
+func (r *reviewAncestryOutageRunner) Run(ctx context.Context, path string, args ...string) ([]byte, error) {
 	if len(args) > 0 && args[0] == "--no-replace-objects" {
+		r.ancestryCalls++
 		return nil, errors.New("synthetic ancestry outage")
 	}
 	return (ExecGitRunner{}).Run(ctx, path, args...)
 }
 
-func TestReviewDescendantAncestryOutagePreservesEditingRecovery(t *testing.T) {
+// CD-0242 D5 joins Review to Main's recorded integration, not an ancestry
+// inference from unrecorded HEAD. Editing recovery remains available.
+func TestReviewUnrecordedDescendantRefusesWithoutAncestryReads(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "descendant-ancestry-outage")
 	descendantCommit(t, j, "b")
 	for _, lane := range []string{"review", "implement"} {
 		job := reviewSubjectReadyRevision(t, j.fixture)
-		prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, Runner: reviewAncestryOutageRunner{}})
+		runner := &reviewAncestryOutageRunner{}
+		prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo, Runner: runner})
 		if err != nil {
 			t.Fatalf("prepare %s: %v", lane, err)
 		}
 		before := j.effects(t)
 		err = descendantDispatch(t, j, lane, "outage-"+lane, job, prepared)
+		if runner.ancestryCalls != 0 {
+			t.Fatalf("%s inferred candidate authority with %d ancestry reads", lane, runner.ancestryCalls)
+		}
 		if lane == "implement" {
 			if err != nil {
 				t.Fatalf("editing recovery under ancestry outage: %v", err)
@@ -53,8 +61,8 @@ func TestReviewDescendantAncestryOutagePreservesEditingRecovery(t *testing.T) {
 			continue
 		}
 		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindGitUnreachable || !failure.RetrySafe {
-			t.Fatalf("review under ancestry outage = %v, want retryable git_unreachable", err)
+		if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.Detail != "Review input differs from Main's current integrated candidate" {
+			t.Fatalf("review of unrecorded descendant = %v, want the integrated-candidate refusal", err)
 		}
 		if after := j.effects(t); after != before {
 			t.Fatal("ancestry outage changed durable state")
@@ -135,7 +143,7 @@ func TestReviewDescendantNewerEditingDispatchRefuses(t *testing.T) {
 					}
 					event := Event{
 						EventID: "new-editor-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: j.workID,
-						Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed),
+						Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 						Payload: mustJSONValue(WorkerFailedPayload{
 							AttemptID: "new-editor", ReadbackModel: preferredModelForLane(reviewGateLane(t, capability)), FailureKind: kind, Detail: "bounded worker error",
 							FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: attributionHostObservation()},
@@ -155,7 +163,11 @@ func TestReviewDescendantNewerEditingDispatchRefuses(t *testing.T) {
 					}
 				}
 			}
-			requireDescendantRefusal(t, j, "refused-review", KindUnauthorizedDispatch)
+			kind := KindStaleRequiresReview
+			if state == "in_flight" || state == "design" {
+				kind = KindOperationConflict
+			}
+			requireDescendantRefusal(t, j, "refused-review", kind)
 			j.requireRecordsUnchanged(t, snapshot)
 		})
 	}
@@ -168,13 +180,14 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 			if shape == "older_rejected" {
 				// The rejected result predates a later genuinely produced and
 				// accepted anchor. Resetting HEAD cannot revive the rejected result.
-				reviewSubjectImplementComplete(t, j.fixture, "old-rejected", "old-rejected-completed", true)
+				reviewSubjectImplementComplete(t, j.fixture, "old-rejected", "old-rejected-completed")
 				rejector := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/old-rejector", SessionRef: "session/old-rejector", ActorClass: ActorAgent}
 				if err := j.action(t, "reject_worker_result", map[string]any{
 					"attempt_id": "old-rejected", "attempt_epoch": j.dispatchEpoch(t, "old-rejected"), "diagnosis": "the old result is insufficient", "strategy": "produce the approved change", "predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"old-rejected-completed"},
 				}, rejector); err != nil {
 					t.Fatal(err)
 				}
+				acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
 			}
 			descendantCommit(t, j, "anchor-new")
 			job := reviewSubjectReadyRevision(t, j.fixture)
@@ -190,7 +203,7 @@ func TestReviewDescendantNonDescendantRefuses(t *testing.T) {
 			} else {
 				j.observeRun(t, "reset-rejected")
 			}
-			requireDescendantRefusal(t, j, "nonancestor-review", KindUnauthorizedDispatch)
+			requireDescendantRefusal(t, j, "nonancestor-review", KindStaleRequiresReview)
 		})
 	}
 }
@@ -215,11 +228,12 @@ func TestReviewDescendantPreparedSubjectDriftRefuses(t *testing.T) {
 
 func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.T) {
 	j := journeyThroughA(t, "descendant-unobserved-prepared-drift", true)
-	j.commitB(t)
-	runB := j.observeRun(t, "b")
+	runB := terminalCorrectiveReview(t, j, "integrate-b-review", "job:integrate-b-review", "b")
 	j.bindVerification(t, runB)
+	job := reviewSubjectReadyRevision(t, j.fixture)
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), "observed-b-review", "review", laneVersion, laneDigest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +259,7 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 		}
 	}
 	before := j.effects(t)
-	err = j.terminalAction(t, "record_verdict", mustJSONValue(map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:work-context", "verdict_kind": "ok", "evaluation_evidence": []string{runB.OperationRef}}}}), j.reviewer, nil)
+	err = j.terminalAction(t, "record_verdict", criterionAssociationPayload(runB.OperationRef, "predicate:work-context"), j.fixture.owner)
 	if failureKind(err) != KindStaleRequiresReview {
 		t.Fatalf("next re-observing gate = %v, want stale_requires_review", err)
 	}
@@ -274,17 +288,16 @@ func TestReviewDescendantLaterCorrectiveAnchor(t *testing.T) {
 				}, rejector); err != nil {
 					t.Fatal(err)
 				}
-				requireDescendantRefusal(t, j, "rejected-corrective-review", KindUnauthorizedDispatch)
+				requireDescendantRefusal(t, j, "rejected-corrective-review", KindStaleRequiresReview)
 				return
 			}
 			reviewSubjectAccept(t, j.s, j.workID, "corrective")
-			anchors, err := readReviewDeliveryAnchors(context.Background(), j.s.db, j.workID)
+			state, err := loadWorkflowReviewState(context.Background(), j.s.db, j.workID, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			anchor := selectReviewDeliveryAnchor(anchors, workerWorktreeIdentity(j.repo))
-			if anchor == nil || anchor.attemptID != "corrective" {
-				t.Fatalf("accepted anchor = %+v, want corrective", anchor)
+			if state.Candidate == nil || state.Candidate.Commit != c {
+				t.Fatalf("integrated candidate = %+v, want accepted correction %s", state.Candidate, c)
 			}
 			job = reviewSubjectReadyRevision(t, j.fixture)
 			if err := descendantDispatch(t, j, "review", "corrective-review", job, nil); err != nil {

@@ -11,8 +11,6 @@
   [`floor-readiness.md`](../floor-readiness.md)
 - **Preserves:** the 100ms P99 target; correctness precedence; population
   authority; escaped-busy as a zero-quantity
-- **Supersedes:** nothing; refines which measured quantity CD-0045's sustained
-  falsifier weighs
 
 ## Context
 
@@ -41,17 +39,15 @@ and a genuine lock-hold regression inflates it regardless of host load.
 
 ### D2. Wall and admission wait stay measured, diagnostic
 
-Every round continues to report wall, begin-wait, and commit P99s separately,
-plus load average. Overshoot in scheduler-owned quantities alone can no longer
-fire the verdict; the numbers remain in the report for calibration and
-regression triage. Nothing stops being measured.
+Every round reports wall, begin-wait, and commit P99s separately, plus load
+average. Overshoot in scheduler-owned quantities alone does not fire the
+verdict; the numbers support calibration and regression triage.
 
 ### D3. Everything else is unchanged
 
-The target value, correctness precedence (a failed correctness population
+The target is 100ms. Correctness precedence (a failed correctness population
 forces `inconclusive` and fails the run independently), population authority
-(CD-0046), round counts, and the majority-of-rounds rule are untouched. This
-decision moves one input: which quantity the above-target count reads.
+(CD-0046), round counts, and the majority-of-rounds rule govern the verdict.
 
 ### D4. The report names its verdict quantity
 
@@ -61,10 +57,9 @@ weighed.
 
 ## Consequences
 
-- Shared-runner scheduling noise no longer produces a law-grade `fired`
-  verdict. The 2026-08-20/21 firing class (four documented false fires across
-  three branches, two with zero `.go` changes) becomes `inconclusive` with
-  full measurements retained.
+- Shared-runner scheduling noise alone does not produce a law-grade `fired`
+  verdict. Scheduler-only overshoot is `inconclusive` with full measurements
+  retained.
 - A real lock-hold regression still fires: it inflates commit duration in the
   same rounds, on any host.
 - CD-0045's D1 bound on writer-admission wait remains law; on shared runners

@@ -141,7 +141,7 @@ predecessor stays writable and keeps the live authority until cutover.
   not active work.
 - **Conflicts refuse typed.** A Concord-side change to an imported item is a
   conflict, not an input. The next run refuses before any write, names the
-  owning source (`advance:<change_id>`), and reports the foreign event and
+  owning source (`advance:<change_id>`), and reports the foreign record and
   actor. The migration never merges or overwrites either side. Drop the
   change from `select_change_ids` until cutover, or record the cutover
   decision for the Product.

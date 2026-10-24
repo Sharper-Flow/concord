@@ -32,7 +32,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d845de76517ae6eb86e98232b0881b28407ce078cac5424fb57219b0662454ba",
+  "sha256": "sha256:76dfb8d87ebe7b569df315ef84539d714be21e7d2e6734db9eae1c9ee36e84d1",
   "status": "accepted",
   "summary": "No Concord component creates, names, splits, focuses, or destroys a tab, pane, window, or session: the host owns placement and starts and resumes operator sessions, and a host-started session enters managed work through concord_work_start. The boundary binds every Concord binary with no session entry route; the entry route's resume and pass-through duties retired with it.",
   "tags": [

@@ -22,22 +22,6 @@ func seedConfirmPremiseQuestion(t *testing.T, s *Store, workID, otherWorkID stri
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherWorkID})
 }
 
-// seedConfirmPremiseDeliverables records the confirmation's deliverables on
-// the seeded question: one approved predicate, the break-fix verification
-// evidence, and a verdict from an actor that executed nothing.
-func seedConfirmPremiseDeliverables(t *testing.T, s *Store, workID string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:confirm',0,'check','{"kind":"check","check_ref":"check:confirm","immutable_subject_ref":"commit:confirm","expected_result":"pass"}'); DELETE FROM fold_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:confirm-verification"}`), 0); err != nil {
-		t.Fatalf("bind verification evidence: %v", err)
-	}
-	if err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:confirm","verdict_kind":"ok"}]}`), 0); err != nil {
-		t.Fatalf("record verdict: %v", err)
-	}
-}
-
 // TestWorkPinPublishesConfirmPremiseRequiredFields holds the pin side of the
 // single declaration: a pending confirm_premise lists exactly the fields the
 // generated envelope requires at the outer level, in declaration order, so a
@@ -47,9 +31,14 @@ func seedConfirmPremiseDeliverables(t *testing.T, s *Store, workID string) {
 func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	workID, otherWorkID := "confirm-pin-truth", "confirm-pin-truth-other"
-	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
+	workID := "confirm-pin-truth"
+	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	s := f.store
+	// Only the question's decision-domain input differs from engineering work.
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	seedComparisonObservation(t, s, workID)
 	missingPin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read without the verdict failed: %v", err)
@@ -59,7 +48,9 @@ func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 			t.Fatalf("pin advertises confirm_premise while the confirmation refuses its missing verdict: %v", missingPin.NextValidIntents)
 		}
 	}
-	seedConfirmPremiseDeliverables(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)
@@ -95,13 +86,13 @@ func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	workID, otherWorkID := "confirm-pin-engineering", "confirm-pin-engineering-other"
-	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, workID); err != nil {
+	workID := "confirm-pin-engineering"
+	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	s := f.store
+	seedComparisonObservation(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	seedConfirmPremiseDeliverables(t, s, workID)
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)

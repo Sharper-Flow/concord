@@ -39,13 +39,6 @@ type WorkSizeFootprint struct {
 // does not fit refuses whole; it is never truncated.
 const workSizedPayloadMaxBytes = 256 * 1024
 
-// upcastWorkSizedV1 reads a first-release record unchanged: it carries no
-// complete law and check set, and ChecksComplete stays false.
-func upcastWorkSizedV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 type workSizedPayload struct {
 	ModelVersion int               `json:"model_version"`
 	Size         WorkSize          `json:"size"`
@@ -95,7 +88,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 		if !slices.Equal(basis, sliceOrEmpty(p.ReviewBasis)) {
-			return newFailure(KindInvariantViolation, "fold_event", "the review basis is not every proof derived now and recorded earlier on the lineage", false, "record the review basis the store derives")
+			return newFailure(KindInvariantViolation, "fold_event", "the review basis is not every proof derived now and recorded earlier on the work item", false, "record the review basis the store derives")
 		}
 	}
 	var kind, lifecycle string

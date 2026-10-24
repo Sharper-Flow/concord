@@ -198,13 +198,10 @@ type WorkItem struct {
 	// and value statement (the scope read and the full-detail list); bounded
 	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
-	// Size is the current size record (CD-0229 D4). It rides the same
-	// authoritative intent reads; unsized work carries none.
-	Size *WorkSizeSummary `json:"size,omitempty"`
+	Size         *WorkSizeSummary      `json:"size,omitempty"`
 }
 
-// WorkSizeSummary is the read projection of a work item's current size: Size
-// is the effective size, the operator's when one is recorded.
+// WorkSizeSummary reports the current model decision and governing operator size.
 type WorkSizeSummary struct {
 	Size         WorkSize  `json:"size"`
 	ModelSize    WorkSize  `json:"model_size"`
@@ -351,14 +348,14 @@ func beginRead(ctx context.Context, s *Store, op string) (*sql.Tx, error) {
 }
 
 func queryMeta(ctx context.Context, tx *sql.Tx, id string, scope ResolvedScope, keys []string) (ResultMeta, error) {
-	var watermark sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events`).Scan(&watermark); err != nil {
+	watermark, err := storeRevision(ctx, tx)
+	if err != nil {
 		return ResultMeta{}, wrapFailure(KindUnavailable, id, "cannot read the live source watermark", true, "retry once the database is readable", err)
 	}
 	now := time.Now().UTC()
 	return ResultMeta{
 		QueryID: id, ContractVersion: queryContractVersion, ResolvedScope: scope,
-		SourceVersionWatermark: watermark.Int64, Authority: "authoritative",
+		SourceVersionWatermark: watermark, Authority: "authoritative",
 		Freshness:    Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false},
 		OrderingKeys: keys, Omissions: []string{}, Warnings: []string{},
 	}, nil
@@ -825,7 +822,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each
 // item: task, value statement, tags, and workflow type reference from the
-// stored intent projection, and the current size record. Only the authoritative intent reads call it, so
+// stored intent projection. Only the authoritative intent reads call it, so
 // bounded summary and preview reads never carry intent detail. A tag array
 // the intent recorded as empty stays the empty array; a null or absent array
 // stays nil.
@@ -871,7 +868,6 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	return nil
 }
 
-// attachWorkSize copies the item's current size record, when it has one.
 func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
 	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
 	if err != nil || !ok {
@@ -1307,7 +1303,7 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	// The bounded narrative rides the single-record read only. The recorded
 	// mutable-intent detail (task, value statement, tags, workflow type
-	// reference) and the current size ride with it so a coordinator can carry the complete
+	// reference) rides with it so a coordinator can carry the complete
 	// revisable intent off this one authoritative read; list queries keep
 	// their column-only shape.
 	var narrative, intentJSON string
@@ -1523,7 +1519,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		// text, so its bind argument must follow them too.
 		args = append(args, cursorSeq)
 	}
-	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
+	q := `SELECT event_id,seq,kind,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
 	args = append(args, limit+1)
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -1533,12 +1529,12 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	var raw []TimelineEvent
 	for rows.Next() {
 		var eventID string
-		var global int64
+		var global, payloadVersion int64
 		var kind, actor, occurred, payload string
-		if err := rows.Scan(&eventID, &global, &kind, &actor, &occurred, &payload); err != nil {
+		if err := rows.Scan(&eventID, &global, &kind, &actor, &occurred, &payloadVersion, &payload); err != nil {
 			return out, err
 		}
-		e, err := decodeTimelineEvent(eventID, global, kind, actor, occurred, []byte(payload))
+		e, err := decodeTimelineEvent(eventID, global, kind, actor, occurred, payloadVersion, []byte(payload))
 		if err != nil {
 			return out, err
 		}
@@ -1586,7 +1582,7 @@ type q7Cursor struct {
 	Seq                      int64 `json:"seq"`
 }
 
-func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payload []byte) (TimelineEvent, error) {
+func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payloadVersion int64, payload []byte) (TimelineEvent, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
@@ -1628,8 +1624,8 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 		versions["previous_contract_version"] = &e.PreviousContractVersion
 	case WorkConflictApplied:
 		var application ConflictApplication
-		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{}, application) != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside the frozen v1 shape", false, "repair the event log before reading history")
+		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{PayloadVersion: int(payloadVersion)}, application) != nil {
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside its closed payload shape", false, "repair the event log before reading history")
 		}
 		e.ConflictApplication = &application
 	}

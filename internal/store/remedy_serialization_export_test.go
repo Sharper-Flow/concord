@@ -4,31 +4,30 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 )
 
-// RetryWallRefusalFixture drives the real escalated dispatch admission and
-// returns its genuine refusal. The external serialization harness projects
-// this failure across the model boundary; the fixture adds no second
-// implementation of the wall.
-func RetryWallRefusalFixture(t *testing.T) *Failure {
+// PendingWorkerLaunchRefusalFixture returns the live launch owner's refusal.
+func PendingWorkerLaunchRefusalFixture(t *testing.T) *Failure {
 	const workID = "retry-wall-remedy"
-	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
+	f := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := f.store
 	defer s.Close()
-	before := readWorkVersion(t, s, workID)
-	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: before, ActionID: "dispatch_worker",
-		Payload:         issue1013CorrectionDispatchPayload(t, s, workID, "repair", "attempt:"+workID+":4", pin.Correction),
-		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: owner,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: workID, OperationID: workID,
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: workID,
-		RequestID: "request:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(50, 0).UTC(), FailedRetryApproved: true,
-	})
+	job := &WorkerJobBinding{JobID: "job:pending-launch"}
+	recordWorkerJobRevisionForTest(t, s, workID, f.owner, job)
+	first := "attempt:" + workID + ":1"
+	firstPacket := dispatchWorkerPacket(t, s, workID, "repair", first)
+	firstPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
+	if err := dispatchJobPacketForTest(t, s, workID, first, f.owner, "pending-launch-first", firstPacket); err != nil {
+		t.Fatal(err)
+	}
+	second := "attempt:" + workID + ":2"
+	packet := dispatchWorkerPacket(t, s, workID, "repair", second)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
+	err := dispatchJobPacketForTest(t, s, workID, second, f.owner, "pending-launch-second", packet)
 	var failure *Failure
 	if !errors.As(err, &failure) {
-		t.Fatalf("escalated dispatch did not refuse: %v", err)
+		t.Fatalf("dispatch beside a pending worker did not refuse: %v", err)
 	}
 	return failure
 }

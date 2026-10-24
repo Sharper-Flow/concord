@@ -15,6 +15,11 @@ invariant in [`workflows.md`](../workflows.md) §2.1 by giving it a binding coun
 amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
 [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
 conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
+[CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
+D7, the Cost bullet's evaluator-distinctness clause, and conformance scenario 13: Main's
+sequential review loop replaces the distinct final evaluator. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+D2 and D14 amend the candidate-set event statements and the historical-pins clause:
+the store keeps current state in current rows, and no historical pins are retained.
 **Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
 
@@ -68,8 +73,7 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Historical pins retain their operator requirements.
-
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D1. The outcome contract has three parts with three revision authorities
 
@@ -80,7 +84,7 @@ part has a different mutability rule, and separating them is the point.
 |---|---|---|---|
 | **Premise** | Why this work exists, in the operator's terms. Durable. | Operator only | Not an edit. A changed premise supersedes the item with a successor. |
 | **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Operator only, at approval | Not an edit. See D6. |
-| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Appends an event. Premise and required end-state are untouched and no re-approval occurs. |
+| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Records a revision in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Premise and required end-state are untouched and no re-approval occurs. |
 
 The candidate set is deliberately the mutable part. R5 §5.1 shows that a contract which
 forbids in-place revision of the instance list converts a recoverable framing error into a
@@ -92,9 +96,9 @@ R5 §4.1 records that no established practice enforces this split. It is Concord
 adopted because the counter-evidence requires it, and it is not adopted consensus. Two
 further choices inside D1 are Concord design decisions that R5 does **not** establish:
 vesting candidate-set revision in the executing agent rather than the operator, and
-recording that revision as an appended event rather than as a re-approval. Both follow from
-D6's requirement that revision be visible without being obstructive, and from PM3's event
-authority. They are stated here as design, not as findings.
+recording that revision as a current-row change rather than as a re-approval. Both follow from
+D6's requirement that revision be visible without being obstructive; each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). They
+are stated here as design, not as findings.
 
 ### D2. The end-state mandate is approved at planning, beside the spec mandate
 
@@ -205,31 +209,9 @@ to in-flight discoveries generally.
 
 ### D7. Verification is independent of the executing agent
 
-The end-state check is authored at approval by the approving authority and evaluated by a
-party that is not the executing agent. The executing agent may not author, re-select,
-weaken, or disable the check that governs its own completion.
+The approving authority authors the end-state check at approval, and it stays immutable for that contract: an execution-time write to it is refused, and the executing agent may not author, re-select, weaken, or disable it.
 
-Two structural invariants are decided here rather than deferred, because a principle with
-no enforceable invariant is not a decision:
-
-1. **Authorship fencing.** The approved end-state is written by the approving authority at
-   planning and is immutable for the lifetime of that contract. An execution-time write to
-   it is refused, not merged.
-2. **Evaluator distinctness.** The recorded outcome verdict carries the actor that produced
-   it, and the completion transition refuses a verdict whose actor is the executing actor
-   of the same work item. A verdict with no recorded actor is refused on the same footing
-   as omission under D4.
-
-R5 §1.5 documents the failure this closes: an agent whose verification layer was
-self-authored reported inert work as delivered, because "the verification layer that was
-supposed to catch exactly this kind of gap was itself checking the wrong thing, silently,
-by design." R5 §3.1 records the same lesson from contract practice — an assertion the
-executing party may disable is not a control.
-
-Evidence binding follows CD-0008's immutable-subject rule; this decision introduces no
-separate evidence authority. How actor identity is represented, and which actor classes may
-evaluate which work kinds, are deferred to implementation design. The two invariants above
-are not.
+Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D8. Route conventions that determine the operative verb are declared at approval
 
@@ -319,10 +301,8 @@ about recorded findings, not about a change being made.
   lightweight type's end-state can be a single cheap assertion. This decision does not
   pretend the floor is free: a type that becomes materially heavier is a genuine regression
   against Priority 5 and must surface rather than be absorbed.
-- **Independent evaluation requires a second party at every completion.** In a
-  single-operator system, D7's evaluator distinctness means either the operator or a
-  non-executing agent must be available whenever work completes. If neither is, work
-  queues. This is the direct price of R5 §1.5 and is accepted deliberately.
+- **The loop names the second party.**
+  Main dispatches Review as its own stage, Implement cannot accept its own result, and no distinct final evaluator beyond Review is required ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
  - A change to the agent-visible outcome contract carries generated-manifest,
    digest, strict-schema, deterministic-scenario, and authority-evidence cost that
    [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) attaches to it.
@@ -351,13 +331,13 @@ follow the existing corpus conventions; this decision does not itself modify
 2. A change contract approved with no required end-state is refused at approval (D4).
 3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
-4. A delivery asserting a weaker end-state than approved is refused at completion, with a
-   typed outcome-mismatch result rather than a generic error (D3, TS7).
+4. A delivery asserting a weaker end-state than approved is refused at completion,
+   because Review records no passing proof for the weaker criterion (D3, CD-0235 D2).
 5. A delivery asserting a stronger end-state than approved is accepted (D3).
 6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).
-7. Candidate-set revision during execution succeeds without re-approval, appends an event,
-   and leaves premise and required end-state byte-identical (D1).
+7. Candidate-set revision during execution succeeds without re-approval, records its revision in one
+    transaction, and leaves premise and required end-state byte-identical (D1, CD-0242 D2).
 8. Premise revision is refused as an in-place edit and is representable only as
    supersession with a successor item (D1).
 9. An execution-time write to the approved required end-state is refused rather than
@@ -370,9 +350,9 @@ follow the existing corpus conventions; this decision does not itself modify
     [`specs-as-laws.md`](../specs-as-laws.md) §6.
 12. An executing agent attempting to author, replace, or disable its own end-state check is
     refused (D7).
-13. A completion carrying an outcome verdict whose actor is the executing actor of the same
-    work item is refused, as is a verdict with no recorded actor (D7, evaluator
-    distinctness).
+13. A review pass that committed corrective edits is accepted after its verified
+    candidate without a further review, and completion records Main's accepted
+    disposition instead of a distinct verdict actor (D7, CD-0242 D5).
 14. A delivery route relying on an undeclared convention that determines the operative verb
     is refused at approval; the same route with that convention declared proceeds (D8).
 15. A work item at the lowest maturity and audience bands still requires an approved outcome
@@ -394,9 +374,8 @@ These are named rather than silently decided by implication.
 1. **Predicate representation.** Whether an end-state assertion is a typed structure, a
    named executable check, or a bounded expression language. D3 requires only that two
    assertions be comparable for strength.
-2. **Event and projection shape.** Which domain events carry contract approval, candidate-set
-   revision, and outcome verdict, and whether a typed projection is warranted. Bound by
-   CD-0002 and PM3; the one-transaction rule applies.
+2. **Storage shape.** How current rows record contract approval, candidate-set revision, and
+   outcome verdict (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 3. **Strength ordering for behavioral assertions.** Mechanical for existence and absence;
    open for richer assertions. Until resolved, comparison in ambiguous cases surfaces to
    the operator rather than defaulting to pass.

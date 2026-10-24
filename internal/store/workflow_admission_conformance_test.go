@@ -1,116 +1,97 @@
 package store
 
-// The refinement conformance test binds the abstract liveness model to the
-// real engine: it replays a witness path through the real store — repair
-// accept, refinement rejection, fresh settling review, the settling accept —
-// and after each action compares the state the tx-scoped loader folds from
-// the event history with the abstract successor the model computed for the
-// same action. The model cannot drift from the fold without this test
-// failing.
-
 import (
 	"context"
-	"encoding/json"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
-// admissionConformanceView is the part of the folded admission state that
-// workflowAdmit reads and the abstract model folds. The ready review's
-// identity is compared by presence, because the model names a synthetic
-// attempt, and its settling flag only beside a ready review. Three read
-// fields stay out: the breaking notices and open external conditions, which
-// the model holds at zero, and the evidence-binding recovery, an exit the
-// model does not count. The raw attempt lifecycle and latest disposition are
-// loaded for callers but never decided on; the hold and recovery flags they
-// feed are compared instead.
+// Identity is compared exactly by the typed Review conformance test. This view
+// compares every semantic Review dimension carried by the global model.
+type admissionReviewView struct {
+	Present, Candidate, CandidateMatches, Dependencies, Current, Progressed bool
+	Blocked, ContinueConsumed, PublicationOutstanding                       bool
+	Disposition                                                             string
+	FirstGroups, ContinuedGroups, CorrectiveGroups                          int
+}
+
+func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
+	if state == nil {
+		return admissionReviewView{}
+	}
+	view := admissionReviewView{Present: true, Candidate: state.Candidate != nil, Dependencies: state.Dependencies != nil,
+		Current: state.DependenciesCurrent, Progressed: state.ExecutionProgressed, Blocked: state.blocker() != "",
+		ContinueConsumed: state.ContinueConsumed, PublicationOutstanding: state.PublicationOutstanding}
+	if state.Accepted != nil {
+		view.Disposition = state.Accepted.Report.Disposition
+		view.CandidateMatches = state.Candidate != nil && *state.Candidate == state.Accepted.Report.OutputCandidate
+	}
+	for _, group := range state.Groups {
+		switch {
+		case group.CorrectionRef != "":
+			view.CorrectiveGroups++
+		case group.Permission == "first_entry":
+			view.FirstGroups++
+		case group.Permission == "continue":
+			view.ContinuedGroups++
+		}
+	}
+	return view
+}
+
 type admissionConformanceView struct {
-	Step                          string
-	Lifecycle                     string
-	InstanceState                 string
-	RefinementWorkflow            bool
-	ReviewStep                    bool
-	ActiveContracts               int64
-	LawPinStale                   bool
-	DesignStale                   bool
-	ArtifactStale                 bool
-	ReviewDebt                    WorkflowReviewDebt
-	ReadyReview                   bool
-	ReadyReviewSettles            bool
-	LateVerdictRoute              bool
-	WorkerFailureRecovery         bool
-	CorrectionRecovery            bool
-	CorrectionRequestRecovery     bool
-	CorrectionEscalated           bool
-	UnconsumedUnboundRejection    bool
-	NonProgressAttempts           int64
-	RetryConvergence              bool
-	FailedWorkerRetry             bool
-	DispatchHold                  bool
-	PendingOperatorDecision       bool
-	AcceptanceDeliverablesMissing bool
-	ApprovalPolicy                string
-	ConfirmationAuthority         string
-	ConfirmationFactFailure       bool
-	CompleteStepCorrection        bool
-	ContractCorrectionAvailable   bool
-	DeliveryStarted               bool
-	DeliveryProofRequired         bool
-	DeliveryProofReady            bool
-	DeliveryFailure               bool
-	DeliveryProofFailure          bool
-	DeliveryJobsRecorded          bool
-	DeliveryJobsUnsatisfiedKeys   string
-	DeliveryJobsScopeKeys         string
-	DeliveryJobsIntegrated        bool
-	DeliveryJobsUndischargedSplit string
-	MandatePresent                bool
-	MandateMissing                bool
-	MandateBindingStep            string
-	MandateAddedByContract        bool
-	MandateCorrectionAction       string
-	MandateFailure                bool
+	Step, Lifecycle, InstanceState                                               string
+	RefinementWorkflow                                                           bool
+	ActiveContracts                                                              int64
+	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale            bool
+	Review                                                                       admissionReviewView
+	WorkerFailureRecovery, CorrectionRecovery, CorrectionRequestRecovery         bool
+	UnconsumedUnboundRejection, DispatchHold, PendingOperatorDecision            bool
+	AcceptanceDeliverablesMissing                                                bool
+	ApprovalPolicy, ConfirmationAuthority                                        string
+	ConfirmationFactFailure, CompleteStepCorrection, ContractCorrectionAvailable bool
+	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady                   bool
+	DeliveryFailure, DeliveryProofFailure, DeliveryJobsRecorded                  bool
+	DeliveryJobsUnsatisfiedKeys, DeliveryJobsScopeKeys                           string
+	DeliveryJobsIntegrated                                                       bool
+	DeliveryJobsUndischargedSplit                                                string
+	MandatePresent, MandateMissing                                               bool
+	MandateBindingStep                                                           string
+	MandateAddedByContract                                                       bool
+	MandateCorrectionAction                                                      string
+	MandateFailure                                                               bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
-		RefinementWorkflow: state.RefinementWorkflow, ReviewStep: state.ReviewStep,
-		ActiveContracts: state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
-		ArtifactStale: state.ArtifactStale,
-		ReviewDebt:    state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "",
-		LateVerdictRoute: state.LateVerdictRoute, WorkerFailureRecovery: state.WorkerFailureRecovery,
-		CorrectionRecovery: state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
-		CorrectionEscalated: state.CorrectionEscalated, UnconsumedUnboundRejection: state.UnconsumedUnboundRejection, NonProgressAttempts: state.NonProgressAttempts,
-		RetryConvergence:  state.RetryConvergence.valid(),
-		FailedWorkerRetry: state.FailedWorkerRetry != nil,
-		DispatchHold:      state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
+		RefinementWorkflow: state.RefinementWorkflow,
+		ActiveContracts:    state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
+		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
+		Review:                admissionReviewViewOf(state.Review),
+		WorkerFailureRecovery: state.WorkerFailureRecovery,
+		CorrectionRecovery:    state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
+		UnconsumedUnboundRejection: state.UnconsumedUnboundRejection,
+		DispatchHold:               state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
 		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		ApprovalPolicy:                state.ApprovalPolicy,
-		ConfirmationAuthority:         string(state.ConfirmationAuthority),
-		ConfirmationFactFailure:       state.ConfirmationFactFailure != nil,
-		CompleteStepCorrection:        state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
+		ApprovalPolicy:                state.ApprovalPolicy, ConfirmationAuthority: string(state.ConfirmationAuthority),
+		ConfirmationFactFailure: state.ConfirmationFactFailure != nil,
+		CompleteStepCorrection:  state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
 		DeliveryJobsRecorded: state.Delivery.JobsRecorded, DeliveryJobsUnsatisfiedKeys: state.Delivery.JobsUnsatisfiedKeys,
 		DeliveryJobsScopeKeys: state.Delivery.JobsScopeKeys, DeliveryJobsIntegrated: state.Delivery.JobsIntegrated,
-		DeliveryJobsUndischargedSplit: state.Delivery.JobsUndischargedSplits,
-		MandatePresent:                state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
+		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
 		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
 	}
 	if state.Delivery.ProofRequired {
-		view.DeliveryProofReady = state.Delivery.ProofReady
-		view.DeliveryProofFailure = state.Delivery.ProofFailure != nil
-	}
-	if view.ReadyReview {
-		view.ReadyReviewSettles = state.ReadyReviewSettles
+		view.DeliveryProofReady, view.DeliveryProofFailure = state.Delivery.ProofReady, state.Delivery.ProofFailure != nil
 	}
 	return view
 }
 
-// conformanceCheckpoint folds the work item's admission state through the
-// real tx-scoped loader and compares it with the model state lifted through
-// the same rules the liveness checks decide over.
 func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
 	loaded := conformanceFold(t, s, registry, workID, definition, label)
@@ -123,14 +104,14 @@ func conformanceCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, 
 func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
 	t.Helper()
 	ctx := context.Background()
-	tx, txErr := s.db.BeginTx(ctx, nil)
-	if txErr != nil {
-		t.Fatalf("%s: begin: %v", label, txErr)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("%s: begin: %v", label, err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	var step string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatalf("%s: read step: %v", label, err)
+		t.Fatal(err)
 	}
 	loaded, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition, step, "workflow_admission_conformance_test", registry)
 	if err != nil {
@@ -139,432 +120,95 @@ func conformanceFold(t *testing.T, s *Store, registry DefinitionRegistry, workID
 	return loaded
 }
 
-// The historical fence and dispatch hold survive re-entry until a fresh
-// start. Artifact truth must also match before that start, without masking
-// the loader's bit or changing those independently governed fence rules.
-func conformanceArtifactCheckpoint(t *testing.T, s *Store, registry DefinitionRegistry, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
-	t.Helper()
-	got := conformanceFold(t, s, registry, workID, definition, label)
-	if got.Step != want.step || got.ArtifactStale != want.artifactStale {
-		t.Fatalf("%s: loaded step %s artifact stale %v, want step %s artifact stale %v", label, got.Step, got.ArtifactStale, want.step, want.artifactStale)
-	}
-}
-
-// conformanceStepDerives reports whether the step's first qualifying
-// checkpoint will derive the step start: the store's own answer, read from
-// the step's action-start history (CD-0198 D3).
-func conformanceStepDerives(t *testing.T, s *Store, workID, stepID string) bool {
-	t.Helper()
-	definition := mustBuiltinDefinition(t, pinnedDefinitionRef(t, s, workID)).Definition
-	advancing := advancingWorkflowActions(definition)
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
-	args := []any{workID, WorkflowActionStarted, stepID, workID, WorkflowActionCompleted, stepID}
-	for _, action := range advancing {
-		args = append(args, action)
-	}
-	var started int
-	err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? AND seq > COALESCE((
-		SELECT MAX(seq) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`)
-	),0)`, args...).Scan(&started)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return started == 0
-}
-
-func pinnedDefinitionRef(t *testing.T, s *Store, workID string) string {
-	t.Helper()
-	var ref string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
-		t.Fatal(err)
-	}
-	return ref
-}
-
-// conformanceStepEntryAction names the action the pinned definition admits
-// for entering the named step: the callable start on released pins, the
-// qualifying checkpoint on CD-0198 D3 derived-start pins.
-func conformanceStepEntryAction(t *testing.T, definition WorkflowDefinition, stepID, startAction string) string {
-	t.Helper()
-	if definitionStepAllows(definition, stepID, startAction) {
-		return startAction
-	}
-	for candidate, step := range workflowDerivedStartCheckpoints {
-		if step == stepID && definitionStepAllows(definition, stepID, candidate) {
-			return candidate
-		}
-	}
-	t.Fatalf("%s declares no entry action at %s", definition.Ref, stepID)
-	return ""
-}
-
-// TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept replays the
-// rejection-review witness path on the break-fix definition the fixture pins and
-// asserts, at every checkpoint, that the loader's fold equals the abstract successor of
-// the previous state under the action just performed, lifted through the
-// rules the liveness checks decide over.
-func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T) {
-	const workID = "admission-conformance"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	def := pinnedWorkflowDefinitionForTest(t, s, workID)
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	at := int64(100)
-
-	// The fixture parks the item at repair under one approved contract.
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
-
-	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
-	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
-	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_repair")
-
-	// The first repair pass records a worker-job revision, dispatches the
-	// attempt under that revision, completes it, and accepts it without
-	// delivery fields. On the current break-fix definition that accept is
-	// local acceptance (CD-0205 D3): the step holds at repair, the
-	// recorded revision is satisfied, and the model lifts the held state.
-	job := &WorkerJobBinding{JobID: "job:conformance-initial-repair", Revision: 1}
-	git, entry := oracleFixtureClaimedWorktree(t, s, workID)
-	oracleVerifyControl(t, oracleRepairFixture{store: s, git: git, entry: entry}, workID, "candidate", "1", []string{"true"}, 0)
-	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
-	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(views) != 1 {
-		t.Fatalf("recorded revisions = %d, want the one required revision", len(views))
-	}
-	model.jobsUnsatisfied = workerJobKey(views[0].Binding.JobID, views[0].Binding.Revision)
-	model.jobsScope = views[0].ProjectScope
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after record_worker_job")
-
-	firstRepairAttempt := "attempt:" + workID + ":repair"
-	dispatchJobBoundAttempt(t, s, workID, "repair", firstRepairAttempt, nil, fixture.owner, 0, "conformance-initial-repair", job)
-	if err := completeJobBoundAttemptForTest(s, workID, firstRepairAttempt, BuiltinLaneDefinitions()[0], job); err != nil {
-		t.Fatal(err)
-	}
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after job-bound repair completion")
-
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": firstRepairAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("local accept of the first repair: %v", err)
-	}
-	// Local accept holds the step at repair and satisfies the recorded job.
-	repairAccepts := admissionSuccessors(def, model, "accept_worker_result")
-	var firstRepairHeld *admissionModelState
-	for i, successor := range repairAccepts {
-		if successor.step == "repair" && successor.jobs == "satisfied" && successor.jobsUnsatisfied == "" {
-			firstRepairHeld = &repairAccepts[i]
-			break
-		}
-	}
-	if firstRepairHeld == nil {
-		t.Fatalf("first repair accept successors = %v, want the held satisfied local acceptance", repairAccepts)
-	}
-	model = *firstRepairHeld
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local repair accept")
-
-	// The held state's exit is the real delivery admission: record_delivery
-	// refuses without qualifying integration evidence, so we seed the run
-	// here, then call record_delivery to advance to refine. The seeded run
-	// covers the required Project for the integration facet.
-	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-	model.integration = true
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after integration evidence")
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-initial-repair", "delivery_state": "asserted"}), 0, acceptor); err != nil {
-		t.Fatalf("record_delivery behind integration evidence: %v", err)
-	}
-	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after repair delivery")
-
-	refineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
-	refineDerives := conformanceStepDerives(t, s, workID, "refine")
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	model = admissionDerivedCheckpointSuccessor(def, model, refineEntry, refineDerives)
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_refine")
-
-	// The first review completes and the acceptor rejects it: the rejection
-	// opens the post-rejection review debt.
-	reviewOneEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":review-1", "refine", reviewGateLane(t, "review"), ownerRef, at)
-	at += 2
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after review dispatch")
-	reviewGateRejectResult(t, s, workID, "attempt:"+workID+":review-1", reviewOneEpoch, acceptor)
-	model = admissionSuccessor(def, model, "reject_worker_result")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after rejection")
-
-	// A fresh review of the repaired result completes with a ship verdict:
-	// the model's dispatch move names the settling review ready.
-	settlingEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", reviewGateLane(t, "review"), ownerRef, "ship", at)
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after settling review completion")
-
-	// The ready review's acceptance names the ready attempt and asserts
-	// delivery, so it settles the debt and advances to the delivery gate.
-	refineProofSeedGreenRun(t, s, workID, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
-	model.proof = true
-	// The refine-epoch proof also satisfies the CD-0205 integration facet
-	// at the loader's delivery read: the fold reads every verification
-	// binding after the phase start, and the proof binding is in scope.
-	// The held-job conformance the loader reads at delivery names the
-	// integration covered, so the model must reflect the same dimension.
-	model.integration = true
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after current-epoch verification")
-	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", settlingEpoch, acceptor); err != nil {
-		t.Fatalf("accept the settling review: %v", err)
-	}
-	// The settling review carries no worker job and asserts delivery, so
-	// its accept is the advancing successor.
-	settlingAccepts := admissionSuccessors(def, model, "accept_worker_result")
-	model = settlingAccepts[len(settlingAccepts)-1]
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after settling accept")
-	if model.debt != ReviewDebtNone || model.step != "delivery" {
-		t.Fatalf("settling accept left model step %q debt %q", model.step, model.debt)
-	}
-
-	// The staleness cycle (CD-0201 D5/D6), replayed through the same fold:
-	// the gate's delivery reaches verify, an unhealthy verdict stales the
-	// artifact, the declared route returns the instance to repair, and only
-	// the accepted delivery at the route target — the producer every
-	// unhealthy route of the definition names — re-produces it. Every
-	// checkpoint compares the folded ArtifactStale bit with the abstract
-	// successor's, so a model that clears staleness anywhere else, or a
-	// fold that classifies a non-producing completion as production,
-	// fails here.
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
-		t.Fatalf("record delivery at the gate: %v", err)
-	}
-	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "delivery recorded at the gate")
-
-	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/conformance-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	badVerdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", badVerdict, 0, reviewer, git); err != nil {
-		t.Fatalf("record the unhealthy verdict: %v", err)
-	}
-	for _, successor := range admissionSuccessors(def, model, "record_verdict") {
-		if successor.verdict == "bad" {
-			model = successor
-		}
-	}
-	if !model.artifactStale {
-		t.Fatal("the model's bad-verdict successor did not stale the artifact")
-	}
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "unhealthy verdict recorded")
-
-	correction := json.RawMessage(`{"diagnosis":"the verification verdict is not healthy","strategy":"return to the producer step and re-produce the artifact","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("request correction through the declared route: %v", err)
-	}
-	model = admissionSuccessor(def, model, "request_correction")
-	if model.step != "repair" || !model.artifactStale {
-		t.Fatalf("correction left model step %q stale %v, want repair still stale", model.step, model.artifactStale)
-	}
-	conformanceArtifactCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "returned producer remains stale")
-	// Fence and hold state compare after the fresh start. The artifact
-	// snapshot above also checks the historical stale bit at the return.
-
-	// Re-production at the route target: the fenced start, the dispatch,
-	// and the accepted delivery the fold counts as production.
-	retryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
-	retryDerives := conformanceStepDerives(t, s, workID, "repair")
-	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionDerivedCheckpointSuccessor(def, model, retryEntry, retryDerives)
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "producer restarted")
-	repairTwoEpoch := reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", reviewGateLane(t, "implementation"), ownerRef, at)
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "producer redispatched")
-	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair-2", repairTwoEpoch, acceptor); err != nil {
-		t.Fatalf("accept the fresh production: %v", err)
-	}
-	// The fresh repair-2 dispatch carries no worker job, so the plain
-	// accept advances the step the way the loader does, and the test takes
-	// the advancing successor (the non-default sibling the model keeps).
-	reproductionAccepts := admissionSuccessors(def, model, "accept_worker_result")
-	model = reproductionAccepts[len(reproductionAccepts)-1]
-	if model.artifactStale {
-		t.Fatal("the model kept the artifact stale past fresh production at the route target")
-	}
-	conformanceArtifactCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "accepted fresh production")
-	// Acceptance refreshes the artifact before refine's fresh fence. The
-	// following full-state checkpoint also compares that fence and hold.
-	restartRefineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
-	restartRefineDerives := conformanceStepDerives(t, s, workID, "refine")
-	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	model = admissionDerivedCheckpointSuccessor(def, model, restartRefineEntry, restartRefineDerives)
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "refine restarted")
-	if refineEpoch == 0 {
-		t.Fatal("refine restart returned no epoch")
-	}
-
-	// The walk back to the evaluator re-reads the same artifact fresh: the
-	// fold's production frontier is the accepted delivery at repair, which
-	// postdates the unhealthy verdict. The second refine epoch demands its
-	// own green verification before its delivery.
-	refineProofSeedGreenRun(t, s, workID, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1")
-	model.proof = true
-	// The refine-epoch proof also satisfies the CD-0205 integration facet
-	// the loader reads at every subsequent delivery admission: the fold
-	// reads every verification binding after coverageSeq, and the proof
-	// binding is in scope, so the model's fold-equivalent must reflect
-	// the same dimension.
-	model.integration = true
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "second-epoch verification")
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
-		t.Fatalf("record delivery out of refine: %v", err)
-	}
-	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "refine delivery recorded")
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
-		t.Fatalf("record delivery at the gate again: %v", err)
-	}
-	model = admissionSuccessor(def, model, "record_delivery")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "back at verify, artifact fresh")
-}
-
-// TestAdmissionConformanceLocalJobAcceptHolds replays the CD-0205 local
-// acceptance on the pinned break-fix definition through the real store: a
-// recorded job, its job-bound dispatch and report, and the plain accept that
-// satisfies the job. The loader's fold must equal the model's holding
-// successor at every checkpoint, and the held state must still exit through
-// the real delivery admission the step declares: record_delivery refuses
-// without qualifying integration evidence and admits behind it.
 func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
-	const workID = "admission-conformance-local-job"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	defer s.Close()
-	def := pinnedWorkflowDefinitionForTest(t, s, workID)
-	if !admissionLocalJobAcceptStep(def, "repair") {
-		t.Fatalf("%s v%d repair does not carry the worker-job lifecycle", def.Ref, def.Version)
+	f := seedWorkContextFixture(t, "admission-conformance-local-job")
+	t.Cleanup(func() { _ = f.store.Close() })
+	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
+	var branch string
+	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(f.workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
 	}
-	acceptor := reviewGateAcceptor(workID)
+	gitRunStore(t, repo, "branch", "-m", branch)
+	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
+	s, workID := f.store, f.workID
+	definition := pinnedWorkflowDefinitionForTest(t, s, workID)
+	model := admissionModelState{step: "repair", contracts: 1, engineering: true}
+	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "before worker job")
+	job := WorkerJobBinding{JobID: "job:conformance"}
+	for round := 1; round <= 2; round++ {
+		attempt := "attempt:conformance:" + itoa(round)
+		conformanceImplementComplete(t, journey, &job, attempt)
+		model = admissionSuccessors(definition, model, "record_worker_job")[0]
+		model.jobsScope = "project"
+		model.jobsUnsatisfied = workerJobKey(job.JobID, job.Revision)
+		found := false
+		for _, next := range admissionSuccessors(definition, model, "dispatch_worker") {
+			if next.attempt == "completed" && next.attemptProduces {
+				model, found = next, true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("model has no admitted producing completion")
+		}
+		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "job-bound terminal before local acceptance")
+		window := reviewSubjectWindow(t, s, workID, attempt)
+		if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
+			t.Fatal(err)
+		}
+		found = false
+		for _, next := range admissionSuccessors(definition, model, "accept_worker_result") {
+			if next.step == "repair" && next.jobs == "satisfied" && next.jobsUnsatisfied == "" {
+				model, found = next, true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("model has no held, satisfied local intake")
+		}
+		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "local acceptance holds with no Review authority")
+		journey.observe(t, attempt)
+	}
+	before := readWorkVersion(t, s, workID)
+	err := journey.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:conformance", "delivery_state": "asserted"}, f.owner)
+	if !hasFailureKind(err, KindMissingEvidence) || readWorkVersion(t, s, workID) != before || currentStep(t, s, workID) != "repair" {
+		t.Fatalf("delivery without accepted Review = %v; local intake cannot authorize exit", err)
+	}
+}
 
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "seeded at repair")
-	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
-	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
-	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after start_repair")
-
-	job := &WorkerJobBinding{JobID: "job:conformance-repair", Revision: 1}
-	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
-	model = admissionSuccessor(def, model, "record_worker_job")
-	// The conformance lift compares the folded delivery state verbatim, so
-	// the model carries the recorded revision's real deterministic keys.
-	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
+// The current intake witness produces a real changed delivery after dispatch.
+// No recorded-history accept or fixed-input no-op stands in for Main's action.
+func conformanceImplementComplete(t *testing.T, j *candidateJourney, job *WorkerJobBinding, attempt string) {
+	t.Helper()
+	f := j.fixture
+	recordWorkerJobRevisionForTest(t, j.s, j.workID, f.owner, job)
+	view, err := readWorkContextView(t.Context(), j.s.db, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 {
-		t.Fatalf("recorded revisions = %d, want the one required revision", len(views))
-	}
-	model.jobsUnsatisfied = workerJobKey(views[0].Binding.JobID, views[0].Binding.Revision)
-	model.jobsScope = views[0].ProjectScope
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after record_worker_job")
-
-	attempt := "attempt:" + workID + ":repair"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "conformance-repair", job)
-	if err := completeJobBoundAttemptForTest(s, workID, attempt, BuiltinLaneDefinitions()[0], job); err != nil {
+	if err := dispatchWorkContextAttempt(t, f, workContextDispatchPacket(t, f, attempt, *job, view)); err != nil {
 		t.Fatal(err)
 	}
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after job-bound repair completion")
-
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("local accept: %v", err)
+	lane := laneForID(t)
+	if err := ApplyOperation(t.Context(), j.s, Operation{Events: []Event{implementDispatchEvidenceEvent(j.workID, attempt, lane, *job)}}); err != nil {
+		t.Fatal(err)
 	}
-	accepts := admissionSuccessors(def, model, "accept_worker_result")
-	var heldSatisfied *admissionModelState
-	for i, successor := range accepts {
-		if successor.step == "repair" && successor.jobs == "satisfied" && successor.jobsUnsatisfied == "" {
-			heldSatisfied = &accepts[i]
-		}
+	path := filepath.Join(j.repo, "internal", "store", job.JobID, "value.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if heldSatisfied == nil {
-		t.Fatalf("model accept successors = %v, want the held satisfied local acceptance", accepts)
+	if err := os.WriteFile(path, []byte("package fixture\n// "+attempt+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if advanced := accepts[len(accepts)-1]; advanced.step == "repair" {
-		t.Fatalf("model accept successors = %v, want the unbound advance beside the holds", accepts)
-	}
-	model = *heldSatisfied
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local job accept")
-
-	// Re-recording the job onto the satisfied population reopens it
-	// (CD-0205 D1/D2): the fold reads each job's latest revision only, so
-	// revision 2 is required and unsatisfied, and the delivery facet keeps
-	// no integration from the earlier acceptance epoch. The model successor
-	// must hold exactly the fold the real engine derives.
-	reRecorded := &WorkerJobBinding{JobID: job.JobID, Revision: 2}
-	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, reRecorded)
-	model = admissionSuccessor(def, model, "record_worker_job")
-	views, err = readWorkerJobRevisions(context.Background(), s.db, workID)
+	j.commit(t, "worker@example.invalid", "produce bounded implementation")
+	eventID := attempt + ":completed"
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), j.s, PrepareWorkerTerminalDeliveryRequest{WorkID: j.workID, AttemptID: attempt, EventID: eventID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 2 || views[1].Binding.Revision != 2 || views[1].State != "recorded" || views[0].State != "satisfied" {
-		t.Fatalf("re-recorded revisions = %#v, want revision 1 satisfied beside revision 2 required and unsatisfied", views)
-	}
-	model.jobsUnsatisfied = workerJobKey(views[1].Binding.JobID, views[1].Binding.Revision)
-	model.jobsScope = views[1].ProjectScope
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after re-recorded worker job")
-
-	// The reopened revision dispatches, completes, and is accepted locally
-	// again: the held state returns to the satisfied population with no
-	// integration coverage, exactly as the first pass held.
-	reAttempt := "attempt:" + workID + ":reopened"
-	dispatchJobBoundAttempt(t, s, workID, "repair", reAttempt, nil, fixture.owner, 0, "conformance-reopened", reRecorded)
-	if err := completeJobBoundAttemptForTest(s, workID, reAttempt, BuiltinLaneDefinitions()[0], reRecorded); err != nil {
-		t.Fatal(err)
-	}
-	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after reopened job-bound completion")
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
-		t.Fatalf("local accept of the reopened revision: %v", err)
-	}
-	accepts = admissionSuccessors(def, model, "accept_worker_result")
-	heldSatisfied = nil
-	for i, successor := range accepts {
-		if successor.step == "repair" && successor.jobs == "satisfied" && successor.jobsUnsatisfied == "" {
-			heldSatisfied = &accepts[i]
-		}
-	}
-	if heldSatisfied == nil {
-		t.Fatalf("model accept successors = %v, want the held satisfied local acceptance of the reopened revision", accepts)
-	}
-	model = *heldSatisfied
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after local accept of the reopened revision")
-
-	// The held state's exit is the real delivery admission, not the abstract
-	// successor: record_delivery refuses behind the satisfied population
-	// without qualifying integration evidence (CD-0205 D3).
-	err = runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-held", "delivery_state": "asserted"}), 0, acceptor)
-	if err == nil {
-		t.Fatal("record_delivery from the held state admitted without integration evidence")
-	}
-	if !strings.Contains(err.Error(), "verification evidence") {
-		t.Fatalf("held record_delivery refusal = %v, want the integration remedy", err)
-	}
-	// The qualifying integration run integrates the required Project after
-	// the recorded acceptance and result population, and the real exit
-	// advances the step.
-	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-	model.integration = true
-	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after integration evidence")
-	before := issue1013Pin(t, s, workID).Step
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-held", "delivery_state": "asserted"}), 0, acceptor); err != nil {
-		t.Fatalf("record_delivery behind integration evidence: %v", err)
-	}
-	if after := issue1013Pin(t, s, workID).Step; after == before || after == "" {
-		t.Fatalf("record_delivery behind integration evidence left the step at %q", after)
-	}
+	event := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,
+	})}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), j.s, event)
 }

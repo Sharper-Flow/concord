@@ -5,7 +5,6 @@
 - **Scope:** The adapter's installed-versus-session release comparison at the
   tool boundary, the results and `dispatch_worker` refusal of a stale
   session, and the installer's retention output
-- **Amends:** CD-0111 (adds the lane-surface staleness rule beside D1 and D2)
 - **Related:** CD-0102, CD-0111, CD-0132
 - **Approval:** The operator approved this decision on work item
   `work-fd94329981b8575144fe93ed`, with the objective and the design
@@ -30,8 +29,7 @@ held in memory after a lane fix shipped.
 
 ## Decision
 
-CD-0013 D11 removes routine failed-worker retry approval only for its new policy. This does not weaken the release-currency boundary: stale packet and release checks remain, and no retry can repair stale authority by itself. The retry-approval rationale below continues to describe historical pins, not the new consent policy.
-
+The release-currency boundary stands: stale packet and release checks remain, and no relaunch repairs stale authority by itself. Each launch carries its own authority and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. The adapter owns installed-versus-session staleness
 
@@ -82,8 +80,8 @@ the operator knows exactly which sessions to restart.
 - Refuse every call while stale. Rejected: this bricks every live session on
   each install and contradicts CD-0111's no-restart guarantee for reads.
 - Warn only and refuse nothing. Rejected: the terminal-attempt harm stays
-  open, because a stale-text worker self-failure needs operator approval to
-  retry.
+  open, because a warning does not stop a stale dispatch from launching a
+  worker on replaced lane text.
 - Compare releases only when the installed release is newer. Rejected: a
   rollback leaves sessions dispatching against mismatched lane text with no
   signal.

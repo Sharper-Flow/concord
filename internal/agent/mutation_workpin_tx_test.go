@@ -99,7 +99,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 		t.Fatalf("orphan fixture: %+v", pending)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER drift_compaction_pin AFTER INSERT ON archived_work
-		BEGIN UPDATE workflow_instances SET definition_digest='sha256:0000000000000000000000000000000000000000000000000000000000000000' WHERE work_id=NEW.id; END`); err != nil {
+		BEGIN UPDATE workflow_instances SET definition_ref='workflow.unavailable_fixture' WHERE work_id=NEW.id; END`); err != nil {
 		t.Fatal(err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
@@ -301,7 +301,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 	for i := range MaxChangedRefs {
 		workID := fmt.Sprintf("pinless-%d", i)
 		events := []store.Event{
-			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
+			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
 			{EventID: workID + ":member", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
@@ -340,7 +340,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 	s, workID, pin := enrichmentPinFixture(t)
 	membership, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": pin.ProjectID, "role": "primary"}}, "expected_version": 1, "resulting_version": 2})
 	events := []store.Event{
-		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
+		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
 		{EventID: "unmanaged-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: membership},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "unmanaged-work"): 0}}); err != nil {
@@ -409,8 +409,8 @@ func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 	}
 }
 
-func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
-	r, grant, raw, _ := committedWorkflowReplay(t)
+func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
+	r, grant, raw, first := committedWorkflowReplay(t)
 	before := workflowReplayEffectCounts(t, r.Store)
 	driftWorkPinVersion(t, r.Store, "work-1")
 	afterWrite := workflowReplayEffectCounts(t, r.Store)
@@ -418,11 +418,12 @@ func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
 		t.Fatal("later writer did not advance the item")
 	}
 	replay := workflowTransactionReplay(t, r, grant, raw)
-	if replay.Outcome != OutcomeError || replay.Error == nil || !strings.Contains(replay.Error.Message, "work pin version") {
-		t.Fatalf("transaction replay must compare the current pin, not return an original snapshot: %+v", replay.Error)
+	if replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("transaction replay lost the committed result: replay=%+v original=%s", replay, first.Result)
 	}
+	requireMutationPinVersion(t, replay, "work-1", before.Version)
 	if workflowReplayEffectCounts(t, r.Store) != afterWrite {
-		t.Fatal("refused replay changed the effect")
+		t.Fatal("replay repeated the effect or changed the later version")
 	}
 }
 

@@ -12,7 +12,7 @@ import "slices"
 // admitted route back to its producer — cannot be authored again.
 //
 // Released definition versions predate the field and never change content in
-// place (CD-0115 D1), so they declare no table and resolve through the
+// place, so they declare no table and resolve through the
 // quarantined table below, keyed only by (ref, version). No graph walk and no
 // work-kind heuristic ever decides a route: the declared table or the
 // quarantined data are the only sources. A table-less definition the
@@ -76,116 +76,15 @@ func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) stri
 	return ""
 }
 
-// One route-content table per family (D3, CD-0172 D3). The authored versions
-// declare this data and the quarantined released table resolves the same
-// data, so the two sources cannot drift.
-
-func implementationRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-		{Step: "release", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution"},
-		{Step: "release", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "execution"},
-	}
-}
-
-func breakFixRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: "repair"},
-	}
-}
-
-func researchRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "conclude", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate"},
-	}
-}
-
-func architectureSpikeRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "review", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-		{Step: "acceptance", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record"},
-	}
-}
-
-func opsRunbookRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "health", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "cleanup", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-	}
-}
-
-func staticAnalysisRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "review", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze"},
-	}
-}
-
-func genericOneOffRecoveryRoutes() []WorkflowRecoveryRoute {
-	return []WorkflowRecoveryRoute{
-		{Step: "verify", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-		{Step: "complete", Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute"},
-	}
-}
-
-// workflowReleasedRecoveryRouteFamily quarantines one family's released
-// routes. through is the last released version of the family that declares no
-// recovery-route table of its own; every version at or below it resolves
-// exactly these routes, and no version above it exists without a declared
-// table. The bound is authored data pinned per (ref, version) by
-// workflow_recovery_routes_test.go; it is never derived from the registry, a
-// graph, or a work kind. One route set serves the whole range only while
-// every version's graph yields the same routes: implementation pins its
-// complete action on release and break_fix on complete for every released
-// version, and registration validates the resolved routes against each
-// version's own graph, so a version whose shape drifted refuses instead of
-// resolving a route its graph does not support.
-type workflowReleasedRecoveryRouteFamily struct {
-	through int64
-	routes  []WorkflowRecoveryRoute
-}
-
-var workflowReleasedRecoveryRouteFamilies = map[string]workflowReleasedRecoveryRouteFamily{
-	"workflow.implementation":     {through: 22, routes: implementationRecoveryRoutes()},
-	"workflow.break_fix":          {through: 19, routes: breakFixRecoveryRoutes()},
-	"workflow.research":           {through: 13, routes: researchRecoveryRoutes()},
-	"workflow.architecture_spike": {through: 14, routes: architectureSpikeRecoveryRoutes()},
-	"workflow.ops_runbook":        {through: 15, routes: opsRunbookRecoveryRoutes()},
-	"workflow.static_analysis":    {through: 12, routes: staticAnalysisRecoveryRoutes()},
-	"workflow.generic_one_off":    {through: 13, routes: genericOneOffRecoveryRoutes()},
-}
-
-// workflowReleasedRecoveryRoutes resolves the recovery routes of a released
-// definition version that declares no table of its own. An unknown ref or
-// version resolves nil: the quarantine never guesses a table from a graph or
-// a work kind, so a definition the quarantine does not name fails closed
-// until a release ships its routes (CD-0201 D4). The returned slice is a
-// defensive copy; mutating it cannot alter the authoritative data.
-func workflowReleasedRecoveryRoutes(ref string, version int64) []WorkflowRecoveryRoute {
-	family, ok := workflowReleasedRecoveryRouteFamilies[ref]
-	if !ok || version < 1 || version > family.through {
-		return nil
-	}
-	return cloneWorkflowRecoveryRoutes(family.routes)
-}
-
 // workflowRecoveryRoutes is the one reader every recovery decision feeds
 // from: the admission fold, workflowAdmit, the action guards, the folds, the
-// work-pin intents, the CD-0164 correction counting and three-attempt wall,
+// work-pin intents, the correction counting and three-attempt wall,
 // the CD-0172 complete-step return, and the liveness model. A definition that
 // declares a table resolves it; a released version without one resolves the
 // quarantined data for its (ref, version). The returned slice is a defensive
 // copy and the definition is not mutated.
 func workflowRecoveryRoutes(definition WorkflowDefinition) []WorkflowRecoveryRoute {
-	if len(definition.RecoveryRoutes) > 0 {
-		return cloneWorkflowRecoveryRoutes(definition.RecoveryRoutes)
-	}
-	return workflowReleasedRecoveryRoutes(definition.Ref, definition.Version)
+	return cloneWorkflowRecoveryRoutes(definition.RecoveryRoutes)
 }
 
 // workflowRecoveryRouteTarget resolves the one target a step's route for one
@@ -207,6 +106,14 @@ func workflowRecoveryRouteTarget(definition WorkflowDefinition, stepID string, t
 // confirms a premise resolves exactly one (D4); any other step resolves none.
 func workflowUnhealthyVerdictRouteTarget(definition WorkflowDefinition, stepID string) string {
 	return workflowRecoveryRouteTarget(definition, stepID, WorkflowRecoveryTriggerUnhealthyVerdict)
+}
+
+// The late association uses the current step's declared return but never takes
+// it. An upstream declaration establishes that this workflow judges criteria.
+func workflowLateCriterionAssociationStep(definition WorkflowDefinition, stepID string) bool {
+	return !stepDeclaresAction(definition, stepID, "record_verdict") &&
+		workflowLateVerdictServesVerdictStep(definition, stepID) &&
+		workflowUnhealthyVerdictRouteTarget(definition, stepID) != ""
 }
 
 // workflowDisprovedPremiseAtCompleteRouteTarget resolves the producer step the
@@ -408,16 +315,17 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		}
 		declared[key] = true
 		routeStep := steps[route.Step]
+		reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "dispatch_worker") && slices.Contains(routeStep.Actions, "accept_worker_result")
 		if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
-			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] {
-				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step that records neither verdict nor premise and hosts no late-verdict context: "+route.Step)
+			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
+				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
 			}
 			unhealthyRoutes[route.Step] = true
 		}
 		if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
 			return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
 		}
-		if route.Target == route.Step {
+		if route.Target == route.Step && !(reviewLoop && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict) {
 			return definitionFailure(KindInvalidDefinition, "recovery route target is the route step: "+route.Step)
 		}
 		if terminals[route.Target] {

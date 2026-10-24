@@ -25,8 +25,6 @@ import (
 var (
 	documentOnce    sync.Once
 	documentValue   map[string]any
-	historicalOnce  sync.Once
-	historicalValue map[string]any
 	dateTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 )
 
@@ -45,17 +43,6 @@ func loadDocumentOnce(once *sync.Once, raw string, target *map[string]any, what 
 func Document() map[string]any {
 	loadDocumentOnce(&documentOnce, GeneratedPayloadSchemaDocument, &documentValue, "payload schema")
 	return documentValue
-}
-
-// HistoricalDocument returns the parsed frozen historical decoder document.
-// It is the engine's frozen baseline closure over the public authoring
-// document: retained workflow definitions resolve their declared payload
-// schemas against it, so a public authoring change cannot break historical
-// payload validation. It is not an authoring surface: a schema
-// only this document carries is not authorable.
-func HistoricalDocument() map[string]any {
-	loadDocumentOnce(&historicalOnce, GeneratedHistoricalSchemaDocument, &historicalValue, "historical decoder")
-	return historicalValue
 }
 
 // HasIn reports whether the given document declares the named schema.
@@ -762,6 +749,15 @@ func sortedKeys(object map[string]any) []string {
 }
 
 func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
+	if n, ok := schema["x-maxArrayBytes"].(json.Number); ok {
+		raw, err := json.Marshal(array)
+		if err != nil {
+			return fmt.Errorf("x-maxArrayBytes at %s: %w", path, err)
+		}
+		if len(raw) > numberInt(n) {
+			return withGuidance(fmt.Errorf("x-maxArrayBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(raw), numberInt(n)), schema)
+		}
+	}
 	if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
 		return withGuidance(fmt.Errorf("minItems at %s: carries %d item(s) against a minimum of %d", path, len(array), numberInt(n)), schema)
 	}

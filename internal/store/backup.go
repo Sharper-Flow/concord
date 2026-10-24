@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -51,15 +50,14 @@ type backupper interface {
 }
 
 // BackupOptions supplies the non-SQLite authorities recorded in the manifest.
-// GitCommitIDs is inventory metadata only; it is never used while folding the
-// event log.
+// GitCommitIDs is inventory metadata only.
 type BackupOptions struct {
 	SnapshotID   string
 	GitCommitIDs map[string]string
 }
 
 // BackupManifest is verification metadata beside a SQLite snapshot. It is an
-// inventory, never an authority or an input to RebuildFromLog.
+// inventory, never an authority.
 type BackupManifest struct {
 	SchemaVersion   int               `json:"schema_version"`
 	SnapshotID      string            `json:"snapshot_id"`
@@ -77,6 +75,9 @@ type BackupManifest struct {
 	SourceEventMaxSeq int64  `json:"-"`
 	FileSHA256        string `json:"-"`
 	BackupTime        string `json:"-"`
+
+	// Recomputed from the checksum-verified snapshot, never supplied by a manifest.
+	currentStateDigest string
 }
 
 // BackupDatabase snapshots an existing database without migrating or repairing
@@ -234,13 +235,10 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	manifest.CreatedAt = createdAt
 	manifest.BackupTime = createdAt
 	manifest.GitCommitIDs = cloneStringMap(options.GitCommitIDs)
-	// PM10 promotion gate: a snapshot is promotable only when this binary can
-	// restore it. The gate clones the verified snapshot to a disposable
-	// staging database and runs the shared restore verifier on the clone; the
-	// retained snapshot and its manifest are never written. A refusal discards
-	// the partial snapshot and leaves no manifest behind, and the live store
-	// keeps its schema, its log, and its direct authority untouched.
-	if err := verifyBackupReplay(ctx, destination, manifest); err != nil {
+	// The promotion gate clones the verified snapshot to a disposable staging
+	// database and checks the whole current state before applying migrations.
+	// The retained snapshot, manifest, and live store are never written.
+	if err := verifyBackupRestore(ctx, destination, manifest); err != nil {
 		return BackupManifest{}, err
 	}
 	if err := writeBackupManifest(destination, manifest); err != nil {
@@ -276,7 +274,7 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	if verified.DBChecksum != manifest.DBChecksum || verified.EventWatermark != manifest.EventWatermark || verified.SchemaVersion != manifest.SchemaVersion || verified.IntegrityCheck != manifest.IntegrityCheck || verified.QuickCheck != manifest.QuickCheck || strings.Join(verified.ForeignKeyCheck, "\x00") != strings.Join(manifest.ForeignKeyCheck, "\x00") {
+	if verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != manifest.SchemaVersion || verified.IntegrityCheck != manifest.IntegrityCheck || verified.QuickCheck != manifest.QuickCheck || strings.Join(verified.ForeignKeyCheck, "\x00") != strings.Join(manifest.ForeignKeyCheck, "\x00") {
 		return BackupManifest{}, newFailure(KindInvariantViolation, "verify_backup", "backup manifest does not match the snapshot", false, "discard the snapshot and create a fresh verified backup")
 	}
 	verified.SnapshotID = manifest.SnapshotID
@@ -288,8 +286,8 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 }
 
 // RestoredDatabaseInventory is the verified inventory of the promoted restore
-// destination, computed from the staging database after its forward migrations
-// and event replay. Like the manifest, it is an inventory, never an authority.
+// destination, computed from the staging database after its forward migrations.
+// Like the manifest, it is an inventory, never an authority.
 type RestoredDatabaseInventory struct {
 	SchemaVersion  int    `json:"schema_version"`
 	DBChecksum     string `json:"db_checksum"`
@@ -297,18 +295,17 @@ type RestoredDatabaseInventory struct {
 }
 
 // RestoreReport separates the verified source snapshot from the promoted
-// restored database. A migrated or rebuilt destination never inherits the
-// source inventory values, and no manifest is written for the destination.
+// restored database. A migrated destination never inherits the source inventory
+// values, and no manifest is written for the destination.
 type RestoreReport struct {
 	SourceSnapshot   BackupManifest            `json:"source_snapshot"`
 	RestoredDatabase RestoredDatabaseInventory `json:"restored_database"`
 }
 
 // RestoreBackup verifies a snapshot, restores it into a clean staging file
-// with SQLite's Online Backup API, migrates and replays the staging database
-// through the shared restore verifier, then promotes it without replacing an
-// existing destination. The source snapshot and manifest are never copied as
-// bytes and never modified.
+// with SQLite's Online Backup API, verifies its current state and applies accepted
+// migrations, then promotes it without replacing an existing destination. The
+// source snapshot and manifest are never copied as bytes and never modified.
 func RestoreBackup(ctx context.Context, source, destination string) (RestoreReport, error) {
 	if err := validateBackupDestination("", destination); err != nil {
 		return RestoreReport{}, err
@@ -375,11 +372,11 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory}, nil
 }
 
-// verifyBackupReplay proves a snapshot promotes only when this binary can
+// verifyBackupRestore proves a snapshot promotes only when this binary can
 // restore it. It clones the snapshot to a disposable staging database through
 // SQLite's Online Backup API and runs the shared restore verifier on the
 // clone, then discards the clone. The snapshot itself is only ever read.
-func verifyBackupReplay(ctx context.Context, snapshot string, manifest BackupManifest) error {
+func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupManifest) error {
 	stageFile, err := os.CreateTemp(filepath.Dir(snapshot), ".concord-backup-verify-*")
 	if err != nil {
 		return wrapFailure(KindUnavailable, "backup", "cannot create backup verification staging file", true, "check snapshot permissions", err)
@@ -495,18 +492,16 @@ func consumeSourceSnapshot(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// verifyRestoredStage proves the staged copy equals the verified source
-// manifest, brings the staging database forward through this binary's accepted
-// forward migrations, and rebuilds its projections from the retained event log
-// without changing projection content. The returned inventory describes the
-// staging database after migration and replay, never the source snapshot.
+// verifyRestoredStage compares every materialized table and schema object with
+// the verified source before applying accepted forward migrations. It validates
+// the migrated stage without reconstructing or repairing current rows.
 func verifyRestoredStage(ctx context.Context, stage string, source BackupManifest) (RestoredDatabaseInventory, error) {
 	verifiedStage, err := verifyBackupFile(ctx, stage, source.SchemaVersion, nil)
 	if err != nil {
 		return RestoredDatabaseInventory{}, err
 	}
-	if verifiedStage.SchemaVersion != source.SchemaVersion || verifiedStage.EventWatermark != source.EventWatermark || verifiedStage.IntegrityCheck != source.IntegrityCheck || verifiedStage.QuickCheck != source.QuickCheck || len(verifiedStage.ForeignKeyCheck) != 0 {
-		return RestoredDatabaseInventory{}, newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source", false, "discard the staging database and restore a verified snapshot")
+	if source.currentStateDigest == "" || verifiedStage.currentStateDigest != source.currentStateDigest || verifiedStage.SchemaVersion != source.SchemaVersion || verifiedStage.IntegrityCheck != source.IntegrityCheck || verifiedStage.QuickCheck != source.QuickCheck || len(verifiedStage.ForeignKeyCheck) != 0 {
+		return RestoredDatabaseInventory{}, newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source current state", false, "discard the staging database and restore a verified snapshot")
 	}
 	if err := contextErr(ctx); err != nil {
 		return RestoredDatabaseInventory{}, wrapFailure(KindUnavailable, "restore_backup", "restore verification was interrupted", true, "retry the restore", err)
@@ -528,16 +523,9 @@ func verifyRestoredStage(ctx context.Context, stage string, source BackupManifes
 		return RestoredDatabaseInventory{}, err
 	}
 	var inventory RestoredDatabaseInventory
-	before, err := projectionDigest(ctx, stageDB)
-	if err == nil {
-		err = RebuildFromLog(ctx, stageStore)
-	}
-	if err == nil {
-		var after string
-		after, err = projectionDigest(ctx, stageDB)
-		if err == nil && after != before {
-			err = newFailure(KindInvariantViolation, "restore_backup", "restored projection rebuild changed projection content", false, "restore a consistent snapshot")
-		}
+	integrity, quick, foreign, err := verifySQLiteTriple(ctx, stageDB)
+	if err == nil && (integrity != "ok" || quick != "ok" || len(foreign) != 0) {
+		err = newFailure(KindInvariantViolation, "restore_backup", fmt.Sprintf("restored staging database failed SQLite integrity verification: integrity_check=%q quick_check=%q foreign_key_check=%v", integrity, quick, foreign), false, "restore a consistent snapshot")
 	}
 	if err == nil {
 		err = validateMembershipInvariants(ctx, stageDB)
@@ -573,9 +561,8 @@ func migrateRestoredStage(ctx context.Context, db *sql.DB) error {
 	return Migrate(ctx, db)
 }
 
-// stagedInventory reads the restored schema version and event watermark from
-// the staging database after migration and replay. The schema must be this
-// binary's: the migrations above either brought it forward or refused.
+// stagedInventory reads the restored inventory after migration. The schema must
+// be this binary's: the migrations above brought it forward or refused.
 func stagedInventory(ctx context.Context, stageDB *sql.DB) (int, int64, error) {
 	var schema int
 	if err := stageDB.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
@@ -584,58 +571,21 @@ func stagedInventory(ctx context.Context, stageDB *sql.DB) (int, int64, error) {
 	if schema != CurrentSchemaVersion() {
 		return 0, 0, newFailure(KindInvariantViolation, "restore_backup", fmt.Sprintf("restored staging database holds schema version %d, not this binary's schema version %d", schema, CurrentSchemaVersion()), false, "restore from a snapshot this binary can migrate")
 	}
-	var watermark sql.NullInt64
-	if err := stageDB.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
-		return 0, 0, wrapFailure(KindUnavailable, "restore_backup", "cannot read the restored event watermark", true, "discard the staging database and retry", err)
-	}
-	return schema, watermark.Int64, nil
+	watermark, err := backupEventInventory(ctx, stageDB)
+	return schema, watermark, err
 }
 
-func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {
-	queries := []struct {
-		name  string
-		query string
-	}{
-		{"products", `SELECT id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at FROM products ORDER BY id`},
-		{"projects", `SELECT id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at FROM projects ORDER BY id`},
-		{"work_items", `SELECT id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time FROM work_items ORDER BY id`},
-		{"relations", `SELECT work_id_from, work_id_to, kind, created_at FROM relations ORDER BY work_id_from, work_id_to, kind`},
-		{"product_projects", `SELECT product_id, project_id, role FROM product_projects ORDER BY product_id, project_id`},
-		{"work_projects", `SELECT work_id, project_id, role FROM work_projects ORDER BY work_id, project_id`},
+// The store revision is inventory only, never a verification input. A snapshot
+// from before the revision migration reports zero inventory.
+func backupEventInventory(ctx context.Context, db *sql.DB) (int64, error) {
+	var exists bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='store_revision')`).Scan(&exists); err != nil {
+		return 0, backupStateReadFailure(err)
 	}
-	hash := sha256.New()
-	for _, item := range queries {
-		rows, err := db.QueryContext(ctx, item.query)
-		if err != nil {
-			return "", wrapFailure(KindUnavailable, "restore_backup", "cannot read "+item.name+" projection", true, "retry the restore", err)
-		}
-		columns, err := rows.Columns()
-		if err != nil {
-			_ = rows.Close()
-			return "", wrapFailure(KindUnavailable, "restore_backup", "cannot inspect "+item.name+" projection", true, "retry the restore", err)
-		}
-		for rows.Next() {
-			values := make([]any, len(columns))
-			pointers := make([]any, len(values))
-			for i := range values {
-				pointers[i] = &values[i]
-			}
-			if err := rows.Scan(pointers...); err != nil {
-				_ = rows.Close()
-				return "", wrapFailure(KindUnavailable, "restore_backup", "cannot decode "+item.name+" projection", true, "retry the restore", err)
-			}
-			writeHashf(hash, "%s\x00", item.name)
-			for _, value := range values {
-				writeHashf(hash, "%T:%v\x00", value, value)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return "", wrapFailure(KindUnavailable, "restore_backup", "cannot read "+item.name+" projection", true, "retry the restore", err)
-		}
-		_ = rows.Close()
+	if !exists {
+		return 0, nil
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return storeRevision(ctx, db)
 }
 
 func verifyBackupFile(ctx context.Context, destination string, supportedMax int, clock func() time.Time) (BackupManifest, error) {
@@ -668,15 +618,20 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 		return BackupManifest{}, err
 	}
 	if integrity != "ok" || quick != "ok" || len(foreign) != 0 {
-		return BackupManifest{}, newFailure(KindInvariantViolation, "verify_backup", "SQLite integrity verification failed", false, "discard the corrupt snapshot and restore a verified backup")
+		return BackupManifest{}, newFailure(KindInvariantViolation, "verify_backup", fmt.Sprintf("SQLite integrity verification failed: integrity_check=%q quick_check=%q foreign_key_check=%v", integrity, quick, foreign), false, "discard the corrupt snapshot and restore a verified backup")
 	}
-	var watermark sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot read backup event watermark", false, "supply a Concord SQLite snapshot", err)
+	stateDigest, err := backupCurrentStateDigest(ctx, db)
+	if err != nil {
+		return BackupManifest{}, err
+	}
+	watermark, err := backupEventInventory(ctx, db)
+	if err != nil {
+		return BackupManifest{}, err
 	}
 	result := BackupManifest{
-		SchemaVersion: schema, EventWatermark: watermark.Int64, DBChecksum: hash,
+		SchemaVersion: schema, DBChecksum: hash, EventWatermark: watermark,
 		BinaryVersion: version.Value, IntegrityCheck: integrity, ForeignKeyCheck: foreign, QuickCheck: quick,
+		currentStateDigest: stateDigest,
 	}
 	result.SourceEventMaxSeq = result.EventWatermark
 	result.FileSHA256 = result.DBChecksum
@@ -864,9 +819,4 @@ func readBackupManifest(destination string) (BackupManifest, error) {
 		return m, wrapFailure(KindInvalidPayload, "verify_backup", "backup manifest is not valid JSON", false, "discard the manifest and create a fresh backup", err)
 	}
 	return m, nil
-}
-
-// hash.Hash.Write always returns a nil error by contract.
-func writeHashf(h hash.Hash, format string, args ...any) {
-	_, _ = fmt.Fprintf(h, format, args...)
 }

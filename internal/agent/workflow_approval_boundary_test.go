@@ -180,11 +180,15 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		DecisionDomainsPresent: true,
 		DecisionDomains:        []string{"product"},
 		EvaluatorAuthority:     store.WorkflowIndependentEvaluator,
-		RetryBinding:           &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 2},
 		Policy:                 store.WorkflowApprovalPolicyResult{Policy: store.WorkflowApprovalPolicyConsequenceV1, Class: store.WorkflowApprovalClassRoutine, Consent: store.WorkflowConsentNone, Reason: "routine"},
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
 		t.Fatal("an identical boundary snapshot reported changed facts")
+	}
+	versionMetadata := base
+	versionMetadata.Definition.Definition.Version++
+	if workflowApprovalBoundaryChanged(base, versionMetadata) {
+		t.Fatal("definition version metadata invalidated unchanged dependency content")
 	}
 	// A JSON round trip can turn an empty slice nil; that is not a fact
 	// change and must not refuse the action.
@@ -202,23 +206,12 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		mutate func(*store.WorkflowApprovalBoundaryState)
 	}{
 		{"definition pin digest", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Digest = "digest-2" }},
-		{"definition pin version", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Definition.Version = 2 }},
 		{"work version", func(s *store.WorkflowApprovalBoundaryState) { s.WorkVersion = 4 }},
 		{"contract version", func(s *store.WorkflowApprovalBoundaryState) { s.ContractVersion = 3 }},
 		{"active contract versions", func(s *store.WorkflowApprovalBoundaryState) { s.ActiveContractVersions = []int64{1, 2, 3} }},
 		{"decision-domain presence", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomainsPresent = false }},
 		{"decision domains", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomains = []string{"preference"} }},
 		{"evaluator authority", func(s *store.WorkflowApprovalBoundaryState) { s.EvaluatorAuthority = store.WorkflowOperatorRequired }},
-		{"failed-retry binding presence", func(s *store.WorkflowApprovalBoundaryState) { s.RetryBinding = nil }},
-		{"failed-retry binding attempt", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-2", FailedAttemptEpoch: 2, ContractVersion: 2}
-		}},
-		{"failed-retry binding epoch", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 3, ContractVersion: 2}
-		}},
-		{"failed-retry binding contract", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 3}
-		}},
 		{"classification", func(s *store.WorkflowApprovalBoundaryState) { s.Policy.Consent = store.WorkflowConsentRequired }},
 	} {
 		t.Run(vector.name, func(t *testing.T) {

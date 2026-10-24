@@ -14,10 +14,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestSessionVacateReleasesEveryWorkItemRow"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/agent.TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding"
     },
     {

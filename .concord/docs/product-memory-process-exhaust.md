@@ -1,7 +1,6 @@
 # Concord Process-Exhaust Salvage and Receipt (PM9)
 
 > **Status:** **Accepted — binding until superseded.**
-> **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
@@ -14,13 +13,16 @@
 CD-0002 carried a process-exhaust rule that assumed a salvage-and-receipt
 handoff. The
 binding inputs are PM1 Q7/Q9/Q10, the accepted PM2 through PM8, PM6 publish
-proof, and compaction-retention-policy retention. This record closes the deferral: the existing
-durable sequence — terminal events, the approved PM6 note, the verified
-link, the optional prune event — is the only receipt, and process exhaust
-stays producer-owned with salvage into bounded note fields before approval.
+proof, and compaction-retention-policy retention. This record closes the deferral: closure
+publishes one completion receipt, evidence is captured by its producer and bound
+to its subject, and the store keeps current state and finite verified snapshots
+with no event log or replay
+([CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) D2, D8, D9).
+Process exhaust stays producer-owned with salvage into bounded note fields
+before approval.
 ## Contract
 
-For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. The original event history, loss-prevention obligations, content/home proof, and research-retirement eligibility remain required. Physical research-pack deletion requires separate operator approval only when a CD-0243 D2 class applies. Publication acceptance does not itself permit research retirement.
+For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. Loss-prevention obligations, content/home proof, and research-retirement eligibility remain required. Physical research-pack deletion requires separate operator approval only when a CD-0243 D2 class applies. Publication acceptance does not itself permit research retirement.
 
 
 The binding contract is sections 1 through 3: the no-receipt decision with
@@ -32,13 +34,17 @@ and reopen criteria, and research basis, and carry no obligation.
 ## 1. Decision
 
 Concord creates **no separate process-exhaust store, audit-receipt object, hash, or
-process-exhaust deletion-attestation event** in v1. The existing durable sequence is
-the only receipt needed:
-
-1. terminal `domain_events` history records the work outcome;
-2. the approved PM6 note records outcome, why, decisions, and transferable lessons;
-3. PM6's verified compaction-link event records the canonical note locator/proof; and
-4. compaction-retention-policy's optional prune event records the later projection boundary.
+process-exhaust deletion-attestation event** in v1. Closure publishes one
+completion receipt in the canonical knowledge home, linking the delivered
+subject, the accepted outcome, consequential decisions, and the proof that
+substantiates acceptance
+([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+Verification evidence is captured by its producer and bound to its subject, and
+agents never re-enter it
+([CD-0242 D8](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)).
+The store keeps current state and finite verified snapshots, with no event log,
+fold, or replay
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 External process exhaust—sub-agent reports, briefing digests, tool logs, retry
 traces, intermediate snapshots, WIP test output, and screenshots—remains
@@ -50,19 +56,13 @@ not imported external process exhaust. The existing verify lease retains one
 bounded raw stdout `BLOB` and one raw stderr `BLOB` until lease/work deletion.
 These bytes grant no knowledge, independent evidence, or acceptance authority.
 They enter no generic metadata, concise note, or separate process-exhaust store.
-This narrow native retention changes neither the PM6 receipt sequence nor the
-salvage obligation for external reports and traces. compaction-retention-policy owns its deletion boundary.
+This narrow native retention changes neither the completion receipt rule of
+CD-0242 D9 nor the salvage obligation for external reports and traces. compaction-retention-policy owns its deletion boundary.
 
 ### Required acceptance synchronization
 
-This accepted change closes the receipt/salvage deferrals across:
-
-- CD-0002's process-exhaust rule and its assumed salvage/receipt handoff;
-- PM6 and compaction-retention-policy header/scope/Q7/retention-table PM9 pointers;
-- PM8's PM9 receipt-versus-durable-knowledge deferral;
-- README, storage-slice, lifecycle, and clarification PM9/PM10 status wording; and
-- the PM9 clarification lean, explicitly recording the operator's choice of no
-  separate receipt because the listed fields already exist in accepted authorities.
+PM6 and compaction-retention-policy govern publication and retention.
+The bounded note fields in section 2 carry salvage; no separate process-exhaust receipt is required.
 
 ## 2. Named value and salvage rule
 
@@ -98,7 +98,9 @@ and PM8 no-WIP-byte-store boundary.
 | later reader needs missing raw output | report it unavailable and evaluate PM9 reopen criteria; never fabricate a receipt |
 
 compaction-retention-policy pruning remains blocked by its existing PM6 proof/eligibility checks. PM9 adds no
-new retention or deletion precondition and does not alter authoritative Q7 history.
+new retention or deletion precondition and leaves the store's current state and
+finite verified snapshots unchanged
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## 4. Migration, backfill, and retention
 
@@ -112,8 +114,10 @@ missing receipt, and never requires reconstructing WIP bytes.
 
 ## 5. Invariants
 
-1. **One durable answer:** terminal outcome/knowledge comes from the existing event,
-   note, and locator sequence—not a second receipt authority.
+1. **One durable answer:** closure publishes one completion receipt, and outcome
+   knowledge comes from that receipt and the reviewed note—not a second receipt
+   authority
+   ([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
 2. **Salvage before approval:** material reusable findings belong in reviewed durable
    text or a linked decision before compaction completes.
 3. **No raw-output smuggling:** reports, paths, hashes, screenshots, and command dumps
@@ -130,7 +134,7 @@ missing receipt, and never requires reconstructing WIP bytes.
    generic metadata, the git note, or a process-receipt field.
 3. Failure before PM6 approval/linkage leaves the existing work state recoverable through
    PM6; no synthetic audit record is created.
-4. compaction-retention-policy pruning preserves Q7 event history and note locator behavior with no dependency on
+4. compaction-retention-policy pruning preserves current-state and note locator behavior with no dependency on
    producer-owned WIP output.
 5. A later request for dropped raw output returns unavailable rather than a false
    integrity/deletion assertion.
@@ -139,8 +143,10 @@ missing receipt, and never requires reconstructing WIP bytes.
 
 ### Separate audit receipt
 
-Rejected. The terminal event, approved note, and verified PM6 locator already answer
-the named audit question. A new receipt duplicates identifiers and creates another
+Rejected. The completion receipt, approved note, and verified PM6 locator already answer
+the named audit question
+([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+A new receipt duplicates identifiers and creates another
 schema, migration, and retention surface without a reader needing stronger proof.
 
 ### Hashes or deletion certificates for exhaust
@@ -157,8 +163,8 @@ into a storage, backup, and GC obligation.
 
 PM9 does not decide PM10 recovery, external CI retention, C15, or TS surfaces.
 
-Reopen PM9 only when a recurring, named reader must determine a fact that the terminal
-event, approved note, verified locator, ordinary external link, and bounded state cannot
+Reopen PM9 only when a recurring, named reader must determine a fact that the completion
+receipt, approved note, verified locator, ordinary external link, and bounded state cannot
 answer; the proposal must state the required proof, retention period, restore promise,
 and why a concise note cannot carry the finding before selecting a receipt mechanism.
 

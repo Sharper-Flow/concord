@@ -43,7 +43,6 @@ func TestMaximalScalarRecordEncodesWithinTheRecordBound(t *testing.T) {
 			DomainIDs:  []string{strings.Repeat("d", maxManifestID)},
 			TagIDs:     []string{strings.Repeat("k", maxManifestID)},
 		},
-		Successor:            strings.Repeat("u", maxManifestID),
 		SHA256:               "sha256:" + strings.Repeat("a", 64),
 		LawRelations:         []KnowledgeRelation{{Kind: "refines", TargetID: strings.Repeat("r", maxManifestID)}},
 		HomeDomainID:         strings.Repeat("h", maxManifestID),

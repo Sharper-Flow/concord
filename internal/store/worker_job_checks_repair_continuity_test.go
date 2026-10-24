@@ -11,21 +11,15 @@ import (
 const checksRepairContinuityWorkID = "checks-repair-continuity"
 const checksRepairContinuityJobID = "job:checks-repair-continuity"
 
-// The continuity regression (CD-0205 D4, amended 2026-10-19, CD-0148
-// amendment): a failed confirming review voids the first repair and leaves
+// The continuity regression (CD-0205 D4): a failed confirming review voids
+// the first repair and leaves
 // its repairing revision unresolved, and that own debt cannot fold into a
 // second checks repair — recovery first re-records and accepts the repairing
 // revision's own obligation, leaving only the original revision unresolved,
 // and only then does the second checks repair name the remaining
-// original-check revision. The second repair and its confirming review ride
-// ordinary CD-0148 authority behind real store-derived findings convergence:
-// the continuity snapshot publishes the unfunded candidate beside the funded
-// ones, and the recorded admission marker names the exact repairing
-// acceptance with funded=false. The first review dispatches at the wall: a
-// plain unrelated job's failed attempt stands the three-attempt wall beneath
-// the real 5→4 findings convergence, and the funded admission rides the wall
-// without recording the ordinary basis. Every dispatch still invalidates any
-// older convergence basis.
+// original-check revision. Continuity publishes each exact repairing binding,
+// and each confirming dispatch names its repairing acceptance. Classified
+// findings and evidenced resolutions retain their exact-set rejection checks.
 
 // checksRepairClaimGit rebinds the review-claim fixture's fake git the way
 // reviewSubjectClaim built it, so closure verify runs drive the claimed
@@ -61,7 +55,7 @@ func checksRepairClosureRun(t *testing.T, s *Store, name string, git *fakeWorktr
 }
 
 // checksRepairFindingsCompletion applies one job-bound completion whose
-// no_ship report carries the classified blockers beside the resolution
+// corrective report carries the classified blockers beside the resolution
 // claims, with the closure runs' receipts attached.
 func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, eventKey, verdict string, blockers []WorkerReviewFinding, resolutions []WorkerOracleResolution, receipt *WorkerOracleReceipt) {
 	t.Helper()
@@ -69,20 +63,33 @@ func checksRepairFindingsCompletion(t *testing.T, s *Store, workID, attemptID, e
 		if blockers == nil {
 			blockers = []WorkerReviewFinding{}
 		}
-		payload.Review = &WorkerReviewBlock{Verdict: verdict, Findings: blockers, ResolvedFindings: resolutions}
+		payload.Review = currentReviewBlockForTest(t, s, workID, attemptID, verdict)
+		payload.Review.Findings, payload.Review.ResolvedFindings = blockers, resolutions
 		if receipt != nil && len(payload.Evidence) > 0 {
 			payload.Evidence[0].OracleReceipt = receipt
 		}
 	})
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
-		t.Fatalf("%s completion refused: %v", attemptID, err)
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+		t.Fatal(err)
 	}
+	// The oracle builder uses a synthetic tree. This journey seals a real
+	// checkout, so its Review must report that checkout's candidate instead.
+	candidate := currentReviewBlockForTest(t, s, workID, attemptID, verdict)
+	payload.Review.InputCandidate, payload.Review.OutputCandidate = candidate.InputCandidate, candidate.OutputCandidate
+	completion.Payload = mustJSONValue(payload)
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(t.Context(), prepared), s, checksRepairSealedCompletion(t, completion))
 }
 
 func checksRepairBlocker(t *testing.T, s *Store, detail, family string) WorkerReviewFinding {
 	t.Helper()
 	const workID = checksRepairContinuityWorkID
-	return WorkerReviewFinding{Severity: "P1", Confidence: "high", Detail: detail,
+	return WorkerReviewFinding{FindingID: "finding:" + family, Severity: "P1", Confidence: "high", Detail: detail,
+		InScope: true, Blocking: true, Status: "open", EvidenceRefs: []string{"evidence:checks-repair-continuity-" + family}, ClosureRefs: []string{},
 		Oracle: &WorkerOracleFinding{
 			Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:fixture",
 			FailureFamily: family, PredicateIDs: fixtureRepairPredicateIDs(t, s, workID),
@@ -90,7 +97,7 @@ func checksRepairBlocker(t *testing.T, s *Store, detail, family string) WorkerRe
 		}}
 }
 
-func checksRepairReject(t *testing.T, s *Store, attemptID string, open []string, acceptor WorkflowActor) {
+func checksRepairRejection(t *testing.T, s *Store, attemptID string, open []string, acceptor WorkflowActor, apply bool) {
 	t.Helper()
 	const workID = checksRepairContinuityWorkID
 	// The rejection binds the attempt's own dispatch epoch: an intermediate
@@ -105,6 +112,15 @@ func checksRepairReject(t *testing.T, s *Store, attemptID string, open []string,
 	}
 	if open != nil {
 		payload["open_finding_ids"] = open
+	}
+	if !apply {
+		err := WorkflowActionPreflightWithRegistry(t.Context(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "reject_worker_result", Payload: mustJSONValue(payload), Actor: acceptor,
+		})
+		if err != nil {
+			t.Fatalf("preflight rejection of %s with %v: %v", attemptID, open, err)
+		}
+		return
 	}
 	if err := runVerdictActionAs(t, s, workID, "reject_worker_result", mustJSONValue(payload), 0, acceptor); err != nil {
 		t.Fatalf("reject %s with %v: %v", attemptID, open, err)
@@ -144,7 +160,7 @@ func checksRepairSealedCompletion(t *testing.T, event Event) Event {
 	return event
 }
 
-func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.T) {
+func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	const workID = checksRepairContinuityWorkID
 	const jobID = checksRepairContinuityJobID
 	fixture := seedChecksRepairFixture(t, workID, "repair")
@@ -155,7 +171,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	git := checksRepairClaimGit(t, s, workID, dir, head)
 	acceptor := reviewGateAcceptor(workID)
 
-	// Round one: the original revision's attempt completes no_ship with five
+	// Round one: the original revision's attempt reports correction with five
 	// classified blockers, and the exact-set rejection records them.
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("concord check --continuity-original --exit-code=never", nil)); err != nil {
@@ -166,7 +182,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	}
 	attempt1 := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, workerForChecksRepair(workID), 0, "checks-repair-continuity-1", job)
-	checksRepairFindingsCompletion(t, s, workID, attempt1, "checks-repair-r0", "no_ship", []WorkerReviewFinding{
+	checksRepairFindingsCompletion(t, s, workID, attempt1, "checks-repair-r0", "correction_required", []WorkerReviewFinding{
 		checksRepairBlocker(t, s, "first blocker", "family-one"),
 		checksRepairBlocker(t, s, "second blocker", "family-two"),
 		checksRepairBlocker(t, s, "third blocker", "family-three"),
@@ -181,10 +197,10 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if len(open) != 5 {
 		t.Fatalf("open finding ids = %v, want five blockers", open)
 	}
-	checksRepairReject(t, s, attempt1, open, acceptor)
+	checksRepairRejection(t, s, attempt1, open, acceptor, true)
 
 	// The first repair names the one unresolved revision; its acceptance
-	// opens the repair and funds the confirming review.
+	// opens the repair and admits its confirming review.
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityOne", []int64{1})); err != nil {
 		t.Fatalf("record the first repair: %v", err)
 	}
@@ -192,20 +208,15 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	if first == nil {
 		t.Fatal("the first repair is not recorded")
 	}
-	// A plain unrelated job's attempt dispatches below the wall and fails, so
-	// three non-progress attempts stand when the funded review dispatches. It
-	// dispatches before the repairing attempt: every dispatch at the step
-	// supersedes the rejectable window and the acceptance epoch fence, and
-	// only the correction records a dispatch postdates can remain the wall's
-	// convergence basis.
+	// A failed attempt of the same assignment remains beside the repair. A
+	// different ordinary assignment would require a new accepted Review.
 	plain := "attempt:" + workID + ":plain"
-	unrelated := &WorkerJobBinding{JobID: "job:checks-repair-continuity-unrelated", Revision: 1}
 	plainCorrection, plainCorrectionErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", plain)
 	if plainCorrectionErr != nil {
 		t.Fatal(plainCorrectionErr)
 	}
-	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", unrelated)
-	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
+	dispatchJobBoundAttempt(t, s, workID, "repair", plain, plainCorrection, workerForChecksRepair(workID), 0, "checks-repair-continuity-plain", first)
+	plainFailure := Event{EventID: "checks-repair-plain-failed-" + workID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{
 		AttemptID: plain, ReadbackModel: preferredModelForLane(reviewGateLane(t, "implementation")), FailureKind: WorkerFailureWorkerError, Detail: "the unrelated attempt failed before a judgeable result",
 		FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()},
 	})}
@@ -222,12 +233,14 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// attempt anchors the confirming review's subject join.
 	run5 := checksRepairClosureRun(t, s, "close-family-five", git)
 	attempt2Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt2, "checks-repair-completed-"+attempt2, func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = currentReviewBlockForTest(t, s, workID, attempt2, "correction_required")
+		payload.Review.Findings = []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
 			checksRepairContinuation(t, s, open[1], "second blocker stands"),
 			checksRepairContinuation(t, s, open[2], "third blocker stands"),
 			checksRepairContinuation(t, s, open[3], "fourth blocker stands"),
-		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}}
+		}
+		payload.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: open[4], EvidenceRefs: []string{run5.OperationRef}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
@@ -240,10 +253,9 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("the first repair's terminal delivery preparation refused: %v", attempt2PreparedErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), attempt2Prepared), s, attempt2Completion)
-	// The exact-set rejection records the 5→4 shrink cycle before the
-	// acceptance, so the wall's ordinary convergence basis derives from real
-	// store records; the acceptance still opens the repair.
-	checksRepairReject(t, s, attempt2, open[:4], acceptor)
+	// Exact-set rejection preflight retains the four remaining blockers.
+	// Main chooses acceptance once; it cannot also reject the same result.
+	checksRepairRejection(t, s, attempt2, open[:4], acceptor, false)
 	// The acceptance binds the attempt's own dispatch epoch: the plain
 	// attempt's dispatch moved the step's latest start, never attempt2's
 	// authorized window.
@@ -252,64 +264,29 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("accept %s: %v", attempt2, err)
 	}
 
-	// The funded candidate publishes for the first repair; the funded
-	// confirming review dispatches at the wall and its no_ship verdict voids
-	// the repair.
+	// Continuity publishes the first repair's exact candidate. Its confirming
+	// Review's accepted blocking disposition voids the repair.
 	continuity, continuityErr := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if continuityErr != nil {
 		t.Fatal(continuityErr)
 	}
-	if len(continuity.ChecksRepairReviewJobs) != 1 || continuity.ChecksRepairReviewJobs[0].JobID != jobID || continuity.ChecksRepairReviewJobs[0].Revision != first.Revision {
-		t.Fatalf("funded continuity jobs = %+v, want the first repair's exact binding", continuity.ChecksRepairReviewJobs)
+	if len(continuity.ChecksRepairReviewJobs) != 1 || continuity.ChecksRepairReviewJobs[0].JobID != first.JobID || continuity.ChecksRepairReviewJobs[0].Revision != first.Revision || continuity.ChecksRepairReviewJobs[0].Digest != first.Digest {
+		t.Fatalf("continuity jobs = %+v, want the first repair's exact binding", continuity.ChecksRepairReviewJobs)
 	}
-	// The wall stands: the open correction window counts three dispatched
-	// attempts, so the funded review's dispatch is escalated, and the 5→4
-	// shrink cycle derives the ordinary convergence basis independently of
-	// the funding it could have ridden instead.
 	review1 := "attempt:" + workID + ":review-1"
-	wall, wallErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", review1)
-	if wallErr != nil || wall == nil || !wall.Escalated {
-		t.Fatalf("the correction window at the funded review = (%#v, %v), want the escalated wall", wall, wallErr)
-	}
-	reject1Seq, reject2Seq := checksRepairCorrectionRecordSeq(t, s, workID, attempt1), checksRepairCorrectionRecordSeq(t, s, workID, attempt2)
-	basis, basisErr := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry())
-	if basisErr != nil {
-		t.Fatal(basisErr)
-	}
-	if !basis.valid() || basis.Basis != "findings_shrinking" || basis.PreviousRecordSeq != reject1Seq || basis.LatestRecordSeq != reject2Seq {
-		t.Fatalf("the derived convergence basis = %+v, want findings_shrinking over the recorded %d→%d shrink cycle", basis, reject1Seq, reject2Seq)
+	correction1, correction1Err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", review1)
+	if correction1Err != nil || correction1 == nil {
+		t.Fatalf("correction at the first review = (%#v, %v), want the open correction", correction1, correction1Err)
 	}
 	if err := dispatchConfirmingReview(t, s, workID, review1, first, fixture.owner); err != nil {
-		t.Fatalf("the funded confirming review dispatch refused at the wall: %v", err)
+		t.Fatalf("the first confirming review dispatch refused: %v", err)
 	}
-	// The funded admission is the recorded wall route. The existing basis
-	// freshness rule still requires new convergence after every dispatch.
-	var review1Marker struct {
-		Funded                 bool   `json:"funded"`
-		RepairingAcceptanceSeq int64  `json:"repairing_acceptance_seq"`
-		RecordedBasis          string `json:"recorded_basis"`
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.checks_repair_review.funded'), json_extract(payload,'$.checks_repair_review.repairing_acceptance_seq'), COALESCE(json_extract(payload,'$.retry_convergence.basis'),'') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, review1).Scan(&review1Marker.Funded, &review1Marker.RepairingAcceptanceSeq, &review1Marker.RecordedBasis); err != nil {
-		t.Fatal(err)
-	}
-	acceptanceSeq, acceptanceFound, acceptanceErr := workerChecksRepairConfirmingAcceptanceSeqTx(ctx, s.DatabaseForTesting(), workID, *first)
-	if acceptanceErr != nil || !acceptanceFound || acceptanceSeq == 0 {
-		t.Fatalf("the walked repairing acceptance = (%d, %v, %v), want the recorded accepting event", acceptanceSeq, acceptanceFound, acceptanceErr)
-	}
-	if !review1Marker.Funded || review1Marker.RepairingAcceptanceSeq != acceptanceSeq {
-		t.Fatalf("the funded review's admission marker = %+v, want funded=true beside the exact repairing acceptance %d", review1Marker, acceptanceSeq)
-	}
-	if review1Marker.RecordedBasis != "" {
-		t.Fatalf("the funded confirming review also recorded ordinary convergence authority %q", review1Marker.RecordedBasis)
-	}
-	if after, err := workflowRetryConvergenceForRegistry(ctx, s.DatabaseForTesting(), workID, "repair", BuiltinWorkflowRegistry()); err != nil || after.valid() {
-		t.Fatalf("convergence after the funded dispatch = (%+v, %v), want fresh convergence required", after, err)
-	}
+	assertChecksRepairReviewMarker(t, s, workID, review1, *first)
 	// The voiding report continues three standing blockers and closes the
-	// fourth with an evidenced pass, so the exact-set rejection shrinks the
-	// open set 4→3 and records the cycle the wall's first basis derives from.
+	// fourth with an evidenced pass, so the derived finding lineage shrinks the
+	// open set 4→3.
 	run4 := checksRepairClosureRun(t, s, "close-family-four", git)
-	checksRepairFindingsCompletion(t, s, workID, review1, "checks-repair-review1", "no_ship", []WorkerReviewFinding{
+	checksRepairFindingsCompletion(t, s, workID, review1, "checks-repair-review1", "correction_required", []WorkerReviewFinding{
 		checksRepairContinuation(t, s, open[0], "first blocker stands"),
 		checksRepairContinuation(t, s, open[1], "second blocker stands"),
 		checksRepairContinuation(t, s, open[2], "third blocker stands"),
@@ -319,9 +296,11 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run4.OperationRef,
 		EvidenceRefs: []string{run4.OperationRef},
 	})
-	checksRepairReject(t, s, review1, open[:3], acceptor)
-	if fundings, fundingErr := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID); fundingErr != nil || len(fundings) != 0 {
-		t.Fatalf("fundings after the void = (%#v, %v), want none", fundings, fundingErr)
+	checksRepairRejection(t, s, review1, open[:3], acceptor, false)
+	acceptChecksRepairAttempt(t, s, workID, review1, acceptor)
+	checksRepairRequestCorrection(t, s, workID, acceptor)
+	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
+		t.Fatalf("candidates after the void = (%#v, %v), want none", candidates, err)
 	}
 
 	// The failed confirming review's own debt cannot fold into a second
@@ -336,8 +315,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 
 	// Own-debt recovery: revision 3 re-records the first repair's exact
 	// obligation — its checks beside a plain revision, no checks repair
-	// metadata — and dispatches at the wall behind the real store-derived
-	// findings convergence the 4→3 shrink cycle recorded.
+	// metadata — and dispatches under the current correction.
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityOne", nil)); err != nil {
 		t.Fatalf("record the repairing revision's own obligation: %v", err)
 	}
@@ -372,34 +350,24 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "checks-repair-continuity-3",
 		RequestID: "request:checks-repair-continuity-3", ContractDigest: testManifestDigest, Now: time.Unix(60, 0).UTC(),
 	}); dispatchErr != nil {
-		t.Fatalf("the recovery dispatch refused behind the recorded convergence: %v", dispatchErr)
+		t.Fatalf("the own-obligation recovery dispatch refused: %v", dispatchErr)
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attempt3, recovery)
-	// The recovery dispatch is escalated and unfunded, so it still records
-	// the convergence basis it uses rather than a funded review admission.
-	var recoveryRecordedBasis string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt3).Scan(&recoveryRecordedBasis); err != nil {
-		t.Fatal(err)
-	}
-	if recoveryRecordedBasis != "findings_shrinking" {
-		t.Fatalf("the recovery dispatch's recorded convergence basis = %q, want findings_shrinking", recoveryRecordedBasis)
-	}
 
 	// The recovery run settles: its own checks pass — the pass receipt proves
 	// the run — and its evidenced resolution closes the third blocker, so the
-	// open set shrinks 3→2 through the exact-set rejection the coordinator
-	// records because the work still holds open blockers. The rejection is
-	// the record the wall's second convergence basis derives from.
+	// open set shrinks 3→2. Rejection preflight validates the exact remaining
+	// set, then Main accepts the result without a second disposition.
 	run3 := checksRepairClosureRun(t, s, "close-family-three", git)
-	checksRepairFindingsCompletion(t, s, workID, attempt3, "checks-repair-recovery", "ship", nil,
+	checksRepairFindingsCompletion(t, s, workID, attempt3, "checks-repair-recovery", "continue", nil,
 		[]WorkerOracleResolution{{FindingID: open[2], EvidenceRefs: []string{run3.OperationRef}}}, &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
 			Result:       OracleReceiptResultPass, ExitCode: passExitCode(), RunRef: run3.OperationRef,
 			EvidenceRefs: []string{run3.OperationRef},
 		})
-	checksRepairReject(t, s, attempt3, open[:2], acceptor)
-	// The settling acceptance discharges the failed confirming review's
+	checksRepairRejection(t, s, attempt3, open[:2], acceptor, false)
+	// The confirming acceptance discharges the failed confirming review's
 	// repairing revision, leaving only the original revision unresolved.
 	acceptChecksRepairAttempt(t, s, workID, attempt3, acceptor)
 	watermark, watermarkErr := workerChecksRepairWatermarkTx(ctx, s.DatabaseForTesting(), workID)
@@ -415,7 +383,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	}
 
 	// The second repair names the remaining original-check revision alone
-	// and dispatches at the wall behind the new 3→2 convergence basis.
+	// and dispatches under the current correction.
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityTwo", []int64{1})); err != nil {
 		t.Fatalf("record the second repair: %v", err)
 	}
@@ -445,7 +413,7 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "checks-repair-continuity-4",
 		RequestID: "request:checks-repair-continuity-4", ContractDigest: testManifestDigest, Now: time.Unix(60, 0).UTC(),
 	}); dispatch4Err != nil {
-		t.Fatalf("the second repair's dispatch refused behind the new convergence basis: %v", dispatch4Err)
+		t.Fatalf("the second repair's dispatch refused: %v", dispatch4Err)
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attempt4, second)
 
@@ -456,9 +424,11 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 	// observation).
 	run2 := checksRepairClosureRun(t, s, "close-family-two", git)
 	attempt4Completion := checksRepairSealedCompletion(t, oracleCompletionEvent(t, s, workID, attempt4, "checks-repair-second-repair", func(payload *WorkerCompletedPayload) {
-		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
+		payload.Review = currentReviewBlockForTest(t, s, workID, attempt4, "correction_required")
+		payload.Review.Findings = []WorkerReviewFinding{
 			checksRepairContinuation(t, s, open[0], "first blocker stands"),
-		}, ResolvedFindings: []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}}
+		}
+		payload.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: open[1], EvidenceRefs: []string{run2.OperationRef}}}
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
 			ControlIDs: []string{"control:fixture"}, CaseIDs: []string{"case:fixture"},
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
@@ -471,16 +441,15 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		t.Fatalf("terminal delivery preparation refused: %v", preparedErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, attempt4Completion)
-	checksRepairReject(t, s, attempt4, open[:1], acceptor)
+	checksRepairRejection(t, s, attempt4, open[:1], acceptor, false)
 	acceptChecksRepairAttempt(t, s, workID, attempt4, acceptor)
 	acceptSeq, found, acceptErr := workerChecksRepairConfirmingAcceptanceSeqTx(ctx, s.DatabaseForTesting(), workID, *second)
 	if acceptErr != nil || !found || acceptSeq == 0 {
 		t.Fatalf("the second repair's walked acceptance = (%d, %v, %v), want the recorded accepting event", acceptSeq, found, acceptErr)
 	}
 
-	// The ordinary-authority candidate must publish beside the funded ones:
-	// the adapter builds the second review's packet from this view, so a
-	// funded-only publication strands the review forever.
+	// The adapter builds the second review's packet from continuity, which
+	// must publish the new candidate without the voided first repair.
 	continuity, continuityErr = ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if continuityErr != nil {
 		t.Fatal(continuityErr)
@@ -495,55 +464,30 @@ func TestChecksRepairSecondRepairReviewRidesContinuityWithoutFunding(t *testing.
 		}
 	}
 	if !found {
-		t.Fatalf("continuity checks_repair_review_jobs = %+v, want the exact satisfied second repair %s@%d — the ordinary-authority review packet cannot be built", continuity.ChecksRepairReviewJobs, second.JobID, second.Revision)
+		t.Fatalf("continuity checks_repair_review_jobs = %+v, want the exact satisfied second repair %s@%d", continuity.ChecksRepairReviewJobs, second.JobID, second.Revision)
 	}
 
 	// The review packet the adapter builds from the continuity-produced job
-	// dispatches through the third shrink cycle: the recorded marker rides
-	// the exact repairing acceptance with funded=false — the ordinary
-	// CD-0148 authority, and no third authority appears.
+	// dispatches with the exact repairing acceptance and binding.
 	review2 := "attempt:" + workID + ":review-2"
 	if err := dispatchConfirmingReview(t, s, workID, review2, second, fixture.owner); err != nil {
-		t.Fatalf("the ordinary-authority confirming review dispatch refused: %v", err)
+		t.Fatalf("the second confirming review dispatch refused: %v", err)
 	}
-	var marker struct {
-		Funded                 bool   `json:"funded"`
-		RepairingAcceptanceSeq int64  `json:"repairing_acceptance_seq"`
-		JobID                  string `json:"job_id"`
-		Revision               int64  `json:"revision"`
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.checks_repair_review.funded'), json_extract(payload,'$.checks_repair_review.repairing_acceptance_seq'), json_extract(payload,'$.checks_repair_review.worker_job.job_id'), json_extract(payload,'$.checks_repair_review.worker_job.revision') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, review2).Scan(&marker.Funded, &marker.RepairingAcceptanceSeq, &marker.JobID, &marker.Revision); err != nil {
-		t.Fatal(err)
-	}
-	if marker.Funded || marker.RepairingAcceptanceSeq != acceptSeq || marker.JobID != second.JobID || marker.Revision != second.Revision {
-		t.Fatalf("the second review's admission marker = %+v, want funded=false beside the exact repairing acceptance %d", marker, acceptSeq)
-	}
+	assertChecksRepairReviewMarker(t, s, workID, review2, *second)
 
-	// The wall stays basis-gated: a repeated review of the same repair
-	// refuses without a fresh basis, and a third repair recording refuses
+	// A repeated review of the same repair refuses after consumption,
+	// and a third repair recording refuses
 	// while the second stands unconfirmed.
 	if err := dispatchConfirmingReview(t, s, workID, "attempt:"+workID+":review-3", second, fixture.owner); err == nil {
 		t.Fatal("a repeated confirming review was admitted after the admission was consumed")
-	} else if !strings.Contains(err.Error(), "without a convergence basis") {
-		t.Fatalf("repeated review refusal = %v, want the wall's convergence refusal", err)
+	} else if !strings.Contains(err.Error(), "selected worker-job revision is not ready") {
+		t.Fatalf("repeated review refusal = %v, want the consumed candidate's readiness refusal", err)
 	}
 	if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields("go test ./internal/store/ -run TestChecksRepairContinuityThree", []int64{1, 4})); err == nil {
 		t.Fatal("a third repair was recorded while the second stands unconfirmed")
 	} else if !strings.Contains(err.Error(), "at most one unconfirmed checks repair") {
 		t.Fatalf("third repair refusal = %v, want the open-repair refusal", err)
 	}
-}
-
-// checksRepairCorrectionRecordSeq reads the sequence of one attempt's
-// recorded exact-set rejection, the correction record a convergence basis
-// cites.
-func checksRepairCorrectionRecordSeq(t *testing.T, s *Store, workID, attemptID string) int64 {
-	t.Helper()
-	var seq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&seq); err != nil {
-		t.Fatalf("read the recorded rejection of %s: %v", attemptID, err)
-	}
-	return seq
 }
 
 func workerForChecksRepair(workID string) WorkflowActor {

@@ -11,6 +11,7 @@ import (
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
+	Review                  *WorkflowReviewState      `json:"review,omitempty"`
 	WorkID                  string                    `json:"work_id"`
 	Title                   string                    `json:"title"`
 	LinearIssueKey          string                    `json:"linear_issue_key"`
@@ -81,11 +82,6 @@ type WorkPin struct {
 	// dispatches when the disposition holds the work. Managed intents remain
 	// empty; outside-repair operations are not workflow actions.
 	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
-	// RetryWindow is the CD-0164 D5 readable retry window, reusing this
-	// pin's folded admission state instead of re-entering the loader. It
-	// stays absent on the held outside-repair pin and on the
-	// duplicate-contract recovery pin.
-	RetryWindow *WorkflowRetryWindow `json:"retry_window,omitempty"`
 }
 
 type WorkPinVerifiedCriterion struct {
@@ -271,7 +267,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 		if stateErr != nil {
 			return pin, stateErr
 		}
-		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted || decision.ApprovalRequired {
+		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted {
 			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowDecisionFactRecoveryActionDefinition(registered.Definition), pin.Version, "operator_contract_correction")}
 		}
 		return pin, nil
@@ -293,13 +289,6 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
 		return pin, err
 	}
-	// The CD-0164 D5 window reuses this pin's folded admission state, so the
-	// pin's wall answer is the loader's own, never a second derivation.
-	window, windowErr := workflowRetryWindowForState(ctx, tx, workID, pin.Step, "work_pin", state, registry)
-	if windowErr != nil {
-		return pin, windowErr
-	}
-	pin.RetryWindow = window
 	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
@@ -375,13 +364,14 @@ func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID st
 		}
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
-	pin.WorkflowType = definition.Ref
-	pin.WorkflowDefinitionVersion = &definition.Version
-	pin.WorkflowDefinitionDigest = &definition.Digest
 	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
+	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
+	pin.WorkflowType = definition.Ref
+	pin.WorkflowDefinitionVersion = &definition.Version
+	pin.WorkflowDefinitionDigest = &definition.Digest
 	// The obligation list uses the verified registered definition — the same
 	// verification and the same collector the architecture-binding admission
 	// reads — so the pin and admission cannot disagree on declared membership.
@@ -401,7 +391,7 @@ func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, 
 	if registry == nil {
 		return verifyReadWorkflowDefinition(definition)
 	}
-	return VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin(definition))
+	return resolveCurrentWorkflowDefinition(registry, definition.Ref)
 }
 
 // workPinStepIntentsTx fills the pin's step intents and returns the folded
@@ -417,11 +407,12 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}
+	pin.Review = state.Review
 	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version)
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
 		decision := workflowAdmit(definition, state, intent.ActionID)
-		if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired {
+		if !decision.Admitted {
 			continue
 		}
 		// A consequence_v1 confirm_premise declares the human digest
@@ -433,24 +424,17 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		kept = append(kept, intent)
 	}
 	pin.NextValidIntents = kept
+	if state.LateCriterionAssociation && !workPinContainsAction(pin.NextValidIntents, "record_verdict") {
+		if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
+		}
+	}
 	// The evidence-binding recovery advertises only when the pure decision
 	// admits the binding: a staleness or terminal refusal keeps the route
 	// hidden instead of advertising a dead one.
 	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted || decision.ApprovalRequired {
+		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
-		}
-	}
-	// The acceptance of the ready review is itself the fresh review the
-	// guard waits for, so the pin re-offers it at the refinement step. The
-	// re-offer rides the review gate's own refusal alone: a refusal of any
-	// other cause leaves the accept hidden. A ready no_ship review settles
-	// nothing, so its acceptance is the non-delivery accept that binds the
-	// findings and leaves the debt; the pin offers the action and the
-	// delivery assertion stays refused.
-	if stepDeclaresAction(definition, pin.Step, "checkpoint_refine") && state.ReadyReviewAttemptID != "" {
-		if decision := workflowAdmit(definition, state, "accept_worker_result"); decision.FreshReviewRequired {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
 		}
 	}
 	return state, nil
@@ -497,12 +481,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			return questionErr
 		}
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision = pending, withheld
-		if state.LateVerdictRoute {
-			if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted || decision.ApprovalRequired {
-				pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
-			}
-		}
-		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateVerdictRoute {
+		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateCriterionAssociation {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
 			if evidenceErr != nil {
 				return evidenceErr
@@ -521,16 +500,13 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
 	var attempt WorkPinAttempt
 	var epoch sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind=? AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND json_extract(e.payload,'$.worker_attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1),(SELECT json_extract(e.payload,'$.attempt_epoch') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind=? AND json_extract(e.payload,'$.step_id')=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id) ORDER BY e.seq DESC LIMIT 1),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkflowActionCompleted, WorkflowActionStarted, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM worker_authorizations e WHERE e.work_id=a.work_id AND e.attempt_id=a.attempt_id),(SELECT attempt_epoch FROM workflow_step_epochs e WHERE e.work_id=a.work_id AND e.step_id=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id)),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
 		if !epoch.Valid || epoch.Int64 < 1 {
-			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "rebuild the worker and workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "reconcile the retained worker authorization and workflow step epoch before retrying")
 		}
 		attempt.Epoch = epoch.Int64
-		// A failed terminal exposes its attribution through the one
-		// event-based reader, inside this same transaction: the queryer is
-		// the caller's tx, so the pin and the dedicated attribution read
-		// answer identically for the same log state and no second table or
-		// read path exists.
+		// The pin and the dedicated attribution reader use the same retained
+		// terminal fact inside this transaction.
 		if attempt.State == "failed" {
 			record, readErr := WorkerFailureAttributionForAttemptTx(ctx, tx, workID, attempt.ID)
 			if readErr != nil {
@@ -547,15 +523,15 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 
 // workPinRecoveryIntentsTx completes the intent set with every recovery and
 // correction route the folded admission state admits: worker-failure and
-// contract correction, the delivery-gate correction request, escalated
-// retry, the rejected-worker-result correction, and the terminal-state
+// contract correction, the delivery-gate correction request,
+// the rejected-worker-result correction, and the terminal-state
 // selections that close the set. Every append consumes the pure decision,
 // so a route the folded state owns but another folded condition refuses —
 // staleness, terminal immutability, the hold — stays hidden.
 func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
 	admits := func(actionID string) bool {
 		decision := workflowAdmit(definition, state, actionID)
-		return decision.Admitted || decision.ApprovalRequired
+		return decision.Admitted
 	}
 	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
@@ -593,24 +569,23 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 
 // workPinCorrectionRequestIntentsTx applies the correction-request routes
 // over the folded admission state: the delivery gate replaces
-// request_correction with its own bounded intent, an unescalated
-// verification correction is advertised once, and an escalated correction
-// collapses the set to the retry intents. The correction context read below
+// request_correction with its own bounded intent, and a
+// verification correction is advertised once. The correction context read below
 // carries the pin's correction display; the admission decisions read the
 // folded state.
 func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, state WorkflowAdmissionState) error {
 	decision := workflowAdmit(definition, state, "request_correction")
-	admitted := decision.Admitted || decision.ApprovalRequired
+	admitted := decision.Admitted
 	if workflowStepIsDeliveryGate(workflowStep(definition, pin.Step)) {
 		// The gate's corrective return carries one reason code on every
 		// pinned shape, and it is advertised only when the folded admission
-		// proves the route, no escalation stands behind it, and the pure
+		// proves the route and the pure
 		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
-		if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted {
+		if state.CorrectionRequestRecovery && admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "delivery_gate_correction"))
 		}
-	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+	} else if state.CorrectionRequestRecovery && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinitionFor(definition, "request_correction"), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)
@@ -618,9 +593,6 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		return correctionErr
 	}
 	pin.Correction = correction
-	if state.retryEscalated() {
-		pin.NextValidIntents = workPinEscalatedRetryIntents(pin.NextValidIntents, state.RetryConvergence.valid())
-	}
 	return nil
 }
 
@@ -738,7 +710,7 @@ func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([
 
 func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandate), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
@@ -808,23 +780,6 @@ func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinInt
 		}
 	}
 	return filtered
-}
-
-// workPinEscalatedRetryIntents keeps the dispatch_worker route visible when a
-// correction reached the three-attempt limit (CD-0173). The reason names
-// whether the store has derived the convergence basis the dispatch needs.
-func workPinEscalatedRetryIntents(intents []WorkPinIntent, converging bool) []WorkPinIntent {
-	out := make([]WorkPinIntent, 0, len(intents))
-	for _, intent := range intents {
-		if intent.ActionID == "dispatch_worker" {
-			intent.ReasonCode = "escalated_retry_requires_convergence"
-			if converging {
-				intent.ReasonCode = "escalated_retry_convergence_recorded"
-			}
-		}
-		out = append(out, intent)
-	}
-	return out
 }
 
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {

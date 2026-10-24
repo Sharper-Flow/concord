@@ -8,19 +8,21 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // The public defect journey: a first bug capture, the recurrence refusal that
 // names the research route, a research capture carrying the same intake, a
 // real workflow.research completion driven entirely through the public
 // mutation boundary (signed contract approval, finding, report, an
-// independent verdict, operator premise confirmation, completion), and the
+// sourced research proof, operator premise confirmation, completion), and the
 // recurrent retry admitted behind that completed root cause. No workflow or
 // lifecycle state is seeded or forged: every step is a public dispatch.
 func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "research"})
 	// The operator question gate reads a current Domain registry; the home is
 	// a real committed knowledge repository, the way production derives it.
 	worktree := recoveryDomainRepository(t, s)
@@ -171,25 +173,59 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("observation_record=%+v", observation.Error)
 	}
 
-	// 5. The independent verdict: a distinct evaluator session records the
-	// healthy verdict against the approved contract.
-	verifier := issue31EvaluatorGrant(t, service, privateKey)
-	verifier.Worktree = worktree
-	verifierEnv := mutationEnvelope(verifier, scopeVersion)
-	verifierEnv.Worktree = worktree
-	if response := action(verifierEnv, rcaID, "record_verdict", map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{reportEvidence}}}}, "defect-journey-verdict"); response.Outcome != OutcomeOK {
-		t.Fatalf("independent record_verdict=%+v", response.Error)
+	// 5. Main associates the approved criterion with a selected sourced
+	// research finding. A report reference alone is not criterion proof.
+	researchMutation := func(operation string, input map[string]any) Envelope {
+		t.Helper()
+		env.RequestID = input["idempotency_key"].(string)
+		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: operation, Input: retryJSON(input)}, env)
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("%s=%+v", operation, response.Error)
+		}
+		return response
+	}
+	created := researchMutation("research_pack_create", map[string]any{
+		"owner_work_id": rcaID, "freshness": "current", "revision": map[string]any{"question": "Why do uploads lose their checksum?", "method": "Compare the synthetic upload and stored digests."}, "idempotency_key": "defect-journey-pack",
+	})
+	if created.ChangedRefs == nil || len(*created.ChangedRefs) != 1 {
+		t.Fatalf("research pack capture has no unique identity: %+v", created)
+	}
+	packID := (*created.ChangedRefs)[0].ID
+	researchMutation("research_source_record", map[string]any{
+		"pack_id": packID, "expected_version": 1, "source": map[string]any{"source_id": "source:checksum", "kind": "local_evidence", "locator": "artifact:checksum-comparison", "title": "Synthetic upload digest comparison", "publisher_or_author": "fixture", "accessed_at": fixedTime().Format(time.RFC3339Nano)}, "idempotency_key": "defect-journey-source",
+	})
+	researchMutation("research_finding_record", map[string]any{
+		"pack_id": packID, "expected_version": 2, "finding": map[string]any{"finding_id": "finding:checksum", "kind": "conclusion", "statement": "The synthetic upload path drops the checksum before storage.", "confidence": "high", "freshness": "current"}, "source_ids": []string{"source:checksum"}, "idempotency_key": "defect-journey-sourced-finding",
+	})
+	contextInput := map[string]any{
+		"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "record_work_context", "idempotency_key": "defect-journey-context",
+		"fields":            map[string]any{"research_finding_refs": []map[string]any{{"pack_id": packID, "revision": 1, "finding_id": "finding:checksum", "domain_id": rootDomain, "product_wide_rationale": "The root-cause finding explains the Product's upload checksum defect cluster."}}},
+		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "verification_basis", "required": true}},
+	}
+	selected := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(contextInput)}, env)
+	if selected.Outcome != OutcomeOK {
+		t.Fatalf("research proof selection=%+v", selected.Error)
+	}
+	pin, err := store.ReadWorkPin(ctx, s, rcaID)
+	if err != nil || pin.WorkContext == nil || len(pin.WorkContext.ResearchFindings) != 1 || pin.WorkContext.SubjectCommit != "" {
+		t.Fatalf("research proof requires one selected finding without a Git subject: %+v err=%v", pin.WorkContext, err)
+	}
+	proof := pin.WorkContext.ResearchFindings[0].ViewID
+	beforeProof := workVersion(t, s, rcaID)
+	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{reportEvidence}}}}, "defect-journey-report-not-proof"); response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" || response.Error.EffectState != "none" {
+		t.Fatalf("unselected report became criterion proof: %+v", response)
+	}
+	if got := workVersion(t, s, rcaID); got != beforeProof {
+		t.Fatalf("refused research proof changed work version from %d to %d", beforeProof, got)
+	}
+	if response := action(env, rcaID, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{proof}}}}, "defect-journey-verdict"); response.Outcome != OutcomeOK {
+		t.Fatalf("research criterion association=%+v", response.Error)
 	}
 
-	// 6. The operator premise confirmation and the completion. The question
-	// digest binds the operator's exact decision context.
-	question, questionErr := readOperatorQuestionFromWorkPinForTest(ctx, s, rcaID)
-	if questionErr != nil || question == nil {
-		t.Fatalf("operator question=%+v err=%v", question, questionErr)
-	}
-	confirmed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "confirm_premise", "selected_choice": "confirm", "decision_context_digest": question.DecisionContextDigest, "idempotency_key": "defect-journey-confirm"}, "defect-journey-confirm")
-	if confirmed.Outcome != OutcomeOK {
-		t.Fatalf("confirm_premise=%+v", confirmed.Error)
+	if !t.Run("premise consent", func(t *testing.T) {
+		assertPublicPremiseConsent(t, s, service, env, rcaID)
+	}) {
+		t.Fatal("premise consent boundary failed")
 	}
 	completed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "defect-journey-complete"}, "defect-journey-complete")
 	if completed.Outcome != OutcomeOK {
@@ -204,6 +240,13 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	}
 	if definitionRef != "workflow.research" {
 		t.Fatalf("root cause workflow family=%s", definitionRef)
+	}
+	var fencedStarts, workerDispatches int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FILTER (WHERE kind=?),count(*) FILTER (WHERE kind=?) FROM domain_events WHERE subject_id=?`, store.WorkflowActionStarted, store.WorkerDispatched, rcaID).Scan(&fencedStarts, &workerDispatches); err != nil {
+		t.Fatal(err)
+	}
+	if fencedStarts != 0 || workerDispatches != 0 {
+		t.Fatalf("lane-less research completion started %d fenced actions and dispatched %d workers", fencedStarts, workerDispatches)
 	}
 
 	// 7. The recurrent retry is admitted behind the completed root cause.

@@ -8,10 +8,10 @@
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, C15, TS1–TS9, or a new blob store.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## Context
 
@@ -41,21 +41,21 @@ inputs. The backup command uses SQLite's Online Backup API; copying a live `.db`
 or WAL is forbidden.
 
 Each candidate snapshot passes `integrity_check`, `foreign_key_check`, and `quick_check`
-before promotion. A disposable restore copy also passes supported forward migrations,
-event replay, and restore verification before promotion of the snapshot and its manifest.
+before promotion. A disposable restore copy also passes supported forward migrations
+and restore verification before promotion of the snapshot and its manifest.
 This rule includes pre-upgrade and pre-repair snapshots. A failure prevents the guarded
 mutation. Verification never changes the source database or the retained snapshot.
 Git restores pass `git fsck --full`. A backup manifest records schema
 version, snapshot ID, creation time, DB checksum, and git repository commit IDs. It is
 an inventory, not a third authority.
 Restore results distinguish source-snapshot inventory from the verified restored database
-inventory after migration and replay. Neither inventory is authority.
+inventory after migration and verification. Neither inventory is authority.
 
-Recovery compares pre-rebuild worktree occupancy with the occupancy reproduced
-from retained events under PM3. A pre-rebuild row that replay cannot reproduce
-causes a typed refusal naming its worktree and session. Recovery promotion
-refuses, the rebuild rolls back, and the source database, retained snapshot, and
-prior live state remain unchanged. Existing occupancy is evidence, not authority.
+Recovery restores a verified snapshot and reconciles current rows with Git,
+worktrees, artifacts, and external effects. When recovery cannot reconcile an occupancy row, it refuses with a typed
+refusal that names the worktree, the session, and the caller's action
+([CD-0242 D11](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); no replay of retained events exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## 2. Restore protocol
 
@@ -63,10 +63,9 @@ prior live state remain unchanged. Existing occupancy is evidence, not authority
 2. restore and verify git repositories first;
 3. verify the SQLite snapshot, atomically install it as the next local DB, and open it
    with accepted per-connection settings including `PRAGMA foreign_keys=ON`;
-4. apply forward-only schema migrations/upcasters; reject a snapshot newer than the
+4. apply forward-only schema migrations; reject a snapshot newer than the
    installed binary's supported schema;
-5. rebuild typed projections from retained `domain_events` and historical indexes from
-   git; verify PM6 locators and run the PM1 corpus; and
+5. rebuild derived indexes from git; verify PM6 locators and run the PM1 corpus; and
 6. swap the verified recovery directory into service atomically, otherwise retain the
    prior live state and report typed recovery failure.
 
@@ -82,12 +81,13 @@ operator-approved recovery record.
 | verification fails | quarantine candidate; retain live authority unchanged |
 | restore interrupted | prior or verified-next state only; never expose partial state |
 | git integrity failure | reject restore and surface affected repository/objects |
-| projection corruption | rebuild from authoritative events/git, then re-verify |
-| event-log corruption | restore last verified snapshot; `.recover` only last resort |
+| projection corruption | restore the last verified snapshot, then re-verify |
+| store corruption | restore last verified snapshot; `.recover` only last resort |
 
-PM10 authorizes deletion only for disposable projections/caches and completed, verified
-temporary backup files. It never deletes `domain_events`, canonical git history, or a
-backup required by the configured retention policy. In-place `VACUUM` is stopped-only;
+PM10 authorizes deletion only for disposable caches and completed, verified
+temporary backup files. It never deletes canonical git history, the newest
+verified snapshot, or a backup required by the configured retention policy
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). In-place `VACUUM` is stopped-only;
 online reclaim uses a fresh verified snapshot rather than a live-file copy. Git GC is
 never concurrent with compaction writes and retains Git's configured grace window.
 
@@ -101,19 +101,22 @@ ordinary retention policy.
 1. Only accepted SQLite and git authorities are required for clean-machine recovery.
 2. Every promoted backup and restore passes SQLite triple verification; `integrity_check`
    alone is insufficient because it does not check foreign keys.
-3. A recovery never serves a partial DB, mixed git/DB generation, or unrebuildable
-   projection as complete.
-4. Rebuilds are deterministic folds, not `.recover` output.
+3. A recovery never serves a partial DB, mixed git/DB generation, or unverified
+   derived index as complete.
+4. Recovery restores verified snapshots; it never substitutes `.recover` output
+   or event replay
+   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 5. PM10 reclamation never deletes retained SQLite/git authority or asserts recovery
    for PM8/PM9-excluded data; CD-0215 explicit retirement separately deletes
    research authority.
 
 ## 5. Migration and acceptance proof
 
-Schema manifests are versioned. Restore to a newer compatible binary runs explicit
-upcasters then rebuilds; restore to an older unsupported binary rejects before serving.
+Schema manifests are versioned. Restore to a newer compatible binary applies
+supported forward migrations and verifies; restore to an older unsupported binary
+rejects before serving.
 The production gate is an automated clean-machine drill that restores only the manifest,
-SQLite snapshot, and git clones; rebuilds every disposable projection; validates note
+SQLite snapshot, and git clones; rebuilds every disposable derived index; validates note
 locators; and passes the PM1 query corpus with no hidden local state.
 
 Required fault tests: concurrent-writer backup; interrupted backup/restore; corrupted
@@ -153,7 +156,7 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
   When verification runs
   Then the snapshot is quarantined and never promoted.
 
-- Given a candidate snapshot whose retained events cannot replay
+- Given a candidate snapshot that fails restore verification
   When backup or a pre-mutation snapshot runs
   Then no snapshot manifest is promoted and the guarded mutation does not start.
 
@@ -181,11 +184,15 @@ typed exemption naming the backup test that proves the guarantee. The checker
 - Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`
   (`internal/store/backup_test.go`).
 - Criterion 4 is proved by
-  `TestBackupRefusesUnreplayableLogAndDiscardsSnapshot`
+  `TestRestoreStageRejectsCurrentStateTampering`
+  (`internal/store/backup_current_state_test.go`),
+  `TestBackupRestoreDoesNotInterpretHistoryPayloads` and
+  `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`
   (`internal/store/backup_test.go`),
-  `TestHistoricalPayloadUpgradeSnapshotQualification`, and
-  `TestHistoricalPayloadRepairSnapshotQualification`
-  (`cmd/concord/historical_backup_cli_test.go`).
+  `TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence`
+  (`cmd/concord/upgrade_snapshot_cli_test.go`), and
+  `TestRepairSnapshotRefusesInvalidSourceBeforeInstaller`
+  (`cmd/concord/repair_test.go`).
 - Criterion 5 is proved by
   `TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase`,
   `TestRestoreBackupRefusesExistingDestinationUntouched`, and

@@ -44,7 +44,7 @@ func TestEvidenceBindRefusalNamesLocatorMismatchOverAuthority(t *testing.T) {
 	seedCompletedProducerOperation(t, s, workID, opID, requestID, principal, recordedURL)
 
 	payload := `{"evidence_kind":"verification","immutable_subject_ref":"` + boundWrongURL + `","producer_id":"` + principal + `","producer_run_ref":"` + opID + `","producer_watermark":"` + requestID + `"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a binding naming a locator the producer never recorded was admitted")
 	}
@@ -68,7 +68,7 @@ func TestEvidenceBindRefusalNamesMissingProducerOperation(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 
 	payload := `{"evidence_kind":"verification","evidence_ref":"evidence:orphan","producer_id":"principal/operator","producer_run_ref":"no-such-op","producer_watermark":"request:none"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a binding naming no producer operation was admitted")
 	}
@@ -103,7 +103,7 @@ func TestEvidenceBindRefusalNamesMismatchedProducerField(t *testing.T) {
 			s := seedMandateRecoveryItem(t, workID)
 			seedCompletedProducerOperation(t, s, workID, opID, requestID, principal, locator)
 			payload := `{"evidence_kind":"verification","immutable_subject_ref":"` + locator + `","producer_id":"` + tc.producerID + `","producer_run_ref":"` + opID + `","producer_watermark":"` + tc.watermark + `"}`
-			err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+			err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 			if err == nil {
 				t.Fatal("a binding naming the wrong producer identity was admitted")
 			}
@@ -123,7 +123,7 @@ func TestEvidenceBindRefusalNamesProducerOnOtherWork(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 	seedCompletedProducerOperation(t, s, "evidence-producer-elsewhere", "producer-op-3", "request:producer-3", "principal/operator", "evidence:elsewhere")
 	payload := `{"evidence_kind":"verification","immutable_subject_ref":"evidence:elsewhere","producer_id":"principal/operator","producer_run_ref":"producer-op-3","producer_watermark":"request:producer-3"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a producer operation from another work item was admitted")
 	}

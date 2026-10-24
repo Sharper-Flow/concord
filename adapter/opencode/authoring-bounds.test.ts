@@ -255,8 +255,8 @@ function canonicalBoundRoots(): { at: string; schema: unknown }[] {
 
 // publishedBoundRoots collects every hook output restored to its
 // legacy-effective view: one expanded branch per operation (one per
-// workflow_action variant), concord_work_start split into else (capture),
-// then (resume), and its merged root properties, and the other hooks whole.
+// workflow_action variant), concord_work_start split into else.else (capture),
+// then and else.then (resume), its merged root properties, and the other hooks whole.
 async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]> {
   const roots: { at: string; schema: unknown }[] = []
   for (const toolID of new Set(contractOperations.map(operation => (operation as unknown as { tool: string }).tool))) {
@@ -284,8 +284,9 @@ async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]>
     const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
     if (toolID === "concord_work_start") {
       roots.push(
-        { at: "@concord_work_start#capture", schema: expanded.else },
+        { at: "@concord_work_start#capture", schema: expanded.else.else },
         { at: "@concord_work_start#resume", schema: expanded.then },
+        { at: "@concord_work_start#resume", schema: expanded.else.then },
         { at: "@concord_work_start", schema: { type: "object", additionalProperties: false, properties: expanded.properties } },
       )
       continue
@@ -425,30 +426,15 @@ test("bounds checker: the inventory follows references, keeps branch identity, a
   expect([...usesOf(enforced)].filter(use => !usesOf(dropped).has(use))).toEqual(["@w.name#maxLength=64(code points)"])
 })
 
-test("startup, capture and revise sizing keep identical bounds and source-free research can omit sizing", () => {
+test("capture keeps its closed surface and source-free research inputs validate", () => {
   const [capture] = hostToolSchemas.concord_work_start.oneOf
-  const definitions: any = payloadSchemas
-  const schemas = [capture.properties.size_inputs, definitions.work_define_capture_input.properties.size_inputs, definitions.work_define_revise_input.properties.size_inputs]
-  const resolve = (schema: any): any => schema.$ref ? resolve(definitions[schema.$ref.split("/").at(-1)]) : schema
-  const estimates = schemas.map(schema => resolve(resolve(schema).properties.estimated_production_lines))
-  for (const estimate of estimates) expect([estimate.minimum, estimate.maximum]).toEqual([1, 100000])
   const research = { title: "Research", value_statement: "Findings without source changes", kind: "research", task: "Investigate only", idempotency_key: "research" }
   expect(validateAgainstSchema(capture, research, [])).toBe(true)
   const input = { ...research, project_ids: ["project-1"] }
   expect(validateGeneratedPayload("work_define_capture_input", input)).toBe(true)
-  for (const estimate of [undefined, -1, 0, 100001]) {
-    const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", ...(estimate === undefined ? {} : { estimated_production_lines: estimate }) }
-    expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(false)
-    expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
-  }
-  // The supplied estimate range is inclusive at both documented endpoints.
-  for (const estimate of [1, 100000]) {
-    const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: estimate }
-    expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(true)
-    expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(true)
-    const revise = { work_id: "work-1", expected_version: 1, title: "Research", value_statement: "No source changes", kind: "research", reason: "narrow the title only", idempotency_key: `revise-${estimate}`, size_inputs }
-    expect(validateGeneratedPayload("work_define_revise_input", revise)).toBe(true)
-  }
+  const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained" }
+  expect(validateAgainstSchema(capture, { ...research, size_inputs }, [])).toBe(false)
+  expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
 })
 
 test("observation publication retains code-point bounds after reference expansion", async () => {
@@ -479,7 +465,6 @@ test("every reachable enforced bound teaches its exact Bounds clause with role, 
   }
   // Pinned teaching examples: exact role, value, unit, and inclusive endpoints.
   expect(clauseTextsOf(payloadTable.work_define_observation_record_input.properties.statement)).toEqual(["Bounds: 1..512 code points inclusive"])
-  expect(clauseTextsOf(payloadTable.work_size_inputs.properties.estimated_production_lines)).toEqual(["Bounds: 1..100000 value inclusive"])
   expect(clauseTextsOf((hostToolSchemas as unknown as SchemaTable).concord_worker_check.properties.control_id)).toEqual(
     ["Bounds: 1..128 code points inclusive", "Bounds: 2..128 UTF-8 bytes inclusive"].sort(),
   )

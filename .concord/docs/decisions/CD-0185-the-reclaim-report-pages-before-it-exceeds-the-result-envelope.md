@@ -4,7 +4,6 @@
 - **Date:** 2026-09-27
 - **Scope:** What a worktree_audit_reclaim pass reports when its result would
   exceed the agent result envelope, and the paging of the worktree_audit read
-- **Amends:** CD-0179 D5 at its report bound
 - **Preserves:** CD-0179 D1, D2, D3, D4, and D6 in full; the limit as the only
   bound on reclaim attempts; every gate a reclaim runs
 - **Related:** CD-0105, CD-0118, CD-0132, CD-0162, CD-0181

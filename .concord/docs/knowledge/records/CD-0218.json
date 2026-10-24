@@ -6,21 +6,15 @@
   "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/knowledge/coverage/CD-0218.json",
-    "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_registry_test.go",
     "internal/store/workflow_diagnosis_derived_start_test.go",
-    "internal/store/workflow_historical_journal_replay_test.go",
     "internal/store/workflow_stale_registry_repin_test.go",
     "internal/store/workflow_worker_failure_retry_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0218",
   "kind": "decision",
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
-    }
-  ],
+  "law_relations": [],
   "path": ".concord/docs/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md",
   "scopes": {
     "domain_ids": [],
@@ -29,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d5a81e6762f124f9e1e76a0d23253d22d5e0c279b021b2089af9a2f9f121cb8b",
+  "sha256": "sha256:ab31c53ee030bd2993f097f635559faa417b8abf0f08b87b5067ae23c7a238e1",
   "status": "accepted",
-  "summary": "Publishes the approved three-family live catalog: implementation, break_fix, and research own new execution; the four retired families refuse new authoring while every released pin, event, and recovery tuple stays readable as exact frozen history. Authorization, correction, ordinary stale recovery, and independent acceptance keep their owners. Publication is the isolated candidate only; live supersession of the candidate set, consumer disposition, and release activation wait for the operator cutover boundary.",
+  "summary": "Publishes the approved three-family live catalog: implementation, break_fix, and research own new execution; the four retired families refuse new authoring while recorded items stay readable as current state and finite snapshots. Authorization, correction, ordinary stale recovery, and independent acceptance keep their owners. Publication is the isolated candidate only; live supersession of the candidate set, consumer disposition, and release activation wait for the operator cutover boundary.",
   "tags": [
     "workflow",
     "workflow-families",

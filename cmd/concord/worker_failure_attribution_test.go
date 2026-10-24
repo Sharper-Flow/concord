@@ -339,12 +339,6 @@ func TestWorkerFailAttributionHostAndWorkerReportKeepTypedBoundaries(t *testing.
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
-	for _, attemptID := range []string{"attempt-1", "attempt-2"} {
-		seedAuthorizedDispatchWindow(t, dbPath, "work-1", attemptID)
-		if code, errOut := runAttributionCLI(t, "worker-dispatch", attributionDispatchJSON(t, key, "work-1", attemptID, lane, readback, "nonce-con787-typed-seed-"+attemptID)); code != 0 {
-			t.Fatalf("seed dispatch %s exit=%d stderr=%q", attemptID, code, errOut)
-		}
-	}
 	routes := []struct {
 		name        string
 		attemptID   string
@@ -355,6 +349,10 @@ func TestWorkerFailAttributionHostAndWorkerReportKeepTypedBoundaries(t *testing.
 	}
 	digests := map[string]string{}
 	for _, route := range routes {
+		seedAuthorizedDispatchWindow(t, dbPath, "work-1", route.attemptID)
+		if code, errOut := runAttributionCLI(t, "worker-dispatch", attributionDispatchJSON(t, key, "work-1", route.attemptID, lane, readback, "nonce-con787-typed-seed-"+route.attemptID)); code != 0 {
+			t.Fatalf("seed dispatch %s exit=%d stderr=%q", route.attemptID, code, errOut)
+		}
 		digest, err := store.WorkerFailureObservationDigest(route.observation)
 		if err != nil {
 			t.Fatal(err)

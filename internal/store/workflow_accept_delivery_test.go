@@ -5,15 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// The CD-0198 D4 combined accept: on workflow.implementation v21+ and
-// workflow.break_fix v19+, an accept_worker_result at the refinement step
-// carries the delivery fields and runs the unchanged record_delivery
+// The CD-0198 D4 combined accept: an accept_worker_result at the refinement
+// step carries the delivery fields and runs the unchanged record_delivery
 // admission — fenced start, CD-0192 refine proof with default-ref tooling,
 // CD-0166 D6 post-rejection gate — and on success records the acceptance,
 // the asserted delivery event, and the refine to delivery-gate advance in
@@ -155,122 +156,150 @@ func acceptDeliveryFixtureFor(t *testing.T, workID, definitionRef string, defini
 	}
 }
 
-// acceptDeliverySeedVerifyRun seeds one verify lease whose outcome, exit
-// code, and tracked-file change the caller chooses, so the refusal suite can
-// stand up every disqualifier the refine proof names.
-func acceptDeliverySeedVerifyRun(t *testing.T, s *Store, workID, digest, outcome string, exitCode int64, tracked bool, acquired time.Time) string {
-	t.Helper()
-	leaseID := digest + ":worktree-verify:" + workID
-	command := []string{"go", "vet", "./..."}
-	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-1", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: int(exitCode), TrackedFilesChanged: tracked})
-	if err != nil {
-		t.Fatal(err)
-	}
-	commandJSON, err := json.Marshal(command)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acquiredText := acquired.UTC().Format(time.RFC3339Nano)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		leaseID, workID, "project-1", "/tmp/worktrees/"+workID, "released", "client/concord-1", "agent/owner", "session/"+workID, "principal/operator",
-		string(commandJSON), acquiredText, acquired.Add(time.Second).UTC().Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON)); err != nil {
-		t.Fatalf("seed the verify lease: %v", err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
-			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
-			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
-			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-			VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
-		worktreeVerifyOperationRef(leaseID), workID, string(resultJSON), workflowJSON([]string{worktreeVerifyOperationRef(leaseID)}), acquired.Add(time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatalf("seed the verify authority: %v", err)
-	}
-	return worktreeVerifyOperationRef(leaseID)
+// acceptDeliveryCandidate is current work of one family over a reviewed
+// candidate: a claimed Git worktree, a command receipt captured before the
+// step's start, and an accepted ready_for_final_proof Review of that receipt.
+// When pending is set, a second Review attempt stands completed and
+// unaccepted: the attempt a combined accept dispositions.
+type acceptDeliveryCandidate struct {
+	f          workContextFixture
+	j          *candidateJourney
+	definition RegisteredDefinition
+	early      WorktreeVerifyResult
+	attempt    string
+	epoch      int64
 }
 
-// acceptDeliveryRefineStart returns the wall-clock the refine step's fenced
-// start recorded, the bound every verify acquire time is judged against.
-func acceptDeliveryRefineStart(t *testing.T, s *Store, workID string) time.Time {
+// acceptDeliveryCandidateAt seeds the candidate at the named step. At the
+// refinement step the fenced start runs after the early receipt, so that
+// receipt predates the refine start.
+func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending bool) acceptDeliveryCandidate {
 	t.Helper()
-	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' AND json_extract(payload,'$.action_id')='start_refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		t.Fatalf("read the refine start: %v", err)
+	definition := mustBuiltinDefinition(t, ref)
+	// No verification binding is seeded: each case binds its own runs, so a
+	// refusal names that run's disqualifier.
+	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{"verification"}, []string{"review", "artifact"})
+	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
+	var branch string
+	if err := f.store.db.QueryRow(`SELECT branch FROM worktree_entries WHERE set_id=? AND state='active'`, WorktreeSetID(workID)).Scan(&branch); err != nil {
+		t.Fatal(err)
 	}
-	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
-	if err != nil {
-		t.Fatalf("parse the refine start: %v", err)
+	gitRunStore(t, repo, "branch", "-m", branch)
+	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}, definition: definition}
+	c.early = c.j.observeRun(t, "early")
+	if step == "refine" {
+		reviewGateStartStep(t, f.store, workID, "refine", "start_refine", f.owner)
 	}
-	return startedAt
+	qAcceptCriterionReview(t, f, repo, c.early.OperationRef)
+	if pending {
+		c.attempt = "attempt:" + workID + ":review"
+		c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
+	}
+	return c
 }
 
-// reviewGateDriveRejectionAt drives the work step, the refinement rejection,
-// and the repaired implement attempt on a CD-0198 D4 fixture, leaving the
-// repaired result standing unaccepted at refine.
-func reviewGateDriveRejectionAt(t *testing.T, f acceptDeliveryFixture, workID string, at *int64) int64 {
+// acceptDeliveryCompleteReview dispatches one job-bound Review attempt at the
+// current step and lands its attributed disposition, leaving the result
+// unaccepted. It returns the attempt's authorized epoch.
+func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attempt, disposition string) int64 {
 	t.Helper()
-	s := f.fixture.store
-	ownerRef, err := WorkflowActorRef(f.fixture.owner)
+	s, workID := c.f.store, c.f.workID
+	job := reviewSubjectReadyRevision(t, c.f)
+	if err := descendantDispatch(t, c.j, "review", attempt, job, nil); err != nil {
+		t.Fatalf("review dispatch %s: %v", attempt, err)
+	}
+	c.j.laneDispatch(t, attempt, "review", &job)
+	report := currentReviewBlockForTest(t, s, workID, attempt, disposition)
+	for _, criterion := range report.Dependencies.Criteria {
+		report.Assessments = append(report.Assessments, WorkerReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{c.early.OperationRef}})
+	}
+	lane := reviewGateLane(t, "review")
+	evidence := []WorkerReportEvidence{}
+	for _, obligation := range lane.EvidenceObligations {
+		if obligation != "severity" {
+			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the candidate and its captured command receipt."})
+		}
+	}
+	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: c.j.repo,
+		Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: &job, Review: report,
+	})}
+	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attempt, EventID: event.EventID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	acceptor := reviewGateAcceptor(workID)
-	implement := reviewGateLane(t, "implementation")
-	review := reviewGateLane(t, "review")
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, event)
+	return c.j.dispatchEpoch(t, attempt)
+}
 
-	reviewGateStartStep(t, s, workID, f.verdictStep, f.startAction, f.fixture.owner)
-	repairAttempt := "attempt:" + workID + ":repair"
-	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, f.verdictStep, implement, ownerRef, *at)
-	*at += 2
-	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
-		t.Fatalf("accept repair: %v", err)
+// acceptDeliveryBindFresh binds one fresh green receipt of the unchanged
+// candidate, acquired after every start the fixture recorded.
+func acceptDeliveryBindFresh(t *testing.T, c acceptDeliveryCandidate, id string) {
+	t.Helper()
+	c.j.bindVerification(t, c.j.observeRun(t, id))
+}
+
+// acceptDeliveryUnbindableRun runs one verify command that yields no passing
+// unchanged-tree receipt and proves the core refuses to bind it, so neither
+// delivery route can ever read it as proof.
+func acceptDeliveryUnbindableRun(t *testing.T, c acceptDeliveryCandidate, id string, command []string) {
+	t.Helper()
+	request := c.j.request("observe-"+id, nil)
+	request.Command = command
+	run, _ := c.f.store.VerifyWorktree(t.Context(), request)
+	if err := runTrackedFileRestore(c.j.repo); err != nil {
+		t.Fatal(err)
 	}
+	if run.OperationRef == "" {
+		return
+	}
+	err := c.j.action(t, "bind_evidence", map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": run.OperationRef, "producer_id": "principal/operator",
+		"producer_run_ref": run.OperationRef, "producer_watermark": "request-" + strings.TrimPrefix(run.LeaseID, "candidate-"),
+	}, c.j.acceptor)
+	if err == nil {
+		t.Fatalf("bind of the %s run %s was admitted, want a refusal", id, run.OperationRef)
+	}
+}
 
-	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-	reviewAttempt := "attempt:" + workID + ":review-1"
-	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, *at)
-	*at += 2
-	reviewGateRejectResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor)
-	repairedAttempt := "attempt:" + workID + ":repair-1"
-	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", implement, ownerRef, *at)
-	*at += 2
-	return refineEpoch
+// runTrackedFileRestore restores the claim's tracked seed file after a
+// verify command that edited it.
+func runTrackedFileRestore(repo string) error {
+	return os.WriteFile(filepath.Join(repo, "seed.txt"), []byte("review subject seed\n"), 0o644)
+}
+
+func acceptDeliveryCombinedPayload(c acceptDeliveryCandidate, artifact string) json.RawMessage {
+	return mustJSONValue(map[string]any{"attempt_id": c.attempt, "attempt_epoch": c.epoch, "delivery_artifact": artifact, "delivery_state": "asserted"})
+}
+
+// acceptDeliveryFamilies names the two current delivery-producing families
+// with their pre-refine work step and the step past the delivery gate.
+var acceptDeliveryFamilies = []struct {
+	ref      string
+	workStep string
+	nextStep string
+}{
+	{"workflow.implementation", "execution", "acceptance"},
+	{"workflow.break_fix", "repair", "verify"},
 }
 
 func TestCombinedAcceptDeliversAtomically(t *testing.T) {
-	for _, family := range []struct {
-		ref         string
-		version     int64
-		verdictStep string
-		nextStep    string
-	}{
-		{"workflow.implementation", 21, "execution", "acceptance"},
-		{"workflow.break_fix", 19, "repair", "verify"},
-	} {
+	for _, family := range acceptDeliveryFamilies {
 		t.Run(family.ref, func(t *testing.T) {
 			const workID = "combined-accept-atomic"
-			f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, "refine", "start_refine")
-			s := f.fixture.store
+			c := acceptDeliveryCandidateAt(t, workID, family.ref, "refine", true)
+			s := c.f.store
 			acceptor := reviewGateAcceptor(workID)
-			attempt := "attempt:" + workID + ":refine"
-
-			// The step start, the completed attempt, and the green run stand
-			// before the combined accept; the accept records everything else.
-			reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-			ownerRef, err := WorkflowActorRef(f.fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			epoch := reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
-			if err := acceptRefineResult(t, s, workID, attempt, epoch, acceptor); err != nil {
+			acceptDeliveryBindFresh(t, c, "exit")
+			if err := runDeliveryAdmissionAction(t, s, workID, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:accept-delivery-"+workID), nil, acceptor); err != nil {
 				t.Fatalf("combined accept at refine: %v", err)
 			}
 
-			// One operation advanced the step and recorded the assertion: the
-			// accept completion carries the delivery fields, the step sits on
-			// the gate, and no record_delivery call ever ran.
-			reviewGateRequireStep(t, s, workID, "delivery")
+			// One operation recorded the assertion: the accept completion
+			// carries the delivery fields and no record_delivery call ran.
 			var acceptCompletions int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.delivery_artifact')='artifact:accept-delivery-`+workID+`' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted, attempt).Scan(&acceptCompletions); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.delivery_artifact')='artifact:accept-delivery-`+workID+`' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted, c.attempt).Scan(&acceptCompletions); err != nil {
 				t.Fatal(err)
 			}
 			if acceptCompletions != 1 {
@@ -289,17 +318,15 @@ func TestCombinedAcceptDeliversAtomically(t *testing.T) {
 				t.Fatal("the combined accept recorded no delivery assertion")
 			}
 
-			// The gate stays record_delivery-only: the asserted accept parked
-			// the item there, the gate's exit is record_delivery, and it
-			// crosses to the verdict step.
-			definition, err := BuiltinWorkflowDefinitionForRef(family.ref)
-			if err != nil {
-				t.Fatal(err)
-			}
-			gate := workflowStep(definition.Definition, "delivery")
+			// The gate stays record_delivery-only.
+			gate := workflowStep(c.definition.Definition, "delivery")
 			if !workflowStepIsDeliveryGate(gate) || gate.Actions[0] != "record_delivery" || slices.Contains(gate.Actions, "accept_worker_result") {
 				t.Fatalf("%s gate actions = %v, want a record_delivery-only gate", family.ref, gate.Actions)
 			}
+
+			// CD-0198 D4: the same transaction advances refine to the gate,
+			// and the gate's record_delivery crosses to the verdict step.
+			reviewGateRequireStep(t, s, workID, "delivery")
 			delivery := json.RawMessage(`{"delivery_artifact":"artifact:gate-cross-` + workID + `","delivery_state":"asserted"}`)
 			if err := runVerdictActionAs(t, s, workID, "record_delivery", delivery, 0, acceptor); err != nil {
 				t.Fatalf("gate crossing after the combined accept: %v", err)
@@ -310,126 +337,99 @@ func TestCombinedAcceptDeliversAtomically(t *testing.T) {
 }
 
 // TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes proves the combined
-// accept refuses exactly what record_delivery refuses: a missing, stale,
-// failed, dirty, or undeclared verification run, a missing step start, and
-// unresolved post-rejection review debt — and every refusal leaves no
-// acceptance, delivery, or advance.
+// accept refuses what record_delivery refuses — a missing, stale, failed,
+// dirty, or undeclared verification run — and that record_delivery refuses a
+// missing fenced start and a rejected Review. Every refusal leaves no
+// acceptance, delivery, or advance. The combined accept dispositions an
+// attempt dispatched at the step, and that dispatch derives the step start
+// (CD-0198 D3), so its missing-start and rejected-Review equivalents cannot
+// arise.
 func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
-	for _, family := range []struct {
-		ref         string
-		version     int64
-		verdictStep string
-		startAction string
-	}{
-		{"workflow.implementation", 21, "execution", "start_execution"},
-		{"workflow.break_fix", 19, "repair", "start_repair"},
-	} {
+	for _, family := range acceptDeliveryFamilies {
 		t.Run(family.ref, func(t *testing.T) {
 			cases := []struct {
 				name       string
-				fixtureAt  string
-				seed       func(t *testing.T, f acceptDeliveryFixture, workID string)
-				seedRun    bool
-				wantKind   string
+				routes     []string
+				step       string
+				seed       func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest
+				wantKind   FailureKind
 				wantDetail string
-				tooling    *ProjectToolingManifest
 			}{
-				{name: "no-verification-run", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					reviewGateStartStep(t, f.fixture.store, workID, "refine", "start_refine", f.fixture.owner)
-				}, wantKind: string(KindMissingEvidence), wantDetail: "no verification evidence is bound in the current refine epoch"},
-				{name: "stale-run", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					s := f.fixture.store
-					reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-					startedAt := acceptDeliveryRefineStart(t, s, workID)
-					ref := acceptDeliverySeedVerifyRun(t, s, workID, strings.Repeat("2", 64), "completed", 0, false, startedAt.Add(-time.Minute))
-					refineProofBindVerification(t, s, workID, ref, ref)
-				}, wantKind: string(KindMissingEvidence), wantDetail: "acquired at or before the current refine start"},
-				{name: "failed-run", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					s := f.fixture.store
-					reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-					startedAt := acceptDeliveryRefineStart(t, s, workID)
-					ref := acceptDeliverySeedVerifyRun(t, s, workID, strings.Repeat("3", 64), "aborted", 1, false, startedAt.Add(time.Second))
-					refineProofBindVerification(t, s, workID, ref, ref)
-				}, wantKind: string(KindMissingEvidence), wantDetail: "the bound verify lease recorded outcome aborted"},
-				{name: "dirty-run", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					s := f.fixture.store
-					reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-					startedAt := acceptDeliveryRefineStart(t, s, workID)
-					ref := acceptDeliverySeedVerifyRun(t, s, workID, strings.Repeat("4", 64), "completed", 0, true, startedAt.Add(time.Second))
-					refineProofBindVerification(t, s, workID, ref, ref)
-				}, wantKind: string(KindMissingEvidence), wantDetail: "the bound verify run changed tracked files"},
-				{name: "undeclared-run", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					s := f.fixture.store
-					reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-					startedAt := acceptDeliveryRefineStart(t, s, workID)
-					ref := acceptDeliverySeedVerifyRun(t, s, workID, strings.Repeat("5", 64), "completed", 0, false, startedAt.Add(time.Second))
-					refineProofBindVerification(t, s, workID, ref, ref)
-				}, wantKind: string(KindMissingEvidence), wantDetail: "not a tool the Project declares",
-					tooling: refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})},
-				{name: "missing-step-start", fixtureAt: "refine", seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					// No start_refine ran: the admission refuses before the
-					// attempt fold ever sees the epoch.
-				}, wantKind: string(KindInvalidOperation), wantDetail: "requires the delivery step's fenced start action in this attempt"},
-				{name: "unresolved-review-debt", fixtureAt: family.verdictStep, seedRun: true, seed: func(t *testing.T, f acceptDeliveryFixture, workID string) {
-					reviewGateDriveRejectionAt(t, f, workID, new(int64))
-				}, wantKind: string(KindInvalidOperation), wantDetail: "fresh accepted review"},
+				{name: "no-verification-run", seed: func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil },
+					wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
+				{name: "stale-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					refineProofCandidateRun(t, c.f.store, c.f.workID, "other-candidate", strings.Repeat("b", 40), []string{"go", "vet", "./..."})
+					return nil
+				}, wantKind: KindMissingEvidence, wantDetail: "verification does not cover the current integrated candidate"},
+				{name: "failed-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
+					return nil
+				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
+				{name: "dirty-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					acceptDeliveryUnbindableRun(t, c, "dirty", []string{"sh", "-c", "echo dirty >> seed.txt"})
+					return nil
+				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
+				{name: "undeclared-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					acceptDeliveryBindFresh(t, c, "undeclared")
+					return refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
+				}, wantKind: KindMissingEvidence, wantDetail: "not a tool the Project declares"},
+				{name: "missing-step-start", routes: []string{"record_delivery"}, step: "work", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					parkWorkflowInstanceAt(t, c.f.store, c.f.workID, "refine")
+					acceptDeliveryBindFresh(t, c, "unstarted")
+					return nil
+				}, wantKind: KindInvalidOperation, wantDetail: "requires the delivery step's fenced start action"},
+				{name: "rejected-review", routes: []string{"record_delivery"}, seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					rejected := "attempt:" + c.f.workID + ":rejected"
+					epoch := acceptDeliveryCompleteReview(t, c, rejected, "ready_for_final_proof")
+					reviewGateRejectResult(t, c.f.store, c.f.workID, rejected, epoch, reviewGateAcceptor(c.f.workID))
+					acceptDeliveryBindFresh(t, c, "after-rejection")
+					return nil
+				}, wantKind: KindMissingEvidence, wantDetail: "remain unsatisfied"},
 			}
 			for _, testCase := range cases {
-				for _, route := range deliveryEntryRoutes() {
-					t.Run(testCase.name+"/"+route.name, func(t *testing.T) {
+				routes := testCase.routes
+				if routes == nil {
+					routes = []string{"record_delivery", "accept_worker_result"}
+				}
+				for _, route := range routes {
+					t.Run(testCase.name+"/"+route, func(t *testing.T) {
 						const workID = "accept-delivery-refusal"
-						fixtureAt := testCase.fixtureAt
-						if testCase.name == "missing-step-start" && route.name == "accept_worker_result" {
-							fixtureAt = family.verdictStep
+						step := "refine"
+						if testCase.step == "work" {
+							step = family.workStep
 						}
-						f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, fixtureAt, family.startAction)
-						s := f.fixture.store
-						acceptor := reviewGateAcceptor(workID)
-						attemptID := "attempt:" + workID + ":r1"
-						if route.name == "accept_worker_result" && testCase.fixtureAt == "refine" {
-							// The combined accept dispositions a completed
-							// attempt at the step, so the equivalence case
-							// stands one up before the exit — before the seed
-							// binds its runs, so they sit in the attempt's
-							// epoch and each disqualifier stays readable.
-							ownerRef, ownerErr := WorkflowActorRef(f.fixture.owner)
-							if ownerErr != nil {
-								t.Fatal(ownerErr)
-							}
-							reviewGateRunAttempt(t, s, workID, attemptID, fixtureAt, reviewGateLane(t, "implementation"), ownerRef, 100)
-							if fixtureAt != "refine" {
-								priorPass := "attempt:" + workID + ":prior-pass"
-								priorEpoch := reviewGateRunAttempt(t, s, workID, priorPass, fixtureAt, reviewGateLane(t, "implementation"), ownerRef, 102)
-								if err := reviewGateAcceptResult(t, s, workID, priorPass, priorEpoch, acceptor); err != nil {
-									t.Fatal(err)
-								}
-							}
+						// The record_delivery route has no pending attempt: an
+						// unaccepted job would refuse on the job population
+						// before the case's own disqualifier.
+						c := acceptDeliveryCandidateAt(t, workID, family.ref, step, route == "accept_worker_result")
+						s := c.f.store
+						tooling := testCase.seed(t, c)
+						payload := json.RawMessage(`{"delivery_artifact":"artifact:refine-exit-` + workID + `","delivery_state":"asserted"}`)
+						if route == "accept_worker_result" {
+							payload = acceptDeliveryCombinedPayload(c, "artifact:refine-exit-"+workID)
 						}
-						testCase.seed(t, f, workID)
-						epoch := latestStepStartEpoch(t, s, workID, "refine")
-						if testCase.name == "missing-step-start" {
-							epoch = 1
-						}
-						err := route.exit(t, s, workID, attemptID, epoch, acceptor, testCase.tooling, testCase.seedRun)
+						err := runDeliveryAdmissionAction(t, s, workID, route, payload, tooling, reviewGateAcceptor(workID))
 						var failure *Failure
-						if err == nil || !failureAs(err, &failure) || string(failure.Kind) != testCase.wantKind || !strings.Contains(failure.Detail, testCase.wantDetail) {
-							t.Fatalf("%s refusal = %v, want kind %s naming %q", route.name, err, testCase.wantKind, testCase.wantDetail)
+						if err == nil || !failureAs(err, &failure) || failure.Kind != testCase.wantKind || !strings.Contains(failure.Detail, testCase.wantDetail) {
+							t.Fatalf("%s refusal = %v, want kind %s naming %q", route, err, testCase.wantKind, testCase.wantDetail)
 						}
 
 						// The refusal is atomic: the step holds, no acceptance
 						// recorded, and no delivery assertion exists.
 						reviewGateRequireStep(t, s, workID, "refine")
-						var accepted int
-						if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&accepted); err != nil {
-							t.Fatal(err)
-						}
-						if accepted != 0 {
-							t.Fatalf("refused combined accept recorded %d acceptances", accepted)
+						if c.attempt != "" {
+							var accepted int
+							if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, c.attempt).Scan(&accepted); err != nil {
+								t.Fatal(err)
+							}
+							if accepted != 0 {
+								t.Fatalf("refused combined accept recorded %d acceptances", accepted)
+							}
 						}
 						if seq, seqErr := workflowLatestDeliveryAssertionSeq(context.Background(), s, workID); seqErr != nil {
 							t.Fatal(seqErr)
 						} else if seq != 0 {
-							t.Fatalf("%s refusal left a delivery assertion at seq %d", route.name, seq)
+							t.Fatalf("%s refusal left a delivery assertion at seq %d", route, seq)
 						}
 					})
 				}
@@ -438,115 +438,77 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 	}
 }
 
-// TestRefineExitExclusivityOnDeliveryAcceptVersions proves the CD-0198 D4
-// boundaries: a plain accept at the admitting refine step refuses, delivery
-// fields on an accept anywhere else or on a prior version refuse, the gate
-// keeps record_delivery as its only delivery route, and prior pins keep the
-// plain advancing accept.
-func TestRefineExitExclusivityOnDeliveryAcceptVersions(t *testing.T) {
-	for _, family := range []struct {
-		ref         string
-		version     int64
-		prior       int64
-		verdictStep string
-		startAction string
-	}{
-		{"workflow.implementation", 21, 20, "execution", "start_execution"},
-		{"workflow.break_fix", 19, 18, "repair", "start_repair"},
-	} {
+func TestDeliveryReusesPreRefineReceiptAcrossEntryRoutes(t *testing.T) {
+	for _, family := range acceptDeliveryFamilies {
+		for _, route := range []string{"record_delivery", "accept_worker_result"} {
+			t.Run(family.ref+"/"+route, func(t *testing.T) {
+				const workID = "accept-delivery-reuse"
+				c := acceptDeliveryCandidateAt(t, workID, family.ref, "refine", route == "accept_worker_result")
+				c.j.bindVerification(t, c.early)
+				payload := mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"})
+				if route == "accept_worker_result" {
+					payload = acceptDeliveryCombinedPayload(c, "artifact:reused-proof")
+				}
+				if err := runDeliveryAdmissionAction(t, c.f.store, workID, route, payload, nil, reviewGateAcceptor(workID)); err != nil {
+					t.Fatalf("unchanged proof captured before refine refused: %v", err)
+				}
+				reviewGateRequireStep(t, c.f.store, workID, "delivery")
+			})
+		}
+	}
+}
+
+// TestRefineExitAdmitsOnlyADeliveryAssertion proves the CD-0198 D4
+// boundaries on the current definitions: a plain accept at refine records the
+// job's local acceptance and leaves refine without a delivery assertion, and
+// delivery fields on an accept at the work step refuse.
+func TestRefineExitAdmitsOnlyADeliveryAssertion(t *testing.T) {
+	for _, family := range acceptDeliveryFamilies {
 		t.Run(family.ref, func(t *testing.T) {
-			// A plain accept at the admitting refine step refuses with the
-			// delivery-admission remedy, even with the green run bound: the
-			// refine exit requires an admitted delivery assertion.
-			const workID = "refine-exit-exclusivity"
-			f := acceptDeliveryFixtureFor(t, workID, family.ref, family.version, "refine", "start_refine")
-			s := f.fixture.store
-			acceptor := reviewGateAcceptor(workID)
-			reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-			epoch := latestStepStartEpoch(t, s, workID, "refine")
-			attempt := "attempt:" + workID + ":plain"
-			ownerRef, err := WorkflowActorRef(f.fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
-			refineProofSeedGreenRun(t, s, workID, strings.Repeat("9", 64))
-			err = runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attempt+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, acceptor)
-			var remedy *Failure
-			if err == nil || !failureAs(err, &remedy) || remedy.Kind != KindInvalidOperation || !strings.Contains(remedy.Detail, "the refine step exits only through an admitted delivery assertion") {
-				t.Fatalf("plain accept at refine = %v, want the delivery-admission remedy", err)
+			const workID = "refine-exit-plain"
+			c := acceptDeliveryCandidateAt(t, workID, family.ref, "refine", true)
+			s := c.f.store
+			acceptDeliveryBindFresh(t, c, "plain")
+			plain := mustJSONValue(map[string]any{"attempt_id": c.attempt, "attempt_epoch": c.epoch})
+			if err := runDeliveryAdmissionAction(t, s, workID, "accept_worker_result", plain, nil, reviewGateAcceptor(workID)); err != nil {
+				t.Fatalf("plain local accept at refine: %v", err)
 			}
 			reviewGateRequireStep(t, s, workID, "refine")
+			if seq, err := workflowLatestDeliveryAssertionSeq(context.Background(), s, workID); err != nil {
+				t.Fatal(err)
+			} else if seq != 0 {
+				t.Fatalf("plain accept at refine recorded a delivery assertion at seq %d", seq)
+			}
 
 			// Delivery fields on an accept at the work step refuse: the
-			// combined route exists only at the refinement step. The plain
-			// accept at the work step still advances.
-			const workIDWork = "refine-exit-exclusivity-work"
-			work := acceptDeliveryFixtureFor(t, workIDWork, family.ref, family.version, family.verdictStep, family.startAction)
-			workEpoch := reviewGateStartStep(t, work.fixture.store, workIDWork, family.verdictStep, family.startAction, work.fixture.owner)
-			workAttempt := "attempt:" + workIDWork + ":work"
-			workOwnerRef, ownerErr := WorkflowActorRef(work.fixture.owner)
-			if ownerErr != nil {
-				t.Fatal(ownerErr)
-			}
-			workAuthEpoch := reviewGateRunAttempt(t, work.fixture.store, workIDWork, workAttempt, family.verdictStep, reviewGateLane(t, "implementation"), workOwnerRef, 120)
-			err = runVerdictActionAs(t, work.fixture.store, workIDWork, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+workAttempt+`","attempt_epoch":`+fmt.Sprint(workEpoch)+`,"delivery_artifact":"artifact:misplaced","delivery_state":"asserted"}`), 0, reviewGateAcceptor(workIDWork))
+			// combined route exists only at the refinement step.
+			const workIDWork = "refine-exit-work-step"
+			work := acceptDeliveryCandidateAt(t, workIDWork, family.ref, family.workStep, true)
+			acceptDeliveryBindFresh(t, work, "work")
+			err := runDeliveryAdmissionAction(t, work.f.store, workIDWork, "accept_worker_result", acceptDeliveryCombinedPayload(work, "artifact:misplaced"), nil, reviewGateAcceptor(workIDWork))
 			var misplaced *Failure
 			if err == nil || !failureAs(err, &misplaced) || misplaced.Kind != KindInvalidOperation || !strings.Contains(misplaced.Detail, "carries delivery fields only at the delivery-admitting refinement step") {
-				t.Fatalf("accept with delivery fields at %s = %v, want the misplaced-fields refusal", family.verdictStep, err)
+				t.Fatalf("accept with delivery fields at %s = %v, want the misplaced-fields refusal", family.workStep, err)
 			}
-			if err := reviewGateAcceptResult(t, work.fixture.store, workIDWork, workAttempt, workAuthEpoch, reviewGateAcceptor(workIDWork)); err != nil {
-				t.Fatalf("plain accept at %s: %v", family.verdictStep, err)
-			}
-
-			// Delivery fields on a prior version refuse, and the prior
-			// version keeps the plain advancing accept at refine (pin
-			// stability).
-			const priorID = "refine-exit-exclusivity-prior"
-			prior := acceptDeliveryFixtureFor(t, priorID, family.ref, family.prior, "refine", "start_refine")
-			priorStart := reviewGateStartStep(t, prior.fixture.store, priorID, "refine", "start_refine", prior.fixture.owner)
-			priorAttempt := "attempt:" + priorID + ":r1"
-			priorOwnerRef, priorErr := WorkflowActorRef(prior.fixture.owner)
-			if priorErr != nil {
-				t.Fatal(priorErr)
-			}
-			priorAuthEpoch := reviewGateRunAttempt(t, prior.fixture.store, priorID, priorAttempt, "refine", reviewGateLane(t, "implementation"), priorOwnerRef, 100)
-			err = runVerdictActionAs(t, prior.fixture.store, priorID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+priorAttempt+`","attempt_epoch":`+fmt.Sprint(priorStart)+`,"delivery_artifact":"artifact:prior","delivery_state":"asserted"}`), 0, reviewGateAcceptor(priorID))
-			var priorFailure *Failure
-			if err == nil || !failureAs(err, &priorFailure) || priorFailure.Kind != KindInvalidPayload || !strings.Contains(priorFailure.Detail, "delivery_artifact") || !strings.Contains(priorFailure.Detail, "not declared") {
-				t.Fatalf("combined accept on %s v%d = %v, want the undeclared-field refusal", family.ref, family.prior, err)
-			}
-			if err := reviewGateAcceptResult(t, prior.fixture.store, priorID, priorAttempt, priorAuthEpoch, reviewGateAcceptor(priorID)); err != nil {
-				t.Fatalf("plain accept at refine on v%d: %v", family.prior, err)
-			}
-			reviewGateRequireStep(t, prior.fixture.store, priorID, "delivery")
+			reviewGateRequireStep(t, work.f.store, workIDWork, family.workStep)
 		})
 	}
 }
 
-// TestCombinedDeliveryAssertionReadersAndRebuild proves the delivery readers
-// recognize the combined assertion and that a rebuild from the log lands on
-// the same state the live fold produced.
-func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
+// TestCombinedDeliveryAssertionReaders proves the delivery readers recognize
+// the combined assertion.
+func TestCombinedDeliveryAssertionReaders(t *testing.T) {
 	const workID = "combined-assertion-readers"
-	f := acceptDeliveryFixtureFor(t, workID, "workflow.implementation", 21, "refine", "start_refine")
-	s := f.fixture.store
-	acceptor := reviewGateAcceptor(workID)
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", f.fixture.owner)
-	attempt := "attempt:" + workID + ":r1"
-	ownerRef, err := WorkflowActorRef(f.fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	epoch := reviewGateRunAttempt(t, s, workID, attempt, "refine", reviewGateLane(t, "implementation"), ownerRef, 100)
-	if err := acceptRefineResult(t, s, workID, attempt, epoch, acceptor); err != nil {
+	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", true)
+	s := c.f.store
+	acceptDeliveryBindFresh(t, c, "readers")
+	if err := runDeliveryAdmissionAction(t, s, workID, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:accept-delivery-"+workID), nil, reviewGateAcceptor(workID)); err != nil {
 		t.Fatalf("combined accept: %v", err)
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
 
 	var acceptSeq, acceptPayloadVersion int64
 	var acceptEventID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,payload_version,event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&acceptSeq, &acceptPayloadVersion, &acceptEventID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,payload_version,event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, c.attempt).Scan(&acceptSeq, &acceptPayloadVersion, &acceptEventID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -578,29 +540,20 @@ func TestCombinedDeliveryAssertionReadersAndRebuild(t *testing.T) {
 		t.Fatalf("correct_delivery target = (%d, %d, %s), want the combined assertion", targetSeq, targetVersion, targetArtifact)
 	}
 
-	// The parked read still reports the gate and its record_delivery resume.
-	parked := parkedDeliveryRead(context.Background(), s.DatabaseForTesting(), f.definition.Definition, workID, "delivery", "running")
+	// The parked read reports the gate and its record_delivery resume.
+	parked := parkedDeliveryRead(context.Background(), s.DatabaseForTesting(), c.definition.Definition, workID, "delivery", "running")
 	if parked == nil || parked.StepID != "delivery" || parked.ResumeAction != "record_delivery" {
 		t.Fatalf("parked delivery read = %+v", parked)
 	}
 
-	// A rebuild from the log lands on the same state.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from log: %v", err)
-	}
-	reviewGateRequireStep(t, s, workID, "delivery")
-	rebuilt, err := workflowDeliveryAssertionRead(context.Background(), s.db, workID)
-	if err != nil || rebuilt == nil {
-		t.Fatalf("rebuilt assertion read = (%+v, %v)", rebuilt, err)
-	}
-	if rebuilt.EventID != assertion.EventID || rebuilt.Seq != assertion.Seq || rebuilt.Artifact != assertion.Artifact {
-		t.Fatalf("rebuilt assertion = %+v, want %+v", rebuilt, assertion)
-	}
-	var rebuiltCompletions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&rebuiltCompletions); err != nil {
+	var completions int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&completions); err != nil {
 		t.Fatal(err)
 	}
-	if rebuiltCompletions != 1 {
-		t.Fatalf("rebuilt log carries %d asserted combined accepts, want 1", rebuiltCompletions)
+	if completions != 1 {
+		t.Fatalf("log carries %d asserted combined accepts, want 1", completions)
 	}
+
+	// CD-0198 D4: the combined accept advanced refine to the delivery gate.
+	reviewGateRequireStep(t, s, workID, "delivery")
 }

@@ -10,10 +10,6 @@
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
-> **Amended direction:** CD-0222 requires typed architecture binding for
-> Product-changing work; CD-0213 removes the Initiative route.
-> CD-0042 makes the generated current manifest the only pre-go-live surface
-> identity; this contract does not authorize partial Domain writes or any planning write.
 
 ## Context
 
@@ -26,6 +22,12 @@ and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
+
+CD-0222 requires typed architecture binding for Product-changing work.
+Each mutation writes current rows in one transaction; no event append or replay
+exists ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
+CD-0042 makes the generated current manifest the only pre-go-live surface
+identity. This contract does not authorize partial Domain writes or any planning write.
 
 Approval prerequisites in the operation tables follow CD-0013 D11 and CD-0243 D2: an operation requires operator consent only when one of CD-0243's six approval classes applies. Overlap answers including `merged_into` and `supersedes`, cancellation, removal, delivery correction, same-authorized-Product memberships, ordinary completion, outside repair and both reconciliation modes, local compaction publication/reconciliation, and physical research-pack deletion are agent-owned unless such a class applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations keep their capability checks. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All authentication, capability, version, authorization, evidence, native proof, retention-eligibility, atomicity, and durable-operation checks remain required.
 
@@ -68,8 +70,8 @@ or terminal-note changes.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/external reference | Create one `work_item` plus complete initial membership set and creation event in one SQLite transaction. |
-| `revise_intent` | work ID, expected version, complete replacement intent block, reason | Replace only the closed mutable intent block and append one event. Omitted fields are intentionally absent because the block is complete—not patch semantics. |
+| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/external reference | Create one `work_item` plus its complete initial membership set in one SQLite transaction. |
+| `revise_intent` | work ID, expected version, complete replacement intent block, reason | Replace only the closed mutable intent block in one recorded mutation. Omitted fields are intentionally absent because the block is complete—not patch semantics. |
 
 The mutable intent block is closed: title, value statement, work kind, priority,
 tags, and accepted workflow-type reference. Identity, lifecycle,
@@ -82,7 +84,7 @@ against a Project, and the core refuses when the requirement set a capture decla
 does not cover the ones its target scope carries. The refusal is a set difference,
 not a reading of the instruction: `invariant_violation` naming the omitted
 requirements in `violations`, `contact_operator` recovery, the operator's three
-`options`, and no events. Enumeration confers no authority — a caller can match the
+`options`, and no mutation. Enumeration confers no authority — a caller can match the
 applicable set or fail, and the only path to a reduced set is an operator-approved
 scope cut bound to the challenge the refusal mints.
 
@@ -96,18 +98,18 @@ offered by the work item's accepted workflow definition.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence/approval | Validate PM4 transition and workflow obligations; append event and update projection atomically. |
+| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence/approval | Validate PM4 transition and workflow obligations; write the current rows atomically. |
 | `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence/approval | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from lifecycle input. The `supersede` operation
-retired: contract supersession goes through the operator-approved
+`superseded` is excluded from lifecycle input. Contract supersession goes through the operator-approved
 `supersede_contract` action, and an overlap resolution that terminalizes a
 work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
 or `merged_into`, which commits the relation and the terminal transition
-together. A size revision that changes a work item's size supersedes it with a
-forward-linked successor in one transaction (CD-0229 D6, CD-0237). Reopening
-superseded work has no operation; superseded work items and their events stay
-historical and replayable.
+together. A task that proves bigger than its size reruns the decision model,
+adds the newly required steps, and continues without redoing completed work or
+creating a successor item ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D4, D6). Reopening
+superseded work has no operation; a superseded work item keeps its terminal
+record.
 
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow
@@ -127,8 +129,8 @@ one concurrent Domain overlap.
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
 The rule binds every writer of work membership, not only the agent surface. A
-writer that seeds membership through per-Project events charges one version per
-Project, where replacement charges one for the whole set. Such a writer places
+writer that writes one membership row per Project in separate mutations
+charges one version per Project, where replacement charges one for the whole set. Such a writer places
 its work items at versions no agent call can produce, so a test fixture reading
 one exercises arithmetic the product never performs. Test fixtures write
 `work.memberships_replaced` for that reason.
@@ -147,7 +149,7 @@ write arbitrary files.
 
 | Operation | Required domain input | Core/cross-authority effect |
 |---|---|---|
-| `publish` | terminal work ID/version; exact proposed note content; resolved home/locator; operator approval over content and home | Follow PM6: validate eligibility/home, commit to git, verify commit/path/work ID/hash, then append the SQLite compaction link. |
+| `publish` | terminal work ID/version; exact proposed note content; resolved home/locator; operator approval over content and home | Follow PM6: validate eligibility/home, commit to git, verify commit/path/work ID/hash, then record the SQLite compaction link. |
 | `reconcile` | durable operation reference and expected operation version (or terminal work/version for orphan discovery); expected proof/recovery intent | Compare-and-swap the durable step, find and verify an orphan/partial publication by work ID, then complete the missing link or return a typed non-destructive recovery outcome without creating a second note. |
 
 Git and SQLite are never described as one atomic transaction. Before the first
@@ -217,7 +219,7 @@ Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
 belong only to the archived `workflow.ops_runbook` family (CD-0218 D1).
 Admission refuses them, and no route records a new native-run report. Reports
 recorded under CD-0039 stay readable (CD-0218 D4): each
-`workflow.native_run_recorded` event carries the reporting client, subject,
+`workflow.native_run_recorded` record carries the reporting client, subject,
 evidence, and both times alongside the status. The adapter never derives
 outcomes from provider output.
 
@@ -280,7 +282,7 @@ or storage method is not sufficient evidence.
 
 - Given a valid capture with Project membership
   When `concord_work_define.capture` commits
-  Then the work item, its complete membership set, and its creation event
+  Then the work item and its complete membership set
   commit in one SQLite transaction.
 
 - Given a transition carrying a stale expected version
@@ -291,7 +293,7 @@ or storage method is not sufficient evidence.
 - Given a completion without its required evidence
   When `concord_work_transition.lifecycle` attempts it
   Then the core blocks the terminal transition with a typed error and no
-  event.
+  mutation.
 
 - Given two overlapping Product-changing items
   When `concord_work_relate.resolve_overlap` resolves one

@@ -93,7 +93,7 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 		return contract, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
@@ -103,7 +103,7 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	// as the declared set, where [] reads as engineering.
 	if decisionDomains.Valid {
 		if json.Unmarshal([]byte(decisionDomains.String), &contract.DecisionDomains) != nil {
-			return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains a malformed decision domain set", false, "rebuild projections from the event log")
+			return contract, newFailure(KindInvariantViolation, "workflow_read", "workflow contract projection contains a malformed decision domain set", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 	}
 	if supersededBy.Valid {
@@ -166,15 +166,7 @@ func readWorkflowContractPredicates(ctx context.Context, queryer workflowPredica
 }
 
 func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
-	registry := BuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup(definition.Ref, definition.Version)
-	if !ok {
-		return RegisteredDefinition{}, newFailure(KindDefinitionDigestMismatch, "workflow_read", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
-	}
-	if err := registry.Verify(definition.Ref, definition.Version, definition.Digest); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	return registered, nil
+	return resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
 }
 
 type WorkflowReadCondition struct {
@@ -254,11 +246,6 @@ type WorkflowReadProjection struct {
 	// selection as effective_artifact: the correction's merge evidence when a
 	// correction exists, the asserted artifact otherwise.
 	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
-	// RetryWindow is the CD-0164 D5 readable retry window, derived in this
-	// projection's transaction from the derivations the admission fold
-	// answers from. It stays nil when the projection carries no workflow
-	// instance.
-	RetryWindow *WorkflowRetryWindow `json:"retry_window,omitempty"`
 }
 
 // readWorkflowProjectionTx returns the bounded workflow observation from the
@@ -283,6 +270,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	if err != nil {
 		return out, err
 	}
+	out.Definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_read")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
@@ -307,7 +295,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+			return out, newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {
@@ -357,16 +345,6 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 			return out, err
 		}
 	}
-
-	// The CD-0164 D5 retry window rides the projection after the contract
-	// phase, so a duplicated or unreadable contract projection keeps its
-	// existing refusal semantics and the window derives no invented anchor
-	// over it.
-	window, windowErr := workflowRetryWindowRead(ctx, q, request.WorkID, out.CurrentStep, "workflow_read")
-	if windowErr != nil {
-		return out, windowErr
-	}
-	out.RetryWindow = window
 
 	rows, err := q.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
 	if err != nil {
@@ -457,7 +435,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	var warnings string
 	if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.warnings') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, request.WorkID, WorkflowCompleted).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
 		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "rebuild projections from the event log")
+			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 	}
 	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, q, request.WorkID)

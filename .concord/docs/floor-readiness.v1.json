@@ -80,22 +80,22 @@
     }
    ]
   },
-   {
-    "id": "fc1-full-product-scope",
-    "condition": "fc1",
-    "title": "Operator visibility spans the full Product scope",
-    "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the operator's session and the agent read surface. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
-    "state": "out_of_scope",
-    "reason": "The S1 portfolio view retired with the launcher TUI under CD-0219. CD-0021's reach reading continues to bound result sets for the agent read surface; the launcher-delivered operator view has no subject."
-   },
-   {
-    "id": "fc1-domain-navigation",
-    "condition": "fc1",
-    "title": "Product detail opens on active work with Domain context reachable",
-    "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0222 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
-    "state": "out_of_scope",
-    "reason": "The launcher Product detail retired with the launcher TUI under CD-0219. The fc2 Domain items cover the surviving agent Domain read surface. Package owner notes guide code navigation without a global inventory."
-   },
+  {
+   "id": "fc1-full-product-scope",
+   "condition": "fc1",
+   "title": "Operator visibility spans the full Product scope",
+   "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the operator's session and the agent read surface. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
+   "state": "out_of_scope",
+   "reason": "The S1 portfolio view retired with the launcher TUI under CD-0219. CD-0021's reach reading continues to bound result sets for the agent read surface; the launcher-delivered operator view has no subject."
+  },
+  {
+   "id": "fc1-domain-navigation",
+   "condition": "fc1",
+   "title": "Product detail opens on active work with Domain context reachable",
+   "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0222 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
+   "state": "out_of_scope",
+   "reason": "The launcher Product detail retired with the launcher TUI under CD-0219. The fc2 Domain items cover the surviving agent Domain read surface. Package owner notes guide code navigation without a global inventory."
+  },
   {
    "id": "fc2-read-tools",
    "condition": "fc2",
@@ -212,7 +212,7 @@
     },
     {
      "kind": "go_test",
-     "value": "internal/store.TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild"
+     "value": "internal/store.TestReplaceDomainAttachmentsFoldsSets"
     },
     {
      "kind": "validator",
@@ -220,7 +220,7 @@
     },
     {
      "kind": "go_test",
-     "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
+     "value": "internal/store.TestProductKnowledgeHomeDesignationPersists"
     }
    ]
   },
@@ -274,13 +274,17 @@
    "id": "fc3-completion-evidence",
    "condition": "fc3",
    "title": "Completion is gated on bound evidence and an operator premise confirmation",
-   "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
+   "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, criterion proof associated by Main rather than the executing Implement actor, and the premise confirmation the contract's decision fact requires (CD-0013 D11); the completion's own writes commit in one transaction.",
    "state": "satisfied",
    "evidence": [
     {
-     "kind": "scenario",
-     "value": "WF19-completion-one-transaction"
-    },
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback"
+     },
+     {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses"
+     },
     {
      "kind": "scenario",
      "value": "WF47-evidence-commit-binding"
@@ -292,34 +296,16 @@
    "condition": "fc3",
    "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
    "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "scenario",
-     "value": "WF48-lane-pipeline-typed-evidence"
-    }
-   ]
+   "state": "unmeasured",
+   "reason": "The current corpus proves owner acceptance of a registered Implement lane's typed result only; no current control drives the Research lane through the same workflow."
   },
   {
    "id": "fc3-reviewer-model-distinctness",
    "condition": "fc3",
-   "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
-   "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed"
-    }
-   ]
-  },
-  {
-   "id": "fc3-lane-behavioral-evals",
-   "condition": "fc3",
-   "title": "Lane prompt behaviour is measured by an evaluation harness",
-   "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness exercises every registered lane; under CD-0058 the harness no longer pins a preferred model and no in-repo validator enforces drift, so the harness is advisory infrastructure rather than a Concord machine check.",
-   "state": "out_of_scope",
-   "reason": "CD-0058 retired the routing-policy preferred model and the in-repo drift validator alongside it. The promptfoo harness remains as external advisory infrastructure; its drift against the lane registry is no longer a Concord authority check."
+   "title": "Review reports the completion disposition and recorded readback identity stays bound evidence",
+   "requirement": "CD-0242 D5 governs: no reviewer/model distinctness is required; Review reports its disposition, Main records its acceptance, and Implement cannot accept its own result. The recorded readback model remains bound evidence of what executed.",
+   "state": "unmeasured",
+   "reason": "The CD-0242 current-state runtime has not landed; the existing proof exercises the retired mechanism, and this item rebinds to the runtime's proof when it lands."
   },
   {
    "id": "fc3-worker-authority-boundary",
@@ -373,19 +359,6 @@
    ]
   },
   {
-   "id": "fc3-lane-eval-baseline",
-   "condition": "fc3",
-   "title": "Lane sufficiency is measured by a recorded eval baseline",
-   "requirement": "A recorded baseline run of the advisory lane evals binds every registered lane's id, version, and digest to per-attempt readback model evidence, covers every packet including seeded-defect review scenarios, and is validated on every CI run.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "validator",
-     "value": "scripts/check-lane-eval-baseline.py"
-    }
-   ]
-  },
-  {
    "id": "fc4-authority-explicit",
    "condition": "fc4",
    "title": "Required authority is explicit at every call",
@@ -410,8 +383,8 @@
      "value": "WF29-impact-notice-identity"
     },
     {
-     "kind": "scenario",
-     "value": "WF30-breaking-dependent-block"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass"
     }
    ]
   },
@@ -436,12 +409,12 @@
    "state": "satisfied",
    "evidence": [
     {
-     "kind": "scenario",
-     "value": "WF40-staleness-block"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowBlockingStalenessRefusesCompletionSemantics"
     },
     {
-     "kind": "scenario",
-     "value": "WF41-staleness-warning-recorded"
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowWarningStalenessIsRecordedForNextRead"
     }
    ]
   },
@@ -465,15 +438,10 @@
   {
    "id": "fc5-append-only-authority",
    "condition": "fc5",
-   "title": "One append-only event log is the sole state authority",
-   "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "scenario",
-     "value": "WF35-rebuild-byte-equal"
-    }
-   ]
+   "title": "One current-state store is the sole state authority",
+   "requirement": "CD-0242 D2 governs: each mutation writes current rows in one transaction checked by an expected version and recorded by its idempotency key; typed projections derive in the same transaction, and a correction is a recorded mutation, not a hand repair.",
+   "state": "unmeasured",
+   "reason": "The CD-0242 current-state runtime has not landed; the existing proof exercises the retired mechanism, and this item rebinds to the runtime's proof when it lands."
   },
   {
    "id": "fc5-concurrent-process-conformance",
@@ -539,7 +507,7 @@
    "id": "fc6-operational-coverage",
    "condition": "fc6",
    "title": "Concord covers that territory without loss",
-    "requirement": "Every enumerated predecessor capability in .concord/docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered.",
+   "requirement": "Every enumerated predecessor capability in .concord/docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered.",
    "state": "satisfied",
    "evidence": [
     {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { agentLanes } from "./generated-agent-lanes"
+import { agentLanes, laneLegacyDigests } from "./generated-agent-lanes"
 import { defaultRunner, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { reviewSubjectFailure } from "./worker_subject"
 
@@ -66,6 +66,12 @@ test("real Git observes the pinned clean subject and refuses untracked files or 
     rmSync(untracked)
     await git("commit", "--quiet", "--allow-empty", "-m", "next fixture")
     expect((await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner))?.detail).toContain("review subject mismatch")
+    expect(await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner, "terminal")).toBeNull()
+    const readOnly = { ...pinned, lane_digest: laneLegacyDigests["review:1"].at(-1)! }
+    expect((await reviewSubjectFailure(lane, readOnly, root, signal, defaultRunner, "terminal"))?.detail).toContain("review subject mismatch")
+    await git("checkout", "--orphan", "unrelated")
+    await git("commit", "--quiet", "--allow-empty", "-m", "unrelated")
+    expect((await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner, "terminal"))?.detail).toContain("not a proved descendant")
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

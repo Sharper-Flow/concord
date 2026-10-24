@@ -8,8 +8,7 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/workflow_registry.go",
-    "internal/store/workflow_registry_versions.go",
-    "internal/store/workflow_definition_version_pins_test.go",
+    "internal/store/workflow_parts.go",
     "internal/store/workflow_backlog_alignment_test.go",
     ".concord/docs/workflow-engine-contract.md"
   ],
@@ -20,10 +19,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0013"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
     }
   ],
   "path": ".concord/docs/decisions/CD-0156-mandatory-backlog-alignment-step.md",
@@ -34,9 +29,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:231e34a511765ac071958ab8f1cadee6d9f13f7475e05f895b4d704400ffe157",
+  "sha256": "sha256:709102b0bc67e4c824fe646669b68e13964f7594d665f2c99e88a670af4179b1",
   "status": "accepted",
-  "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a new fold-only projection table, shipping new frozen definition versions 13 and 11.",
+  "summary": "Splices a mandatory alignment step into implementation and break-fix whose single advance action records the backlog search and its closed outcome in a dedicated alignment table, composed into the families' canonical source.",
   "tags": [
     "workflow",
     "alignment",

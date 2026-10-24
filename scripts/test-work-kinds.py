@@ -26,7 +26,6 @@ class WorkKindsFixture(unittest.TestCase):
             "contracts/work-kinds.v1.json",
             "contracts/work-kinds.schema.json",
             "contracts/agent-tool-surface-payloads.schema.json",
-            "contracts/workflow-engine-scenarios.schema.json",
             "contracts/work-kinds.digest",
             "internal/store/generated_work_kinds.go",
             "internal/store/schema.go",
@@ -106,23 +105,42 @@ class WorkKindsFixture(unittest.TestCase):
         source.write_text(text, encoding="utf-8")
         self.assertTrue(any(item.startswith("migration-registry-immutability:") for item in self.findings()))
 
-    def test_scenario_enum_drift_is_reported(self) -> None:
-        scenario = self.read_json("contracts/workflow-engine-scenarios.schema.json")
-        scenario["$defs"]["operatorWorkKind"]["enum"].append("implementation")
-        self.write_json("contracts/workflow-engine-scenarios.schema.json", scenario)
-        self.assertTrue(any(item.startswith("scenario-work-kind-closure:") for item in self.findings()))
+    def test_stored_kind_enum_drift_is_reported(self) -> None:
+        surface = self.read_json("contracts/agent-tool-surface-payloads.schema.json")
+        surface["$defs"]["stored_work_kind"]["enum"].remove("bug")
+        self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
+        self.assertTrue(any(item.startswith("agent-stored-kind-closure:") for item in self.findings()))
 
-    def test_mixed_scenario_payload_definition_is_reported(self) -> None:
-        scenario = self.read_json("contracts/workflow-engine-scenarios.schema.json")
-        scenario["$defs"]["workCreatedPayload"]["allOf"][1]["oneOf"][1]["properties"]["work_kind"]["$ref"] = "#/$defs/workflowFamily"
-        self.write_json("contracts/workflow-engine-scenarios.schema.json", scenario)
-        self.assertTrue(any(item.startswith("scenario-payload-split:") for item in self.findings()))
+    def test_work_kind_reference_drift_is_reported(self) -> None:
+        relative = "contracts/agent-tool-surface-payloads.schema.json"
+        original = self.read_json(relative)
+        for definition in ("work_define_capture_input", "work_define_revise_input"):
+            with self.subTest(definition=definition):
+                surface = json.loads(json.dumps(original))
+                surface["$defs"][definition]["properties"]["kind"]["$ref"] = "#/$defs/stored_work_kind"
+                self.write_json(relative, surface)
+                self.assertIn(
+                    f"agent-work-kind-reference: {definition}.kind must reference #/$defs/work_kind",
+                    self.findings(),
+                )
 
-    def test_scenario_payload_kind_bypass_is_reported(self) -> None:
-        scenario = self.read_json("contracts/workflow-engine-scenarios.schema.json")
-        scenario["$defs"]["workCreatedPayload"]["allOf"][1].pop("oneOf")
-        self.write_json("contracts/workflow-engine-scenarios.schema.json", scenario)
-        self.assertTrue(any(item.startswith("scenario-payload-split:") for item in self.findings()))
+    def test_work_kind_reference_bypass_is_reported(self) -> None:
+        relative = "contracts/agent-tool-surface-payloads.schema.json"
+        original = self.read_json(relative)
+        for definition in ("work_define_capture_input", "work_define_revise_input"):
+            for replacement in ({}, {"enum": original["$defs"]["work_kind"]["enum"]}, None):
+                with self.subTest(definition=definition, replacement=replacement):
+                    surface = json.loads(json.dumps(original))
+                    properties = surface["$defs"][definition]["properties"]
+                    if replacement is None:
+                        properties.pop("kind")
+                    else:
+                        properties["kind"] = replacement
+                    self.write_json(relative, surface)
+                    self.assertIn(
+                        f"agent-work-kind-reference: {definition}.kind must reference #/$defs/work_kind",
+                        self.findings(),
+                    )
 
     def test_stale_runtime_literal_is_reported(self) -> None:
         source = self.root / "internal/store/stale_literal.go"

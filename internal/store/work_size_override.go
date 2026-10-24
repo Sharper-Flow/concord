@@ -29,9 +29,8 @@ type workSizeOverriddenPayload struct {
 	ApprovalScopeJSON       string   `json:"approval_scope_json"`
 	ApprovalVersionsJSON    string   `json:"approval_versions_json"`
 	ApprovalConsequence     string   `json:"approval_consequence"`
-	// CarriedFromEventID names the predecessor's override a resize carries
-	// to its successor. A carried override names no approval: the
-	// operator's decision carries, the approval does not.
+	// CarriedFromEventID decodes a historical carried override on replay.
+	// No live size revision carries an override to another item.
 	CarriedFromEventID string `json:"carried_from_event_id,omitempty"`
 }
 
@@ -75,7 +74,7 @@ func validWorkSize(size WorkSize) bool {
 // OverrideWorkSizeTx derives the operator actor from the consumed approval,
 // records it, and appends work.size_overridden against the item's current
 // model record. An unsized item refuses: the model decides first. An
-// override that changes the effective size resizes the item.
+// override changes the effective size in place.
 func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request WorkSizeOverrideRequest) (WorkSizeRevisionResult, error) {
 	tx, err := transactionSQL(transaction, "work_size_override")
 	if err != nil {
@@ -91,14 +90,6 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 	model := before.Model
 	if !sized {
 		return WorkSizeRevisionResult{}, newFailure(KindInvalidOperation, "work_size_override", "the work item has no model size to override", false, "run the size model first")
-	}
-	// A standing proof is recorded only by the rerun that releases the D6
-	// stop; an override that changed the size first would resize past it
-	// and drop it from the lineage.
-	if proofs, err := deriveWorkSizeProofsTx(ctx, tx, request.WorkID, 0); err != nil {
-		return WorkSizeRevisionResult{}, err
-	} else if len(proofs) != 0 && request.Size != before.Effective {
-		return WorkSizeRevisionResult{}, newFailure(KindStaleRequiresReview, "work_size_override", "a review proved the work bigger after its size record", false, RecoveryWorkSizeRerun)
 	}
 	operator, err := workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{
 		ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest,
@@ -129,11 +120,7 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}
-	successor, err := settleWorkSizeRevisionTx(ctx, transaction, before, true, workResizeRequest{WorkID: request.WorkID, EventID: request.EventID, Actor: operator.WorkflowActor, Now: request.OccurredAt})
-	if err != nil {
-		return WorkSizeRevisionResult{}, err
-	}
-	return workSizeRevisionResultTx(ctx, tx, request.WorkID, successor, applied.EventIDs)
+	return workSizeRevisionResultTx(ctx, tx, request.WorkID, applied.EventIDs)
 }
 
 func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -148,9 +135,7 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 		return newFailure(KindInvalidPayload, "fold_event", "size override needs a size from the vocabulary, a bounded reason and a model sequence", false, "record the operator's size against the current model record")
 	}
 	if p.CarriedFromEventID != "" {
-		if err := checkCarriedWorkSizeOverrideTx(ctx, tx, event, p); err != nil {
-			return err
-		}
+		return newFailure(KindInvalidOperation, "fold_event", "carried size overrides are retired", false, "record an approved in-place size override")
 	} else if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
 		return err
 	}
@@ -161,7 +146,7 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 		return wrapFailure(KindUnavailable, "fold_event", "cannot read the overridden work item", true, "retry once the database is readable", err)
 	}
 	if isTerminalLifecycle(lifecycle) {
-		return newFailure(KindInvalidTransition, "fold_event", "terminal work cannot be resized", false, "override the size of nonterminal work")
+		return newFailure(KindInvalidTransition, "fold_event", "terminal work cannot be sized", false, "override the size of nonterminal work")
 	}
 	model, sized, err := readWorkSize(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -174,24 +159,6 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 		ON CONFLICT(work_id) DO UPDATE SET event_id=excluded.event_id, model_sequence=excluded.model_sequence, size_class=excluded.size_class, recorded_at=excluded.recorded_at`,
 		event.SubjectID, event.EventID, p.ModelSequence, string(p.Size), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size override", true, "retry once the database is writable", err)
-	}
-	return nil
-}
-
-// checkCarriedWorkSizeOverrideTx admits a carried override only on a resize
-// successor, naming its predecessor's override with the same size.
-func checkCarriedWorkSizeOverrideTx(ctx context.Context, tx *sql.Tx, event Event, p workSizeOverriddenPayload) error {
-	if p.ApprovalRef != "" || p.ApprovalOperationDigest != "" || p.ApprovalScopeJSON != "" || p.ApprovalVersionsJSON != "" || p.ApprovalConsequence != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "a carried size override names no approval", false, "carry the operator's size without an approval")
-	}
-	var size string
-	err := tx.QueryRowContext(ctx, `SELECT o.size_class FROM work_resize_lineage l JOIN work_size_overrides o ON o.work_id=l.predecessor_work_id AND o.event_id=?
-		WHERE l.successor_work_id=?`, p.CarriedFromEventID, event.SubjectID).Scan(&size)
-	if err == sql.ErrNoRows || (err == nil && WorkSize(size) != p.Size) {
-		return newFailure(KindInvariantViolation, "fold_event", "a carried size override names no override of the resized predecessor", false, "carry the predecessor's current operator size")
-	}
-	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read the carried size override", true, "retry once the database is readable", err)
 	}
 	return nil
 }

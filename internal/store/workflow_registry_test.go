@@ -64,7 +64,7 @@ func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testi
 		}
 	}
 
-	generic := builtinGenericOneOff(true)
+	generic := genericDefinitionFixture()
 	generic.ChangesProductTruth = workflowProductTruth(true)
 	if err := ValidateWorkflowDefinition(generic); err == nil {
 		t.Fatal("generic definition with product-truth authority passed validation")
@@ -85,7 +85,7 @@ func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			registered, ok := registry.Lookup(testCase.ref, 1)
+			registered, ok := registry.Current(testCase.ref)
 			if !ok {
 				t.Fatalf("%s is not registered", testCase.ref)
 			}
@@ -120,37 +120,21 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 }
 
-func TestWorkflowDefinitionVerificationReplaysLegacyInputReferences(t *testing.T) {
+func TestWorkflowDefinitionRejectsFormFeedInputReference(t *testing.T) {
 	t.Parallel()
-	definition := builtinGenericOneOff(true)
+	definition := genericDefinitionFixture()
 	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
-	if err := validateWorkflowDefinitionWithReference(definition, replayValidReference); err != nil {
-		t.Fatalf("legacy pinned definition failed replay validation: %v", err)
-	}
 	if err := ValidateWorkflowDefinition(definition); err == nil {
 		t.Fatal("new definition admission accepted a form-feed reference")
 	}
-	digest, err := workflowDefinitionDigestWithReference(definition, replayValidReference)
-	if err != nil {
-		t.Fatalf("legacy pinned definition could not be digested for replay: %v", err)
-	}
-	registry := &workflowDefinitionRegistry{entries: map[string]RegisteredDefinition{
-		registryKey(definition.Ref, definition.Version): {Definition: definition, Digest: digest},
-	}}
-	if err := registry.Verify(definition.Ref, definition.Version, digest); err != nil {
-		t.Fatalf("legacy pinned definition failed digest verification: %v", err)
-	}
 }
 
-// A family holds exactly the versions the digest pins declare: the frozen
-// version-1 shapes where persisted instances pin them (#861), the shipped
-// shape, and nothing beyond. workflow_definition_version_pins_test.go holds
-// the pins; this guards the ceiling.
-func TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins(t *testing.T) {
+// Only the current definition is addressable for each family.
+func TestBuiltinWorkflowRegistryHoldsOnlyCurrentVersions(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	highest := map[string]int64{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if definition.Version > highest[definition.Ref] {
 			highest[definition.Ref] = definition.Version
 		}
@@ -171,7 +155,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
 			continue
 		}
-		registered, ok := registry.Lookup(definition.Ref, 1)
+		registered, ok := registry.Current(definition.Ref)
 		if !ok {
 			t.Fatalf("%s is not registered", definition.Ref)
 		}
@@ -190,7 +174,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup("workflow.implementation", 1)
+	registered, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("implementation definition is not registered")
 	}

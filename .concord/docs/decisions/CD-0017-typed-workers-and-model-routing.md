@@ -5,13 +5,8 @@
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
 **Amends:** CD-0005 (adds the worker-lane dimension above the D6 adapter boundary; D1–D9 unchanged)
-**Preserves:** R1 (forward-linked composition), CD-0013 (attempt model, §D5 executing-identity distinctness), CD-0016 (pinned continuity projections)
+**Preserves:** R1 (forward-linked composition), CD-0013 (worker authority boundary and actor identity), CD-0016 (pinned continuity projections)
 **Cites:** #42/CD-0016 (context continuity — separate decision; lane dispatch consumes its pinned projections)
-
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Context
 
@@ -26,8 +21,11 @@ process, and Concord records the executing identity through readback.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 replace failed-retry consent with exact transactional attempt, epoch, contract, and job binding. The fresh attempt, capability, signed evidence, worker boundary, model distinctness, and convergence requirements remain. Earlier pins retain the approval prerequisite below.
+Operator consent follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
 
+For `approval_policy=consequence_v1`, CD-0013 D11 and CD-0059 D2 require exact transactional attempt, epoch, contract, and job binding, not failed-retry consent. Fresh attempts, capability checks, signed evidence, and the worker authority boundary remain required. Main controls the loop, and each launch carries its own authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) and [D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D1. Concord owns a canonical lane registry
 
@@ -60,15 +58,14 @@ Provider releases change host configuration, never durable lane law.
 
 ### D4. Worker authority boundary
 
-A worker run is a **bounded execution attempt of one workflow step** — the position
-`workflow.action_started`/`workflow.action_checkpointed` already model. Workers
+A worker run is a **bounded execution attempt of one workflow step** — the
+dispatched step position the engine records. Workers
 never record step transitions, verdicts, or completion, and never spawn nested
 workflow authority. Durable workflow authority remains with the owning Concord
 workflow; a worker result can complete a gate only when the owning workflow
 transition explicitly permits that typed effect. The owning actor uses the declared
 `accept_worker_result` action, bound to the exact completed attempt and its current
-step epoch. The workflow fold rechecks successful model readback and requires the
-owning actor to differ from the recorded executor before advancing. Workers cannot
+step epoch. Acceptance rechecks successful model readback before advancing. The owning workflow advances through Main's recorded review acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Workers cannot
 invoke another advancing action once a worker attempt is dispatched in the current
 step window. This preserves R1 and CD-0013 by construction: the prohibition binds
 authority, not labor.
@@ -85,49 +82,27 @@ Concord records which model executed the attempt. It asserts no intended
 model and no legal resolution set, so it claims no substitution detection.
 
 A readback that yields no executing-model identity, or more than one, is not
-an adapter error to discard. The adapter records exactly one failed attempt in
-one event: a dispatch born `failed`, with an empty `readback_model` and a kind
+an adapter error to discard. The adapter records exactly one failed dispatch:
+a dispatch born `failed`, with an empty `readback_model` and a kind
 of `model_readback_missing` or `model_readback_ambiguous`, carrying the
-refusing predicate, the export digest, and the export byte count. One event is
-one transaction, so no `dispatched` attempt can outlive a stopped process. The
+refusing predicate, the export digest, and the export byte count.
+The failed dispatch is one current row written in one transaction, so no `dispatched` attempt can outlive a stopped process ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The
 schema admits an empty `readback_model` only under those two failed kinds. The
 attempt is never retried; a new attempt is a new decision.
 
-The dispatch event also records `worker_worktree_identity`, the sha256 of the
+The dispatch record also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
-worker evidence binds to that claim without a machine path in a public event.
+worker evidence binds to that claim without a machine path in a public record.
 
-A failed worker attempt remains terminal and immutable. A retry is a new fenced
-attempt, with a new attempt identity and step epoch. The agent boundary must first
-obtain an exact operator approval bound to the failed attempt, its epoch, and the
-unchanged approved contract. Missing, stale, or reused approval refuses without a
-new dispatch. The retry limit remains three attempts, and a worker session cannot
-resume the failed attempt.
+A retry is one newly admitted launch with its own authorization and subject bindings ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;
-a later terminal event cannot replace failure with success or success with failure.
+each terminal result is one recorded current fact, and a terminal result is immutable ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D6. Reviewer/model distinctness is structurally available and workflow-declared
 
-CD-0013 §D5 evaluates evaluator distinctness against the *executing* identity. This
-decision extends that principle one dimension: where a workflow declares independent
-evaluation, implementation and review resolving to the **same readback model
-identity** is a structural rejection. The check evaluates actual readback
-identities.
-
-Distinctness is available to every workflow and declared per workflow; it is not
-globally mandatory. R6 §5 records the measurement protocol (same-model vs
-cross-model review on seeded-defect synthetic scenarios) whose result decides any
-mandatory scope.
-
-### D7. Behavioral evaluation boundary
-
-Lane prompt behavior is evaluated with a prompt-evaluation harness (promptfoo or
-equivalent) once lane prompts exist. Deterministic authority — registry validation,
-packet/report schemas, dispatch fencing, evidence recording, distinctness rejection —
-remains in Go tests. Behavioral evals never complete gates and never substitute for
-schema or state checks.
+Main's dispatch of Review carries the loop's distinctness ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ## Invariants
 
@@ -163,8 +138,7 @@ schema or state checks.
   versioned contract change.
 - The adapter gains dispatch/readback mechanics while staying envelope-thin; the
   boundary must be defended in review.
-- Reviewer distinctness adds a scheduling constraint: a distinct model must be
-  available, or the attempt blocks with a typed outcome.
+- Review is Main's dispatched loop stage ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ## Rejected alternatives
 
@@ -174,8 +148,6 @@ schema or state checks.
   report contract outside the evidence boundary; declines the issue.
 - **Vendor/model identifiers in lane contracts:** rot every provider release;
   capability classes carry the durable intent.
-- **Globally mandatory cross-model review:** awaits the R6 §5 measured basis;
-  structurally available and workflow-declared until then.
 - **Adapter-side result validation beyond envelope/identity:** CD-0005 D6 violation.
 
 ## Implementation acceptance
@@ -184,16 +156,9 @@ schema or state checks.
   rejection tests for unknown type/version/digest and for generic-agent dispatch.
 - Actual executing-model readback recorded per attempt; missing or ambiguous
   readback produces a typed failed attempt under D5.
-- Reviewer/model distinctness rejection is deterministic where declared.
+- The implementing change proves Review's disposition and Main's acceptance record as current rows ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 - Research, implementation, and review lanes complete an end-to-end synthetic
   workflow with typed evidence.
 - Worker execution demonstrably creates no nested workflow authority and weakens no
   CD-0013 completion rule.
 - Lane prompt behavioral evals exist; deterministic authority remains in Go tests.
-
-## Supersession
-
-CD-0017 does not supersede CD-0005, CD-0013, or CD-0016. It adds the worker-lane
-dimension above CD-0005's adapter boundary. A compatible amendment keeps this ID
-and publishes a new content hash under CD-0036 D2. A breaking replacement uses
-an accepted new law ID and the CD-0036 cutover. The operator approves the law delta.

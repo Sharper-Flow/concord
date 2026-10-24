@@ -2673,35 +2673,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               "consequence_summary"
             ]
           }
-        },
-        {
-          "if": {
-            "required": [
-              "size_overrun"
-            ]
-          },
-          "then": {
-            "properties": {
-              "kind": {
-                "const": "invalid_input"
-              },
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "use_declared_route"
-                  },
-                  "required_refs": {
-                    "contains": {
-                      "const": "record_worker_job"
-                    }
-                  }
-                },
-                "required": [
-                  "required_refs"
-                ]
-              }
-            }
-          }
         }
       ],
       "properties": {
@@ -2782,15 +2753,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               {
                 "additionalProperties": false,
                 "properties": {
-                  "accepted_successor_content_hash": {
-                    "pattern": "^sha256:[0-9a-f]{64}$",
-                    "type": "string"
-                  },
-                  "accepted_successor_law_id": {
-                    "maxLength": 256,
-                    "minLength": 2,
-                    "type": "string"
-                  },
                   "old_content_hash": {
                     "pattern": "^sha256:[0-9a-f]{64}$",
                     "type": "string"
@@ -2813,8 +2775,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "required": [
                   "old_law_id",
                   "old_content_hash",
-                  "accepted_successor_law_id",
-                  "accepted_successor_content_hash",
                   "recovery_actions"
                 ],
                 "type": "object"
@@ -3165,54 +3125,9 @@ const GeneratedEnvelopeSchemaDocument = `{
           ],
           "type": "object"
         },
-        "size_overrun": {
-          "additionalProperties": false,
-          "description": "The worker job revision an acceptance refused because its observed production size exceeds the recorded cap (CD-0225 D2). The refusal routes to the recorded split through record_worker_job.",
-          "properties": {
-            "cap": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "type": "integer"
-            },
-            "job_id": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            },
-            "observed": {
-              "minimum": 2,
-              "type": "integer"
-            },
-            "revision": {
-              "minimum": 1,
-              "type": "integer"
-            },
-            "subject": {
-              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-              "type": "string"
-            }
-          },
-          "required": [
-            "job_id",
-            "revision",
-            "cap",
-            "observed",
-            "subject"
-          ],
-          "type": "object"
-        },
         "stale_law_revision": {
           "additionalProperties": false,
           "properties": {
-            "accepted_successor_content_hash": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "accepted_successor_law_id": {
-              "maxLength": 256,
-              "minLength": 2,
-              "type": "string"
-            },
             "old_content_hash": {
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
@@ -3236,8 +3151,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "type": "object"

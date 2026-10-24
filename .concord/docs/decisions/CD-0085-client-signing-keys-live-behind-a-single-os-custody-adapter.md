@@ -13,8 +13,6 @@
   userspace-service dimension that boundary never assessed)
 - **Preserves:** the fail-closed installer preflight and the worker-evidence
   signing law in full
-- **Supersedes:** nothing. The custody choice already existed in code; this
-  record gives it authority, rationale, and a portability seam
 
 ## Context
 

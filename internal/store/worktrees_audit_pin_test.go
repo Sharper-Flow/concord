@@ -69,14 +69,14 @@ func TestWorktreeAuditPinFailureRollsBackBeforeNativeRemoval(t *testing.T) {
 	s, git, path, before := auditManagedPinFixture(t)
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER unreadable_reclaimed_pin AFTER UPDATE OF state ON worktree_entries
 		WHEN NEW.state <> 'active'
-		BEGIN UPDATE workflow_instances SET definition_digest='sha256:0000000000000000000000000000000000000000000000000000000000000000' WHERE work_id='work-done'; END`); err != nil {
+		BEGIN UPDATE workflow_instances SET definition_ref='workflow.unavailable_fixture' WHERE work_id='work-done'; END`); err != nil {
 		t.Fatal(err)
 	}
 	result, err := s.WorktreeAuditReclaim(context.Background(), WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-pin-refusal", Now: time.Unix(40, 0).UTC(), Runner: git})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].Version != 0 || !strings.Contains(result.Rows[0].Detail, "workflow definition digest drifted") {
+	if len(result.Rows) != 1 || result.Rows[0].Outcome != WorktreeAuditRefused || result.Rows[0].Version != 0 || !strings.Contains(result.Rows[0].Detail, "current workflow definition is unavailable") {
 		t.Fatalf("an unreadable post-state must refuse its row: %+v", result.Rows)
 	}
 	if _, present := git.worktrees[path]; !present {

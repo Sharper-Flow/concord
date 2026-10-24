@@ -15,27 +15,27 @@ per-item, scoped, fenced, and subject to the existing planning handoff.
 
 ## Context
 
-This complete successor preserves work-history authority, canonical note proof, historical scope, query populations, and deferred terminal projection pruning.
-Research retention changes at a separate explicit boundary.
+Canonical note proof, historical scope, and query populations govern deferred terminal projection pruning.
+Research retention has a separate explicit boundary.
 
 ## Contract
 
 ### 1. Authority and deferred projection pruning
 
 The canonical Git note owns distilled knowledge.
-`domain_events` owns exact lifecycle, relation history, and deterministic replay; core events remain retained.
+The store keeps current rows and finite verified snapshots ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 `archived_work` and historical scope edges are disposable Git-derived read projections, not another authority for work.
 PM6 verifies canonical note identity and records compaction linkage before any future terminal-projection removal can become eligible.
 Publication does not itself remove live work projections or research.
 
 CD-0217 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
 Terminal work stays in live typed projections indefinitely.
-`work_projection_pruned` and `archived_work_linked` remain reserved; this record does not introduce those events or their projections.
+`work_projection_pruned` and `archived_work_linked` remain reserved names; this record introduces neither mutation nor projection.
 Reintroduction requires an accepted decision that supersedes the deferral and preserves the authority guarantees here.
 The three revisit triggers are measurable degradation of authoritative operations, deployment beyond one operator, or snapshot-size recovery risk.
 
 CD-0142 separately governs nonterminal execution removal after verified planning handoff and reconciliation.
-It is not terminal compaction and does not remove core events.
+It is not terminal compaction and removes no retained research.
 No work-removal or foreign-key cascade may serve as an alternate route to delete retained research.
 Removal must preserve the research authority or refuse before destructive effects.
 
@@ -51,7 +51,7 @@ An in-flight compaction or canonical-home mutation and unresolved recovery preve
 A future run must declare hard item or time bounds and return an explicit continuation.
 No unmeasured default pressure threshold or calendar sweep is accepted.
 Each work item must move atomically between live and historical projections, with replay returning the committed idempotent result.
-Core events remain available for history and replay.
+Retention removal follows each retained category's documented removal condition and never removes a receipt or verified snapshot a consumer needs ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 These guarantees constrain a future accepted mechanism; they do not activate the deferred one.
 
 ### 3. Minimum Git-rebuildable historical projection
@@ -89,25 +89,24 @@ Historical filters use frozen Product, Project, Domain, and tag associations.
 Historical state comes from `terminal_state`; terminal time comes from `completed_at`.
 Unpruned work retains current PM5 membership semantics.
 
-An authoritative combined result requires current event/projection and applicable Git-index watermarks.
+An authoritative combined result requires the current store watermark and the applicable Git-index watermark.
 Reachable but incomplete or lagging historical coverage returns degraded authority and bounded omissions.
 Unreachable Git authority returns unreachable authority.
 A stale historical index cannot produce authoritative counts.
 
-Q7 returns exact ordered history from retained events, not a process-exhaust receipt or the compact note.
-If a later prune marker is accepted, deterministic replay must preserve its lifecycle effect without removing exact history.
+Q7 returns current-state records within the store's finite retained categories, not a process-exhaust receipt or the compact note; the store keeps no exact event history ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Q8 resolves a superseded historical item's canonical successor from verified front matter and historical projection.
-Other relation history remains available from events.
+Current relations are stored rows; the store keeps no relation history ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Q9/Q10 retain PM6 locator proof, canonical note identity, current Git authority, and typed outcomes.
 
 ### 5. Identity and renewed work
 
 Before any accepted committed prune boundary, PM4 reopen rules remain available.
 A projection-pruned ID cannot reopen; renewed need uses a new canonical work identity linked to the old one.
-The old note, terminal state, and event history remain unchanged.
+The old note and recorded terminal state remain unchanged.
 Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
 It must not pretend that a removed projection is a live foreign-key endpoint.
-The cross-tier event and projection remain deferred under CD-0217.
+The cross-tier record and projection remain deferred under CD-0217.
 
 ### 6. Protected research retirement
 
@@ -140,9 +139,8 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 | Data | Treatment | Authority |
 |---|---|---|
 | canonical Git note | retain | distilled knowledge |
-| core `domain_events` without research bodies | retain | work history and replay |
-| PM6 compaction-link events | retain | linkage |
-| live terminal work and membership/relation rows | retain; pruning deferred | event-derived projections |
+| PM6 compaction linkage | retain | verified linkage rows |
+| live terminal work and membership/relation rows | retain; pruning deferred | current state rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | historical index and scope edges | retain or rebuild | verified Git-derived projections |
 | research packs and dependent content | retain until explicit eligible retirement | direct tables |
 | WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention |
@@ -155,31 +153,29 @@ Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specifi
 ### 8. Structural invariants and rejected alternatives
 
 - Verified linkage precedes any future terminal work pruning, not separate research retirement.
-- Projection removal never deletes authoritative event history.
+- Retention cleanup never removes the newest verified snapshot or one an unfinished recovery needs ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - A work item cannot be half-live and half-historical after a destructive transaction.
 - A committed prune boundary makes the old identity immutable.
 - Historical fields derive from one verified note or stable canonical-home context, never a copied live row.
 - Combined queries deduplicate one work population and compose its watermarks.
 - Calendar age never grants deletion authority.
-- Destructive maintenance is bounded, explicit, and replay-safe.
+- Destructive maintenance is bounded, explicit, and idempotent ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Proof degradation prevents work pruning rather than allowing inference.
 - Live relations reference live work; historical links cannot create live foreign-key endpoints.
 - Research retirement has one owner and every active pin protects content.
 
 A fixed calendar sweep is rejected because no measured window supports it.
 Immediate projection pruning during PM6 publication is rejected because it couples durable publication to destructive cleanup.
-Core-event pruning is rejected because it breaks exact history and from-scratch replay.
-Restoration of the same pruned work ID is rejected; a note is not an event snapshot.
+Restoration of the same pruned work ID is rejected; a note is not a verified recovery snapshot ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Copied historical status on membership edges is rejected because terminal state belongs once on the historical work projection.
 
 ### 9. Cutover and falsifiers
 
-This successor does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative replay source.
-This offline edit provides no live consumer enumeration or completed re-contracting evidence.
+This policy does not decide a future pressure threshold, work-prune command, backup topology, or alternate authoritative recovery source.
 
-Reconsider this policy if retained events drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
+Reconsider this policy if retained receipts and snapshots drive measured growth, real investigations require unavailable projection data, or linked renewed identities fail legitimate work.
 Other falsifiers are unmet PM1 query targets, unbounded historical front matter, excessive explicit maintenance burden, or evidence for a different measured trigger.
-A simpler PM10 authority must preserve exact history before it can replace this split.
+A simpler PM10 authority must preserve the canonical note, retained receipts, and verified snapshots before it can replace this split.
 
 ## Acceptance criteria
 
@@ -200,7 +196,7 @@ A simpler PM10 authority must preserve exact history before it can replace this 
   Then publication preserves the pack and retirement reports protection without deleting it.
 
 - Given the historical projection of a compacted item
-  When the projection rebuilds
+  When the projection is read
   Then every field derives from one verified note or stable canonical-home context rather than a copied live row.
 
 - Given a bounded research retirement batch
@@ -217,7 +213,7 @@ A simpler PM10 authority must preserve exact history before it can replace this 
 - Criterion 2 retains `internal/store.TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead` for watermark evidence; the historical-tier join remains deferred, not proved by an executed prune mechanism.
 - Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
 - Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
-- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` and `internal/store.TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder` for historical derivation.
+- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` for explicit scope derivation; derivation of every historical projection field remains unmeasured.
 - Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 

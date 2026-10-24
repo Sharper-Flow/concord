@@ -6,11 +6,7 @@ package store
 // worker_failure_observation schema is closed over exactly observer, phase,
 // cause, basis, sources, and diagnosis.
 
-// workflowFailureAttributionActive reports whether a pinned definition
-// carries the failure-attribution semantics. Earlier
-// versions keep the payload, behavior, and digest they shipped with, exactly
-// as workflowDerivedWorkerFailureActive holds the CD-0198 D5 boundary. The
-// four retired families stay outside the gate.
+// workflowFailureAttributionActive reads the current composition's capability.
 func workflowFailureAttributionActive(definition WorkflowDefinition) bool {
 	return workflowCapabilities(definition).has(WorkflowCapabilityFailureAttribution)
 }
@@ -69,38 +65,4 @@ func workflowCorrectionActionDefinitionFor(definition WorkflowDefinition, action
 	return action
 }
 
-// withFailureAttributionCorrection appends the optional attribution field to
-// request_correction's in-definition payload, whatever earlier composers
-// restated it with — the owner-oracle families' open-findings member keeps
-// its place. reject_worker_result carries no in-definition entry on any
-// version — the engine-owned recovery route resolves it — so
-// workflowCorrectionActionDefinitionFor owns its payload at every version,
-// and this composer touches nothing else. The restated fields are the
-// definition's own registry content, so every earlier version keeps the
-// payload and digest it shipped.
-func withFailureAttributionCorrection(definition WorkflowDefinition) WorkflowDefinition {
-	return reviseWorkflowAction(definition, "request_correction", failureAttributionCorrection)
-}
-
 var failureAttributionCorrection = withAppendedPayloadField(workflowFailureAttributionField)
-
-// Each builder below ships its family's failure-attribution head (the promoted slice
-// phase 2): the promoted version restates the correction-request payload and
-// activates workflowFailureAttributionActive for the parent wiring.
-func implementationFailureAttributionV31() WorkflowDefinition {
-	d := implementationCanonicalAuthoringV30()
-	d.Version = 31
-	return withFailureAttributionCorrection(d)
-}
-
-func breakFixFailureAttributionV28() WorkflowDefinition {
-	d := breakFixCanonicalAuthoringV27()
-	d.Version = 28
-	return withFailureAttributionCorrection(d)
-}
-
-func researchFailureAttributionV18() WorkflowDefinition {
-	d := researchDerivedFailureV17()
-	d.Version = 18
-	return withFailureAttributionCorrection(d)
-}

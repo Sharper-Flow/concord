@@ -3,41 +3,13 @@ package store
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"sort"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
-
-// CON-412 behavioral red/green against the ORIGINAL production publisher and
-// whole-store admission — no reconstruction of the old publication and no
-// synthetic action identity. The same test source runs at the base commit
-// (the pre-repair mechanism) and on the current tree:
-//
-//   - ENGINE: the base record_verdict payload validation carried no
-//     cross-field declaration, so validateWorkflowActionPayload admitted a
-//     both-forms, neither-form, or entry-field-beside-batch payload; the
-//     whole-store path refused it only later, at the verdict shape guard,
-//     after the consequential boundary work. The current tree refuses every
-//     mutant at payload validation, before any guard work.
-//   - PUBLICATION: the base published record_verdict fields object was the
-//     lossy union merge of the wire shapes (flattenHostSchema semantics),
-//     which kept the properties but dropped every group relationship, so
-//     the published boundary validated all the mutant classes too. The
-//     current closed variant refuses them.
-//
-// At the base commit this test fails behaviorally on both halves (each
-// mutant is admitted by payload validation, admitted by the published
-// fields, and refused only at the late guard stage). On the current tree
-// every mutant is refused at payload validation, by the published variant,
-// and by whole-store admission, and the two valid wire shapes pass all
-// three. A compile failure is not red: the test uses only the base commit's
-// own helpers (verdictBatchActionFields, seedWorkflowVerdictBatchFixture,
-// runIssue933OperatorAction) and resolves whichever publication shape the
-// production document carries.
 
 // recordVerdictParityResolve resolves one #/$defs reference, or returns the
 // node itself when it is not a reference.
@@ -56,140 +28,99 @@ func recordVerdictParityResolve(defs map[string]any, node map[string]any) map[st
 }
 
 // recordVerdictParityPublishedFields resolves the published record_verdict
-// fields node from the production payload schema document: the closed
-// action-discriminated variant when the surface publishes one, and otherwise
-// the shared-input if/then condition the older production publisher emitted.
-// Both shapes are read exactly as published — nothing is rebuilt here.
+// fields node from the current production action-discriminated variant.
 func recordVerdictParityPublishedFields(t *testing.T, document map[string]any) map[string]any {
 	t.Helper()
 	defs, ok := document["$defs"].(map[string]any)
 	if !ok {
 		t.Fatal("generated payload schema document carries no definitions")
 	}
-	if variant, ok := defs["work_transition_action_variant_record_verdict"].(map[string]any); ok {
-		properties, _ := variant["properties"].(map[string]any)
-		return recordVerdictParityResolve(defs, properties["fields"].(map[string]any))
-	}
-	shared, ok := defs["work_transition_action_shared_input"].(map[string]any)
+	variant, ok := defs["work_transition_action_variant_record_verdict"].(map[string]any)
 	if !ok {
-		t.Fatal("published document carries neither a record_verdict variant nor the shared action input")
+		t.Fatal("published document carries no current record_verdict variant")
 	}
-	conditions, _ := shared["allOf"].([]any)
-	for _, raw := range conditions {
-		condition, _ := raw.(map[string]any)
-		trigger, _ := condition["if"].(map[string]any)
-		triggerProperties, _ := trigger["properties"].(map[string]any)
-		constNode, _ := triggerProperties["action_id"].(map[string]any)
-		if constNode["const"] != "record_verdict" {
-			continue
-		}
-		then, _ := condition["then"].(map[string]any)
-		thenProperties, _ := then["properties"].(map[string]any)
-		return recordVerdictParityResolve(defs, thenProperties["fields"].(map[string]any))
+	properties, _ := variant["properties"].(map[string]any)
+	fields, ok := properties["fields"].(map[string]any)
+	if !ok {
+		t.Fatal("published record_verdict variant carries no fields schema")
 	}
-	t.Fatal("published document names no record_verdict fields")
-	return nil
+	return recordVerdictParityResolve(defs, fields)
 }
 
-func TestRecordVerdictCrossFieldOriginalMechanismRedGreen(t *testing.T) {
+func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
 	document := payloadschema.Document()
 	publishedFields := recordVerdictParityPublishedFields(t, document)
-	// The canonical live head is its own definition: the batch-only
-	// record_verdict payload the registered entry declares, so the comparison
-	// runs against the payload the store actually enforces rather than a
-	// hand-restated copy.
 	live, err := LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := live.Definition
-	frozen, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
-	if !ok {
-		t.Fatal("implementation v29 is not registered")
+	entry := func(refs []any) map[string]any {
+		return map[string]any{"predicate_id": "predicate:primary", "receipt_refs": refs}
 	}
-	preflightAdmits := func(fields map[string]any) bool {
-		return validateWorkflowActionPayload(definition, "record_verdict", mustJSONRaw(t, fields)) == nil
+	batch := func(value any) map[string]any { return map[string]any{"verdicts": value} }
+	for _, tc := range []struct {
+		name   string
+		fields map[string]any
+		want   bool
+	}{
+		{"one receipt", batch([]any{entry([]any{"receipt:captured"})}), true},
+		{"multiple receipts", batch([]any{entry([]any{"receipt:first", "receipt:second"})}), true},
+		{"missing batch", map[string]any{}, false},
+		{"empty batch", batch([]any{}), false},
+		{"null batch", batch(nil), false},
+		{"missing receipt field", batch([]any{map[string]any{"predicate_id": "predicate:primary"}}), false},
+		{"empty receipts", batch([]any{entry([]any{})}), false},
+		{"null receipts", batch([]any{entry(nil)}), false},
+		{"empty receipt reference", batch([]any{entry([]any{""})}), false},
+		{"scalar form", map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []any{"receipt:captured"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, tc.fields))
+			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, tc.fields), publishedFields, document, "fields")
+			if (core == nil) != tc.want || (published == nil) != tc.want {
+				t.Fatalf("core=%v publication=%v, want admission %v", core, published, tc.want)
+			}
+		})
 	}
-	frozenReplayAdmits := func(fields map[string]any) bool {
-		return validateWorkflowActionPayloadForReplay(frozen.Definition, "record_verdict", mustJSONRaw(t, fields)) == nil
-	}
-	publishedAdmits := func(fields map[string]any) bool {
-		return payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields") == nil
-	}
-	// Whole-store admission through the real action execution path: an
-	// approved three-predicate contract at the acceptance step, the same
-	// fixture family the batch contract tests seed.
-	const workID = "work-record-verdict-parity"
-	fixture := seedWorkflowVerdictBatchFixture(t, workID)
-	wholeStoreRefusal := func(t *testing.T, fields map[string]any) error {
-		t.Helper()
-		return runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", json.RawMessage(mustJSONRaw(t, fields)), fixture.owner, fixture.operator)
-	}
-	single := map[string]any{"contract_version": 1, "predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": []any{"evidence:return-route-verification"}}
-	batch := map[string]any{"contract_version": 1, "verdicts": []any{map[string]any{"predicate_id": "predicate:batch-absent", "verdict_kind": "ok", "evaluation_evidence": []any{"evidence:return-route-verification"}}}}
-	// The alternative-group mutant space: both groups complete, no group at
-	// all, and the entry-level members that cannot ride beside the complete
-	// batch group (every forbidden member, one case each).
-	mutants := map[string]map[string]any{
-		"both forms":                                  {"contract_version": 1, "predicate_id": "predicate:batch-present", "verdicts": batch["verdicts"]},
-		"neither form":                                {"contract_version": 1},
-		"verdict_kind beside the batch":               {"contract_version": 1, "verdicts": batch["verdicts"], "verdict_kind": "ok"},
-		"evaluation_evidence beside the batch":        {"contract_version": 1, "verdicts": batch["verdicts"], "evaluation_evidence": []any{"evidence:return-route-verification"}},
-		"incomparable_with_approved beside the batch": {"contract_version": 1, "verdicts": batch["verdicts"], "incomparable_with_approved": true},
-	}
-	// Errorf, not Fatalf: every mutant reports every half, so the red run at
-	// the base commit records the full behavioral divergence (engine,
-	// publication, whole-store stage) in one pass instead of stopping at
-	// the first.
-	names := make([]string, 0, len(mutants))
-	for name := range mutants {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fields := mutants[name]
-		if preflightAdmits(fields) {
-			t.Errorf("core payload validation admits the %s mutant", name)
+	for _, bounds := range []struct {
+		criteria, receipts int
+		want               bool
+	}{{8, 1, true}, {9, 1, false}, {1, 32, true}, {1, 33, false}} {
+		var entries []any
+		for i := 0; i < bounds.criteria; i++ {
+			var refs []any
+			for j := 0; j < bounds.receipts; j++ {
+				refs = append(refs, fmt.Sprintf("receipt:captured-%d", j))
+			}
+			value := entry(refs)
+			value["predicate_id"] = fmt.Sprintf("predicate:criterion-%d", i)
+			entries = append(entries, value)
 		}
-		if publishedAdmits(fields) {
-			t.Errorf("published record_verdict fields admit the %s mutant", name)
+		fields := batch(entries)
+		core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, fields))
+		published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
+		if (core == nil) != bounds.want || (published == nil) != bounds.want {
+			t.Errorf("%d criteria with %d receipts: core=%v publication=%v, want admission %v", bounds.criteria, bounds.receipts, core, published, bounds.want)
 		}
-		err := wholeStoreRefusal(t, fields)
-		if err == nil {
-			t.Errorf("whole-store admission accepted the %s mutant", name)
-		} else {
-			var failure *Failure
-			if errors.As(err, &failure) && failure.Op != "workflow_action_preflight" {
-				t.Errorf("the %s mutant was refused at %q, after the consequential boundaries; payload validation owns the refusal", name, failure.Op)
+	}
+	for _, name := range []string{"predicate_id", "verdict_kind", "evaluation_evidence", "incomparable_with_approved"} {
+		for _, nested := range []bool{false, true} {
+			value := entry([]any{"receipt:captured"})
+			fields := batch([]any{value})
+			if nested {
+				if name == "predicate_id" {
+					continue
+				}
+				value[name] = "forbidden"
+			} else {
+				fields[name] = "forbidden"
+			}
+			core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, fields))
+			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
+			if core == nil || published == nil {
+				t.Errorf("field %s (nested=%v) escaped the closed receipt schema: core=%v publication=%v", name, nested, core, published)
 			}
 		}
-	}
-	// The canonical head authors the batch alone: the one-entry batch is the
-	// valid positive across engine, publication, and whole-store admission,
-	// while the scalar wire shape refuses everywhere live and stays valid
-	// only through the frozen replay document against the pre-canonical pin.
-	if !preflightAdmits(batch) {
-		t.Fatal("core payload validation refuses the valid batch form")
-	}
-	if err := payloadschema.ValidateValue(recordVerdictParityDecode(t, batch), publishedFields, document, "fields"); err != nil {
-		t.Fatalf("published record_verdict fields refuse the valid batch form: %v", err)
-	}
-	if err := wholeStoreRefusal(t, batch); err != nil {
-		t.Fatalf("whole-store admission refuses the valid batch form: %v", err)
-	}
-	if preflightAdmits(single) {
-		t.Fatal("core payload validation admits the scalar form on the canonical head")
-	}
-	if publishedAdmits(single) {
-		t.Fatal("published record_verdict fields admit the scalar form")
-	}
-	scalarErr := wholeStoreRefusal(t, single)
-	var failure *Failure
-	if !errors.As(scalarErr, &failure) || failure.Op != "workflow_action_preflight" {
-		t.Fatalf("the scalar form was refused at %v, want the payload preflight", scalarErr)
-	}
-	if !frozenReplayAdmits(single) {
-		t.Fatal("the frozen replay document refuses the scalar form the pre-canonical pin recorded")
 	}
 }
 

@@ -2,23 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPredispatchContractCorrectionSurvivesRebuild"
+      "value": "internal/store.TestPredispatchContractCorrectionPreservesExecutionIdentity"
     },
     {
       "kind": "go_test",

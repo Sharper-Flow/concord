@@ -1,191 +1,104 @@
 package store
 
-import (
-	"context"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestWorkflowAdmissionStateComparable(t *testing.T) {
 	_ = make(map[WorkflowAdmissionState]struct{})
 }
 
-// The post-rejection review admission family's decision table: the pure
-// workflowAdmit is total and action-scoped over the folded state space —
-// outstanding debt hides only the advances toward delivery, so dispatch,
-// recovery, and continuity actions keep their route — and every refusal
-// carries the typed fresh-review failure. The decision echoes the ready
-// review the calling guard binds the accept's attempt identity against, and
-// ReadyReviewSettles reports whether that ready verdict settles the debt.
-// The loader folds a ready no_ship review like any other, and the table
-// keeps the answer defined for it, so the pure function stays total.
-
 func TestWorkflowAdmitDecisionTable(t *testing.T) {
-	const refineStep = "refine"
-	const gateStep = "delivery"
-	definition := WorkflowDefinition{Ref: "workflow.break_fix", Version: 1,
-		ActionDefinitions: []WorkflowActionDefinition{
-			{ID: "record_delivery", ExecutionMode: ActionAdvance},
-			{ID: "accept_worker_result", ExecutionMode: ActionAdvance},
-			{ID: "dispatch_worker", ExecutionMode: ActionHold},
-			{ID: "checkpoint_context", ExecutionMode: ActionHold},
-			// The refinement shape the review-debt rule reads is the step
-			// that declares checkpoint_refine; the derived-start pins
-			// removed the callable start_refine beside it (CD-0198 D3).
-			{ID: "checkpoint_refine", ExecutionMode: ActionHold},
-			{ID: "confirm_premise", ExecutionMode: ActionAdvance},
-		},
-		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
-			{ID: refineStep, Actions: []string{"checkpoint_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "confirm_premise", "checkpoint_context"}},
-			{ID: gateStep, Actions: []string{"record_delivery", "request_correction", "checkpoint_context"}},
-		}}}
-	// Each case names the step, the debt, and the ready review the loader
-	// folded; the want columns give the per-action admission the rule owns.
-	cases := []struct {
-		name     string
-		state    WorkflowAdmissionState
-		want     map[string]bool
-		refusals map[string]bool // action IDs whose refusal must carry the typed fresh-review failure
-	}{
-		{
-			name:  "no debt at the refine step admits every action",
-			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
-			want:  map[string]bool{"record_delivery": true, "accept_worker_result": true, "dispatch_worker": true, "checkpoint_context": true},
-		},
-		{
-			name:     "debt at the refine step hides both advances",
-			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
-			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true, "checkpoint_context": true},
-			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
-		},
-		{
-			name:     "debt at the gate hides only the delivery exit",
-			state:    WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
-			want:     map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true},
-			refusals: map[string]bool{"record_delivery": true},
-		},
-		{
-			name:  "debt outside the review shape admits everything",
-			state: WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: false, ReviewStep: false, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
-			want:  map[string]bool{"record_delivery": true, "request_correction": true},
-		},
-		{
-			name:     "a ready settling review stands behind the accept",
-			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-ship", ReadyReviewVerdict: "ship", ReadyReviewSettles: true},
-			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
-			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
-		},
-		{
-			name:     "a ready no_ship review folds and the answer stays defined",
-			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-no-ship", ReadyReviewVerdict: "no_ship", ReadyReviewSettles: false},
-			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
-			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
-		},
-		{
-			name:  "the gate's corrective return refuses without its folded route",
-			state: WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: false, CorrectionRequestMissing: workflowCorrectionMissingGateReview},
-			want:  map[string]bool{"record_delivery": false, "request_correction": false},
-		},
-		{
-			name:  "the dispatch hold refuses only the advancing exits",
-			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, DispatchHold: true},
-			want:  map[string]bool{"dispatch_worker": true, "checkpoint_context": true, "record_delivery": false, "accept_worker_result": true},
-		},
-		{
-			name:  "an undeclared action refuses on step legality",
-			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
-			want:  map[string]bool{"record_verdict": false},
-		},
-		{
-			name:  "confirm_premise refuses without an open operator question",
-			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
-			want:  map[string]bool{"confirm_premise": false, "dispatch_worker": true},
-		},
-		{
-			name:  "an open operator question admits the confirmation",
-			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, PendingOperatorDecision: true},
-			want:  map[string]bool{"confirm_premise": true, "dispatch_worker": true},
-		},
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
+	definition := entry.Definition
+	definition.ActionDefinitions = []WorkflowActionDefinition{
+		{ID: "record_delivery", ExecutionMode: ActionAdvance},
+		{ID: "accept_worker_result", ExecutionMode: ActionAdvance},
+		{ID: "dispatch_worker", ExecutionMode: ActionHold},
+		{ID: "checkpoint_context", ExecutionMode: ActionHold},
+		{ID: "checkpoint_refine", ExecutionMode: ActionHold},
+		{ID: "confirm_premise", ExecutionMode: ActionAdvance},
+	}
+	definition.StepGraph = WorkflowStepGraph{Steps: []WorkflowStep{
+		{ID: "refine", Actions: []string{"checkpoint_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "confirm_premise", "checkpoint_context"}},
+		{ID: "delivery", Actions: []string{"record_delivery", "request_correction", "checkpoint_context"}},
+	}}
+	tests := []struct {
+		name   string
+		change func(*WorkflowAdmissionState)
+		want   map[string]bool
+	}{
+		{"accepted ready admits delivery and continuity", func(*WorkflowAdmissionState) {}, map[string]bool{"record_delivery": true, "accept_worker_result": true, "dispatch_worker": true, "checkpoint_context": true}},
+		{"report arrival is not readiness", func(s *WorkflowAdmissionState) { s.Review.Accepted = nil }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true, "checkpoint_context": true}},
+		{"continue does not leave execution", func(s *WorkflowAdmissionState) { s.Review.Accepted.Report.Disposition = "continue" }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true}},
+		{"correction remains an acceptable report without delivery", func(s *WorkflowAdmissionState) { s.Review.Accepted.Report.Disposition = "correction_required" }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true}},
+		{"revision remains an acceptable report without delivery", func(s *WorkflowAdmissionState) { s.Review.Accepted.Report.Disposition = "revision_required" }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true}},
+		{"current blocker holds delivery not report intake", func(s *WorkflowAdmissionState) { s.Review.Findings = reviewBlockFixture().Findings }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true}},
+		{"new candidate needs applicable readiness", func(s *WorkflowAdmissionState) {
+			candidate := *s.Review.Candidate
+			candidate.Commit = "cccccccccccccccccccccccccccccccccccccccc"
+			s.Review.Candidate = &candidate
+		}, map[string]bool{"record_delivery": false, "accept_worker_result": true, "dispatch_worker": true}},
+		{"changed dependencies hold delivery", func(s *WorkflowAdmissionState) { s.Review.DependenciesCurrent = false }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "checkpoint_context": true}},
+		{"gate holds delivery but keeps declared correction", func(s *WorkflowAdmissionState) {
+			s.Step, s.CorrectionRequestRecovery, s.Review.Accepted = "delivery", true, nil
+		}, map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true}},
+		{"correction cannot invent its prerequisites", func(s *WorkflowAdmissionState) {
+			s.Step, s.Review.Accepted = "delivery", nil
+			s.CorrectionRequestMissing = workflowCorrectionMissingGateReview
+		}, map[string]bool{"record_delivery": false, "request_correction": false}},
+		{"readiness does not erase a live dispatch hold", func(s *WorkflowAdmissionState) { s.DispatchHold = true }, map[string]bool{"record_delivery": false, "accept_worker_result": true, "checkpoint_context": true}},
+		{"step legality still holds", func(*WorkflowAdmissionState) {}, map[string]bool{"record_verdict": false}},
+		{"confirmation requires its open question", func(*WorkflowAdmissionState) {}, map[string]bool{"confirm_premise": false, "dispatch_worker": true}},
+		{"open question admits confirmation", func(s *WorkflowAdmissionState) { s.PendingOperatorDecision = true }, map[string]bool{"confirm_premise": true, "dispatch_worker": true}},
+	}
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// This table isolates review debt with the delivery start satisfied.
-			// The prerequisite agreement tests cover missing starts and proofs.
-			tc.state.Delivery.Started = true
-			for actionID, wantAdmitted := range tc.want {
-				decision := workflowAdmit(definition, tc.state, actionID)
-				if decision.Admitted != wantAdmitted {
-					t.Fatalf("action %s: admitted = %v, want %v", actionID, decision.Admitted, wantAdmitted)
+			report := reviewBlockFixture()
+			report.Disposition = "ready_for_final_proof"
+			state := WorkflowAdmissionState{Step: "refine", RefinementWorkflow: true, ReviewLane: "review",
+				Review: &WorkflowReviewState{ExecutionProgressed: true, Candidate: &report.OutputCandidate, Accepted: &WorkflowAcceptedReview{Report: *report}, DependenciesCurrent: true}}
+			state.Delivery.Started = true
+			tc.change(&state)
+			for action, want := range tc.want {
+				decision := workflowAdmit(definition, state, action)
+				if decision.Admitted != want {
+					t.Fatalf("%s: admitted=%v, want %v: %+v", action, decision.Admitted, want, decision.Failure)
 				}
-				if actionID == "confirm_premise" && !wantAdmitted {
-					if decision.Failure == nil || decision.Failure.Kind != KindStaleRequiresReview {
-						t.Fatalf("action %s: refusal = %v, want the question-open failure", actionID, decision.Failure)
-					}
-					if !decision.OperatorQuestionClosed {
-						t.Fatalf("action %s: the closed-question answer is not marked", actionID)
-					}
+				if want && decision.Failure != nil || !want && decision.Failure == nil {
+					t.Fatalf("%s: admission and refusal disagree: %+v", action, decision)
 				}
-				if decision.ReadyReviewAttemptID != tc.state.ReadyReviewAttemptID || decision.ReadyReviewSettles != tc.state.ReadyReviewSettles {
-					t.Fatalf("action %s: ready review = %q (settles %v), want %q (%v)", actionID, decision.ReadyReviewAttemptID, decision.ReadyReviewSettles, tc.state.ReadyReviewAttemptID, tc.state.ReadyReviewSettles)
+				if !want && decision.Failure.RecoveryAction == "" {
+					t.Fatalf("%s: refusal has no admitted recovery", action)
 				}
-				switch {
-				case tc.refusals[actionID]:
-					if decision.Failure == nil || decision.Failure.Kind != KindInvalidOperation || !strings.Contains(decision.Failure.Detail, "fresh accepted review") {
-						t.Fatalf("action %s: refusal = %v, want the typed fresh-review failure", actionID, decision.Failure)
-					}
-				case wantAdmitted && decision.Failure != nil:
-					t.Fatalf("action %s: admitted decision carries a failure: %v", actionID, decision.Failure)
-				case !wantAdmitted && decision.Failure == nil:
-					t.Fatalf("action %s: refused decision carries no failure", actionID)
+				if action == "confirm_premise" && !want && (!decision.OperatorQuestionClosed || decision.Failure.Kind != KindStaleRequiresReview) {
+					t.Fatalf("confirmation lost its typed closed-question refusal: %+v", decision)
 				}
 			}
 		})
 	}
-	// The verdict rule owner stays load-bearing: only ship, or the absent
-	// verdict of the pre-CD-0197 reports, settles.
-	for verdict, want := range map[string]bool{"": true, "ship": true, "no_ship": false, "nonsense": false} {
-		if workflowReviewSettlesDebt(verdict) != want {
-			t.Fatalf("workflowReviewSettlesDebt(%q) = %v, want %v", verdict, !want, want)
-		}
-	}
 }
 
-// TestAdmissionLoaderFoldsDispatchCapabilityClass proves the loader's
-// worker.dispatched join: the latest attempt's capability class folds from
-// the dispatched event's $.attempt_id — the identity WorkerDispatchedPayload
-// writes — so the folded state names the class the lane-step dispatch join
-// and the hold admissions read instead of folding an empty one.
 func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
-	const workID = "admission-capability-class"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
+	j, _ := descendantReviewFixture(t, "admission-capability-class")
+	tx, err := j.s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	at := int64(100)
-	reviewGateDriveRejection(t, fixture, workID, &at)
-	reviewAttempt := "attempt:" + workID + ":review-class"
-	reviewGateRunAttemptWithVerdict(t, s, workID, reviewAttempt, reviewGateLane(t, "review"), ownerRef, "ship", at)
-
-	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
-	ctx := context.Background()
-	tx, txErr := s.db.BeginTx(ctx, nil)
-	if txErr != nil {
-		t.Fatal(txErr)
-	}
 	defer tx.Rollback()
-	state, _, _, stateErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test", BuiltinWorkflowRegistry())
-	if stateErr != nil {
-		t.Fatal(stateErr)
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(t.Context(), tx, j.workID, definition.Definition, "repair", "workflow_admission_test", BuiltinWorkflowRegistry())
+	if err != nil {
+		t.Fatal(err)
 	}
 	if state.AttemptState != "completed" || state.AttemptCapabilityClass != "review" {
-		t.Fatalf("folded attempt = %q class %q, want the completed review attempt's class", state.AttemptState, state.AttemptCapabilityClass)
+		t.Fatalf("latest attempt = %q/%q, want completed/review", state.AttemptState, state.AttemptCapabilityClass)
 	}
-	if state.ReadyReviewAttemptID != reviewAttempt || !state.ReadyReviewSettles {
-		t.Fatalf("ready review = %q (settles %v), want the completed ship review", state.ReadyReviewAttemptID, state.ReadyReviewSettles)
+	if state.Review == nil || state.Review.Accepted == nil || state.Review.Accepted.Report.Disposition != "continue" || !state.Review.DependenciesCurrent {
+		t.Fatalf("the current accepted Review did not reach the shared admission: %+v", state.Review)
 	}
 }

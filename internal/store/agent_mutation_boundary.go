@@ -42,14 +42,6 @@ type MutationIdempotencyInsert struct {
 	ObservedAt              time.Time
 }
 
-// MutationEventRefsUpdate links a workflow replay identity to its committed
-// events. The durable operation owns its result payload and changed references.
-type MutationEventRefsUpdate struct {
-	Key            MutationIdempotencyKey
-	ResultEventIDs string
-	ObservedAt     time.Time
-}
-
 // WorkflowContractSnapshot is the active contract data needed by mutation
 // preflight and approval responses.
 type WorkflowContractSnapshot struct {
@@ -57,11 +49,11 @@ type WorkflowContractSnapshot struct {
 	Premise string
 }
 
-// WorkflowInstanceDefinition is the immutable workflow definition pin: the
-// family reference and the version the instance is pinned to.
+// WorkflowInstanceDefinition carries the instance's stored definition metadata.
 type WorkflowInstanceDefinition struct {
 	DefinitionRef     string
 	DefinitionVersion int64
+	DefinitionDigest  string
 }
 
 // DurableOperationRecord identifies the newest pending attempt for a work item.
@@ -125,14 +117,30 @@ func InsertMutationIdempotencyTx(ctx context.Context, transaction *Transaction, 
 	return nil
 }
 
-func UpdateMutationEventRefsTx(ctx context.Context, transaction *Transaction, input MutationEventRefsUpdate) error {
+// CompleteMutationResponseTx fills the workflow reservation in the same
+// transaction as its result. A completed response cannot be overwritten.
+func CompleteMutationResponseTx(ctx context.Context, transaction *Transaction, input MutationIdempotencyInsert) error {
 	tx, err := transactionSQL(transaction, "mutation_idempotency")
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE idempotency_records SET result_event_ids=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, input.ResultEventIDs, input.ObservedAt.UTC().Format(time.RFC3339Nano), input.Key.PrincipalRef, input.Key.Tool, input.Key.OperationKind, input.Key.IdempotencyKey)
+	if err := ValidateMutationBoundaryRecords(input); err != nil {
+		return err
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input.ResultPayload), &payload); err != nil || len(payload) == 0 {
+		return newFailure(KindInvalidInput, "mutation_idempotency", "completed mutation response must be a nonempty result object", false, "supply the committed mutation result")
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET result_payload=?,changed_refs=?,authorized_scope_snapshot=?,result_event_ids=?,last_observed_at=? WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=? AND canonical_digest=? AND op_id=? AND result_payload='{}' AND changed_refs='[]'`, input.ResultPayload, input.ChangedRefs, input.AuthorizedScopeSnapshot, input.ResultEventIDs, input.ObservedAt.UTC().Format(time.RFC3339Nano), input.Key.PrincipalRef, input.Key.Tool, input.Key.OperationKind, input.Key.IdempotencyKey, input.CanonicalDigest, input.OperationID)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist mutation event references", true, "retry once the database is writable", err)
+		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist committed mutation response", true, "reconcile the retained operation", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot confirm committed mutation response", false, "reconcile the retained operation", err)
+	}
+	if count != 1 {
+		return newFailure(KindOperationConflict, "mutation_idempotency", "mutation response reservation is missing, changed, or already complete", false, "reconcile the retained operation")
 	}
 	return nil
 }
@@ -194,7 +202,7 @@ func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction,
 		return WorkflowInstanceDefinition{}, false, err
 	}
 	var definition WorkflowInstanceDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionVersion)
+	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionVersion, &definition.DefinitionDigest)
 	if err == sql.ErrNoRows {
 		return WorkflowInstanceDefinition{}, false, nil
 	}
@@ -384,7 +392,6 @@ type WorkflowApprovalBoundaryState struct {
 	DecisionDomainsPresent bool
 	DecisionDomains        []string
 	EvaluatorAuthority     WorkflowEvaluationAuthority
-	RetryBinding           *WorkflowRetryApprovalBinding
 	Policy                 WorkflowApprovalPolicyResult
 }
 
@@ -448,7 +455,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 		}
 		domains, present, decodeErr := workflowStoredDecisionDomains(stored)
 		if decodeErr != nil {
-			return state, newFailure(KindInvalidInput, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+			return state, newFailure(KindInvalidInput, "workflow_approval_boundary", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		state.DecisionDomainsPresent, state.DecisionDomains = present, domains
 	}
@@ -459,12 +466,7 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
 		return state, err
 	}
-	if request.ActionID == "dispatch_worker" {
-		if state.RetryBinding, err = workflowFailedWorkerRetryBinding(ctx, q, registry, request.WorkID); err != nil {
-			return state, err
-		}
-	}
-	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains, FailedRetryBelowWall: state.RetryBinding != nil}
+	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
 	if workflowOperatorVerdictActions[request.ActionID] {
 		// The existing legacy fact: an independent evaluator never becomes consent.
 		facts.OperatorRequired = state.EvaluatorAuthority == WorkflowOperatorRequired

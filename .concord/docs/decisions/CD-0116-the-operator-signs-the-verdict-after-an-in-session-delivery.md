@@ -7,8 +7,6 @@
   in work-14241c17803dadaa82a498c5, recorded in
   [issue #923](https://github.com/Sharper-Flow/concord/issues/923).
 - **Related:** CD-0013, CD-0109, CD-0112, and issues #801, #881, #888, #923
-- **Amends:** CD-0013 D5 and CD-0109's evaluator rule by admitting verified
-  operator authority after a definition-backed advancing exit
 
 ## Context
 
@@ -31,37 +29,38 @@ different facts.
 
 ## Decision
 
-D1 and D2's operator-substitution route applies to historical pins, not definitions declaring `approval_policy=consequence_v1`. Under that policy, an independent authenticated non-worker evaluator records verdicts without consent, and an authorized coordinator records completion against those stored verdicts. An executing coordinator remains forbidden to author its own verdict; missing independence requires the existing independent evaluator route, never a host approval. D3's worker boundary, D4's evidence gates, and model distinctness remain required.
-
+D1 and D2's operator-substitution route applies only to definitions that do not declare `approval_policy=consequence_v1`. Under that policy, no host approval is requested for a verdict or completion: Main records them against Review's accepted ready disposition and passing receipts ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls), [D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)), and a host approval never substitutes for missing proof. D3's worker boundary and D4's evidence gates stand.
 
 ### D1. Verified operator authority is available after a definition-backed exit
 
 `record_verdict` and `complete` accept the verified operator identity after an
-advancing action exits the pinned workflow step before the verdict step. This
-includes `record_delivery`, `accept_worker_result`, research `record_report`,
-and architecture `record_decision` when the pinned definition declares the
-action and its forward edge.
+advancing action exits the step before the verdict step; the declaring actions
+come from the one canonical source
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+This includes `record_delivery`, `accept_worker_result`, research `record_report`,
+and architecture `record_decision`.
 
 A completed worker attempt alone is not an accepted delivery. An action with a
 matching name in another workflow family does not satisfy the exit. Without a
 definition-backed exit, the operator evaluation route refuses.
 
 The existing host approval mechanism binds the operation digest, expected
-versions, scope, session, and worktree. The operator is the verdict actor and
-the completing event actor. Neither the caller identity nor the execution
-history is rewritten.
+versions, scope, session, and worktree. The operator is the recorded actor of
+the verdict and of completion, and neither the caller identity nor recorded
+facts are rewritten
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 
 ### D2. Approval admission and refusal share execution authority
 
 The agent surface and store derive evaluation authority from the current
-lease and the append-only execution and acceptance history. A coordinator
+lease and the recorded execution and acceptance facts
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+A coordinator
 that executed a step or accepted a worker result requires operator approval,
 even after the lease rotates to a lane.
 A read failure refuses the operation instead of implying independence.
 
-An independent evaluator retains the existing unsigned route. An unsigned
-self-evaluation remains forbidden. Existing model-distinctness requirements
-remain in force.
+An unsigned self-evaluation remains forbidden ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D3. Worker authority ends at the report
 
@@ -125,10 +124,10 @@ Scenario: An architecture decision permits operator evaluation
   When the coordinator submits a verdict with verified operator approval
   Then the verdict records the operator as its actor
 
-Scenario: Independent evaluation remains available
+Scenario: Review reports and Main accepts the disposition
   Given an accepted lane result with bound evidence
-  When an evaluator that executed no step submits a verdict citing that evidence
-  Then the verdict records the independent evaluator
+  When Review submits its report citing that evidence
+  Then Main records its acceptance of the disposition
 ```
 
 ## Consequences
@@ -136,4 +135,5 @@ Scenario: Independent evaluation remains available
 The coordinator can remain in one session through acceptance and completion.
 The approval path and the refusal use one evaluation-authority query instead
 of competing lease and history checks. The shared query is transaction-scoped
-when called by a fold, preserving the single-connection store invariant.
+inside the mutation that calls it, preserving the single-connection store
+invariant ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

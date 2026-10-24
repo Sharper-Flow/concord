@@ -2,19 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch"
+      "value": "internal/store.TestReviewCurrentPlanRevisionCannotRestoreFirstEntry"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization"
+      "value": "internal/store.TestReviewCurrentFirstEntryKeepsSharedAdmissionGuards"
     },
     {
       "kind": "go_test",
       "value": "internal/store.TestAcceptanceReviewRoundTrip"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRepinReachesTheCheckpointReviewDefinition"
     },
     {
       "kind": "go_test",
@@ -30,19 +26,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+      "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
+      "value": "internal/store.TestWorkerCannotInvokeAcceptWorkerResultAsItsOwnOwner"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceDispositionRefusesInvalidAttempts"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRefineReviewEvidenceAcceptancePreservesVerdictDebt"
+      "value": "internal/store.TestReviewCurrentDispositionAdmission"
     }
   ],
   "id": "CD-0187",

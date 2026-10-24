@@ -23,7 +23,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
 	events := []store.Event{
-		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1}`)},
+		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1}`)},
 		{EventID: "overlap-agent-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -204,7 +204,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 // fixture's synthetic instance pins, so pin reads verify the fixture.
 func breakFixFixtureDigest(t *testing.T) string {
 	t.Helper()
-	registered, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	registered, ok := store.BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}

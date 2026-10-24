@@ -114,9 +114,8 @@ var manifestRecordKinds = map[string]bool{
 }
 
 // manifestLawBearingKinds splits the record kinds into the two status tiers the
-// schema declares. A law-bearing record is accepted or superseded; every other
-// record kind is published or superseded. The tier decides the status, the
-// law-home requirement, and the status a successor must carry.
+// schema declares. A law-bearing record is accepted; every other record kind
+// is published. The tier decides the status and the law-home requirement.
 var manifestLawBearingKinds = map[string]bool{
 	"constitution": true,
 	"decision":     true,
@@ -124,8 +123,8 @@ var manifestLawBearingKinds = map[string]bool{
 }
 
 // manifestLawRelationSubjects is narrower than manifestLawBearingKinds: the
-// law-relation graph, the domain registry's governing_law_ids, and the
-// supersedes symmetry rule are all defined over decisions and specs. A
+// law-relation graph and the domain registry's governing_law_ids are defined
+// over decisions and specs. A
 // constitution is law-bearing for status purposes without yet participating in
 // that graph.
 var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true}
@@ -159,7 +158,6 @@ var manifestRootKeys = map[string]bool{
 }
 
 var lawRelationKinds = map[string]bool{
-	"supersedes":     true,
 	"refines":        true,
 	"subordinate_to": true,
 	"conflicts_with": true,
@@ -245,7 +243,6 @@ type KnowledgeRecord struct {
 	Summary            string                `json:"summary"`
 	Tags               []string              `json:"tags"`
 	Scopes             KnowledgeRecordScopes `json:"scopes"`
-	Successor          string                `json:"successor,omitempty"`
 	SHA256             string                `json:"sha256"`
 	LawRelations       []KnowledgeRelation   `json:"law_relations,omitempty"`
 	HomeDomainID       string                `json:"home_domain_id,omitempty"`
@@ -483,9 +480,6 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 		"date":      record.Date, "title": record.Title, "summary": record.Summary,
 		"tags": record.Tags, "scopes": manifestScopeEntry(record.Scopes), "sha256": record.SHA256,
 	}
-	if record.Successor != "" {
-		entry["successor"] = record.Successor
-	}
 	if len(record.LawRelations) > 0 {
 		relations := make([]map[string]string, 0, len(record.LawRelations))
 		for _, relation := range record.LawRelations {
@@ -667,9 +661,6 @@ func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix str
 		ids[record.ID], paths[record.Path] = true, true
 	}
 	if err := validateManifestDispositions(manifest.Dispositions, paths); err != nil {
-		return err
-	}
-	if err := validateManifestSuccessors(manifest.Records); err != nil {
 		return err
 	}
 	if err := validateManifestRelations(manifest); err != nil {
@@ -1014,35 +1005,9 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 			}
 			seen[key] = true
 			switch relation.Kind {
-			case "supersedes":
-				if record.Status != "accepted" || target.Status != "superseded" || target.Successor != record.ID {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "supersedes relation disagrees with the target successor declaration", false, "make an accepted source supersede its exact superseded successor target")
-				}
-				graph[record.ID] = append(graph[record.ID], relation.TargetID)
 			case "refines", "subordinate_to":
 				graph[record.ID] = append(graph[record.ID], relation.TargetID)
 			}
-		}
-	}
-	for _, record := range manifest.Records {
-		if record.Successor == "" {
-			continue
-		}
-		// Cross-source supersedes is refused fail closed, so a successor
-		// must be declared in the superseded record's own manifest; the
-		// qualified project_id/law_id form is the refusal (CD-0200).
-		if err := refuseExternalKnowledgeSuccessor("parse_knowledge_manifest", record.ID, record.Successor); err != nil {
-			return err
-		}
-		found := false
-		for _, relation := range byID[record.Successor].LawRelations {
-			if relation.Kind == "supersedes" && relation.TargetID == record.ID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "successor declaration lacks its matching supersedes relation", false, "declare the corresponding supersedes edge on the accepted successor")
 		}
 	}
 	if relationGraphHasCycle(graph) {
@@ -1115,55 +1080,6 @@ func validateManifestDispositions(dispositions []KnowledgeDisposition, recordPat
 	return nil
 }
 
-// refuseExternalKnowledgeSuccessor refuses the qualified project_id/law_id
-// successor form (CD-0200). A cross-source supersedes edge has no admitted
-// declaration — the rebuild and every consequential boundary refuse it with
-// "supersede within the declaring source or amend through the shared home" —
-// so a superseded record's successor must live in its own manifest.
-func refuseExternalKnowledgeSuccessor(op, recordID, successor string) error {
-	_, _, qualified, err := parseQualifiedKnowledgeID(op, successor)
-	if err != nil {
-		return err
-	}
-	if !qualified {
-		return nil
-	}
-	return newFailure(KindInvalidNoteProof, op, "supersede within the declaring source or amend through the shared home: "+recordID+" declares the external successor "+successor, false, "declare the successor record in the same manifest")
-}
-
-func validateManifestSuccessors(records []KnowledgeRecord) error {
-	byID := make(map[string]KnowledgeRecord, len(records))
-	for _, record := range records {
-		byID[record.ID] = record
-	}
-	for _, record := range records {
-		if record.Successor == "" {
-			continue
-		}
-		if record.Successor == record.ID {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record cannot succeed itself", false, "reference a distinct canonical successor")
-		}
-		if err := refuseExternalKnowledgeSuccessor("parse_knowledge_manifest", record.ID, record.Successor); err != nil {
-			return err
-		}
-		successor, ok := byID[record.Successor]
-		if !ok {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record references an undeclared successor: "+record.Successor, false, "declare the successor in the same manifest")
-		}
-		if successor.Kind != record.Kind {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record successor kind does not match", false, "reference a successor of the same knowledge kind")
-		}
-		wantStatus := "published"
-		if manifestLawBearingKinds[record.Kind] {
-			wantStatus = "accepted"
-		}
-		if successor.Status != wantStatus {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record successor status is incompatible", false, "reference the active accepted or published successor")
-		}
-	}
-	return nil
-}
-
 func validateManifestKindList(values []string, field string) (map[string]bool, error) {
 	// Both lists draw from the same closed vocabulary, so the two bounds are
 	// the same number.
@@ -1196,8 +1112,8 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	if err := validateKnowledgeRecordAuthority(record); err != nil {
 		return err
 	}
-	if err := validateKnowledgeRecordSuccession(record); err != nil {
-		return err
+	if _, err := time.Parse(time.RFC3339Nano, record.Date); err != nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record date is not RFC3339", false, "use an RFC3339 date")
 	}
 	if record.Title == "" || utf8.RuneCountInString(record.Title) > maxManifestTitle || strings.TrimSpace(record.Title) != record.Title || record.Summary == "" || utf8.RuneCountInString(record.Summary) > maxManifestSummary || strings.TrimSpace(record.Summary) != record.Summary {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record title or summary is empty, oversized, or not clean", false, "supply bounded authored metadata")
@@ -1296,8 +1212,8 @@ func validateKnowledgeRecordIdentity(record KnowledgeRecord, supported, indexed 
 	if record.Kind == "decision" && !canonicalDecisionPath(record.Path) {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "decision record is outside the canonical CD decision path", false, "use "+pathPrefix+"decisions/CD-NNNN markdown")
 	}
-	if record.Status != "accepted" && record.Status != "published" && record.Status != "superseded" {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record status is not closed", false, "use accepted, published, or superseded")
+	if record.Status != "accepted" && record.Status != "published" {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record status is not closed", false, "use accepted or published")
 	}
 	if lawBearing := manifestLawBearingKinds[record.Kind]; lawBearing && record.Status == "published" || !lawBearing && record.Status == "accepted" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "status is invalid for record kind", false, "law-bearing records are accepted; every other kind is published")
@@ -1325,24 +1241,6 @@ func validateKnowledgeRecordAuthority(record KnowledgeRecord) error {
 		}
 	} else if record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "derived record authority carries legislative fields", false, "remove legislated_by and contract_version")
-	}
-	return nil
-}
-
-// validateKnowledgeRecordSuccession validates the record's successor chain
-// and date.
-func validateKnowledgeRecordSuccession(record KnowledgeRecord) error {
-	if record.Status == "superseded" && record.Successor == "" {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record lacks successor", false, "declare the stable successor ID")
-	}
-	if record.Successor != "" && (utf8.RuneCountInString(record.Successor) > maxManifestID || strings.TrimSpace(record.Successor) != record.Successor) {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "successor is oversized or not clean", false, "use a bounded stable successor ID")
-	}
-	if record.Status != "superseded" && record.Successor != "" {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "successor is only valid for superseded records", false, "remove successor or mark the record superseded")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, record.Date); err != nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record date is not RFC3339", false, "use an RFC3339 date")
 	}
 	return nil
 }
@@ -1799,7 +1697,6 @@ func knowledgeProjectionDifferences(declared, projected KnowledgeRecord) []strin
 		{"title", declared.Title, projected.Title},
 		{"summary", declared.Summary, projected.Summary},
 		{"scopes.mode", declared.Scopes.Mode, projected.Scopes.Mode},
-		{"successor", declared.Successor, projected.Successor},
 		{"sha256", declared.SHA256, projected.SHA256},
 		{"home_domain_id", declared.HomeDomainID, projected.HomeDomainID},
 		{"product_wide_rationale", declared.ProductWideRationale, projected.ProductWideRationale},

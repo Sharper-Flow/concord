@@ -249,7 +249,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 		}
 	}
 	r := runtime{Store: s, Authority: service, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	before, err := s.DomainEventWatermark(ctx)
+	before, err := s.Revision(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	if len(seen) != 40 || pages < 2 {
 		t.Fatalf("enumerated %d observations in %d pages", len(seen), pages)
 	}
-	after, err := s.DomainEventWatermark(ctx)
+	after, err := s.Revision(ctx)
 	if err != nil || before != after {
 		t.Fatalf("read changed durable state: %d -> %d, %v", before, after, err)
 	}
@@ -364,26 +364,28 @@ func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
 	}
 	objective := fmt.Sprintf("bounded paging objective %d for the liveness witness", index)
 	readiness := store.WorkerJobReadiness{Ready: true, Evidence: []string{"evidence:liveness-coordinator"}}
-	digest := store.DeriveWorkerJobDigest(store.WorkerJobRecordedPayload{
+	recording := store.WorkerJobRecordedPayload{
 		JobID: jobID, Revision: 1, ContractVersion: contractVersion, Objective: objective,
 		StoppingCondition: "the recorded checks pass", PathScope: []string{"internal/agent"},
 		PredicateIDs: []string{"predicate:primary"}, Checks: []string{"go test ./internal/agent/"},
 		Prerequisites: []store.WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
 		Readiness:             &readiness,
 		WorkflowVersionFields: store.WorkflowVersionFields{WorkID: "work-1"},
-	})
+	}
+	recording.Digest = store.DeriveWorkerJobDigest(recording)
+	digest := recording.Digest
 	pathScope, _ := json.Marshal([]string{"internal/agent"})
 	predicates, _ := json.Marshal([]string{"predicate:primary"})
 	checks, _ := json.Marshal([]string{"go test ./internal/agent/"})
 	prerequisites, _ := json.Marshal([]store.WorkerJobPrerequisite{})
 	unresolved, _ := json.Marshal([]string{})
 	readinessJSON, _ := json.Marshal(readiness)
-	eventPayload, _ := json.Marshal(map[string]any{"job_id": jobID, "revision": 1, "digest": digest})
+	eventPayload, _ := json.Marshal(recording)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at)
-		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z');
+		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload)
+		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z',?);
 		DELETE FROM fold_guard`,
-		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest); err != nil {
+		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest, string(eventPayload)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload)
@@ -528,7 +530,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			if limit.value != 0 {
 				request["limit"] = limit.value
 			}
-			before, err := s.DomainEventWatermark(ctx)
+			before, err := s.Revision(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -665,7 +667,7 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			if len(observed) != 40 {
 				t.Fatalf("observation continuation reconstructed %d of 40 observations", len(observed))
 			}
-			after, err := s.DomainEventWatermark(ctx)
+			after, err := s.Revision(ctx)
 			if err != nil || before != after {
 				t.Fatalf("read changed durable state: %d -> %d, %v", before, after, err)
 			}
@@ -966,7 +968,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	// losslessly and refuse on state drift.
 	const continuationResearchPack = "pack-continuation-research"
 	ownerEvents := []store.Event{
-		{EventID: "continuation-research-owner", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"research","title":"Continuation research owner","priority":1}`)},
+		{EventID: "continuation-research-owner", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"research","title":"Continuation research owner","priority":1}`)},
 		{EventID: "continuation-research-owner-members", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: ownerEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-research-owner"): 0}}); err != nil {
@@ -1121,7 +1123,7 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 	})
 
 	t.Run("changed_digest_refuses_before_emit", func(t *testing.T) {
-		before, err := s.DomainEventWatermark(ctx)
+		before, err := s.Revision(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1131,9 +1133,9 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 			t.Fatal("fixture produced no projection continuation to continue")
 		}
 		// The held verify lease rides the reading session's view (CD-0096
-		// D5). Direct projection seeding writes no domain event, so the
-		// source watermark stays put while the projection changes — exactly
-		// the case the digest binding owns.
+		// D5). Direct projection seeding bypasses write admission, so the
+		// revision stays put while the projection changes — exactly the
+		// case the digest binding owns.
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease:continuation-digest','work-1','project-1','worktree-continuation-digest','held','client-continuation-aa','agent-continuation','session-continuation-aa','principal-continuation','["go","test"]','2026-10-14T00:00:00Z','running')`); err != nil {
 			t.Fatal(err)
 		}
@@ -1157,7 +1159,7 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 				t.Fatal("the changed-digest refusal must detect before any fragment is emitted")
 			}
 		}
-		after, err := s.DomainEventWatermark(ctx)
+		after, err := s.Revision(ctx)
 		if err != nil || before != after {
 			t.Fatalf("the digest test moved the watermark: %d -> %d, %v", before, after, err)
 		}

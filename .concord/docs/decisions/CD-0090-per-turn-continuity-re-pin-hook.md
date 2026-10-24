@@ -10,16 +10,9 @@
   `ContinuitySnapshot` payload; agent-tool surface version.
 - **Related:** CD-0016, CD-0031, CD-0034, CD-0043, CD-0072, CD-0084, CD-0098,
   CD-0104, CD-0223.
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) re-homes D2's work resolution from the
-  launcher identity environment to the session's directory and active claim,
-  under the Snowball coordinator's operator-delegated approval.
-- **Supersedes:** nothing. Amends the recorded consequences of CD-0016
-  (§Consequences, "does not add a generic host hook") and CD-0031
-  (§Consequences, "OpenCode host hooks and plugins are unnecessary").
-- **Amended:** D2 resolves the session's work from the directory the session
-  runs in, through its active claimed worktree, not from the launcher identity
-  environment; a session under a managed parent adds no block. Compatible
-  amendment in place, coordinator-approved 2026-10-17.
+- **Approval:** Directory-based work resolution: Concord (CON) issue CON-910
+  (2026-10-13), under the Snowball coordinator's operator-delegated approval;
+  managed-parent exclusion: coordinator-approved 2026-10-17.
 
 ## Context
 
@@ -51,11 +44,6 @@ a payload — is authority and stays in the core, reached by routing. A hook tha
 **re-asserts** state the core already derived is runtime and may live in the
 adapter plugin, because the states it governs (prompt bytes, cache prefix,
 turn boundaries) never route to the core at all.
-
-CD-0072's conclusion that no Concord surface could hold an interception hook
-was written before the adapter shipped a plugin entry module. That premise no
-longer holds; CD-0072's actual exclusion (raw file-write trunk interception)
-remains unchanged and is not reopened here.
 
 ### D2. One bounded re-pin surface is added
 
@@ -101,12 +89,7 @@ the verified workflow definition. This is the same class of content as the boot
 packet's workflow-step line: durable-state projection. CD-0043 D2 provenance
 binding applies only if methodology prose is ever injected; none is.
 
-### D5. Agent-tool surface version 2.4.0
-
-The `step_actions` addition is recorded as surface version 2.4.0. No
-machine-read version field exists; the `ManifestDigest` remains the machine
-identity for skew checks. This record is the durable prose location of the
-version number.
+`ManifestDigest` is the machine identity for skew checks.
 
 ### D6. Projection size never strands continuity
 

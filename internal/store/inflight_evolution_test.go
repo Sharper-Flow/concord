@@ -31,6 +31,11 @@ func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition Reg
 func startWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
 	t.Helper()
 	seedWork(t, s, workID)
+	return startSeededWorkflowPinnedToContext(t, ctx, s, workID, definition)
+}
+
+func startSeededWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
+	t.Helper()
 	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
@@ -125,19 +130,17 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 		t.Fatalf("pin drifted to %s v%d %s", ref, pinnedVersion, pinnedDigest)
 	}
 
-	// History remains readable: the full log rebuilds to the same projection.
-	before := projectionSnapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild after supersession: %v", err)
-	}
-	if after := projectionSnapshot(t, s); after != before {
-		t.Fatalf("rebuild drifted projections after supersession")
-	}
 }
 
 // A schema migration applied while an item is mid-flight must leave it advanceable
 // and its history readable.
 func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
+	original := migrations
+	t.Cleanup(func() { migrations = original })
+	migrations = append(append([]migration(nil), migrations...), migration{
+		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_tail",
+		SQL: `CREATE TABLE inflight_schema_tail (value TEXT);`,
+	})
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -201,8 +204,6 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	// The registered tail is spent, so the next advance is a synthetic step
 	// beyond it: the open item crosses that boundary on the combined schema
 	// too, and the manifest tracks it the same way.
-	original := migrations
-	t.Cleanup(func() { migrations = original })
 	migrations = append(append([]migration(nil), migrations...), migration{
 		Version: CurrentSchemaVersion() + 1, Name: "inflight_schema_probe",
 		SQL: `CREATE TABLE inflight_schema_probe (value TEXT);`,
@@ -247,13 +248,6 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if events < 2 {
 		t.Fatalf("work history has %d events after migration", events)
 	}
-	before := projectionSnapshot(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after migration: %v", err)
-	}
-	if after := projectionSnapshot(t, s); after != before {
-		t.Fatal("rebuild drifted projections after migration")
-	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("re-running the migration on in-flight work failed: %v", err)
 	}
@@ -262,20 +256,72 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	ctx := context.Background()
 	s := remoteUpgradeFixtureForProject(t, "project", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: "https://host/o/r"})
-	if err := ensureInstallationKey(ctx, s.db); err != nil {
-		t.Fatal(err)
-	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, s.db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const workID = "remote-upgrade-inflight-work"
+	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	// Seed the older authority's open work without current-binary write admission.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	_, err = applyOperationTx(ctx, tx, Operation{
+		Events: []Event{
+			workCreatedEvent(workID, "create-"+workID),
+			operationEvent("membership-"+workID, "work_project.added", SubjectWorkItem, workID, map[string]any{
+				"work_id": workID, "project_id": "project", "role": "primary", "reason": "test",
+				"expected_version": 1, "resulting_version": 2,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0},
+	}, newFoldScope(tx), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	// The older store already owns an initialized, in-progress workflow.
+	// Do not run a current-binary action-start writer on its older schema.
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, preferredModelForLane(BuiltinLaneDefinitions()[0]), workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	var beforeStep string
+	var beforeWorkVersion int64
+	if err := s.db.QueryRowContext(ctx, `SELECT i.current_step,w.version FROM workflow_instances i JOIN work_items w ON w.id=i.work_id WHERE w.id=?`, workID).Scan(&beforeStep, &beforeWorkVersion); err != nil {
+		t.Fatal(err)
+	}
+	if beforeStep != "proposal" || beforeWorkVersion != version {
+		t.Fatalf("work must be open before migration: step=%s version=%d, want proposal/%d", beforeStep, beforeWorkVersion, version)
+	}
 	if err := Migrate(ctx, s.db); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureInstallationKey(ctx, s.db); err != nil {
 		t.Fatal(err)
 	}
 	afterVersion, err := readSchemaManifestVersion(ctx, s.db)
@@ -301,15 +347,5 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	ref, pinnedVersion, digest := workflowInstancePin(t, s, workID)
 	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
 		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
-	}
-	snapshot := func() string {
-		return projectionSnapshot(t, s) + remoteUpgradeSnapshot(t, s) + fullWorkflowProjectionSnapshot(t, s)
-	}
-	before := snapshot()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if snapshot() != before {
-		t.Fatal("rebuild drifted remote or in-flight workflow projections")
 	}
 }

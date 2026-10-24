@@ -4,8 +4,10 @@
 - **Date:** 2026-09-12
 - **Scope:** Built-in implementation and break-fix workflow definitions
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0059, CD-0115, CD-0116
-- **Preserves:** External analysis ownership, pinned workflow instances, and worker fences
+- **Related:** CD-0013, CD-0059, CD-0116
+- **Preserves:** External analysis ownership, worker fences, and the
+  definitions active work derives from the canonical source
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 
 ## Context
 
@@ -46,15 +48,10 @@ implementation would be cleaner than the first iteration, the working agent
 rewrites toward the smaller implementation instead of applying findings
 mechanically.
 
-### D4. Ship new definition versions
-
-Ship `workflow.implementation` version 8 and `workflow.break_fix` version 7.
-Freeze the prior version content and digests. Live instances keep their pinned
-definition triple.
-
 ## Verification
 
-- The registry exposes `refine` in both new graphs with no optional bypass edge.
-- The version pin test verifies all historical and current definition digests.
-- The generated payload projections include the two new action IDs.
+- The registry exposes `refine` in both graphs with no optional bypass edge.
+- The generated definitions match the one canonical source, and digest checks
+  refuse drift ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+- The generated payload projections include the two refinement action IDs.
 - The workflow contract documents the external analysis boundary and artifact requirement.

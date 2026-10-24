@@ -237,9 +237,10 @@ the envelope schema already requires for it.
 CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error, and the
 closed error enum in `contracts/agent-tool-envelope.schema.json` does not contain one
 today. This decision therefore amends the envelope contract to add exactly one error
-kind, `outcome_mismatch`, paired with recovery `contact_operator`: a weaker or
-incomparable delivery is resolved by the operator either strengthening the delivery
-or superseding the contract, never by agent retry. That amendment is a MAJOR
+kind, `outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
+delivery that answers a criterion the active contract does not approve. A weaker or
+incomparable delivery has no criterion proof and is refused as missing evidence
+(CD-0235 D2). That amendment is a MAJOR
 tool-surface change under TS8; D11 records the process it must follow. No other error
 kind is added and no existing kind changes meaning.
 
@@ -362,7 +363,7 @@ The implementation acceptance suite must exercise:
 2. A change contract with no required end-state is refused at planning.
 3. A change contract whose required end-state already holds before execution is
    refused as vacuous.
-4. A weaker delivery is refused with `outcome_mismatch`.
+4. A weaker delivery is refused at completion.
 5. A stronger delivery is accepted.
 6. An absence end-state is satisfied by removal; relocation is refused.
 7. Candidate-set revision records current rows in one transaction and leaves

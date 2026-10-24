@@ -69,7 +69,7 @@ func bindPacketToRecordedState(t *testing.T, s *Store, packet map[string]any) ma
 // runner. Real repositories carry the continuity descriptor unchanged.
 func reviewInputForPacketFixture(t *testing.T, s *Store, snapshot ContinuitySnapshot) *WorkerReviewInput {
 	t.Helper()
-	if snapshot.ReviewInputWarning == nil || snapshot.WorkPin == nil {
+	if snapshot.ReviewInputWarning == nil {
 		return snapshot.ReviewInput
 	}
 	definition := mustBuiltinDefinition(t, snapshot.WorkPin.WorkflowType).Definition

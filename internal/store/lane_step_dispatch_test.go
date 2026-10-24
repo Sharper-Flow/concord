@@ -33,7 +33,7 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	if view != nil {
 		inputs["work_context"] = view
 	}
-	if laneID == "review" {
+	if testLaneCapabilityClass(laneID) == "review" {
 		snapshot, err := ReadWorkflowContinuity(t.Context(), s, ContinuityRequest{Work: workID})
 		if err != nil {
 			t.Fatal(err)

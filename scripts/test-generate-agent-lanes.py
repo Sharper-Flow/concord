@@ -218,13 +218,22 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             "subsequent changes before delivery. Small changes use their existing review; this adds no "
             "separate review stage or repository-wide cleanup campaign."
         )
+        retirement = (
+            "Implementation review checks the accumulated solution for superseded mechanisms and their "
+            "dependent tests, coverage, schemas, configuration and instructions. Those are removed together "
+            "under the governing retirement clause. Every retained mechanism must serve a named current "
+            "requirement; its existence or passing tests are not sufficient justification. Completion cannot "
+            "pass with unexplained legacy residue."
+        )
         manifest, _ = generator.load_manifest()
         carrying = set()
         for lane in manifest["lanes"]:
             text = " ".join(lane_projection(lane).split())
-            if approved not in text:
+            if approved not in text and retirement not in text:
                 continue
             carrying.add(lane["id"])
+            self.assertIn(approved, text)
+            self.assertIn(retirement, text)
             self.assertIn("existing `findings`, `assessments` and `remaining_obligations`", text)
             self.assertIn("Bind findings and applicable checks to the corrected `output_candidate`", text)
             self.assertIn("Do not add a reviewer or install a scanner", text)

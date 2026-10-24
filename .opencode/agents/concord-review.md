@@ -196,6 +196,12 @@ the parent workflow keeps every other required result explicit.
 
 ## Review method
 
+Implementation review checks the accumulated solution for superseded mechanisms and
+their dependent tests, coverage, schemas, configuration and instructions. Those are
+removed together under the governing retirement clause. Every retained mechanism must
+serve a named current requirement; its existence or passing tests are not sufficient
+justification. Completion cannot pass with unexplained legacy residue.
+
 Every code-changing workflow includes a slop scan in its implementation-group reviews.
 The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions,
 contradictory guidance and missing cleanup across the accumulated change and affected

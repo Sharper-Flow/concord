@@ -305,9 +305,9 @@ func mustPolicy(t *testing.T, kind string) ExternalSubjectPolicy {
 func storeFixtureEvents(prefix, workID, workTitle string) []Event {
 	return []Event{
 		{EventID: prefix + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: prefix + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
+		{EventID: prefix + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion("project.created"), Payload: []byte(`{"display_name":"Project"}`)},
 		{EventID: prefix + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: prefix + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"` + workTitle + `","priority":1}`)},
+		{EventID: prefix + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"` + workTitle + `","priority":1}`)},
 		{EventID: prefix + "-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 }

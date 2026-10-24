@@ -301,7 +301,7 @@ func nativeFixtureDispatch(t *testing.T, f *nativeOracleFixture, o NativeOracleR
 	}
 	lane.Digest = attempt.LaneDigest
 	e := workerDispatchEvent(f.work, "native-dispatched-"+o.AttemptID, lane, map[string]any{"attempt_id": o.AttemptID, "packet_digest": o.WorkerPacketDigest, "worker_job": o.WorkerJobBinding, "host_provenance": histDeclaredHostProvenance()})
-	e.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerDispatched)
+	e.PayloadVersion = CurrentEventPayloadVersion(WorkerDispatched)
 	e.OccurredAt = time.Now().UTC()
 	if err := applyWorkflowTestOperation(context.Background(), f.s, Operation{Events: []Event{e}}); err != nil {
 		t.Fatal(err)

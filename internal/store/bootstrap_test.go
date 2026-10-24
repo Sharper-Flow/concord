@@ -123,11 +123,10 @@ func deadBootstrapOwner(t *testing.T) (int64, string) {
 func seedBootstrapStoreAuthority(t *testing.T, s *Store, repo string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "bootstrap-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "bootstrap-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-bootstrap", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap"}`)},
-		{EventID: "bootstrap-membership", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"project-bootstrap","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 0, VersionRef(SubjectProject, "project-bootstrap"): 0}}); err != nil {
+	if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+		ProductID: "product-bootstrap", DisplayName: "bootstrap", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "project-bootstrap", ProjectDisplayName: "bootstrap", Role: "primary", Reason: "fixture",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(ctx, "project-bootstrap", ProjectLocator{ID: "bootstrap-path", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
@@ -146,10 +145,9 @@ func bootstrapStoreRequest() BootstrapRequest {
 // path. Each test store seeds at most one extra Project.
 func seedBootstrapProject(t *testing.T, s *Store, projectID, repo string) {
 	t.Helper()
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: "bootstrap-project-" + projectID, Kind: "project.created", SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"` + projectID + `"}`)},
-		{EventID: "bootstrap-membership-" + projectID, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"` + projectID + `","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, projectID): 0}}); err != nil {
+	if _, err := s.CreateProjectForProduct(context.Background(), ProjectCreation{
+		ProjectID: projectID, DisplayName: projectID, ProductID: "product-bootstrap", Role: "secondary", Reason: "fixture", ExpectedProductVersion: 2,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(context.Background(), projectID, ProjectLocator{ID: "bootstrap-path-" + projectID, Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
@@ -1145,10 +1143,9 @@ func TestUnheldProjectRefusalMessageUnchanged(t *testing.T) {
 	defer s.Close()
 	seedBootstrapStoreAuthority(t, s, repo)
 	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "bootstrap-project-c", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-bootstrap-c", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap-c"}`)},
-		{EventID: "bootstrap-membership-c", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"project-bootstrap-c","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, "project-bootstrap-c"): 0}}); err != nil {
+	if _, err := s.CreateProjectForProduct(ctx, ProjectCreation{
+		ProjectID: "project-bootstrap-c", DisplayName: "bootstrap-c", ProductID: "product-bootstrap", Role: "secondary", Reason: "fixture", ExpectedProductVersion: 2,
+	}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -27,16 +27,15 @@ func defectFixture(t *testing.T) *Store {
 	t.Helper()
 	s := openTemp(t)
 	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "defect-product-a", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product A","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "defect-product-b", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product B","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "defect-project-a", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project A"}`)},
-		{EventID: "defect-project-b", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project B"}`)},
-		{EventID: "defect-scope-a", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-a","project_id":"project-a","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "defect-scope-b", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-b","project_id":"project-b","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-a"): 0, VersionRef(SubjectProduct, "product-b"): 0, VersionRef(SubjectProject, "project-a"): 0, VersionRef(SubjectProject, "project-b"): 0}}); err != nil {
-		t.Fatalf("seed defect fixture scope: %v", err)
+	for _, suffix := range []string{"a", "b"} {
+		if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+			ProductID: "product-" + suffix, DisplayName: "Product " + suffix,
+			StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+			ProjectID: "project-" + suffix, ProjectDisplayName: "Project " + suffix,
+			Role: "primary", Reason: "fixture",
+		}); err != nil {
+			t.Fatalf("seed defect fixture scope: %v", err)
+		}
 	}
 	return s
 }
@@ -55,7 +54,7 @@ func defectIntakeJSON(shape string, related []string, rootCause string) map[stri
 // admission owner, so the whole operation refuses or commits as one unit.
 func captureDefectWork(t *testing.T, s *Store, workID, kind string, intake map[string]any, projectIDs ...string) error {
 	t.Helper()
-	return captureDefectWorkAt(t, s, 4, workID, kind, intake, projectIDs...)
+	return captureDefectWorkAt(t, s, CurrentEventPayloadVersion("work.created"), workID, kind, intake, projectIDs...)
 }
 
 // captureDefectWorkAt appends the capture at one work.created payload version.
@@ -203,19 +202,32 @@ func supersedeWorkForFixture(t *testing.T, s *Store, workID, successor string) {
 	}
 }
 
-func seedHistoricalV2Bug(t *testing.T, s *Store, workID, projectID string) {
+func seedUnclassifiedBug(t *testing.T, s *Store, workID, projectID string) {
 	t.Helper()
-	now := time.Unix(1, 0).UTC()
-	memberships, err := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: projectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
+	if err := captureDefectWork(t, s, workID, "bug", defectIntakeJSON("historical-"+workID, nil, ""), projectID); err != nil {
+		t.Fatalf("seed bug %s: %v", workID, err)
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	op := Operation{Events: []Event{
-		{EventID: workID + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Historical unclassified bug","priority":1}`)},
-		{EventID: workID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: memberships},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}
-	if err := ApplyOperation(context.Background(), s, op); err != nil {
-		t.Fatalf("seed historical v2 bug %s: %v", workID, err)
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	// Migrated pre-CD-0211 bugs have no classification in their current row.
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect') WHERE id=?`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if block := defectBlock(t, s, workID); block != nil {
+		t.Fatalf("unclassified bug %s retained classification: %v", workID, block)
 	}
 }
 
@@ -370,10 +382,6 @@ func TestOtherKindsRefuseDefectIntake(t *testing.T) {
 			t.Fatalf("%s refusal %q does not name defect_intake", kind, failureText(err))
 		}
 	}
-	// A v3 capture carried the same record, so it upcasts without escaping the rules.
-	if err := captureDefectWorkAt(t, s, 3, "work-task-intake-v3", "task", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err == nil {
-		t.Fatal("v3 task capture with defect_intake was admitted")
-	}
 	if err := captureDefectWork(t, s, "work-research-plain", "research", nil); err != nil {
 		t.Fatalf("research capture without intake refused: %v", err)
 	}
@@ -385,8 +393,8 @@ func TestOtherKindsRefuseDefectIntake(t *testing.T) {
 func TestExplicitRelatedDefectValidation(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
-	seedHistoricalV2Bug(t, s, "work-hist-b", "project-b")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-b", "project-b")
 	if err := captureDefectWork(t, s, "work-bug-shaped", "bug", defectIntakeJSON("login-token-expiry", nil, "")); err != nil {
 		t.Fatalf("shaped bug capture refused: %v", err)
 	}
@@ -430,7 +438,7 @@ func TestExplicitRelatedDefectValidation(t *testing.T) {
 func TestHistoricalUnclassifiedBugThroughExplicitSiblingAndRCA(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
 	rca := seedCompletedResearchRCA(t, s, "work-rca-hist", "login-token-expiry", []string{"work-hist-a"})
 	if err := captureDefectWork(t, s, "work-new-hist", "bug", defectIntakeJSON("login-token-expiry", []string{"work-hist-a"}, rca)); err != nil {
 		t.Fatalf("explicit sibling behind completed RCA refused: %v", err)
@@ -681,7 +689,7 @@ func TestRevisePreservesClassificationAndRefusesBugConversion(t *testing.T) {
 func TestRootCauseWorkIDNotAlsoRelation(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
 	rca := seedCompletedResearchRCA(t, s, "work-rca-rel", "login-token-expiry", []string{"work-hist-a"})
 	if err := captureDefectWork(t, s, "work-bug-rel-rca", "bug", defectIntakeJSON("login-token-expiry", []string{rca}, rca)); err == nil {
 		t.Fatal("research root cause accepted as a related defect id")

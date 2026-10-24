@@ -529,7 +529,6 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
-	contract.PayloadVersion = 3
 	contract = pOverlapContractFacts(t, s, contract)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatal(err)
@@ -667,7 +666,6 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolution(t *testing.T) {
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "scope revision",
 		"audit_evidence": []string{"audit:revision-v2"}, "successor_contract": successor,
 	})
-	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 	supersede = pOverlapContractFacts(t, s, supersede)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("revision-left", revisionVersion)}); err != nil {
 		t.Fatalf("contract revision: %v", err)

@@ -1095,7 +1095,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	ctx := context.Background()
 	peerID := livenessPeerWorkID
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
+		{EventID: peerID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Peer work","priority":1}`)},
 		{EventID: peerID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: peerID, Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, peerID): 0}}); err != nil {
 		t.Fatal(err)

@@ -111,7 +111,7 @@ func TestWorkerCompleteCLIRetainsTypedContextFindings(t *testing.T) {
 		t.Fatalf("worker-complete with context_findings exit=%d stderr=%q", code, stderr)
 	}
 	version, payload := storedTerminalEvent(t, dbPath, "complete-findings")
-	if want := store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted); version != want {
+	if want := store.CurrentEventPayloadVersion(store.WorkerCompleted); version != want {
 		t.Fatalf("stored completion payload_version = %d, want current registry version %d", version, want)
 	}
 	var stored struct {
@@ -197,7 +197,7 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 		t.Fatalf("worker-fail worker_error with context_findings exit=%d stderr=%q", code, stderr)
 	}
 	version, payload := storedTerminalEvent(t, dbPath, "fail-findings")
-	if want := store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed); version != want {
+	if want := store.CurrentEventPayloadVersion(store.WorkerFailed); version != want {
 		t.Fatalf("stored failure payload_version = %d, want %d", version, want)
 	}
 	var stored struct {

@@ -13,7 +13,7 @@ import (
 // evidence exactly as the adapter would after parsing agent-lane-report.v1.
 func workerCompleteEventV2(workID, eventID, attemptID, model string, origin string, evidence []WorkerReportEvidence, directory string) Event {
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: origin}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // laneCoveringEvidence discharges every obligation the lane declares, once.

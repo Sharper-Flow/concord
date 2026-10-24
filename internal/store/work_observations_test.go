@@ -18,7 +18,7 @@ func observationFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "w99-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"99","priority":1}`)},
+		{EventID: "w99-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"99","priority":1}`)},
 		{EventID: "w99-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr99","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-99"): 0}}); err != nil {
 		t.Fatal(err)

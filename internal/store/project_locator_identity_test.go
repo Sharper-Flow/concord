@@ -93,21 +93,18 @@ func TestRemoteNoIdentityKeepsMalformedRefusals(t *testing.T) {
 func TestLiveRemoteAppendCannotBypassAdmission(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw, normalized string
-		version               int
 		kind                  FailureKind
 	}{
-		{"old writer", "https://host/o/r", "ssh://https/host/o/r", 1, KindInvalidPayload},
-		{"credentials", "https://TOKEN@host/o/r", "https://host/o/r", 2, KindInvalidFilter},
-		{"unsupported", "file:///srv/o/r", "ssh://file/srv/o/r", 2, KindInvalidPayload},
-		{"pathless", "https://host", "ssh://https/host", 2, KindInvalidPayload},
-		{"hostless", "https:///o/r", "ssh://https/o/r", 2, KindInvalidPayload},
-		{"tampered", "https://host/o/r", "https://host/other/r", 2, KindInvalidPayload},
+		{"credentials", "https://TOKEN@host/o/r", "https://host/o/r", KindInvalidFilter},
+		{"unsupported", "file:///srv/o/r", "ssh://file/srv/o/r", KindInvalidPayload},
+		{"pathless", "https://host", "ssh://https/host", KindInvalidPayload},
+		{"hostless", "https:///o/r", "ssh://https/o/r", KindInvalidPayload},
+		{"tampered", "https://host/o/r", "https://host/other/r", KindInvalidPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := locatorReplayStore(t)
 			before := histEventRows(t, s)
 			e := recordedLocatorEvent("attempt", string(LocatorGitRemote), tc.raw, tc.normalized)
-			e.PayloadVersion = tc.version
 			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 			assertFailureKind(t, err, tc.kind)
 			assertTableCount(t, s, "project_locators", 0)

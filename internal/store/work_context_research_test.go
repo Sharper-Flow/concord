@@ -26,8 +26,9 @@ func researchSelectionEntry(pack string, revision int64, finding, domain string)
 // workflow fixture's existing Product and Project, without reseeding either.
 func seedResearchOwnerWork(t *testing.T, s *Store, id string) {
 	t.Helper()
+	priority := int64(1)
 	events := []Event{
-		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+		{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: eventKindRegistry["work.created"].CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: id, WorkKind: "research", Title: id, Priority: &priority})},
 		{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0}}); err != nil {
@@ -1013,7 +1014,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 		review.Findings = []WorkerReviewFinding{{FindingID: "finding:mixed-count", Severity: "P2", Confidence: "low", Detail: "the ranked mixed-count blocker", Status: "open", Blocking: true, InScope: true, EvidenceRefs: []string{}, ClosureRefs: []string{}}}
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{Event{
 			EventID: "ctx-complete-research-ranked", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID,
-			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
+			Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
 			Payload: mustJSONValue(WorkerCompletedPayload{
 				AttemptID: "attempt-ctx-research-ranked", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 				WorkerDirectory: workerFixtureDirectory(t, fixture.store, fixture.workID),

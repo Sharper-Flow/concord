@@ -924,7 +924,7 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 	// The worker evidence stamps its Actor column with the authenticated
 	// client/principal identity the worker-evidence boundary records, which
 	// is never the dispatching session reference.
-	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -937,7 +937,7 @@ func completeWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT report_schema_version FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&reportSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
+	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}

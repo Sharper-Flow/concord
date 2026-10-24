@@ -374,7 +374,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
-	dispatch := Event{EventID: "checks-repair-review-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "checks-repair-review-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
@@ -806,7 +806,7 @@ func completeChecksRepairAttemptObserved(t *testing.T, s *Store, workID, attempt
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		WorkerDirectory: workerFixtureDirectory(t, s, workID), WorkerJob: dispatched, EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane),
 	})}
@@ -894,7 +894,7 @@ func checksRepairReviewCompletion(t *testing.T, s *Store, workID, attemptID stri
 		}
 	}
 	return Event{EventID: "checks-repair-review-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(46, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+		Actor: "worker:test", OccurredAt: time.Unix(46, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 func fixtureRepairPredicateIDs(t *testing.T, s *Store, workID string) []string {

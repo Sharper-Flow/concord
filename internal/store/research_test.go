@@ -13,18 +13,20 @@ import (
 
 func seedResearchWork(t *testing.T, s *Store, ids ...string) {
 	t.Helper()
-	events := []Event{
-		{EventID: "research-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "research-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: eventKindRegistry["project.created"].CurrentVersion, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: "research-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product","project_id":"project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
+	if _, err := s.CreateProductWithProject(context.Background(), ProductCreation{
+		ProductID: "product", DisplayName: "Product", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "project", ProjectDisplayName: "Project", Role: "primary", Reason: "test",
+	}); err != nil {
+		t.Fatal(err)
 	}
+	var events []Event
 	for i, id := range ids {
 		events = append(events,
-			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
 			Event{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, int64(i)).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 		)
 	}
-	expected := map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0}
+	expected := make(map[SubjectRef]int64, len(ids))
 	for _, id := range ids {
 		expected[VersionRef(SubjectWorkItem, id)] = 0
 	}
@@ -891,7 +893,7 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {
 		t.Fatal("obsolete Epic work kind was accepted by the store")
 	}

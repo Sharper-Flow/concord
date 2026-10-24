@@ -186,10 +186,10 @@ func withWorkerFailureObservation(t *testing.T, event Event) Event {
 // stored event payload retains the findings bytes verbatim.
 func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	t.Parallel()
-	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != workerCompletedJobSizeVersion {
+	if got := CurrentEventPayloadVersion(WorkerCompleted); got != workerCompletedJobSizeVersion {
 		t.Fatalf("worker.completed current payload version = %d, want %d", got, workerCompletedJobSizeVersion)
 	}
-	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 4 {
+	if got := CurrentEventPayloadVersion(WorkerFailed); got != 4 {
 		t.Fatalf("worker.failed current payload version = %d, want 4", got)
 	}
 	breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
@@ -211,7 +211,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-complete", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("completion with typed findings refused: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, CurrentEventPayloadVersion(WorkerFailed))
 	if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, failure)); err != nil {
 		t.Fatalf("worker_error failure with typed findings refused: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-claims", "attempt-findings-claims", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-findings-claims"))
+	short := workerCompletedContextFindingsEvent("work-findings-claims", "complete-findings-short", "attempt-findings-claims", model, lane, []WorkerContextFinding{contextFindingFixture()}, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-findings-claims"))
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(short.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -302,13 +302,13 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 		if modelReadbackFailureKind(kind) {
 			readback = ""
 		}
-		event := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-"+kind, "attempt-fail-kind", readback, kind, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		event := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-"+kind, "attempt-fail-kind", readback, kind, findings, CurrentEventPayloadVersion(WorkerFailed))
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 		if !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("%s with findings error = %v, want %s", kind, err, KindInvalidPayload)
 		}
 		// An empty array on the same diagnostic kind stays valid.
-		emptyEvent := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-empty-"+kind, "attempt-fail-kind", readback, kind, empty, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		emptyEvent := workerFailedContextFindingsEvent("work-fail-kind", "failed-kind-empty-"+kind, "attempt-fail-kind", readback, kind, empty, CurrentEventPayloadVersion(WorkerFailed))
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{emptyEvent}}); err != nil {
 			t.Fatalf("%s with an empty findings array refused: %v", kind, err)
 		}
@@ -318,7 +318,7 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fail-abandoned", "attempt-fail-abandoned", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	abandoned := workerFailedContextFindingsEvent("work-fail-abandoned", "failed-abandoned-findings", "attempt-fail-abandoned", preferredModelForLane(lane), WorkerFailureAbandoned, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+	abandoned := workerFailedContextFindingsEvent("work-fail-abandoned", "failed-abandoned-findings", "attempt-fail-abandoned", preferredModelForLane(lane), WorkerFailureAbandoned, findings, CurrentEventPayloadVersion(WorkerFailed))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandoned}}); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("abandoned with findings error = %v, want %s", err, KindInvalidPayload)
 	}
@@ -345,14 +345,14 @@ func TestWorkerTerminalContextFindingsRetentionAndVersionBoundary(t *testing.T) 
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, "work-rebuild-findings"))}}); err != nil {
 			t.Fatal(err)
 		}
 		recordWorkerFixtureDispatchAuthorization(t, s, fixture.workID, "attempt-rebuild-findings-f", "repair", ownerRef)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed)))); err != nil {
+		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, CurrentEventPayloadVersion(WorkerFailed)))); err != nil {
 			t.Fatal(err)
 		}
 		var storedCompletion, storedFailure string
@@ -370,31 +370,6 @@ func TestWorkerTerminalContextFindingsRetentionAndVersionBoundary(t *testing.T) 
 			if string(payload["context_findings"]) != string(mustJSONValue(findings)) {
 				t.Fatalf("stored findings = %s", payload["context_findings"])
 			}
-		}
-	})
-	t.Run("findings bytes on a below-boundary completion refuse", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		model := preferredModelForLane(lane)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fabricated", "attempt-fabricated", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		fabricated := workerCompletedContextFindingsEvent("work-fabricated", "fabricated-complete", "attempt-fabricated", model, lane, []WorkerContextFinding{contextFindingFixture()}, 4, "")
-		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fabricated}})
-		if !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("fabricated v4 findings error = %v, want %s", err, KindInvalidPayload)
-		}
-	})
-	t.Run("findings bytes on a below-boundary replayed failure refuse", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fabricated-f", "attempt-fabricated-f", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		fabricated := workerFailedContextFindingsEvent("work-fabricated-f", "fabricated-failed", "attempt-fabricated-f", preferredModelForLane(lane), WorkerFailureWorkerError, []WorkerContextFinding{contextFindingFixture()}, 1)
-		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fabricated}})
-		if !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("fabricated v1 findings error = %v, want %s", err, KindInvalidPayload)
 		}
 	})
 }

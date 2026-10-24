@@ -23,7 +23,7 @@ func baseComparisonFixture() *WorkerBaseComparison {
 func baseComparisonCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, comparison *WorkerBaseComparison, directory string) Event {
 	evidence := laneCoveringEvidence(lane)
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, BaseComparison: comparison}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // A completion may carry the optional base_comparison object; it folds like

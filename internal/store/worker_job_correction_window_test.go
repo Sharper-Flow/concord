@@ -293,8 +293,9 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 
 	// A duplicate terminal report derives nothing: the retry attempt's
 	// terminal fact is already recorded, and neither the records nor the anchor move.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", detailRetry, preferredModelForLane(lane))); err == nil {
-		t.Fatal("a duplicate terminal worker.failed report for the failed retry attempt was admitted")
+	duplicate := s2WorkerFailedAttributedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", preferredModelForLane(lane), WorkerFailureWorkerError, detailRetry, time.Unix(30, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, duplicate); !hasFailureKind(err, KindProjectionConflict) {
+		t.Fatalf("duplicate terminal worker.failed report error = %v, want %s", err, KindProjectionConflict)
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, attempt3); len(got) != 1 {
 		t.Fatalf("derived records after the duplicate terminal report = %+v, want the one original", got)
@@ -449,7 +450,7 @@ func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID str
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
-	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}

@@ -272,7 +272,7 @@ func TestDispatchRefusesStaleWorkContextPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	reported := []WorkerContextFinding{{Kind: "observation", Statement: "the terminal report adds a finding the packet never saw", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("terminal report refused: %v", err)
 	}
 	startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
@@ -632,7 +632,7 @@ func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-reject-retry-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-reject-retry-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -778,7 +778,7 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-c1-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-c1-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -1446,7 +1446,7 @@ func completeAggregateAttempt(t *testing.T, f workContextFixture, attemptID stri
 	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}

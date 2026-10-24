@@ -148,11 +148,10 @@ func TestRoutineEvaluation(t *testing.T) {
 		reviewer, _, _ := seedRoutineActors(t, s, workID)
 		reviewerRef := ownerRefForTest(t, reviewer)
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "routine-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: reviewerRef, OccurredAt: time.Unix(9, 30).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: reviewerRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "routine-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": reviewerRef})
+		dispatch.Actor = reviewerRef
+		dispatch.OccurredAt = time.Unix(9, 30).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
 		var authority WorkflowEvaluationAuthority
@@ -257,11 +256,10 @@ func TestRoutineEvaluation(t *testing.T) {
 		_, _, coordinator := seedRoutineActors(t, s, workID)
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "routine-completion-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: coordinatorRef, OccurredAt: time.Unix(9, 45).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID + "-completion", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: coordinatorRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "routine-completion-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID + "-completion", "lane_actor_ref": coordinatorRef})
+		dispatch.Actor = coordinatorRef
+		dispatch.OccurredAt = time.Unix(9, 45).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed completion-worker dispatch: %v", err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)

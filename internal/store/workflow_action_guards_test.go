@@ -69,7 +69,6 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 		successor["contract_version"] = 2
 		successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:p0", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:github/required-checks", "immutable_subject_ref": subject, "expected_result": "pass"}}}
 		event := workflowEventWithActor(workID+":successor", WorkflowContractSuperseded, workID, actor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "Correct the checked subject.", "audit_evidence": []string{"evidence:corrected-check"}, "successor_contract": successor})
-		event.PayloadVersion = 4
 		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 			t.Fatal(err)
 		}

@@ -31,7 +31,7 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 			"packet_digest": f.a.WorkerPacketDigest, "worker_job": f.a.WorkerJobBinding,
 			"host_provenance": histDeclaredHostProvenance(),
 		})
-		event.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerDispatched)
+		event.PayloadVersion = CurrentEventPayloadVersion(WorkerDispatched)
 		if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
 			events, err := PrepareLaneActorDispatch(context.Background(), tx, event, f.actor.PrincipalRef, f.actor.ClientRef)
 			if err != nil {

@@ -86,7 +86,7 @@ func (f multiProjectRecoveryFixture) dispatch(t *testing.T, attempt string) {
 func (f multiProjectRecoveryFixture) abandon(attempt string) error {
 	return ApplyOperation(context.Background(), f.store, Operation{Events: []Event{{
 		EventID: "abandon-" + attempt, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: f.seed.workID,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: 1,
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the worker never reported"}),
 	}}})
 }

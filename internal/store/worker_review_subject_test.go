@@ -269,7 +269,7 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
-	version := WorkerEvidenceEventPayloadVersion(WorkerCompleted)
+	version := CurrentEventPayloadVersion(WorkerCompleted)
 	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
@@ -406,7 +406,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-live-noproof-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-live-noproof-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -510,7 +510,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	if subjectErr != nil || subject == "" {
 		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
 	}
-	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}

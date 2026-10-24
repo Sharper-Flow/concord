@@ -163,26 +163,21 @@ func assertEventRowCount(t *testing.T, ctx context.Context, s *Store, eventID st
 }
 
 // TestAppendEventRejectsDifferentPayloadVersion covers the payload_version
-// dimension explicitly. project.created accepts both v1 and v2, so two
-// attempts at the same event_id with different versions reach the conflict
-// path rather than failing payload-version validation. The stored values are
-// the caller-supplied payload_version and payload, so the readback exposes the
-// difference directly.
+// dimension explicitly. A current append cannot reuse a migrated event's ID
+// with a different payload version, or change that stored record's bytes.
 func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 
 	first := projectIdentityEvent("divergent-version-evt", 1)
-	if _, err := appendInTx(t, s, first); err != nil {
-		t.Fatalf("first AppendEvent() error = %v", err)
-	}
+	insertHistoricalEvent(t, s, first)
 	original, err := readRawEventRow(t, ctx, s, first.EventID)
 	if err != nil {
 		t.Fatalf("read original event: %v", err)
 	}
 
-	second := projectIdentityEvent("divergent-version-evt", 2)
+	second := projectIdentityEvent("divergent-version-evt", CurrentEventPayloadVersion("project.created"))
 	_, err = appendInTx(t, s, second)
 	var f *Failure
 	if !errors.As(err, &f) {

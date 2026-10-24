@@ -599,7 +599,6 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
 		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", "priority": 1,
 	})
-	event.PayloadVersion = 2
 	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
 	assertFailureKind(t, err, KindInvalidPayload)
 }

@@ -45,7 +45,7 @@ func reviewCompleteEventV3(workID, attemptID string, lane LaneDefinition, review
 		evidence = withoutSeverity
 	}
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, Review: review}
-	return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(payload)}
+	return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // The review lane requires the typed review block (CD-0197): a live
@@ -224,7 +224,7 @@ func TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock(t *test
 	}
 	before := workerProjectionSnapshot(t, s)
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), Evidence: laneCoveringEvidence(lane), EvidenceOrigin: WorkerEvidenceReported, Review: reviewBlockFixture()}
-	complete := Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(payload)}
+	complete := Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}})
 	if !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("severity-beside-block completion error = %v, want %s", err, KindInvalidPayload)
@@ -254,35 +254,6 @@ func TestReviewLaneBlockOnlyCompletionFolds(t *testing.T) {
 	before := workerProjectionSnapshot(t, s)
 	if !strings.Contains(before, "|completed|") {
 		t.Fatalf("completion projection = %q, want a completed attempt", before)
-	}
-}
-
-// A live append cannot dodge the requirement by claiming a pre-CD-0197
-// payload version: the register boundary upcasts before the fold, and the
-// fold holds a live reported completion to the required block.
-func TestLiveV2CompletionForTheReviewLaneStillRequiresTheBlock(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	lane := BuiltinLaneDefinitions()[3]
-	workID := "review-block-version-gate"
-	attemptID := "review-block-version-gate-attempt"
-	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	payload := map[string]any{
-		"attempt_id": attemptID, "readback_model": preferredModelForLane(lane),
-		"report_schema_version": WorkerReportSchemaVersion,
-		"evidence_origin":       WorkerEvidenceReported, "evidence": laneCoveringEvidence(lane),
-		"worker_directory": workerFixtureDirectory(t, s, workID),
-	}
-	legacy := Event{EventID: attemptID + "-v2-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacy}})
-	if !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("v2 live completion error = %v, want %s", err, KindInvalidPayload)
-	}
-	if detail := failureDetail(t, err); !strings.Contains(detail, "typed review block") {
-		t.Fatalf("failure detail = %q, want it to name the required block", detail)
 	}
 }
 
@@ -331,7 +302,7 @@ func TestLiveLegacyUnavailableReviewCompletionStillRequiresTheBlock(t *testing.T
 	workID := "review-block-legacy-origin"
 	legacyComplete := func(attemptID string, review *WorkerReviewBlock) Event {
 		payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceLegacyUnavailable, Review: review}
-		return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(payload)}
+		return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 	}
 	attemptID := "review-block-legacy-origin-attempt"
 	actorRef := authorizeWorkerFixtureDispatch(t, s, workID, attemptID)

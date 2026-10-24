@@ -146,9 +146,10 @@ func workerCompletionWithDirectory(workID, eventID, attemptID, directory string)
 	payload, err := json.Marshal(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]),
 		ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(BuiltinLaneDefinitions()[0]),
 	})
 	if err != nil {
 		panic(err)
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: payload}
 }

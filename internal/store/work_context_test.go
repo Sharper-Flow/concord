@@ -426,18 +426,15 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 		"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": string(owner.ActorClass),
 	})}
 	version++
-	events = append(events, withPinnedDecisionFact(t, registered.Definition, Event{
-		EventID: "ctx-contract-" + workID, Kind: WorkflowContractApproved, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 3,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
-			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			"architecture_binding": WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
-				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
-			},
-		}),
+	events = append(events, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, map[string]any{
+		"contract_version": 1, "premise": "deliver the checked change", "decision_domains": []string{},
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
+		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"architecture_binding": WorkflowArchitectureBinding{
+			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
+			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+		},
 	}))
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatal(err)
@@ -795,7 +792,7 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	reported := []WorkerContextFinding{{Kind: "observation", Statement: "the worker reported between declarations", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	completion := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-1", "attempt-ctx-1", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-1", "attempt-ctx-1", preferredModelForLane(lane), lane, reported, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("worker report with findings refused: %v", err)
 	}
@@ -814,7 +811,7 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	subsequent := []WorkerContextFinding{{Kind: "contradiction", Statement: "the later worker contradicted the direction", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-2", "attempt-ctx-2", preferredModelForLane(lane), lane, subsequent, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-2", "attempt-ctx-2", preferredModelForLane(lane), lane, subsequent, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -973,7 +970,7 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	retained := []WorkerContextFinding{{Kind: "observation", Statement: "retained but unselected", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-overflow", "attempt-ctx-overflow", preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-overflow", "attempt-ctx-overflow", preferredModelForLane(lane), lane, retained, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("terminal report retention blocked by the view bound: %v", err)
 	}
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
@@ -1120,7 +1117,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	lane := reviewGateLane(t, "review")
 	retained := []WorkerContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	event := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", reviewAttempt, preferredModelForLane(lane), lane, retained, WorkerEvidenceEventPayloadVersion(WorkerCompleted), repo)
+	event := workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-promote", reviewAttempt, preferredModelForLane(lane), lane, retained, CurrentEventPayloadVersion(WorkerCompleted), repo)
 	var report WorkerCompletedPayload
 	if err := json.Unmarshal(event.Payload, &report); err != nil {
 		t.Fatal(err)
@@ -1297,7 +1294,7 @@ func TestTerminalCompletionFindingsBindRegistryDomains(t *testing.T) {
 		{"child with rationale", finding(workContextTestChild, workContextRootRationale), KindInvalidPayload},
 	}
 	for index, refusal := range refusals {
-		completion := workerCompletedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-%d", index), "attempt-domain-1", model, lane, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
+		completion := workerCompletedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-%d", index), "attempt-domain-1", model, lane, refusal.findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))
 		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); !hasFailureKind(err, refusal.want) {
 			t.Fatalf("completion %s error = %v, want %s", refusal.name, err, refusal.want)
 		}
@@ -1306,7 +1303,7 @@ func TestTerminalCompletionFindingsBindRegistryDomains(t *testing.T) {
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND event_id LIKE 'ctx-domain-refused-%'`, fixture.workID).Scan(&refused); err != nil || refused != 0 {
 		t.Fatalf("refused completion records=%d, want zero: %v", refused, err)
 	}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("child-domain completion refused: %v", err)
 	}
 	view, err := readWorkContextView(t.Context(), fixture.store.DatabaseForTesting(), fixture.workID)
@@ -1359,7 +1356,7 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 		t.Fatal("lane implement is not registered")
 	}
 	model := preferredModelForLane(dispatchLane)
-	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
+	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
 	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, dispatchEvidence, "principal/operator", "client/concord-1")
 		if prepErr != nil {
@@ -1375,7 +1372,7 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	attributedFailure := func(eventID string, findings []WorkerContextFinding) Event {
 		payload := WorkerFailedPayload{AttemptID: attempt, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "the worker reported the failed check", ContextFindings: findings}
 		payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
-		return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+		return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
 	}
 	refusals := []struct {
 		name     string

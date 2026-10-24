@@ -147,7 +147,7 @@ func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 		workflowEvent("q7-notice", WorkflowImpactNoticeRecorded, workID, map[string]any{
 			"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "notice_id": noticeID,
 			"source_contract_version": 1, "entity_kind": "spec", "entity_ref": "spec:one", "target_work_id": workID,
-			"edge_id": "edge:" + workID, "old_hash": nil, "new_hash": nil, "severity": "informational",
+			"edge_owner_work_id": workID, "edge_id": "edge:" + workID, "old_hash": nil, "new_hash": nil, "severity": "informational",
 		}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

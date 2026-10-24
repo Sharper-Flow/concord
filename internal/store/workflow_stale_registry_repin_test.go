@@ -96,18 +96,14 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	// through its authorization window, so the window opens before the
 	// generic dispatch records the worker's own evidence.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "repair", ownerRef)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + identity, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+identity, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.Actor = ownerRef
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + identity, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+identity, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID, latestStepStartEpoch(t, s, workID, "repair")
@@ -530,18 +526,13 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+workID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID

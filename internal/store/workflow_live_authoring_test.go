@@ -837,10 +837,14 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		window, err := findAuthorizedDispatchWindowCore(context.Background(), s.DatabaseForTesting(), workID, attemptID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: "research-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest}),
 		}}}); err != nil {
 			t.Fatal(err)
 		}

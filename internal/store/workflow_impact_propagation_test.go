@@ -122,6 +122,5 @@ func withImpactVerdict(t *testing.T, event Event, verdict string) Event {
 	}
 	payload["impact_verdict"] = verdict
 	event.Payload, _ = json.Marshal(payload)
-	event.PayloadVersion = 2
 	return event
 }

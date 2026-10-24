@@ -570,10 +570,8 @@ func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, Work
 func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
-	dispatch := Event{EventID: "issue1013-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
-		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
-	})}
+	dispatch := workerDispatchEvent(workID, "issue1013-worker-dispatch-"+workID+"-"+attemptID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(20, 0).UTC()
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatalf("record worker dispatch %s: %v", attemptID, err)
 	}

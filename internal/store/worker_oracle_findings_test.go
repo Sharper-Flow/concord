@@ -653,7 +653,6 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 		"worker_packet_predicate_ids": []string{},
 		"worker_lane_id":              lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass,
 	})
-	authorization.PayloadVersion = 4
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{authorization}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("authorize oracle attempt %s: %v", attemptID, err)
 	}
@@ -738,7 +737,7 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 			}
 		}
 	}
-	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	event := Event{EventID: eventKey + "-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 	return event
 }
 
@@ -1552,7 +1551,7 @@ func TestOwnerOracleCompletionPayloadBoundary(t *testing.T) {
 			Result:       OracleReceiptResultNotRun, RunRef: "",
 		})
 	})
-	stalePayload.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerCompleted) - 1
+	stalePayload.PayloadVersion = CurrentEventPayloadVersion(WorkerCompleted) - 1
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{stalePayload}}); !hasFailureKind(err, KindUnsupportedPayloadVersion) {
 		t.Fatalf("stale-version oracle content error = %v", err)
 	}

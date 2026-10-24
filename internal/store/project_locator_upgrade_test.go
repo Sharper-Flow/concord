@@ -335,6 +335,7 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 		ProjectLocator{ID: "gone", Kind: LocatorGitRemote, Value: "ssh://git@host/o/r"})
 	e := recordedLocatorEvent("gone", "", "", "")
 	e.EventID, e.Kind = "historical-remove", "project.locator_removed"
+	e.PayloadVersion = CurrentEventPayloadVersion(e.Kind)
 	e.Payload, _ = json.Marshal(projectLocatorPayload{ProjectID: "project-a", LocatorID: "gone", ExpectedVersion: 3, ResultingVersion: 4})
 	insertHistoricalEvent(t, s, e)
 	ctx := context.Background()

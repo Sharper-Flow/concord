@@ -29,10 +29,6 @@ func s2WorkerFailedLive(t *testing.T, s *Store, event Event) error {
 	})
 }
 
-func s2WorkerFailedEvent(workID, attemptID, eventID, detail, model string) Event {
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: detail})}
-}
-
 // s2WorkerFailedAttributedEvent builds one current-version worker.failed
 // event carrying the recorded producer observation exactly as the
 // authenticated CLI assembles it: origin and observation only, never an
@@ -43,7 +39,7 @@ func s2WorkerFailedEvent(workID, attemptID, eventID, detail, model string) Event
 func s2WorkerFailedAttributedEvent(workID, attemptID, eventID, model string, failureKind, detail string, occurredAt time.Time) Event {
 	payload := WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: failureKind, Detail: detail}
 	payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
 }
 
 // s2WorkerFailedAttributedLive records the counting journeys' terminal fact

@@ -29,7 +29,7 @@ func attributionWorkerFailedEvent(workID, attemptID, eventID, model string, obse
 	if observation != nil {
 		payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: observation}
 	}
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
 }
 
 // attributionHostObservation is one host_adapter host_execution observation
@@ -97,7 +97,7 @@ func attributionDispatchWindow(t *testing.T, s *Store, workID, attemptID string)
 }
 
 func TestWorkerFailureAttributionRequiredOnNewPins(t *testing.T) {
-	for _, version := range []int{WorkerEvidenceEventPayloadVersion(WorkerFailed), 3} {
+	for _, version := range []int{CurrentEventPayloadVersion(WorkerFailed), 3} {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
 			workID := "attribution-required-" + strconv.Itoa(version)
 			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -108,7 +108,7 @@ func TestWorkerFailureAttributionRequiredOnNewPins(t *testing.T) {
 			event := attributionWorkerFailedEvent(workID, attempt, "missing-"+workID, preferredModelForLane(lane), nil)
 			event.PayloadVersion = version
 			err := s2WorkerFailedLive(t, fixture.store, event)
-			if version != WorkerEvidenceEventPayloadVersion(WorkerFailed) {
+			if version != CurrentEventPayloadVersion(WorkerFailed) {
 				if !hasFailureKind(err, KindUnsupportedPayloadVersion) {
 					t.Fatalf("old-version terminal error = %v, want %s", err, KindUnsupportedPayloadVersion)
 				}
@@ -136,7 +136,7 @@ func TestWorkerFailureAttributionRequiredOnNewPins(t *testing.T) {
 			t.Fatalf("the born-failed authorization refused: %v", err)
 		}
 		window := attributionDispatchWindow(t, fixture.store, workID, attempt)
-		dispatch := Event{EventID: "born-missing-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+		dispatch := Event{EventID: "born-missing-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 			AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
 			ReadbackModel: preferredModelForLane(lane), Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
@@ -275,7 +275,7 @@ func TestWorkerFailureAttributionForgedAndSmuggledRefuse(t *testing.T) {
 
 	// A live raw append of the legacy marker at the capable version is a
 	// forged new-legacy claim the fold refuses.
-	rawForged := Event{EventID: "failed-attribution-forged", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureWorkerError, Detail: "the attempt failed", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionLegacyUnavailable}})}
+	rawForged := Event{EventID: "failed-attribution-forged", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureWorkerError, Detail: "the attempt failed", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionLegacyUnavailable}})}
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{rawForged}}); err == nil {
 		t.Fatal("the fold admitted a forged new-legacy marker on a capable terminal")
 	}
@@ -328,7 +328,7 @@ func TestWorkerFailureAttributionBornFailedDispatch(t *testing.T) {
 			},
 		}},
 	}
-	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
 		ReadbackModel: "provider/executing-model", Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
@@ -363,7 +363,7 @@ func TestWorkerFailureAttributionBornFailedDispatch(t *testing.T) {
 	if readerErr != nil {
 		t.Fatalf("read the born-failed terminal attribution: %v", readerErr)
 	}
-	if record.EventID != "born-dispatch-"+workID || record.SourceVersion != WorkerEvidenceEventPayloadVersion(WorkerDispatched) ||
+	if record.EventID != "born-dispatch-"+workID || record.SourceVersion != CurrentEventPayloadVersion(WorkerDispatched) ||
 		record.Attribution == nil || record.Attribution.Identity == nil || record.Attribution.Identity.Kind != WorkerFailureIdentityAttempt {
 		t.Fatalf("born-failed reader record = %+v, want the recorded block over the dispatch evidence", record)
 	}
@@ -388,7 +388,7 @@ func TestWorkerFailureAttributionAbandonKeepsReleasedOutcome(t *testing.T) {
 	}
 	// The current definition requires the host's recorded abandonment
 	// observation live; the abandonment keeps its outcome and model.
-	abandoned := Event{EventID: "failed-attribution-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(33, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{
+	abandoned := Event{EventID: "failed-attribution-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(33, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &WorkerFailureObservation{
 		Observer: WorkerFailureObserverHostAdapter, Phase: WorkerFailurePhaseHostExecution, Cause: WorkerFailureCauseUnknown, Basis: WorkerFailureBasisUnknown,
 		Sources: []WorkerFailureSource{workerFailureAbandonmentSourceFixture()},
 	}}})}
@@ -1199,7 +1199,7 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 		Sources:  []WorkerFailureSource{{Kind: WorkerFailureSourceAdmittedReport, Locator: "report-coupling", Digest: testDigestB}},
 	}
 	payload := WorkerFailedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureInvalidReport, Detail: "the report never validly shaped", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerObservation}}
-	event := Event{EventID: "failed-coupling-invalid-report", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+	event := Event{EventID: "failed-coupling-invalid-report", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
 	if err := s2WorkerFailedLive(t, s, event); err == nil || !strings.Contains(err.Error(), "worker report") {
 		t.Fatalf("worker_report on invalid_report err=%v, want the worker report coupling refusal", err)
 	}
@@ -1224,7 +1224,7 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 		t.Fatalf("the born authorization refused: %v", err)
 	}
 	bornWindow := attributionDispatchWindow(t, s, workID, bornAttempt)
-	bornDispatch := Event{EventID: "born-coupling-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+	bornDispatch := Event{EventID: "born-coupling-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: bornAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: bornWindow.PacketDigest,
 		ReadbackModel: preferredModelForLane(lane), Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
@@ -1268,7 +1268,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	// reported a failure, the coordinator did not close the attempt.
 	attempt := "attempt:" + workID + ":worker-error"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "attribution-abandonment-dispatch", &WorkerJobBinding{JobID: "job:" + workID})
-	workerError := Event{EventID: "failed-abandonment-worker-error", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "the report failed validation", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
+	workerError := Event{EventID: "failed-abandonment-worker-error", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "the report failed validation", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
 	if err := s2WorkerFailedLive(t, s, workerError); err == nil || !strings.Contains(err.Error(), "abandonment observation belongs to the abandoned terminal") {
 		t.Fatalf("abandonment observation on a worker_error terminal err=%v, want the abandoned-terminal coupling refusal", err)
 	}
@@ -1284,7 +1284,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 		t.Fatalf("the born authorization refused: %v", err)
 	}
 	bornWindow := attributionDispatchWindow(t, s, workID, bornAttempt)
-	bornDispatch := Event{EventID: "born-abandonment-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+	bornDispatch := Event{EventID: "born-abandonment-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: bornAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: bornWindow.PacketDigest,
 		ReadbackModel: preferredModelForLane(lane), Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
@@ -1305,7 +1305,7 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	// outcome unknown, so it is reconciled before any other launch (CD-0242
 	// D6): its abandoned terminal admits the abandonment observation live.
 	abandonedAttempt := bornAttempt
-	abandoned := Event{EventID: "failed-abandonment-admitted", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(32, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: abandonedAttempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
+	abandoned := Event{EventID: "failed-abandonment-admitted", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(32, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: abandonedAttempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
 	if err := s2WorkerFailedLive(t, s, abandoned); err != nil {
 		t.Fatalf("the abandoned terminal refused its abandonment observation: %v", err)
 	}

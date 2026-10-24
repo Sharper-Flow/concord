@@ -128,7 +128,7 @@ func (f crossAttemptFixture) materializeDispatch(t *testing.T, attemptID string,
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, f.workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
-	dispatched := Event{EventID: "cross-attempt-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
+	dispatched := Event{EventID: "cross-attempt-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
 	if err := f.s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatched, dispatcher.PrincipalRef, dispatcher.ClientRef)
 		if err != nil {
@@ -304,19 +304,14 @@ func expectMembershipRefusal(t *testing.T, err error, context string) {
 func (f crossAttemptFixture) forgedRejectCompletionEvent(t *testing.T, eventID, attemptID string, epoch int64, actorRef string, at int64) Event {
 	t.Helper()
 	version := readWorkVersion(t, f.s, f.workID)
-	return Event{
-		EventID: eventID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID,
-		Actor: actorRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 5,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": f.workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": f.step, "action_id": "reject_worker_result",
-			"attempt_epoch": epoch, "worker_attempt_id": attemptID, "actor_ref": actorRef,
-			"correction_diagnosis":     "the research result does not satisfy the approved outcome",
-			"correction_strategy":      "redo the research obligation in a fresh fenced attempt",
-			"correction_predicate_ids": []string{"predicate:return-route"},
-			"correction_evidence_refs": []string{"evidence:research-rejection"},
-		}),
-	}
+	return workflowTypedEvent(eventID, WorkflowActionCompleted, f.workID, actorRef, time.Unix(at, 0).UTC(), version, map[string]any{
+		"step_id": f.step, "action_id": "reject_worker_result",
+		"attempt_epoch": epoch, "worker_attempt_id": attemptID, "actor_ref": actorRef,
+		"correction_diagnosis":     "the research result does not satisfy the approved outcome",
+		"correction_strategy":      "redo the research obligation in a fresh fenced attempt",
+		"correction_predicate_ids": []string{"predicate:return-route"},
+		"correction_evidence_refs": []string{"evidence:research-rejection"},
+	})
 }
 
 // applyWitnessEvent applies one directly authored workflow event through the
@@ -1552,15 +1547,10 @@ func TestCrossAttemptFoldRejectionHoldDirectWitness(t *testing.T) {
 	// authors, minus review_advance_held and worker_job: the fold derives a
 	// positive advance for the completed review and must meet the standing
 	// rejection before any attempt validation runs.
-	witness := Event{
-		EventID: "cross-attempt-fold-hold-accept", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(53, 0).UTC(), PayloadVersion: 5,
-		Payload: mustJSONValue(map[string]any{
-			"work_id": workID, "expected_version": versionHeld, "resulting_version": versionHeld + 1,
-			"step_id": f.step, "action_id": "accept_worker_result",
-			"attempt_epoch": epochV, "worker_attempt_id": f.attemptV, "actor_ref": ownerRef,
-		}),
-	}
+	witness := workflowTypedEvent("cross-attempt-fold-hold-accept", WorkflowActionCompleted, workID, ownerRef, time.Unix(53, 0).UTC(), versionHeld, map[string]any{
+		"step_id": f.step, "action_id": "accept_worker_result",
+		"attempt_epoch": epochV, "worker_attempt_id": f.attemptV, "actor_ref": ownerRef,
+	})
 	if err := f.applyWitnessEvent(t, witness); err == nil {
 		t.Fatal("the fold admitted a direct advancing accept of the completed review beside the unconsumed rejection")
 	} else {
@@ -1803,16 +1793,16 @@ func authorJobBoundRejection(ctx context.Context, t *testing.T, tx *sql.Tx, work
 		"attempt_epoch": epoch, "worker_attempt_id": attemptID,
 		"worker_job": map[string]any{"job_id": "job:cross-attempt-unbound-witness", "revision": 1, "digest": "sha256:" + strings.Repeat("w", 64)},
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,5,?)`,
-		workID+":witness-dispatch-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), dispatchPayload); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		workID+":witness-dispatch-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), CurrentEventPayloadVersion(WorkflowActionCompleted), dispatchPayload); err != nil {
 		t.Fatalf("insert the witness dispatch binding: %v", err)
 	}
 	rejectionPayload := mustJSONValue(map[string]any{
 		"work_id": workID, "step_id": step, "action_id": "reject_worker_result",
 		"attempt_epoch": epoch, "worker_attempt_id": attemptID,
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,5,?)`,
-		workID+":witness-reject-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), rejectionPayload); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		workID+":witness-reject-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), CurrentEventPayloadVersion(WorkflowActionCompleted), rejectionPayload); err != nil {
 		t.Fatalf("insert the witness job-bound rejection: %v", err)
 	}
 }

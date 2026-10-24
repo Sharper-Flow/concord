@@ -53,7 +53,7 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 	for _, kind := range reserved {
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: "reserved-" + kind, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work-issue31",
-			Actor: "actor:issue31", OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`),
+			Actor: "actor:issue31", OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: CurrentEventPayloadVersion(kind), Payload: json.RawMessage(`{}`),
 		}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-issue31"): 0}})
 		if err == nil {
 			t.Fatalf("ApplyOperation accepted reserved event %q", kind)
@@ -325,7 +325,7 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-operator-premise"): version}}); err != nil {
 		t.Fatal(err)
 	}
-	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version + 1, "resulting_version": version + 2, "contract_version": 1, "confirming_actor_ref": evaluatorRef})
+	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, "valid-operator-premise", evaluatorRef, map[string]any{"work_id": "valid-operator-premise", "expected_version": version + 1, "resulting_version": version + 2, "contract_version": 1, "confirming_actor_ref": evaluatorRef, "confirmation_authority": "operator"})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "valid-operator-premise"): version + 1}}); err != nil {
 		t.Fatalf("valid authenticated operator rejected: %v", err)
 	}

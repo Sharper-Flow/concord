@@ -51,7 +51,6 @@ func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*St
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,
 		"premise_confirmed": len(verdicts) == 2, "evidence_count": 2, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
-	completion.PayloadVersion = 2
 	return f.store, completion, nil
 }
 
@@ -122,7 +121,6 @@ func TestConjunctiveVerdictForAnUnapprovedPredicateIsRefusedAtTheFold(t *testing
 		"predicate_id": "predicate:extra", "verdict_kind": "ok", "verdict_actor_ref": actor,
 		"evaluation_evidence": []string{f.receipt}, "candidate": state.Candidate,
 	})
-	event.PayloadVersion = 2
 	err = applyWorkflowTestOperation(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: workVersion(f.workID, version)})
 	if !hasFailureKind(err, KindOutcomeMismatch) {
 		t.Fatalf("unapproved criterion fold = %v, want outcome_mismatch", err)

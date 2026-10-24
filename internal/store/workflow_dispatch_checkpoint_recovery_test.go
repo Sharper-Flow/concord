@@ -167,7 +167,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			available: true, model: admissionModelState{contracts: 1, dispatched: true, attempt: "failure_recorded"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
 				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
-				failure := workerFailedContextFindingsEvent(f.workID, "failed-"+f.workID, f.attemptR, preferredModelForLane(f.researchLane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+				failure := workerFailedContextFindingsEvent(f.workID, "failed-"+f.workID, f.attemptR, preferredModelForLane(f.researchLane), WorkerFailureWorkerError, nil, CurrentEventPayloadVersion(WorkerFailed))
 				if err := s2WorkerFailedLive(t, f.s, withWorkerFailureObservation(t, failure)); err != nil {
 					t.Fatalf("record authenticated failed terminal: %v", err)
 				}

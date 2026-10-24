@@ -21,7 +21,7 @@ func claimRetryWorktree(t *testing.T, s *Store, workID string) {
 		worktreeFacts{branch: "change/claim", headSHA: strings.Repeat("a", 40), repositoryID: "repo-1"}, "", 0, 0)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "approval-boundary-worktree-" + workID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: payload,
+		Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.worktree_created"), Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("record the retry worktree claim: %v", err)
 	}

@@ -520,7 +520,7 @@ func recordedLocatorEvent(id, kind, value, normalized string) Event {
 		"value": value, "normalized_value": normalized,
 		"expected_version": 1, "resulting_version": 2,
 	})
-	return Event{EventID: "locator-" + id, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	return Event{EventID: "locator-" + id, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("project.locator_added"), Payload: payload}
 }
 
 // TestRecordedCanonicalPathNegativeControls proves the fold still refuses a
@@ -538,7 +538,8 @@ func TestRecordedCanonicalPathNegativeControls(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := locatorReplayStore(t)
-			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("path-tampered", string(LocatorCanonicalPath), tc.value, tc.normalized)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+			event := recordedLocatorEvent("path-tampered", string(LocatorCanonicalPath), tc.value, tc.normalized)
+			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 			assertFailureKind(t, err, KindInvalidPayload)
 		})
 	}
@@ -551,7 +552,6 @@ func TestRecordedRemoteNormalizationDeterministic(t *testing.T) {
 	t.Parallel()
 	s := locatorReplayStore(t)
 	event := recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")
-	event.PayloadVersion = 2
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 	if err == nil || !strings.Contains(err.Error(), "normalization is not deterministic") {
 		t.Fatalf("tampered remote normalization err=%v", err)

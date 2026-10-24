@@ -11,7 +11,7 @@ func externalRefWorkCreatedEvent(eventID, workID, externalRef, raisedFrom string
 		"work_kind": "task", "title": workID, "priority": 1,
 		"external_ref": externalRef, "raised_from_work_id": raisedFrom,
 	})
-	event.PayloadVersion = 2
+	event.PayloadVersion = CurrentEventPayloadVersion("work.created")
 	return event
 }
 

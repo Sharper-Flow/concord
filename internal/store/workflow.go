@@ -1392,6 +1392,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := voidWorkerJobRepairsForSupersessionTx(ctx, tx, event.SubjectID, p.NewContractVersion, event.Seq-1); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET supersession_seq=? WHERE work_id=? AND contract_version=?`, event.Seq, event.SubjectID, p.NewContractVersion); err != nil {
+		return workflowProjectionError(err, "cannot record the workflow contract supersession boundary")
+	}
 	if p.SuccessorContract != nil {
 		if err := foldCompleteStepContractCorrectionTxForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.SuccessorContract); err != nil {
 			return err
@@ -1759,8 +1762,13 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := startWorkflowInstanceStepTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES(?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch`, event.SubjectID, p.StepID, p.AttemptEpoch); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload`, event.SubjectID, p.StepID, p.AttemptEpoch, event.Seq, event.EventID, string(event.Payload)); err != nil {
 		return workflowProjectionError(err, "cannot record the current step epoch")
+	}
+	if p.ActionID == "dispatch_worker" {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_epochs SET latest_dispatch_start_seq=?,latest_dispatch_start_event_id=?,latest_dispatch_start_payload=? WHERE work_id=? AND step_id=?`, event.Seq, event.EventID, string(event.Payload), event.SubjectID, p.StepID); err != nil {
+			return workflowProjectionError(err, "cannot record the current dispatch start")
+		}
 	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
@@ -2567,6 +2575,13 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
 		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
 	}
+	// A local job acceptance holds its phase. Every other action keeps one
+	// current exit coordinate; the pinned definition chooses advancing actions.
+	if p.ActionID != "accept_worker_result" || p.WorkerJob == nil || p.DeliveryState != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,?,?) ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq`, event.SubjectID, p.ActionID, event.Seq); err != nil {
+			return workflowProjectionError(err, "cannot record the workflow phase exit")
+		}
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
@@ -2777,7 +2792,18 @@ func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID,
 }
 
 func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID string) (int64, int64, bool, error) {
-	return latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
+	start, err := readWorkflowActionStartTx(ctx, q, workID, stepID, false)
+	if err == sql.ErrNoRows {
+		return 0, 0, false, nil
+	}
+	if err != nil {
+		return 0, 0, false, workflowProjectionError(err, "cannot inspect the latest workflow action start")
+	}
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal(start.Payload, &payload); err != nil {
+		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	return start.Seq, payload.AttemptEpoch, true, nil
 }
 
 // workflowStepPassBoundary reports the event seq that opens the current pass
@@ -2805,7 +2831,7 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 		return startSeq, true, nil
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq}
+	args := []any{workID, startSeq}
 	for _, action := range advancing {
 		args = append(args, action)
 	}
@@ -2813,7 +2839,7 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	// A held local job acceptance records a disposition and holds the step
 	// (CD-0205 D3), so it is no step entry: the pass boundary it would move
 	// past still governs the reads that recover results and corrections.
-	query := `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id') IN (` + placeholders + `) AND ` + workflowHeldJobAcceptPredicate
+	query := `SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND exit_seq>? AND action_id IN (` + placeholders + `)`
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
 	}
@@ -2824,7 +2850,7 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 		// predecessor contract's start and verification cutoff. Released
 		// callable-start pins keep their original pass-boundary rule.
 		var supersededSeq int64
-		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, startSeq).Scan(&supersededSeq); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(supersession_seq),0) FROM workflow_contracts WHERE work_id=? AND supersession_seq>?`, workID, startSeq).Scan(&supersededSeq); err != nil {
 			return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's contract entry", true, "retry once the workflow event log is readable", err)
 		}
 		entrySeq = max(entrySeq, supersededSeq)
@@ -3120,6 +3146,27 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return seq, payload.AttemptEpoch, true, nil
+}
+
+// readWorkflowActionStartTx reads the current start descriptor. A dispatch
+// start survives unrelated later starts so authorization can snapshot its pair.
+func readWorkflowActionStartTx(ctx context.Context, q queryer, workID, stepID string, dispatchOnly bool) (Event, error) {
+	query := `SELECT latest_start_seq,latest_start_event_id,latest_start_payload FROM workflow_step_epochs WHERE work_id=? AND step_id=? AND latest_start_seq>0`
+	if dispatchOnly {
+		query = `SELECT latest_dispatch_start_seq,latest_dispatch_start_event_id,latest_dispatch_start_payload FROM workflow_step_epochs WHERE work_id=? AND step_id=? AND latest_dispatch_start_seq>0`
+	}
+	start := Event{Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, PayloadVersion: 1}
+	var raw string
+	if err := q.QueryRowContext(ctx, query, workID, stepID).Scan(&start.Seq, &start.EventID, &raw); err != nil {
+		return Event{}, err
+	}
+	start.Payload = json.RawMessage(raw)
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal(start.Payload, &payload); err != nil {
+		return Event{}, newFailure(KindInvariantViolation, "workflow_action", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	start.Actor = payload.ActorRef
+	return start, nil
 }
 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
@@ -3427,6 +3474,9 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 			return newFailure(KindStaleRequiresReview, "fold_event", "native_run evidence is "+state+": an attributed report may be read but cannot satisfy completion while unverified", false, "append a verification of the attributed record first")
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,?,?,?,?)`, event.SubjectID, event.Seq, event.EventID, event.Actor, string(event.Payload)); err != nil {
+		return workflowProjectionError(err, "cannot record workflow evidence binding")
+	}
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
@@ -3455,7 +3505,11 @@ func foldWorkflowStalenessObserved(ctx context.Context, tx *sql.Tx, event Event)
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
 	}
-	return validateWorkflowStalenessObservedPayload(event, payload)
+	if err := validateWorkflowStalenessObservedPayload(event, payload); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_staleness_observations(work_id,rule_id,observation_seq,payload) VALUES(?,?,?,?) ON CONFLICT(work_id,rule_id) DO UPDATE SET observation_seq=excluded.observation_seq,payload=excluded.payload`, event.SubjectID, payload.RuleID, event.Seq, string(event.Payload))
+	return workflowProjectionError(err, "cannot record workflow staleness observation")
 }
 
 func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

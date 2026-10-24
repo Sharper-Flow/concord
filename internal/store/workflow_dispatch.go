@@ -877,7 +877,7 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 		}
 	}
 	var boundEvidence int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, request.WorkID, WorkflowEvidenceBound).Scan(&boundEvidence); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, request.WorkID).Scan(&boundEvidence); err != nil {
 		return Event{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot count the bound workflow evidence", true, "retry once the database is readable", err)
 	}
 	premiseConfirmed := false

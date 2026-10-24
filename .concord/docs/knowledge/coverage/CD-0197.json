@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleReplay"
+      "value": "internal/store.TestOwnerOracleCompletionPayloadBoundary"
     },
     {
       "kind": "go_test",
@@ -19,10 +19,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkerCompletionReviewBlockShapeIsClosed"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkerCompletedV2ReplaysWithoutTheReviewBlock"
     },
     {
       "kind": "go_test",
@@ -42,7 +38,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReviewLaneBlockOnlyCompletionFoldsAndReplays"
+      "value": "internal/store.TestReviewLaneBlockOnlyCompletionFolds"
     },
     {
       "kind": "adapter_test",

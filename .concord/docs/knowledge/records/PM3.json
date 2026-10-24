@@ -23,7 +23,6 @@
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "internal/store/lifecycle_relations_test.go",
-    "internal/store/rebuild_msg_test.go",
     "internal/store/store_test.go",
     "internal/store/schema_test.go"
   ],

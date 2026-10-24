@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestExternalObservationCaptureVerifyAndRebuild"
+      "value": "internal/store.TestExternalObservationCaptureAndVerify"
     },
     {
       "kind": "go_test",

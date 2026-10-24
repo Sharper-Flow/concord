@@ -30,10 +30,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests"
     },
     {

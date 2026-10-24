@@ -196,7 +196,7 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
   Then publication preserves the pack and retirement reports protection without deleting it.
 
 - Given the historical projection of a compacted item
-  When the projection rebuilds
+  When the projection is read
   Then every field derives from one verified note or stable canonical-home context rather than a copied live row.
 
 - Given a bounded research retirement batch
@@ -213,7 +213,7 @@ A simpler PM10 authority must preserve the canonical note, retained receipts, an
 - Criterion 2 retains `internal/store.TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead` for watermark evidence; the historical-tier join remains deferred, not proved by an executed prune mechanism.
 - Criterion 3 names candidate `internal/store.TestResearchRetirementTerminalOwnersEligible`; integrated retirement eligibility remains unmeasured.
 - Criterion 4 names candidate `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`; publication separation and full protection coverage remain unmeasured.
-- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` and `internal/store.TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder` for historical derivation.
+- Criterion 5 retains `internal/store.TestCompactionPayloadRequiresExplicitUniqueScopeArrays` for explicit scope derivation; derivation of every historical projection field remains unmeasured.
 - Criterion 6 names candidate `internal/store.TestResearchRetirementDryRunMixedBatchHasNoWrites`; integrated dry-run coverage remains unmeasured.
 - Criterion 7 names candidate `internal/agent.TestResearchRetireDryRunAndReplay`; restart and full committed replay coverage remain unmeasured.
 

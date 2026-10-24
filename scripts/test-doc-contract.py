@@ -2213,6 +2213,57 @@ def test_activation_sequence_requires_a_prior_committed_criterion() -> None:
     assert any("changed together with" in f for f in findings), findings
 
 
+def test_activation_sequence_reads_parent_head_without_current_record_rules() -> None:
+    """The parent's activation object is a head field. A parent record that
+    current record rules refuse, such as a profile outside today's closed
+    legacy set, must not hide the recorded criterion."""
+    import subprocess as sp
+
+    knowledge_index = checker.knowledge_index
+    root = sandbox()
+    head_path = root / knowledge_index.HEAD_PATH
+    record_dir = root / knowledge_index.RECORD_DIR
+    record_dir.mkdir(parents=True, exist_ok=True)
+
+    def git(*args):
+        return sp.run(["git", *args], cwd=root, capture_output=True, text=True, check=True)
+
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    activation = {
+        "max_registered_findings": 0,
+        "max_unresolved_criteria": 0,
+        "max_false_positives": 0,
+        "evidence": "recorded before the flip",
+    }
+    head = {
+        "schema_version": "1.2",
+        "supported_kinds": ["decision"],
+        "indexed_kinds": ["decision"],
+        "knowledge_roots": [".concord/docs"],
+        "doc_contract": {"enforced": False, "activation": activation},
+    }
+    (record_dir / "CD-9999.json").write_text(
+        json.dumps({"id": "CD-9999", "kind": "decision", "doc_contract_profile": "legacy"})
+    )
+    head_path.write_text(json.dumps(head))
+    git("add", "-A")
+    git("commit", "-qm", "record activation")
+    head_path.write_text(json.dumps({**head, "doc_contract": {**head["doc_contract"], "enforced": True}}))
+    git("add", "-A")
+    git("commit", "-qm", "flip")
+    try:
+        knowledge_index.compose_manifest(root)
+    except knowledge_index.ComposeError:
+        pass
+    else:
+        raise AssertionError("the parent record must fail current composition")
+    findings: list[str] = []
+    with mock.patch.object(checker, "ROOT", root):
+        checker.check_activation_sequence(True, activation, findings)
+    assert not findings, findings
+
+
 
 
 def test_url_path_segments_are_not_scanned_for_abbreviations() -> None:

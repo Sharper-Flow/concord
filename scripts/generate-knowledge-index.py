@@ -97,11 +97,6 @@ LAW_RELATION_KINDS = {"refines", "subordinate_to", "conflicts_with"}
 # $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # check-knowledge-vocabulary.py binds this restatement to that pattern text.
 RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
-# CD-0194 D5: a ref that predates the .concord placement composes from the
-# docs/knowledge shard tier, whose records carry docs/ paths. That tier is
-# the shape that revision has, so its path rule moves with it. Authoring
-# always uses RECORD_PATH_RE.
-PRE_MIGRATION_RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 # CD-0194 D2: the closed external shape an operator override admits. The text
 # mirrors the external path pattern in $defs.record.allOf of
 # contracts/concord-knowledge-index.v1.schema.json;
@@ -262,7 +257,7 @@ def build_override_coverage(overrides: object, product_key: object = None) -> ca
     return covered
 
 
-def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None, source_role: bool = False) -> None:
+def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, covered: callable | None = None, source_role: bool = False) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
         return
@@ -293,7 +288,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         or ".." in Path(path).parts
     ):
         findings.append(f"{prefix}: forbidden or unsafe path: {path}")
-    elif not record_path_re.fullmatch(path):
+    elif not RECORD_PATH_RE.fullmatch(path):
         # CD-0194 D2: outside the default tree, only an explicit operator
         # override admits the placement, and only the closed external shape.
         # An override can never name a path inside .concord/, so a stray
@@ -492,7 +487,7 @@ def canonical_domain_registry(registry: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None, source_role: bool = False) -> list[dict[str, object]]:
+def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], covered: callable | None = None, source_role: bool = False) -> list[dict[str, object]]:
     directory = root / SHARD_DIR
     if not directory.is_dir():
         findings.append(f"shard directory missing: {SHARD_DIR}")
@@ -509,7 +504,7 @@ def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles
             continue
         identifier = record.get("id")
         prefix = f"{SHARD_DIR / path.name}"
-        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re, covered, source_role)
+        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, covered, source_role)
         if not isinstance(identifier, str):
             continue
         if path.stem != identifier:
@@ -605,7 +600,7 @@ def validate_operator_overrides(template: dict[str, object], findings: list[str]
             findings.append(f"{prefix}: reason must be a trimmed bounded justification of twelve to five hundred twelve characters")
 
 
-def derive_aggregate(root: Path, findings: list[str], template: dict[str, object] | None = None, record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> bytes | None:
+def derive_aggregate(root: Path, findings: list[str], template: dict[str, object] | None = None) -> bytes | None:
     root_template = template_for(root, findings, template)
     if root_template is None or findings:
         return None
@@ -631,7 +626,7 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     profiles_enforced = isinstance(decision_head, dict) and "current_required_sections" in decision_head
     validate_operator_overrides(root_template, findings, registry.get("product_key") if isinstance(registry, dict) else None)
     covered = build_override_coverage(root_template.get("operator_overrides"), registry.get("product_key") if isinstance(registry, dict) else None)
-    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re, covered, source_role)
+    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, covered, source_role)
     if findings:
         return None
     aggregate = dict(root_template)

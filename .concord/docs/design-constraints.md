@@ -299,7 +299,7 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 
 The cited decisions govern implementation conformance.
 
-1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority; see #8.
+1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority.
 2. **Workflow evolution semantics** (§3). **Resolved by CD-0006:** full coordination engine, code-defined versioned built-ins, one generic type, and forward-linked successors with independent authority/recovery.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.

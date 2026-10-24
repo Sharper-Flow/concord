@@ -56,12 +56,6 @@ func writeWorkerTerminalFactsTx(ctx context.Context, tx *sql.Tx, event Event, at
 	return err
 }
 
-func readWorkerAuthorizationStartTx(ctx context.Context, q queryer, work, attempt string) (Event, error) {
-	event := Event{SubjectType: SubjectWorkItem, SubjectID: work, Kind: WorkflowActionStarted, PayloadVersion: 1}
-	err := q.QueryRowContext(ctx, `SELECT start_seq,start_payload FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0`, work, attempt).Scan(&event.Seq, &event.Payload)
-	return event, err
-}
-
 func workerAuthorizationActorTx(ctx context.Context, q queryer, work, attempt string) (string, error) {
 	var actor string
 	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, work, attempt).Scan(&actor)

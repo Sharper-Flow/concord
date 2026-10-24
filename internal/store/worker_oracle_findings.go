@@ -512,7 +512,6 @@ type workerOracleFindingLineage struct {
 	findings         map[string]*WorkerOpenOracleFinding
 	openOrder        []string
 	oracleCapable    bool
-	oracles          map[WorkerJobBinding]*AcceptanceOracle
 	retainedReceipts []WorkerOracleReceipt
 }
 
@@ -525,16 +524,6 @@ func (l *workerOracleFindingLineage) openFindingIDs() []string {
 		}
 	}
 	return ids
-}
-
-// oracleForBinding resolves one dispatched binding's recorded oracle from
-// the lineage's retained oracle map, nil when the revision predates the
-// oracle.
-func (l *workerOracleFindingLineage) oracleForBinding(binding WorkerJobBinding) *AcceptanceOracle {
-	if l.oracles == nil {
-		return nil
-	}
-	return l.oracles[binding]
 }
 
 // sameOracleTie reports whether a continuation retains the earlier finding's
@@ -598,7 +587,6 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 	}
 	lineage := &workerOracleFindingLineage{
 		findings: map[string]*WorkerOpenOracleFinding{},
-		oracles:  oracles,
 	}
 	actors := map[string]string{}
 	query := `SELECT seq,event_id,kind,COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),COALESCE(json_extract(payload,'$.worker_job.digest'),''),payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?)`

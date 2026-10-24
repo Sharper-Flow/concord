@@ -564,6 +564,13 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if severity != "breaking" || entityKind != "workflow_contract" {
 		t.Fatalf("revision notice=%s/%s, want breaking/workflow_contract", severity, entityKind)
 	}
+	var frontier, latest int64
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq,(SELECT MAX(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id='revision-source') FROM work_items WHERE id='revision-source'`).Scan(&frontier, &latest); err != nil {
+		t.Fatal(err)
+	}
+	if frontier != latest {
+		t.Fatalf("effect frontier = %d, want the nested impact notice's sequence %d", frontier, latest)
+	}
 }
 
 func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {

@@ -9,13 +9,13 @@ import (
 )
 
 // Delivery-gate correction support shared with the Review correction suite.
-// The current gate's corrective return answers to an outstanding
-// post-rejection Review or an accepted Review that no longer covers the
-// current candidate; an applicable accepted Review opens none.
+// The current gate's corrective return answers to an accepted Review that no
+// longer covers the current candidate or depended-on revisions; an applicable
+// accepted Review opens none.
 
 // reviewGateSeedAcceptAtRefine replays the refine-crossing route: it records an
 // accepted implement repair whose accept advances the refinement step into
-// the delivery gate with the post-rejection review debt outstanding.
+// the delivery gate before any Review covers the repaired candidate.
 func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
@@ -70,7 +70,7 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	c.j.bindVerification(t, c.early)
 	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
 	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "refine")
-	// Exercise gate recovery with outstanding review debt. A plain result
+	// Exercise gate recovery after the repair changed the reviewed candidate. A plain result
 	// disposition cannot itself assert delivery or move refine (CD-0242 D5).
 	parkWorkflowInstanceAt(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")

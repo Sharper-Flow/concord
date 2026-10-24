@@ -408,7 +408,7 @@ func (l workflowAdmissionLoad) recoveryRoutes(state *WorkflowAdmissionState) (bo
 		return false, reviewEvidenceErr
 	}
 	state.RefineReviewEvidenceAttemptID = reviewEvidenceAttempt
-	// The delivery gate's corrective return reads the review debt this fold
+	// The delivery gate's corrective return reads the Review state this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
 	// correction-request admission directly. Under a duplicated projection

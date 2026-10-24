@@ -180,11 +180,30 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 	insertEvent := func(id, kind string, payload any) int64 {
 		t.Helper()
 		raw, _ := json.Marshal(payload)
-		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor/fixture','2026-10-09T00:00:00Z',4,?);DELETE FROM fold_guard`, id, kind, r.WorkID, string(raw)); err != nil {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
 			t.Fatal(err)
 		}
-		var seq int64
-		if err := s.db.QueryRow(`SELECT seq FROM domain_events WHERE event_id=?`, id).Scan(&seq); err != nil {
+		defer tx.Rollback()
+		scope, err := beginFold(ctx, tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor/fixture','2026-10-09T00:00:00Z',4,?)`, id, kind, r.WorkID, string(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq, err := result.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := advanceWorkEffectSeqTx(ctx, tx, Event{Seq: seq, EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: r.WorkID, OccurredAt: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := scope.close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
 		}
 		return seq
@@ -220,15 +239,33 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 		recorded := WorkerJobRecordedPayload{JobID: "job:producer-fixture", Revision: 1, ContractVersion: preparation.ContractVersion, Objective: "fixture", StoppingCondition: "fixture", AcceptanceOracle: &jobOracle}
 		recorded.Digest = DeriveWorkerJobDigest(recorded)
 		job = WorkerJobBinding{JobID: recorded.JobID, Revision: recorded.Revision, Digest: recorded.Digest}
-		insertEvent(eventID+"-job", WorkerJobRecorded, recorded)
+		jobSeq := insertEvent(eventID+"-job", WorkerJobRecorded, recorded)
+		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
+VALUES(?,?,?,?,?,?,'[]','[]','[]','[]','[]',?,'recorded','2026-10-09T00:00:00Z',?,?,?);
+DELETE FROM fold_guard`, r.WorkID, recorded.JobID, recorded.Revision, recorded.ContractVersion, recorded.Objective, recorded.StoppingCondition, recorded.Digest, string(mustJSONValue(recorded)), jobSeq, eventID+"-job"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	request := NativeOracleRequest{Phase: "execute", AttemptID: "attempt-fixture-" + r.LeaseID, AttemptEpoch: 1, WorkerPacketDigest: nativeDigest([]byte(eventID)), WorkerJobBinding: &job, ControlID: control.ControlID, PreparationRunRef: preparationRef}
 	subject := strings.TrimPrefix(r.SubjectRef, "commit:")
 	const step = "step:fixture-dispatch"
 	laneDigest := "sha256:" + strings.Repeat("a", 64)
-	startSeq := insertEvent(eventID+"-start", WorkflowActionStarted, workflowActionStartedPayload{StepID: step, ActionID: "dispatch_worker", AttemptEpoch: request.AttemptEpoch})
+	start := workflowActionStartedPayload{StepID: step, ActionID: "dispatch_worker", AttemptEpoch: request.AttemptEpoch}
+	startSeq := insertEvent(eventID+"-start", WorkflowActionStarted, start)
 	dispatch := workflowActionCompletedPayload{StepID: step, ActionID: "dispatch_worker", WorkerAttemptID: request.AttemptID, AttemptEpoch: request.AttemptEpoch, WorkerLaneID: "implementation", WorkerLaneVersion: 1, WorkerLaneDigest: laneDigest, WorkerCapabilityClass: "implementation", WorkerPacketDigest: request.WorkerPacketDigest, WorkerSubjectCommit: subject, WorkerJob: &job}
 	seq := insertEvent(eventID, WorkflowActionCompleted, dispatch)
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worker_authorizations(work_id,attempt_id,seq,event_id,payload,start_seq,start_payload,contract_version) VALUES(?,?,?,?,?,?,?,?);
+DELETE FROM fold_guard`, r.WorkID, request.AttemptID, seq, eventID, string(mustJSONValue(dispatch)), startSeq, string(mustJSONValue(start)), preparation.ContractVersion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload,latest_dispatch_start_seq,latest_dispatch_start_event_id,latest_dispatch_start_payload) VALUES(?,?,?,?,?,?,?,?,?)
+ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload,latest_dispatch_start_seq=excluded.latest_dispatch_start_seq,latest_dispatch_start_event_id=excluded.latest_dispatch_start_event_id,latest_dispatch_start_payload=excluded.latest_dispatch_start_payload;
+DELETE FROM fold_guard`, r.WorkID, step, request.AttemptEpoch, startSeq, eventID+"-start", string(mustJSONValue(start)), startSeq, eventID+"-start", string(mustJSONValue(start))); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'implementation',1,?,'implementation','openai/gpt-5.6-luna','1.0','1.0','completed','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z');DELETE FROM fold_guard`, r.WorkID, request.AttemptID, laneDigest); err != nil {
 		t.Fatal(err)
 	}

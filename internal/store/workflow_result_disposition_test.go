@@ -243,9 +243,9 @@ func (f crossAttemptFixture) rejectionCount(t *testing.T, attemptID string, epoc
 }
 
 // rejectableResults reads current rejection eligibility through admission's signature.
-func (f crossAttemptFixture) rejectableResults(t *testing.T, beforeSeq int64) []workflowRejectableResult {
+func (f crossAttemptFixture) rejectableResults(t *testing.T, _ int64) []workflowRejectableResult {
 	t.Helper()
-	results, err := workflowRejectableWorkerResults(context.Background(), f.s.DatabaseForTesting(), f.workID, f.definition, f.step, "test", beforeSeq)
+	results, err := workflowRejectableWorkerResults(context.Background(), f.s.DatabaseForTesting(), f.workID, f.definition, f.step, "test", 0)
 	if err != nil {
 		t.Fatalf("read the rejectable worker results: %v", err)
 	}

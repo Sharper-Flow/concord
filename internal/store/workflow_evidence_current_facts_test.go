@@ -89,6 +89,7 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
 		`SELECT json_array(work_id,binding_seq,binding_id,actor,payload) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
 		`SELECT json_array(o.work_id,o.rule_id,r.effect_seq,o.severity,o.drifted,o.accepted_inputs_digest,o.observed_at) FROM workflow_staleness_observations o JOIN effect_receipts r ON r.event_id=o.event_id ORDER BY o.work_id,o.rule_id,r.effect_seq`,
+		`SELECT json_array(event_id,payload_digest) FROM effect_receipts WHERE subject_type='work_item' AND subject_id IN (SELECT id FROM work_items) ORDER BY effect_seq`,
 	}
 	want := workerFactsQueryRows(t, s, queries)
 	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
@@ -149,6 +150,9 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 				t.Fatal(err)
 			}
 		}
+	}
+	if err := backfillEffectReceiptDigests(t.Context(), tx); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

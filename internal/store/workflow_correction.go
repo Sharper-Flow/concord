@@ -1409,7 +1409,7 @@ func validateWorkerResultRejection(ctx context.Context, q queryer, workID string
 // workflowRejectableWorkerResults reads current completed results still open to
 // rejection, each joined through its dispatch's exact recorded authorization.
 // Admission runs before the action writes its own current-state effects.
-func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, beforeSeq int64) ([]workflowRejectableResult, error) {
+func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, _ int64) ([]workflowRejectableResult, error) {
 	if currentStep == "" || !stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		return nil, nil
 	}

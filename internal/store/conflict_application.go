@@ -239,11 +239,21 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		}
 		return "", err
 	}
-	if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+	scope := transaction.fold
+	if scope == nil {
+		scope = newFoldScope(tx)
+	}
+	if err := scope.enter(ctx); err != nil {
+		return "", err
+	}
+	if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 		return "", err
 	}
 	event.Seq = seq
 	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
+		return "", err
+	}
+	if err := scope.close(ctx); err != nil {
 		return "", err
 	}
 	return eventID, nil

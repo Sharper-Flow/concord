@@ -100,7 +100,8 @@ INSERT INTO domain_events VALUES(6,'work_item','work','worker.dispatched','{"att
 	})
 }
 
-func disposalMarkerForTest(t *testing.T, db *sql.DB, attempt, action string, seq int64) {
+func disposalMarkerForTest(t *testing.T, db *sql.DB, action string, seq int64) {
+	const attempt = "first"
 	t.Helper()
 	raw := string(mustJSONValue(map[string]any{"action_id": action, "worker_attempt_id": attempt, "actor_ref": action, "step_id": "refine"}))
 	if _, err := db.Exec(`INSERT INTO worker_attempt_dispositions VALUES('work',?,?,?, ?,?)`, attempt, seq, action, action, raw); err != nil {
@@ -124,8 +125,8 @@ func disposalStartForTest(t *testing.T, db *sql.DB) {
 
 func TestWorkerFencedWriterLatestDispositionWithoutLog(t *testing.T) {
 	db := workerDisposalCurrentDB(t)
-	disposalMarkerForTest(t, db, "first", "accept_worker_evidence", 4)
-	disposalMarkerForTest(t, db, "first", "record_worker_job", 5)
+	disposalMarkerForTest(t, db, "accept_worker_evidence", 4)
+	disposalMarkerForTest(t, db, "record_worker_job", 5)
 	disposalWithoutLog(t, db, func() {
 		writer, live, since, err := workflowFencedWriter(t.Context(), db, "work", "lane:first", 100)
 		if err != nil || writer != "record_worker_job" || live || since != 5 {
@@ -163,7 +164,7 @@ func TestWorkerDispatchStepHoldWithoutLog(t *testing.T) {
 				}
 			}
 			for i, action := range tc.markers {
-				disposalMarkerForTest(t, db, "first", action, int64(14+i))
+				disposalMarkerForTest(t, db, action, int64(14+i))
 			}
 			disposalWithoutLog(t, db, func() {
 				got, err := workflowDispatchHoldsStepAdvance(t.Context(), db, WorkflowDefinition{}, "work", "refine", 100)
@@ -198,7 +199,7 @@ INSERT INTO domain_events VALUES(8,'work_item','work','workflow.action_completed
 				t.Fatal(err)
 			}
 			for i, action := range tc.markers {
-				disposalMarkerForTest(t, db, "first", action, int64(4+i))
+				disposalMarkerForTest(t, db, action, int64(4+i))
 			}
 			disposalWithoutLog(t, db, func() {
 				attempt, state, found, err := latestDispatchedAttemptAtStep(t.Context(), db, "work", "refine", 100)
@@ -258,7 +259,7 @@ func TestWorkerFailureWindowWithoutLog(t *testing.T) {
 				}
 			}
 			if tc.marker != "" {
-				disposalMarkerForTest(t, db, "first", tc.marker, 14)
+				disposalMarkerForTest(t, db, tc.marker, 14)
 			}
 			disposalWithoutLog(t, db, func() {
 				got, err := workflowFailedWorkerAttemptSince(t.Context(), db, "work", 10, "test", tc.exclude)
@@ -449,7 +450,7 @@ UPDATE worker_authorizations SET seq=11;`); err != nil {
 				}
 			}
 			if tc.marker != "" {
-				disposalMarkerForTest(t, db, "first", tc.marker, 15)
+				disposalMarkerForTest(t, db, tc.marker, 15)
 			}
 			disposalWithoutLog(t, db, func() {
 				got, err := workflowRefineReviewEvidenceAttempt(t.Context(), db, "work", definition, "refine", "test", 100)

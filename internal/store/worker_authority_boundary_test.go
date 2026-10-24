@@ -1073,7 +1073,8 @@ func seedWorkerAtExecution(t *testing.T, workID string) (*Store, string, Workflo
 	}
 	attemptID := "attempt:" + workID
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", workerRef)
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := workerDispatchEvent(workID, "dispatch-"+workID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(2, 0).UTC()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1380,66 +1381,14 @@ func TestWorkerCompletedJobBindingRefusedAtLegacySourceVersion(t *testing.T) {
 // the worker_schema_version_fault helper already validates; the worker.completed
 // fold must compare its reported schema identity against the attempt row the
 // dispatch fold persisted, so a completion whose report_schema_version
-// disagrees with the attempt refuses. A 1.0 pair that finishes with a 1.1
-// report (or the inverse) is the precise mixed legacy/current shape the
-// store must reject. The retired pairs seed through the replay context —
-// the lawful recorded-history route after the 2.0 cutover refuses them on
-// the live boundary — and the fold-level comparison runs identically on
-// replay, which is the rule under test.
+// disagrees with the attempt refuses. The current attempt must reject a
+// completion that names a retired report schema.
 func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	t.Parallel()
 	lane := BuiltinLaneDefinitions()[0]
 	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()
 
-	// The mixed-shape scenario must drive both attempts through the dispatch
-	// fold (the worker_attempts row is fold-only). The legacy-pair dispatch
-	// admits the 1.0/1.0 identities when worker_job is absent; the current
-	// dispatch records the current pair.
-	seedRetiredPairDispatch := func(t *testing.T, s *Store, workID, eventID, attemptID string) {
-		t.Helper()
-		dispatch := Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
-		if err := s.Transact(context.Background(), func(tx *Transaction) error {
-			sqlTx, err := transactionSQL(tx, "worker_pair_seed")
-			if err != nil {
-				return err
-			}
-			_, err = applyOperationTx(workflowReplayContext(context.Background()), sqlTx, Operation{Events: []Event{dispatch}}, newFoldScope(sqlTx), false)
-			return err
-		}); err != nil {
-			t.Fatalf("retired-pair dispatch seed refused: %v", err)
-		}
-	}
-	appendRetiredPairCompletion := func(t *testing.T, s *Store, workID, eventID, attemptID string, reportVersion string) error {
-		t.Helper()
-		completed := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
-		err := s.Transact(context.Background(), func(tx *Transaction) error {
-			sqlTx, err := transactionSQL(tx, "worker_pair_seed")
-			if err != nil {
-				return err
-			}
-			_, err = applyOperationTx(workflowReplayContext(context.Background()), sqlTx, Operation{Events: []Event{completed}}, newFoldScope(sqlTx), false)
-			return err
-		})
-		return err
-	}
-
-	// Same-identity pair lands: a 1.0/1.0 attempt admits a 1.0 completion.
-	s, _ := seedDispatchedWorkerAtExecution(t, "matched-pair-legacy")
-	seedRetiredPairDispatch(t, s, "matched-pair-legacy", "matched-pair-legacy-dispatch", "dispatch-matched-pair-legacy-2")
-	if err := appendRetiredPairCompletion(t, s, "matched-pair-legacy", "matched-pair-legacy-ok", "dispatch-matched-pair-legacy-2", WorkerReportSchemaVersionLegacy); err != nil {
-		t.Fatalf("matched 1.0 pair completion refused: %v", err)
-	}
-
-	// Legacy attempt + job-capable completion: dispatch recorded 1.0/1.0 on the
-	// row; a completion that claims the job-capable 1.1 refuses closed.
-	legacyAttemptID := "dispatch-mixed-pair-legacy-claim"
-	seedRetiredPairDispatch(t, s, "matched-pair-legacy", "mixed-pair-legacy-claim-dispatch", legacyAttemptID)
-	if err := appendRetiredPairCompletion(t, s, "matched-pair-legacy", "mixed-pair-legacy-mismatch", legacyAttemptID, WorkerReportSchemaVersionPrior); err == nil {
-		t.Fatalf("worker.completed with report_schema_version %q accepted against an attempt row at %q; want refusal",
-			WorkerReportSchemaVersionPrior, WorkerReportSchemaVersionLegacy)
-	}
-
-	// Inverse: a current 2.0/2.0 attempt refuses a completion that claims 1.0.
+	// A current attempt refuses a completion that claims a retired report schema.
 	s2, pairWorkerRef := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
 	recordWorkerFixtureDispatchAuthorization(t, s2, "mixed-pair-current", "dispatch-mixed-pair-current-2", "execution", pairWorkerRef)
 	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}

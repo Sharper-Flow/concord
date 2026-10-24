@@ -1,76 +1,50 @@
 package store
 
 import (
+	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/sharper-flow/concord/internal/workflowcorpus"
 )
 
-// The corpus is the executable contract.  These types intentionally model the
-// public JSON vocabulary rather than mirroring internal projection structs.
 type workflowScenarioCorpus struct {
-	Fixtures  workflowCorpusFixtures `json:"fixtures"`
-	Scenarios []workflowScenario     `json:"scenarios"`
-}
-
-type workflowCorpusFixtures struct {
-	Relations []workflowCorpusRelation `json:"relations"`
-}
-
-type workflowCorpusRelation struct {
-	ID       string `json:"id"`
-	Source   string `json:"source"`
-	Target   string `json:"target"`
-	Kind     string `json:"kind"`
-	Class    string `json:"class"`
-	Severity string `json:"severity"`
+	Scenarios []workflowScenario `json:"scenarios"`
 }
 
 type workflowScenario struct {
 	ID           string                     `json:"id"`
 	Number       int                        `json:"scenario_number"`
-	InitialState map[string]any             `json:"initial_state"`
 	Action       string                     `json:"action"`
 	Setup        workflowCorpusSetup        `json:"setup"`
 	Request      workflowCorpusRequest      `json:"request"`
 	Observations workflowCorpusObservations `json:"observations"`
 	Expected     workflowExpected           `json:"expected"`
-	Cases        []workflowScenarioCase     `json:"cases"`
-}
-
-type workflowScenarioCase struct {
-	ID           string                     `json:"id"`
-	InitialState map[string]any             `json:"initial_state"`
-	Action       string                     `json:"action"`
-	Setup        workflowCorpusSetup        `json:"setup"`
-	Request      workflowCorpusRequest      `json:"request"`
-	Observations workflowCorpusObservations `json:"observations"`
-	Expected     workflowExpected           `json:"expected"`
+	Cases        []workflowScenario         `json:"cases"`
 }
 
 type workflowCorpusSetup struct {
 	FixtureRefs  workflowCorpusFixtureRefs   `json:"fixture_refs"`
-	CurrentState *workflowCorpusCurrentState `json:"current_state,omitempty"`
-	EventHistory []workflowCorpusEvent       `json:"event_history,omitempty"`
-	Projection   workflowCorpusProjection    `json:"projection"`
+	CurrentState *workflowCorpusCurrentState `json:"current_state"`
 	Faults       []workflowCorpusFault       `json:"faults"`
+}
+
+func (setup *workflowCorpusSetup) UnmarshalJSON(raw []byte) error {
+	type currentSetup workflowCorpusSetup
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode((*currentSetup)(setup))
 }
 
 type workflowCorpusCurrentState struct {
 	Step string `json:"step"`
 }
-
 type workflowCorpusFixtureRefs struct {
 	WorkItem    string   `json:"work_item"`
 	Actors      []string `json:"actors"`
@@ -78,49 +52,29 @@ type workflowCorpusFixtureRefs struct {
 	Evidence    []string `json:"evidence"`
 	Relations   []string `json:"relations"`
 }
-
-type workflowCorpusEvent struct {
-	EventID        string         `json:"event_id"`
-	Kind           string         `json:"kind"`
-	WorkID         string         `json:"work_id"`
-	ActorRef       string         `json:"actor_ref"`
-	OccurredAt     string         `json:"occurred_at"`
-	PayloadVersion int            `json:"payload_version"`
-	Payload        map[string]any `json:"payload"`
-}
-
-type workflowCorpusProjection struct {
-	Version         int64    `json:"version"`
-	State           string   `json:"state"`
-	CurrentStep     string   `json:"current_step"`
-	Lifecycle       string   `json:"lifecycle"`
-	ConditionIDs    []string `json:"condition_ids"`
-	ProjectionBytes string   `json:"projection_bytes"`
-}
-
 type workflowCorpusFault struct {
 	Kind  string         `json:"kind"`
 	Input map[string]any `json:"input"`
 }
-
 type workflowCorpusRequest struct {
-	ActorRef        string                       `json:"actor_ref"`
-	DefinitionRef   string                       `json:"definition_ref,omitempty"`
-	DefinitionPin   *workflowCorpusDefinitionPin `json:"definition_pin,omitempty"`
-	ExpectedVersion int64                        `json:"expected_version,omitempty"`
-	ActionID        string                       `json:"action_id"`
-	Fields          map[string]any               `json:"fields"`
-	Idempotency     workflowCorpusIdempotency    `json:"idempotency"`
-	Grant           workflowCorpusGrant          `json:"grant"`
-	Approval        workflowCorpusApproval       `json:"approval"`
-	Operation       workflowCorpusOperation      `json:"operation"`
+	ActorRef        string                    `json:"actor_ref"`
+	DefinitionRef   string                    `json:"definition_ref"`
+	ExpectedVersion int64                     `json:"expected_version,omitempty"`
+	ActionID        string                    `json:"action_id"`
+	Fields          map[string]any            `json:"fields"`
+	Idempotency     workflowCorpusIdempotency `json:"idempotency"`
+	Grant           workflowCorpusGrant       `json:"grant"`
+	Approval        json.RawMessage           `json:"approval"`
+	Operation       workflowCorpusOperation   `json:"operation"`
 }
 
-type workflowCorpusDefinitionPin struct {
-	Ref     string `json:"ref"`
-	Version int64  `json:"version"`
-	Digest  string `json:"digest"`
+func (request *workflowCorpusRequest) UnmarshalJSON(raw []byte) error {
+	type currentRequest workflowCorpusRequest
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode((*currentRequest)(request))
 }
+
 type workflowCorpusIdempotency struct {
 	Key                  string `json:"key"`
 	RequestID            string `json:"request_id"`
@@ -135,442 +89,288 @@ type workflowCorpusGrant struct {
 	Capability   string `json:"capability"`
 	Scope        string `json:"scope"`
 }
-type workflowCorpusApproval struct {
-	Required          bool     `json:"required"`
-	ApprovalRef       *string  `json:"approval_ref"`
-	OperationDigest   string   `json:"operation_digest"`
-	Consequence       string   `json:"consequence"`
-	ApprovingActorRef string   `json:"approving_actor_ref"`
-	EvidenceRefs      []string `json:"evidence_refs"`
-}
 type workflowCorpusOperation struct {
-	OpID          string         `json:"op_id"`
-	AttemptEpoch  int64          `json:"attempt_epoch"`
-	StepID        string         `json:"step_id"`
-	StepKind      string         `json:"step_kind"`
-	State         string         `json:"state"`
-	EvidenceRefs  []string       `json:"evidence_refs"`
-	ResultPayload map[string]any `json:"result_payload"`
+	OpID string `json:"op_id"`
 }
 type workflowCorpusObservations struct {
-	ExpectedReads []workflowReadObservation `json:"expected_reads"`
-	NextRead      []workflowReadObservation `json:"next_read"`
+	ExpectedReads []workflowAssertion `json:"expected_reads"`
 }
-type workflowReadObservation struct {
-	Target string `json:"target"`
-	Path   string `json:"path"`
-	Op     string `json:"op"`
-	Value  any    `json:"value"`
-}
-
 type workflowExpected struct {
 	Assertions []workflowAssertion `json:"assertions"`
 	Invariants []string            `json:"invariants"`
 }
-
 type workflowAssertion struct {
 	Target string `json:"target"`
 	Path   string `json:"path"`
 	Op     string `json:"op"`
 	Value  any    `json:"value"`
 }
-
 type workflowObservation struct {
-	State          map[string]any
-	Result         map[string]any
-	Communication  map[string]any
-	Effects        map[string]any
-	Authority      map[string]any
-	WorkerAttempts map[string]any
+	State         map[string]any
+	Result        map[string]any
+	Communication map[string]any
+	Effects       map[string]any
 }
-
-type workflowScenarioGap struct{ detail string }
-
-func (e workflowScenarioGap) Error() string { return "workflow fixture input: " + e.detail }
 
 var corpusNow = time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
 
-func hasCorpusFault(setup workflowCorpusSetup, kind string) bool {
-	for _, fault := range setup.Faults {
-		if fault.Kind == kind {
-			return true
-		}
-	}
-	return false
-}
-
-func executeCorpusFencedAction(ctx context.Context, s *Store, workID string, beforeSeq int64, action string, request workflowCorpusRequest) (workflowObservation, error) {
-	logicalKey := request.Idempotency.Key
-	if payload, ok := request.Fields["payload"].(map[string]any); ok {
-		if value, ok := payload["idempotency_identity"].(string); ok && value != "" {
-			logicalKey = value
-		}
-	}
-	complete := func() (FenceResult, error) {
-		return CompleteStep(ctx, s, CompleteRequest{
-			OpID: request.Operation.OpID, AttemptEpoch: request.Operation.AttemptEpoch, ResultKind: ResultCompleted,
-			ResultPayload: `{"native_effect":"applied"}`, EvidenceRefs: request.Operation.EvidenceRefs,
-			ChangedRefs: []string{"native-effect:" + request.Operation.OpID}, ResultEventIDs: []string{"native-effect:" + request.Operation.OpID},
-			PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: logicalKey,
-			RequestID: request.Idempotency.RequestID, ObservedAt: corpusNow, CompletedAt: ptrTime(corpusNow.Add(time.Second)),
-		})
-	}
-	result, err := complete()
-	var staleErr error
-	if err == nil && action == string(corpusActionCompleteExternal) {
-		staleRequest := request
-		staleRequest.Operation.AttemptEpoch = request.Operation.AttemptEpoch - 1
-		staleRequest.Idempotency.RequestID += ":stale"
-		staleRequest.Idempotency.Key += ":stale"
-		staleErr = func() error {
-			_, completeErr := CompleteStep(ctx, s, CompleteRequest{
-				OpID: request.Operation.OpID, AttemptEpoch: staleRequest.Operation.AttemptEpoch, ResultKind: ResultCompleted,
-				ResultPayload: `{"native_effect":"stale"}`, EvidenceRefs: request.Operation.EvidenceRefs,
-				ChangedRefs: []string{"native-effect:stale"}, ResultEventIDs: []string{"native-effect:stale"},
-				PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: staleRequest.Idempotency.Key,
-				RequestID: staleRequest.Idempotency.RequestID, ObservedAt: corpusNow, CompletedAt: ptrTime(corpusNow.Add(time.Second)),
-			})
-			return completeErr
-		}()
-	}
-	if err == nil && action == string(corpusActionRetry) {
-		result, err = complete()
-	}
-	resultView := map[string]any{"operation": map[string]any{"result_event_ids": result.ResultEventIDs, "replayed": result.Replayed, "result_kind": result.ResultKind, "idempotency_identity": logicalKey}}
-	if staleErr != nil {
-		resultView["stale_attempt_error"] = staleErr
-	}
-	return observeWorkflowStore(ctx, s, workID, beforeSeq, err, resultView)
-}
-
-func executeCorpusCompletionFault(ctx context.Context, s *Store, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor) (workflowObservation, error) {
-	impactVerdict, err := corpusImpactVerdict(request.Fields)
+func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
+	t.Helper()
+	raw, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
 	if err != nil {
-		return workflowObservation{}, err
+		t.Fatal(err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return workflowObservation{}, err
+	var corpus workflowScenarioCorpus
+	if err := json.Unmarshal(raw, &corpus); err != nil {
+		t.Fatal(err)
 	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		_ = tx.Rollback()
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
+	want := []string{"WF01-capture-late-outcome", "WF26-condition-actions-refused"}
+	if len(corpus.Scenarios) != len(want) {
+		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), len(want))
 	}
-	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForCorpus(actor), "premise_confirmed": false, "evidence_count": 0, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict}
-	event := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, actorRefForCorpus(actor), corpusNow, request.ExpectedVersion, payload)
-	completionErr := CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, scope)
-	_ = scope.close(ctx)
-	_ = tx.Rollback()
-	if completionErr == nil {
-		completionErr = newFailure(KindOperationConflict, "complete_workflow", "declared commit fault", false, "reconcile_operation")
-	}
-	return observeWorkflowStore(ctx, s, workID, beforeSeq, completionErr, nil)
-}
-
-// executeCorpusRebuildAfterInterrupt commits a context checkpoint through the
-// production action core, runs the step's own action and abandons its
-// transaction before commit, rebuilds projections from the event log, and
-// reads the resume state through the production continuity read.
-func executeCorpusRebuildAfterInterrupt(ctx context.Context, s *Store, actionRegistry DefinitionRegistry, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor) (workflowObservation, error) {
-	payload, _ := request.Fields["payload"].(map[string]any)
-	checkpointID, _ := payload["checkpoint"].(string)
-	interruptedStep, _ := payload["uncommitted_step"].(string)
-	run := func(actionID string, expectedVersion int64, fields json.RawMessage, commit bool) error {
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		scope, err := beginFold(ctx, tx)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID, Payload: fields, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key + ":" + actionID, OperationID: request.Operation.OpID + ":" + actionID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key + ":" + actionID, RequestID: request.Idempotency.RequestID + ":" + actionID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: corpusNow})
-		_ = scope.close(ctx)
-		if actionErr != nil || !commit {
-			_ = tx.Rollback()
-			return actionErr
-		}
-		return tx.Commit()
-	}
-	checkpoint, _ := json.Marshal(map[string]any{"checkpoint_id": checkpointID, "checkpoint_sequence": 1, "active_unit": "corpus interrupted step", "hypothesis": "the committed checkpoint is the resume boundary", "diagnosis": "the next step action did not commit", "strategy": "resume at the uncommitted step", "touched_refs": []string{workID}, "evidence_refs": []string{"evidence-verification"}, "pending_questions": []string{}, "pending_decisions": []string{}})
-	if err := run("checkpoint_context", request.ExpectedVersion, checkpoint, true); err != nil {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	version, err := workflowCurrentVersion(ctx, s, workID)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-	if interruptedStep != "proposal" {
-		return workflowObservation{}, workflowScenarioGap{"rebuild_after_interrupt interrupts record_proposal only"}
-	}
-	if err := run("record_proposal", version, json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`), false); err != nil {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID, Limit: 1})
-	if err != nil {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	var logSeq int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&logSeq); err != nil {
-		return workflowObservation{}, err
-	}
-	last, source := "", ""
-	if snapshot.LatestCheckpoint != nil {
-		last = snapshot.LatestCheckpoint.CheckpointID
-	}
-	if snapshot.Watermark == fmt.Sprintf("seq:%d", logSeq) {
-		source = "event_log"
-	}
-	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"resume_step": snapshot.WorkflowStep, "last_checkpoint": last, "resume_boundary": map[string]any{"source": source}})
-}
-
-func executeCorpusLinkAndComplete(ctx context.Context, s *Store, workID string, beforeSeq int64, request workflowCorpusRequest, actor WorkflowActor, setup workflowCorpusSetup, fixtures workflowCorpusFixtures) (workflowObservation, error) {
-	impactVerdict, err := corpusImpactVerdict(request.Fields)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		_ = tx.Rollback()
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	actorRef := actorRefForCorpus(actor)
-	successor, relationErr := corpusRelatedWorkID(setup, request, fixtures, workID)
-	if relationErr != nil {
-		_ = scope.close(ctx)
-		_ = tx.Rollback()
-		return workflowObservation{}, relationErr
-	}
-	fields := cloneCorpusFields(request.Fields)
-	payload, _ := fields["payload"].(map[string]any)
-	if payload == nil {
-		payload = map[string]any{}
-		fields["payload"] = payload
-	}
-	payload["successor"] = successor
-	fields["successor_work_id"] = successor
-	link := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: "link_successor", Payload: json.RawMessage(mustJSON(fields)), Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID + ":link", PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: request.Idempotency.Key + ":link", RequestID: request.Idempotency.RequestID + ":link", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow}
-	result, err := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), link)
-	if err != nil {
-		_ = scope.close(ctx)
-		_ = tx.Rollback()
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	completionActorRef := actorRef
-	if len(setup.FixtureRefs.Actors) > 1 {
-		completionActorRef = setup.FixtureRefs.Actors[1]
-	}
-	completion := workflowTypedEvent(request.Operation.OpID+":completed", WorkflowCompleted, workID, completionActorRef, corpusNow, result.ResultingVersion, map[string]any{"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actorRefForLatestVerdict(ctx, tx, workID), "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": impactVerdict})
-	err = CompleteWorkflowTxWithRegistry(ctx, tx, BuiltinWorkflowRegistry(), completion, scope)
-	_ = scope.close(ctx)
-	if err == nil {
-		err = tx.Commit()
-	} else {
-		_ = tx.Rollback()
-	}
-	return observeWorkflowStore(ctx, s, workID, beforeSeq, err, map[string]any{"operation_id": result.OperationID, "related_work_id": successor})
-}
-
-func cloneCorpusFields(fields map[string]any) map[string]any {
-	clone := make(map[string]any, len(fields))
-	for key, value := range fields {
-		clone[key] = value
-	}
-	return clone
-}
-
-func corpusImpactVerdict(fields map[string]any) (string, error) {
-	verdict, ok := fields["impact_verdict"].(string)
-	if !ok || (verdict != "breaking" && verdict != "non-breaking") {
-		return "", workflowScenarioGap{"completion-producing corpus action requires impact_verdict breaking or non-breaking"}
-	}
-	return verdict, nil
-}
-
-func TestCorpusImpactVerdictRejectsOmissionAndInvalidValue(t *testing.T) {
-	t.Parallel()
-	for _, fields := range []map[string]any{{}, {"impact_verdict": "informational"}} {
-		if _, err := corpusImpactVerdict(fields); err == nil {
-			t.Fatalf("invalid corpus impact verdict accepted: %#v", fields)
+	for i, scenario := range corpus.Scenarios {
+		if scenario.ID != want[i] || !strings.HasPrefix(scenario.ID, fmt.Sprintf("WF%02d-", scenario.Number)) {
+			t.Fatalf("scenario %d = %s/%d, want %s", i, scenario.ID, scenario.Number, want[i])
 		}
 	}
-	if verdict, err := corpusImpactVerdict(map[string]any{"impact_verdict": "breaking"}); err != nil || verdict != "breaking" {
-		t.Fatalf("explicit breaking corpus verdict rejected: verdict=%q err=%v", verdict, err)
-	}
-}
-
-func corpusRelatedWorkID(setup workflowCorpusSetup, request workflowCorpusRequest, fixtures workflowCorpusFixtures, workID string) (string, error) {
-	relationID, _ := request.Fields["relation"].(string)
-	if relationID == "" {
-		if relation, ok := request.Fields["relation_data"].(map[string]any); ok {
-			relationID, _ = relation["id"].(string)
-		}
-	}
-	if relationID == "" {
-		return "", workflowScenarioGap{"workflow relation is not declared by the request"}
-	}
-	declared := false
-	for _, ref := range setup.FixtureRefs.Relations {
-		if ref == relationID {
-			declared = true
-			break
-		}
-	}
-	if !declared {
-		return "", workflowScenarioGap{"workflow relation is not listed in fixture_refs"}
-	}
-	for _, relation := range fixtures.Relations {
-		if relation.ID != relationID {
-			continue
-		}
-		if relation.Source == workID {
-			return relation.Target, nil
-		}
-		if relation.Target == workID {
-			return relation.Source, nil
-		}
-		return "", workflowScenarioGap{"workflow relation does not connect the fixture work item"}
-	}
-	return "", workflowScenarioGap{"workflow relation fixture is missing"}
-}
-
-func actorRefForCorpus(actor WorkflowActor) string {
-	ref, _ := WorkflowActorRef(actor)
-	return ref
-}
-
-func actorRefForLatestVerdict(ctx context.Context, tx *sql.Tx, workID string) string {
-	var ref string
-	_ = tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.verdict_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&ref)
-	return ref
-}
-
-type workflowCorpusAction string
-
-const (
-	corpusActionCapture               workflowCorpusAction = "capture"
-	corpusActionApproveContract       workflowCorpusAction = "approve_contract"
-	corpusActionComplete              workflowCorpusAction = "complete"
-	corpusActionReviseCandidates      workflowCorpusAction = "revise_candidates"
-	corpusActionSupersedeContract     workflowCorpusAction = "supersede_contract"
-	corpusActionLinkSuccessor         workflowCorpusAction = "link_successor"
-	corpusActionReplaceCheck          workflowCorpusAction = "replace_check"
-	corpusActionRecordVerdict         workflowCorpusAction = "record_verdict"
-	corpusActionCompleteExternal      workflowCorpusAction = "complete_external_step"
-	corpusActionRebuildAfterInterrupt workflowCorpusAction = "rebuild_after_interrupt"
-	corpusActionRetry                 workflowCorpusAction = "retry_same_action"
-	corpusActionDeriveReady           workflowCorpusAction = "derive_ready"
-	corpusActionAddCondition          workflowCorpusAction = "add_condition"
-	corpusActionResolveCondition      workflowCorpusAction = "resolve_condition"
-	corpusActionCancelCondition       workflowCorpusAction = "cancel_condition"
-	corpusActionStartDownstream       workflowCorpusAction = "start_downstream"
-	corpusActionLinkAndComplete       workflowCorpusAction = "link_and_complete"
-	corpusActionRebuild               workflowCorpusAction = "rebuild"
-	corpusActionStartExecution        workflowCorpusAction = "start_execution"
-	corpusActionAcceptWorkerResult    workflowCorpusAction = "accept_worker_result"
-	corpusActionRecordDelivery        workflowCorpusAction = "record_delivery"
-	corpusActionWorkflowAction        workflowCorpusAction = "workflow_action"
-	corpusActionConcurrent            workflowCorpusAction = "concurrent_reads_and_writes"
-	corpusActionRepair                workflowCorpusAction = "repair_and_rebuild"
-	corpusActionReplay                workflowCorpusAction = "replay"
-)
-
-var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionDeriveReady: {}, corpusActionAddCondition: {}, corpusActionResolveCondition: {}, corpusActionCancelCondition: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	return corpus
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
 	t.Parallel()
-	corpus := readWorkflowScenarioCorpus(t)
-	want := workflowScenarioIDs()
-	seen := make(map[string]bool, len(corpus.Scenarios))
-	for _, scenario := range corpus.Scenarios {
-		if seen[scenario.ID] {
-			t.Fatalf("duplicate scenario ID %q", scenario.ID)
-		}
-		seen[scenario.ID] = true
-		if scenario.Number < 1 || scenario.Number > workflowScenarioNumberCeiling || retiredWorkflowScenarioNumbers[scenario.Number] || !strings.HasPrefix(scenario.ID, fmt.Sprintf("WF%02d-", scenario.Number)) {
-			t.Fatalf("scenario %q carries number %d, which is not a live WF number matching its ID", scenario.ID, scenario.Number)
-		}
-	}
-	if len(want) != len(corpus.Scenarios) {
-		t.Fatalf("corpus carries %d scenarios, want the %d canonical IDs", len(corpus.Scenarios), len(want))
-	}
-	for index, scenario := range corpus.Scenarios {
-		if scenario.ID != want[index] {
-			t.Fatalf("corpus entry %d is %q, want canonical %q", index, scenario.ID, want[index])
-		}
-	}
-
-	for _, scenario := range corpus.Scenarios {
-		scenario := scenario
-		if slices.Contains(workflowcorpus.AgentBoundaryScenarioIDs, scenario.ID) {
-			continue
-		}
+	for _, scenario := range readWorkflowScenarioCorpus(t).Scenarios {
 		t.Run(scenario.ID, func(t *testing.T) {
-			if len(scenario.Cases) != 0 {
-				for _, c := range scenario.Cases {
-					c := c
-					t.Run(c.ID, func(t *testing.T) {
-						runWorkflowScenarioCase(t, scenario.ID+"/"+c.ID, c.InitialState, c.Action, c.Setup, c.Request, c.Observations, c.Expected, corpus.Fixtures)
-					})
-				}
+			if len(scenario.Cases) == 0 {
+				runWorkflowScenarioCase(t, scenario)
 				return
 			}
-			runWorkflowScenarioCase(t, scenario.ID, scenario.InitialState, scenario.Action, scenario.Setup, scenario.Request, scenario.Observations, scenario.Expected, corpus.Fixtures)
+			for _, c := range scenario.Cases {
+				t.Run(c.ID, func(t *testing.T) { runWorkflowScenarioCase(t, c) })
+			}
 		})
 	}
 }
 
-func TestWorkflowCorpusBoundaryCoverageContract(t *testing.T) {
-	t.Parallel()
-	raw, err := os.ReadFile("../agent/workflow_corpus_boundary_test.go")
+func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
+	t.Helper()
+	observation, err := executeWorkflowScenario(t, scenario.Action, scenario.Setup, scenario.Request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	interpreter, err := os.ReadFile("../agent/workflow_corpus_spotcheck_test.go")
+	for _, assertion := range append(scenario.Expected.Assertions, scenario.Observations.ExpectedReads...) {
+		if err := workflowObservationAssertionError(observation, assertion); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(scenario.Expected.Invariants) != 0 {
+		t.Fatal("unregistered executable invariants")
+	}
+}
+
+func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
+	t.Helper()
+	switch action {
+	case "capture", "add_condition", "resolve_condition", "cancel_condition", "record_proposal":
+	default:
+		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
+	}
+	if setup.CurrentState == nil || request.DefinitionRef == "" {
+		return workflowObservation{}, fmt.Errorf("current fixture requires current state and a current family selector")
+	}
+	if action != request.ActionID || !slices.Contains(setup.FixtureRefs.Definitions, request.DefinitionRef) {
+		return workflowObservation{}, fmt.Errorf("current fixture action or family selector mismatch")
+	}
+	if len(setup.Faults) != 0 {
+		return workflowObservation{}, fmt.Errorf("current fixture declares unsupported faults")
+	}
+	registered, err := LiveWorkflowDefinitionForRef(request.DefinitionRef)
 	if err != nil {
-		t.Fatal(err)
+		return workflowObservation{}, err
 	}
-	source := string(raw) + string(interpreter)
-	for _, id := range workflowcorpus.AgentBoundaryScenarioIDs {
-		if !strings.Contains(source, id) {
-			t.Fatalf("agent boundary runner does not name contracted scenario %s", id)
+	if setup.CurrentState.Step != registered.Definition.StepGraph.StartStep {
+		return workflowObservation{}, fmt.Errorf("current fixture must start at its declared first step")
+	}
+	workID := setup.FixtureRefs.WorkItem
+	if workID == "" {
+		return workflowObservation{}, fmt.Errorf("current fixture has no work reference")
+	}
+	grant := request.Grant
+	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		return workflowObservation{}, err
+	}
+	if actorRef != request.ActorRef {
+		return workflowObservation{}, fmt.Errorf("current fixture actor does not match authenticated actor")
+	}
+	if !slices.Contains(setup.FixtureRefs.Actors, actorRef) {
+		return workflowObservation{}, fmt.Errorf("current fixture actor is outside setup scope")
+	}
+	if grant.Scope != "project" || grant.Capability != "workflow_action" {
+		return workflowObservation{}, fmt.Errorf("current fixture grant does not authorize this scope and capability")
+	}
+	ctx := context.Background()
+	s := openTemp(t)
+	if err := seedCorpusProduct(ctx, s); err != nil {
+		return workflowObservation{}, err
+	}
+	if action == "capture" {
+		err := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, request.Fields)
+		return observeWorkflowStore(ctx, s, workID, 0, err, nil)
+	}
+	if err := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, request.Fields); err != nil {
+		return workflowObservation{}, err
+	}
+	if request.ExpectedVersion == 0 {
+		request.ExpectedVersion, err = workflowCurrentVersion(ctx, s, workID)
+		if err != nil {
+			return workflowObservation{}, err
 		}
 	}
-	for _, required := range []string{"DecodeInvokeRequest", "Invoke(context.Background()", "assertAgentCorpus"} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("agent boundary runner lost required coverage mechanism %s", required)
-		}
+	beforeSeq, err := workflowEventSequence(ctx, s, workID)
+	if err != nil {
+		return workflowObservation{}, err
 	}
+	beforeState := contractCorrectionEffectSnapshot(t, s, workID)
+	payload, err := json.Marshal(request.Fields)
+	if err != nil {
+		return workflowObservation{}, err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return workflowObservation{}, err
+	}
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		_ = tx.Rollback()
+		return workflowObservation{}, err
+	}
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project"}`, ContractDigest: testManifestDigest, Now: corpusNow})
+	_ = scope.close(ctx)
+	if actionErr != nil {
+		_ = tx.Rollback()
+	} else if err := tx.Commit(); err != nil {
+		return workflowObservation{}, err
+	}
+	return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, map[string]any{"state_unchanged": contractCorrectionEffectSnapshot(t, s, workID) == beforeState})
 }
 
 func TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation(t *testing.T) {
 	t.Parallel()
-	observation := workflowObservation{
-		Communication: map[string]any{"error": map[string]any{"kind": "outcome_mismatch"}},
-		Effects:       map[string]any{},
-	}
-	assertion := workflowAssertion{Target: "communication", Path: "error.kind", Op: "eq", Value: "outcome_mismatch"}
-	if got, ok := workflowLookup(observation.Communication, assertion.Path); !ok || !jsonValueEqual(got, assertion.Value) {
-		t.Fatalf("baseline assertion did not match: got=%#v present=%t", got, ok)
+	observation := workflowObservation{Communication: map[string]any{"error": map[string]any{"kind": "invalid_transition"}}, Effects: map[string]any{}}
+	assertion := workflowAssertion{Target: "communication", Path: "error.kind", Op: "eq", Value: "invalid_transition"}
+	if err := workflowObservationAssertionError(observation, assertion); err != nil {
+		t.Fatal(err)
 	}
 	assertion.Value = "invariant_violation"
-	if got, ok := workflowLookup(observation.Communication, assertion.Path); !ok || jsonValueEqual(got, assertion.Value) {
-		t.Fatalf("mutated expected code was accepted: got=%#v present=%t", got, ok)
+	if err := workflowObservationAssertionError(observation, assertion); err == nil {
+		t.Fatal("mutated expected code was accepted")
 	}
-	assertion = workflowAssertion{Target: "effects", Path: "workflow.completed", Op: "absent"}
-	if _, ok := workflowLookup(observation.Effects, assertion.Path); ok {
-		t.Fatal("mutated effect identity unexpectedly appeared")
+}
+
+func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testing.T) {
+	t.Parallel()
+	corpus := readWorkflowScenarioCorpus(t)
+	for _, scenario := range append([]workflowScenario{corpus.Scenarios[0]}, corpus.Scenarios[1].Cases...) {
+		t.Run(scenario.ID, func(t *testing.T) {
+			observation, err := executeWorkflowScenario(t, scenario.Action, scenario.Setup, scenario.Request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, original := range scenario.Expected.Assertions {
+				if err := workflowObservationAssertionError(observation, original); err != nil {
+					t.Fatal(err)
+				}
+				mutated := original
+				mutated.Op, mutated.Value = "eq", "not-the-authoritative-value"
+				if err := workflowObservationAssertionError(observation, mutated); err == nil {
+					t.Fatalf("mutated assertion was accepted: %+v", mutated)
+				}
+			}
+		})
+	}
+}
+
+func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
+	t.Parallel()
+	for _, mutation := range []string{"actor", "scope", "capability", "setup_actor", "definition", "action"} {
+		t.Run(mutation, func(t *testing.T) {
+			scenario := readWorkflowScenarioCorpus(t).Scenarios[0]
+			switch mutation {
+			case "actor":
+				scenario.Request.Grant.AgentRef = "agent:other"
+			case "scope":
+				scenario.Request.Grant.Scope = "project:other"
+			case "capability":
+				scenario.Request.Grant.Capability = "workflow_read"
+			case "setup_actor":
+				scenario.Setup.FixtureRefs.Actors = []string{"actor:other"}
+			case "definition":
+				scenario.Request.DefinitionRef = "workflow.research"
+			case "action":
+				scenario.Request.ActionID = "resolve_condition"
+			}
+			if _, err := executeWorkflowScenario(t, scenario.Action, scenario.Setup, scenario.Request); err == nil {
+				t.Fatalf("%s mutation crossed the current fixture boundary", mutation)
+			}
+		})
+	}
+}
+
+func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
+	t.Parallel()
+	scenario := readWorkflowScenarioCorpus(t).Scenarios[0]
+	for _, tc := range []struct {
+		name   string
+		target any
+		raw    string
+	}{
+		{"history", &workflowCorpusSetup{}, `{"event_history":[{"kind":"work.created"}]}`},
+		{"pin", &workflowCorpusRequest{}, `{"definition_pin":{"ref":"workflow.implementation","version":1}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := json.Unmarshal([]byte(tc.raw), tc.target); err == nil {
+				t.Fatal("historical input accepted")
+			}
+		})
+	}
+	for _, missing := range []string{"state", "selector"} {
+		setup, request := scenario.Setup, scenario.Request
+		if missing == "state" {
+			setup.CurrentState = nil
+		} else {
+			request.DefinitionRef = ""
+		}
+		if _, err := executeWorkflowScenario(t, scenario.Action, setup, request); err == nil || !strings.Contains(err.Error(), "current fixture") {
+			t.Fatalf("incomplete current fixture was not refused: %v", err)
+		}
+	}
+}
+
+func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
+	current := readWorkflowScenarioCorpus(t).Scenarios[0]
+	for _, tc := range []struct {
+		action    string
+		fields    map[string]any
+		unchanged bool
+	}{
+		{"add_condition", map[string]any{"payload": map[string]any{"condition_id": "condition:probe"}}, true},
+		{"record_proposal", map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}, false},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			request := current.Request
+			request.ActionID, request.Fields = tc.action, tc.fields
+			observation, err := executeWorkflowScenario(t, tc.action, current.Setup, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, present := observation.Result["state_unchanged"]; !present || got != tc.unchanged {
+				t.Fatalf("durable no-effect observation=%v present=%v, want %v; communication=%+v", got, present, tc.unchanged, observation.Communication)
+			}
+			if !tc.unchanged && observation.Communication["outcome"] != "ok" {
+				t.Fatalf("the changing control must execute: %+v", observation.Communication)
+			}
+		})
 	}
 }
 
@@ -622,127 +422,6 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 	}
 }
 
-func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
-	t.Parallel()
-	corpus := readWorkflowScenarioCorpus(t)
-	scenario := corpus.Scenarios[0]
-	if scenario.Setup.CurrentState == nil {
-		t.Fatal("capture fixture must use current-state authoring")
-	}
-	current := mustBuiltinDefinition(t, scenario.Request.DefinitionRef)
-	for _, tc := range []struct {
-		name   string
-		mutate func(*workflowCorpusSetup, *workflowCorpusRequest)
-	}{
-		{"history", func(setup *workflowCorpusSetup, _ *workflowCorpusRequest) {
-			setup.EventHistory = []workflowCorpusEvent{{Kind: "work.created"}}
-		}},
-		{"pin", func(_ *workflowCorpusSetup, request *workflowCorpusRequest) {
-			request.DefinitionPin = &workflowCorpusDefinitionPin{Ref: current.Definition.Ref, Version: current.Definition.Version, Digest: current.Digest}
-		}},
-		{"missing current state", func(setup *workflowCorpusSetup, _ *workflowCorpusRequest) { setup.CurrentState = nil }},
-		{"missing selector", func(_ *workflowCorpusSetup, request *workflowCorpusRequest) { request.DefinitionRef = "" }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			setup, request := scenario.Setup, scenario.Request
-			tc.mutate(&setup, &request)
-			_, err := executeWorkflowScenario(t, "current-carrier/"+tc.name, scenario.InitialState, scenario.Action, setup, request, corpus.Fixtures)
-			if err == nil || !strings.Contains(err.Error(), "current fixture") {
-				t.Fatalf("mixed or incomplete current fixture was not refused: %v", err)
-			}
-		})
-	}
-}
-
-func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
-	corpus := readWorkflowScenarioCorpus(t)
-	current := corpus.Scenarios[0]
-	for _, tc := range []struct {
-		action    string
-		fields    map[string]any
-		unchanged bool
-	}{
-		{"add_condition", map[string]any{"payload": map[string]any{"condition_id": "condition:probe"}}, true},
-		{"record_proposal", map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}, false},
-	} {
-		t.Run(tc.action, func(t *testing.T) {
-			request := current.Request
-			request.ActionID, request.Fields = tc.action, tc.fields
-			observation, err := executeStructuredWorkflowAction(t, "durable-state/"+tc.action, current.InitialState, tc.action, current.Setup, request, corpus.Fixtures)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got, present := observation.Result["state_unchanged"]; !present || got != tc.unchanged {
-				t.Fatalf("durable no-effect observation=%v present=%v, want %v; communication=%+v", got, present, tc.unchanged, observation.Communication)
-			}
-			if !tc.unchanged && observation.Communication["outcome"] != "ok" {
-				t.Fatalf("the changing control must execute: %+v", observation.Communication)
-			}
-		})
-	}
-}
-
-func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testing.T) {
-	t.Parallel()
-	corpus := readWorkflowScenarioCorpus(t)
-	find := func(id string) workflowScenario {
-		for _, scenario := range corpus.Scenarios {
-			if scenario.ID == id {
-				return scenario
-			}
-		}
-		t.Fatalf("scenario %s missing", id)
-		return workflowScenario{}
-	}
-	clone := func(s workflowScenario) workflowScenario {
-		raw, err := json.Marshal(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var cloned workflowScenario
-		if err := json.Unmarshal(raw, &cloned); err != nil {
-			t.Fatal(err)
-		}
-		return cloned
-	}
-	mutations := []struct {
-		name    string
-		id      string
-		index   int
-		mutate  func(*workflowAssertion)
-		request func(*workflowScenario)
-	}{
-		{"refusal", "WF02-planning-requires-outcome", 0, func(a *workflowAssertion) { a.Value = "missing_refusal" }, nil},
-		{"contract version", "WF08-premise-supersession", 0, func(a *workflowAssertion) { a.Value = []any{float64(1), float64(99)} }, nil},
-		{"candidate set", "WF07-candidate-revision", 0, func(a *workflowAssertion) { a.Value = []any{"case-a", "not-in-corpus"} }, nil},
-		{"successor relation", "WF10-forward-link-discovery", 1, func(a *workflowAssertion) { a.Value = "nested" }, nil},
-		{"notice identity", "WF29-impact-notice-identity", 7, func(a *workflowAssertion) { a.Value = "notice:mutated" }, nil},
-		{"event order", "WF19-completion-one-transaction", 0, func(a *workflowAssertion) { a.Path = "events.order.99" }, nil},
-		{"work version", "WF20-internal-inline", 0, func(a *workflowAssertion) { a.Value = float64(99) }, func(s *workflowScenario) { s.Request.ExpectedVersion-- }},
-		{"no-effect", "WF40-staleness-block", 2, func(a *workflowAssertion) { a.Op = "eq"; a.Value = true }, nil},
-	}
-	for _, mutation := range mutations {
-		mutation := mutation
-		t.Run(mutation.name, func(t *testing.T) {
-			scenario := clone(find(mutation.id))
-			if mutation.index >= len(scenario.Expected.Assertions) {
-				t.Fatalf("scenario %s assertion index %d is out of range", mutation.id, mutation.index)
-			}
-			mutation.mutate(&scenario.Expected.Assertions[mutation.index])
-			if mutation.request != nil {
-				mutation.request(&scenario)
-			}
-			observation, err := executeWorkflowScenario(t, "mutation/"+mutation.id, scenario.InitialState, scenario.Action, scenario.Setup, scenario.Request, corpus.Fixtures)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := workflowObservationAssertionError(observation, scenario.Expected.Assertions[mutation.index]); err == nil {
-				t.Fatalf("mutated corpus expectation was accepted: %s", mutation.id)
-			}
-		})
-	}
-}
-
 func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *testing.T) {
 	t.Parallel()
 	const workID = "corpus-inline-current"
@@ -753,12 +432,11 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:corpus", ClientRef: "client:corpus", AgentRef: "agent:corpus-main", SessionRef: "session:corpus-inline", ActorClass: ActorAgent}
-	definition := mustBuiltinDefinition(t, "workflow.implementation")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: corpusNow}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: actor, Now: corpusNow}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -770,10 +448,8 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
-	var beforeVersion, beforeContracts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
-		t.Fatal(err)
-	}
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	var beforeContracts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&beforeContracts); err != nil {
 		t.Fatal(err)
 	}
@@ -789,795 +465,32 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: operationID, RequestID: operationID + ":request", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
 	_ = scope.close(ctx)
 	if actionErr != nil {
-		t.Fatalf("WF20 production action failed before rollback fault: %v", actionErr)
+		t.Fatalf("production action failed before rollback fault: %v", actionErr)
 	}
 	var pendingContracts int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&pendingContracts); err != nil {
 		t.Fatal(err)
 	}
 	if pendingContracts != beforeContracts+1 {
-		t.Fatalf("approval wrote %d contracts inside the transaction, want %d", pendingContracts, beforeContracts+1)
+		t.Fatalf("approval wrote %d contracts, want %d", pendingContracts, beforeContracts+1)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	var eventCount, contracts, afterVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, operationID+":%").Scan(&eventCount); err != nil {
+	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+		t.Fatal("rollback leaked durable state")
+	}
+	var afterContracts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&afterContracts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
-		t.Fatal(err)
+	if afterContracts != beforeContracts {
+		t.Fatalf("rollback leaked contract rows: before=%d after=%d", beforeContracts, afterContracts)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
-		t.Fatal(err)
-	}
-	if eventCount != 0 || contracts != beforeContracts || afterVersion != beforeVersion {
-		t.Fatalf("WF20 rollback leaked state: events=%d contracts=%d/%d version=%d/%d", eventCount, contracts, beforeContracts, afterVersion, beforeVersion)
-	}
-}
-
-func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
-	t.Helper()
-	raw, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var corpus workflowScenarioCorpus
-	if err := json.Unmarshal(raw, &corpus); err != nil {
-		t.Fatal(err)
-	}
-	if want := workflowScenarioNumberCeiling - len(retiredWorkflowScenarioNumbers); len(corpus.Scenarios) != want {
-		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), want)
-	}
-	return corpus
-}
-
-// The corpus numbers WF01 through WF57. A retired number is never reused, so
-// a scenario ID keeps its number for the life of the corpus.
-const workflowScenarioNumberCeiling = 57
-
-// WF03 and WF52 asserted the label-only vacuity refusal and were retired with
-// CD-0236. WF36 asserted core point-in-time reconstruction and was retired
-// with CD-0238.
-var retiredWorkflowScenarioNumbers = map[int]bool{3: true, 36: true, 52: true}
-
-func workflowScenarioIDs() []string {
-	return []string{
-		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-condition-actions-refused", "WF27-condition-block-relation", "WF28-recorded-conditions-rebuild", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF53-unapproved-delivered",
-		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate", "WF57-refine-exit-needs-green-verify-run",
-	}
-}
-
-func runWorkflowScenarioCase(t *testing.T, name string, initial map[string]any, action string, setup workflowCorpusSetup, request workflowCorpusRequest, observations workflowCorpusObservations, expected workflowExpected, fixtures workflowCorpusFixtures) {
-	t.Helper()
-	observation, err := executeWorkflowScenario(t, name, initial, action, setup, request, fixtures)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for index, assertion := range expected.Assertions {
-		assertWorkflowObservation(t, name, index, observation, assertion)
-	}
-	for index, assertion := range observations.ExpectedReads {
-		assertWorkflowObservation(t, name, len(expected.Assertions)+index, observation, workflowAssertion(assertion))
-	}
-	for index, assertion := range observations.NextRead {
-		assertWorkflowObservation(t, name, len(expected.Assertions)+len(observations.ExpectedReads)+index, observation, workflowAssertion(assertion))
-	}
-	for index, invariant := range expected.Invariants {
-		t.Fatalf("%s invariant %d (%q) is not a registered executable invariant", name, index, invariant)
-	}
-}
-
-func executeWorkflowScenario(t *testing.T, name string, initial map[string]any, action string, setup workflowCorpusSetup, request workflowCorpusRequest, fixtures workflowCorpusFixtures) (workflowObservation, error) {
-	t.Helper()
-	// Actions form a closed public union.  They are deliberately not keyed by
-	// scenario identity: the request action is the only dispatch input and the
-	// production dispatcher owns its semantics.
-	if _, ok := workflowCorpusActions[workflowCorpusAction(action)]; !ok {
-		return workflowObservation{}, workflowScenarioGap{fmt.Sprintf("action %q is not in the typed corpus action union", action)}
-	}
-	if action == string(corpusActionComplete) || action == string(corpusActionLinkAndComplete) {
-		if _, err := corpusImpactVerdict(request.Fields); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	return executeStructuredWorkflowAction(t, name, initial, action, setup, request, fixtures)
-}
-
-func assertWorkflowObservation(t *testing.T, name string, index int, observation workflowObservation, assertion workflowAssertion) {
-	t.Helper()
-	if err := workflowObservationAssertionError(observation, assertion); err != nil {
-		t.Fatalf("%s assertion %d: %v", name, index, err)
-	}
-}
-
-func workflowObservationAssertionError(observation workflowObservation, assertion workflowAssertion) error {
-	targets := map[string]any{"state": observation.State, "result": observation.Result, "communication": observation.Communication, "effects": observation.Effects, "authority": observation.Authority, "worker_attempts": observation.WorkerAttempts}
-	target, knownTarget := targets[assertion.Target]
-	if !knownTarget {
-		return fmt.Errorf("unsupported target %q", assertion.Target)
-	}
-	got, present := workflowLookup(target, assertion.Path)
-	if assertion.Op == "absent" {
-		if present {
-			return fmt.Errorf("path %s present with %#v", assertion.Path, got)
-		}
-		return nil
-	}
-	if !present {
-		return fmt.Errorf("path %s is absent", assertion.Path)
-	}
-	var pass bool
-	switch assertion.Op {
-	case "eq":
-		pass = jsonValueEqual(got, assertion.Value)
-	case "not_eq":
-		pass = !jsonValueEqual(got, assertion.Value)
-	case "contains":
-		pass = jsonContains(got, assertion.Value)
-	case "not_contains":
-		pass = !jsonContains(got, assertion.Value)
-	case "set_eq":
-		pass = jsonSetEqual(got, assertion.Value)
-	case "unique":
-		pass = jsonUnique(got)
-	case "nonempty":
-		pass = !jsonEmpty(got)
-	default:
-		return fmt.Errorf("unsupported operation %q", assertion.Op)
-	}
-	if !pass {
-		return fmt.Errorf("%s.%s %s %#v, got %#v", assertion.Target, assertion.Path, assertion.Op, assertion.Value, got)
-	}
-	return nil
-}
-
-func workflowLookup(root any, path string) (any, bool) {
-	return workflowLookupParts(root, strings.Split(path, "."))
-}
-
-func workflowLookupParts(current any, parts []string) (any, bool) {
-	if len(parts) == 0 {
-		return current, true
-	}
-	if values, ok := current.(map[string]any); ok {
-		remaining := strings.Join(parts, ".")
-		if value, exists := values[remaining]; exists {
-			return value, true
-		}
-		for split := len(parts) - 1; split > 0; split-- {
-			if value, exists := values[strings.Join(parts[:split], ".")]; exists {
-				return workflowLookupParts(value, parts[split:])
-			}
-		}
-	}
-	for _, part := range parts {
-		if index, err := strconv.Atoi(part); err == nil {
-			values, ok := current.([]any)
-			if !ok || index < 0 || index >= len(values) {
-				return nil, false
-			}
-			current = values[index]
-			continue
-		}
-		values, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		var exists bool
-		current, exists = values[part]
-		if !exists {
-			return nil, false
-		}
-	}
-	return current, true
-}
-
-func jsonValueEqual(a, b any) bool { return reflect.DeepEqual(normalizeJSON(a), normalizeJSON(b)) }
-
-func normalizeJSON(value any) any {
-	switch value := value.(type) {
-	case int:
-		return float64(value)
-	case int64:
-		return float64(value)
-	case []string:
-		out := make([]any, len(value))
-		for i := range value {
-			out[i] = value[i]
-		}
-		return out
-	case map[string]string:
-		out := make(map[string]any, len(value))
-		for k, v := range value {
-			out[k] = v
-		}
-		return out
-	default:
-		return value
-	}
-}
-
-func jsonContains(container, value any) bool {
-	for _, item := range []any{container} {
-		switch values := item.(type) {
-		case []any:
-			for _, candidate := range values {
-				if jsonValueEqual(candidate, value) {
-					return true
-				}
-			}
-		case map[string]any:
-			_, ok := values[fmt.Sprint(value)]
-			if ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func jsonSetEqual(a, b any) bool {
-	left, lok := normalizeJSON(a).([]any)
-	right, rok := normalizeJSON(b).([]any)
-	if !lok || !rok || len(left) != len(right) {
-		return false
-	}
-	canonical := func(values []any) []string {
-		out := make([]string, len(values))
-		for i, value := range values {
-			raw, _ := json.Marshal(value)
-			out[i] = string(raw)
-		}
-		sort.Strings(out)
-		return out
-	}
-	return reflect.DeepEqual(canonical(left), canonical(right))
-}
-
-func jsonUnique(value any) bool {
-	values, ok := normalizeJSON(value).([]any)
-	if !ok {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, item := range values {
-		raw, _ := json.Marshal(item)
-		if seen[string(raw)] {
-			return false
-		}
-		seen[string(raw)] = true
-	}
-	return true
-}
-
-func jsonEmpty(value any) bool {
-	switch value := value.(type) {
-	case nil:
-		return true
-	case string:
-		return value == ""
-	case []any:
-		return len(value) == 0
-	case map[string]any:
-		return len(value) == 0
-	default:
-		return false
-	}
-}
-
-// executeStructuredWorkflowAction is the corpus translator for actions whose
-// dedicated semantic fixture is not implemented yet. It deliberately reaches
-// a real store read or workflow action boundary; missing product behavior is
-// reported as the production Failure kind, never as a corpus/schema gap.
-func executeStructuredWorkflowAction(t *testing.T, name string, initial map[string]any, action string, setup workflowCorpusSetup, request workflowCorpusRequest, fixtures workflowCorpusFixtures) (workflowObservation, error) {
-	t.Helper()
-	workID := setup.FixtureRefs.WorkItem
-	if workID == "" {
-		if payload, ok := request.Fields["payload"].(map[string]any); ok {
-			workID, _ = payload["work"].(string)
-		}
-	}
-	if workID == "" {
-		return workflowObservation{}, fmt.Errorf("%s structured fixture has no work reference", name)
-	}
-	if (setup.CurrentState != nil) != (request.DefinitionRef != "") {
-		return workflowObservation{}, workflowScenarioGap{"current fixture requires both current state and a current family selector"}
-	}
-	if setup.CurrentState != nil && (len(setup.EventHistory) != 0 || request.DefinitionPin != nil) {
-		return workflowObservation{}, workflowScenarioGap{"current fixture cannot carry a recorded history or released definition pin"}
-	}
-	if setup.CurrentState == nil && (len(setup.EventHistory) == 0 || setup.EventHistory[0].WorkID == "" || setup.EventHistory[0].PayloadVersion < 1) {
-		return workflowObservation{}, fmt.Errorf("%s structured fixture has no typed initial event history", name)
-	}
-	s := openTemp(t)
-	ctx := context.Background()
-	actor := WorkflowActor{PrincipalRef: request.Grant.PrincipalRef, ClientRef: request.Grant.ClientRef, AgentRef: request.Grant.AgentRef, SessionRef: request.Grant.SessionRef, ActorClass: ActorAgent}
-	fixtureActor := actor
-	if setup.CurrentState == nil && (action == string(corpusActionComplete) || (action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true)) && len(setup.FixtureRefs.Actors) > 1 {
-		actor.AgentRef = "agent-reviewer"
-		actor.SessionRef = "session-reviewer"
-		actor.ActorClass = ActorOperator
-	}
-	if actor.PrincipalRef == "" {
-		return workflowObservation{}, workflowScenarioGap{"request grant does not contain an authenticated workflow actor"}
-	}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-	if request.ActorRef != "" && request.ActorRef != actorRef && !(action == string(corpusActionComplete) && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) && !(action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true && len(setup.FixtureRefs.Actors) > 0 && request.ActorRef == setup.FixtureRefs.Actors[0]) {
-		return workflowObservation{}, fmt.Errorf("%s actor_ref does not match authenticated fixture actor", name)
-	}
-	registry := BuiltinWorkflowRegistry()
-	var registered RegisteredDefinition
-	if setup.CurrentState != nil {
-		registered, err = LiveWorkflowDefinitionForRef(request.DefinitionRef)
-		if err != nil {
-			return workflowObservation{}, err
-		}
-	} else {
-		if request.DefinitionPin == nil {
-			return workflowObservation{}, workflowScenarioGap{"legacy fixture has no definition identity"}
-		}
-		var ok bool
-		registered, ok = registry.Lookup(request.DefinitionPin.Ref, request.DefinitionPin.Version)
-		if !ok {
-			return workflowObservation{}, fmt.Errorf("%s pinned workflow definition is unavailable: %s@%d", name, request.DefinitionPin.Ref, request.DefinitionPin.Version)
-		}
-		if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.DefinitionPin.Ref, Version: request.DefinitionPin.Version, Digest: request.DefinitionPin.Digest}); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	definition := registered.Definition
-	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionComplete) || (action == string(corpusActionRecordVerdict) && request.Fields["record_verdict_prerequisites"] == true)) {
-		if _, present := request.Fields["architecture_binding"]; !present {
-			request.Fields["architecture_binding"] = corpusArchitectureBinding()
-		}
-	}
-	if setup.CurrentState != nil {
-		if err := seedCorpusProduct(ctx, s); err != nil {
-			return workflowObservation{}, err
-		}
-		if action != string(corpusActionCapture) {
-			if err := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, request.Fields); err != nil {
-				return workflowObservation{}, err
-			}
-			if setup.CurrentState.Step != registered.Definition.StepGraph.StartStep {
-				return workflowObservation{}, workflowScenarioGap{"current setup step requires an admitted authoring sequence: " + setup.CurrentState.Step}
-			}
-			if request.ExpectedVersion == 0 {
-				request.ExpectedVersion, err = workflowCurrentVersion(ctx, s, workID)
-				if err != nil {
-					return workflowObservation{}, err
-				}
-			}
-		}
-	} else {
-		if err := replayWorkflowCorpusSetup(ctx, t, s, setup, registered, actorRef, action != string(corpusActionCapture)); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	if actor.ActorClass == ActorOperator && (request.Fields["complete_gate_prerequisites"] != nil || request.Fields["record_verdict_prerequisites"] == true) {
-		if err := recordCorpusActor(ctx, s, workID, actor); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	if definition.ChangesProductTruth != nil && *definition.ChangesProductTruth && (action == string(corpusActionApproveContract) || request.Fields["architecture_binding"] != nil) {
-		if err := seedCorpusArchitectureScope(ctx, s, workID, request.Fields); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	actionRegistry := BuiltinWorkflowRegistry()
-	if hasCorpusFault(setup, "missing_registry") {
-		actionRegistry = NewWorkflowDefinitionRegistry()
-	}
-	if err := replayCorpusEventStream(ctx, s, request.Fields); err != nil {
-		return workflowObservation{}, err
-	}
-	if err := seedCorpusOperations(ctx, s, initial, request, registered.Definition); err != nil {
-		return workflowObservation{}, err
-	}
-	if err := applyCorpusFaultAdapters(ctx, s, setup, workID); err != nil {
-		return workflowObservation{}, err
-	}
-	if action == "complete" {
-		fields, fieldsErr := json.Marshal(request.Fields)
-		if fieldsErr != nil {
-			return workflowObservation{}, fieldsErr
-		}
-		if err := AppendWorkflowStalenessObservation(ctx, s, request.Operation.OpID+":staleness", workID, actorRef, request.Idempotency.AcceptedInputsDigest, fields, corpusNow); err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	if action == "complete" && corpusHasCompletionPrerequisiteMarker(request) && !corpusHasDeclaredCompletionHistory(setup) && !hasCorpusFault(setup, "mismatched_commit") && !corpusHasBlockingStaleness(request) {
-		if err := advanceCorpusWorkflowToRelease(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request), request); err != nil {
-			return workflowObservation{}, err
-		}
-		if err := seedCorpusCompletionPrerequisites(ctx, s, workID, fixtureActor, request); err != nil {
-			return workflowObservation{}, err
-		}
-		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
-			request.ExpectedVersion = version
-		}
-	}
-	if action == "approve_contract" && request.Fields["approval_prerequisites"] == true {
-		if err := advanceCorpusWorkflowToPlanning(ctx, s, workID, fixtureActor); err != nil {
-			return workflowObservation{}, err
-		}
-		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
-			request.ExpectedVersion = version
-		}
-	}
-	if action == "record_verdict" && request.Fields["record_verdict_prerequisites"] == true {
-		if err := advanceCorpusWorkflowToAcceptance(ctx, s, workID, fixtureActor, corpusRequestedPredicates(request)); err != nil {
-			return workflowObservation{}, err
-		}
-		version, versionErr := workflowCurrentVersion(ctx, s, workID)
-		if versionErr != nil {
-			return workflowObservation{}, versionErr
-		}
-		if err := seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, fixtureActor, request, version, false, false); err != nil {
-			return workflowObservation{}, err
-		}
-		if version, versionErr = workflowCurrentVersion(ctx, s, workID); versionErr == nil {
-			request.ExpectedVersion = version
-		}
-	}
-	if action == "complete" && corpusHasCompletionPrerequisiteMarker(request) {
-		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
-			request.ExpectedVersion = version
-		}
-	}
-	if action == "link_successor" && corpusForwardRelation(request) {
-		if err := advanceCorpusWorkflowToLink(ctx, s, workID, actor); err != nil {
-			return workflowObservation{}, err
-		}
-		if version, versionErr := workflowCurrentVersion(ctx, s, workID); versionErr == nil {
-			request.ExpectedVersion = version
-		}
-	}
-	if action == string(corpusActionCapture) {
-		if setup.CurrentState != nil {
-			if setup.CurrentState.Step != definition.StepGraph.StartStep {
-				return workflowObservation{}, workflowScenarioGap{"current capture fixture must start at its declared first step"}
-			}
-			captureErr := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, request.Fields)
-			return observeWorkflowStore(ctx, s, workID, 0, captureErr, nil)
-		}
-		// Capture is the production creation/initialization boundary. It owns the
-		// actor and definition events rather than the fixture loader.
-		tx, txErr := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if txErr != nil {
-			return workflowObservation{}, txErr
-		}
-		if txErr = initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); txErr != nil {
-			_ = tx.Rollback()
-			return observeWorkflowStore(ctx, s, workID, 0, txErr, nil)
-		}
-		if txErr = tx.Commit(); txErr != nil {
-			return observeWorkflowStore(ctx, s, workID, 0, txErr, nil)
-		}
-		return observeWorkflowStore(ctx, s, workID, 0, nil, nil)
-	}
-	beforeSeq, err := workflowEventSequence(ctx, s, workID)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-
-	if action == "derive_ready" {
-		ready, readErr := deriveWorkflowReady(ctx, s.DatabaseForTesting(), workID)
-		if readErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
-		}
-		authority := "determined"
-		if len(ready.UnknownConditions) != 0 {
-			authority = "undetermined"
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"ready": ready.Ready, "unknown_conditions": ready.UnknownConditions, "blocking_conditions": ready.BlockingConditions, "authority": authority})
-	}
-	if action == "rebuild" || action == "replay" || action == "repair_and_rebuild" {
-		beforeHash, hashErr := WorkflowProjectionHash(ctx, s)
-		if hashErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, hashErr, nil)
-		}
-		readErr := RebuildFromLog(ctx, s)
-		if readErr != nil {
-			result := map[string]any{}
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, result)
-		}
-		if action == "repair_and_rebuild" && hasCorpusFault(setup, "event_poison") {
-			version, versionErr := workflowCurrentVersion(ctx, s, workID)
-			if versionErr != nil {
-				return observeWorkflowStore(ctx, s, workID, beforeSeq, versionErr, nil)
-			}
-			poison := Event{EventID: workID + ":corpus-poison", Kind: "workflow.poisoned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: corpusNow, PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"poison","poison":true}`)}
-			poisonErr := ApplyOperation(ctx, s, Operation{Events: []Event{poison}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-			var poisonEvents int
-			_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, poison.EventID).Scan(&poisonEvents)
-			versionAfter, _ := workflowCurrentVersion(ctx, s, workID)
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"projection_corruption_rebuilt": true, "event_poison_quarantined": poisonErr != nil && poisonEvents == 0 && versionAfter == version, "history_retained": true})
-		}
-		afterHash, hashErr := WorkflowProjectionHash(ctx, s)
-		if hashErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, hashErr, nil)
-		}
-		result := map[string]any{"rebuilt_projection_hash": afterHash, "before_projection_hash": beforeHash, "projection_hash_equal": beforeHash == afterHash}
-		if action == "replay" {
-			evidence, evidenceErr := readWorkflowReplayEvidence(ctx, s, workID, "work.created")
-			if evidenceErr != nil {
-				return observeWorkflowStore(ctx, s, workID, beforeSeq, evidenceErr, result)
-			}
-			result["replay_evidence"] = evidence
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, result)
-	}
-	if action == "concurrent_reads_and_writes" {
-		results, readErr := runConformanceWorkers(ctx, s.path, "read_write")
-		if readErr != nil {
-			return observeWorkflowStore(ctx, s, workID, beforeSeq, readErr, nil)
-		}
-		identities := make([]any, 0, len(results))
-		for _, result := range results {
-			identities = append(identities, result.DBIdentity)
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, map[string]any{"database_count": len(uniqueStringsAny(identities)), "worktree_truth_sources": uniqueStringsAny(identities), "convergence": true})
-	}
-	if action == string(corpusActionCompleteExternal) || action == string(corpusActionRetry) {
-		return executeCorpusFencedAction(ctx, s, workID, beforeSeq, action, request)
-	}
-	if action == string(corpusActionRebuildAfterInterrupt) {
-		return executeCorpusRebuildAfterInterrupt(ctx, s, actionRegistry, workID, beforeSeq, request, actor)
-	}
-	if action == string(corpusActionStartDownstream) {
-		target, relationErr := corpusRelatedWorkID(setup, request, fixtures, workID)
-		if relationErr != nil {
-			return workflowObservation{}, relationErr
-		}
-		preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, actionRegistry, WorkflowActionPreflightRequest{WorkID: target, ExpectedVersion: 0, StepID: "", ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: actor})
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, preflightErr, map[string]any{"related_work_id": target})
-	}
-	if action == string(corpusActionLinkAndComplete) {
-		return executeCorpusLinkAndComplete(ctx, s, workID, beforeSeq, request, actor, setup, fixtures)
-	}
-
-	payload := json.RawMessage(`{}`)
-	if len(request.Fields) != 0 {
-		payload, err = json.Marshal(request.Fields)
-		if err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	if request.ActionID == "record_proposal" && len(request.Fields) == 0 {
-		payload = json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
-	}
-	// accept_worker_result declares exactly attempt_id and attempt_epoch, so it
-	// takes the nested action payload rather than the whole corpus field bag.
-	if action == string(corpusActionAcceptWorkerResult) {
-		nested, ok := request.Fields["payload"].(map[string]any)
-		if !ok {
-			return workflowObservation{}, workflowScenarioGap{"accept_worker_result requires a nested action payload"}
-		}
-		payload, err = json.Marshal(nested)
-		if err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	// record_delivery declares exactly delivery_artifact and delivery_state,
-	// so it takes the nested action payload rather than the whole corpus
-	// field bag.
-	if action == string(corpusActionRecordDelivery) {
-		nested, ok := request.Fields["payload"].(map[string]any)
-		if !ok {
-			return workflowObservation{}, workflowScenarioGap{"record_delivery requires a nested action payload"}
-		}
-		payload, err = json.Marshal(nested)
-		if err != nil {
-			return workflowObservation{}, err
-		}
-	}
-	if action == string(corpusActionSupersedeContract) {
-		previous := int64(1)
-		if value, ok := workflowCorpusInt(request.Fields["contract_version"]); ok && value > 0 {
-			previous = value
-		}
-		newVersion := previous + 1
-		if value, ok := workflowCorpusInt(request.Fields["new_contract_version"]); ok && value > 0 {
-			newVersion = value
-		}
-		domainID := "domain/corpus-main/" + workID
-		successor := map[string]any{"contract_version": newVersion, "premise": "fixture successor premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:" + strings.Repeat("b", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "law_revisions": []any{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": domainID, "affected_domain_ids": []string{domainID}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}}
-		expectedVersion, versionErr := workflowCurrentVersion(ctx, s, workID)
-		if versionErr != nil {
-			return workflowObservation{}, versionErr
-		}
-		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
-			delete(successor, "architecture_binding")
-			delete(successor, "law_boundary_version")
-			delete(successor, "law_revisions")
-		}
-		payload := map[string]any{"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1, "previous_contract_version": previous, "new_contract_version": newVersion, "supersede_reason": "fixture supersession", "audit_evidence": []string{"evidence-review"}, "successor_contract": successor}
-		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
-			delete(payload, "successor_contract")
-		}
-		event := workflowEventWithActor(request.Operation.OpID+":supersede", WorkflowContractSuperseded, workID, actorRef, payload)
-		actionErr := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}})
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, nil)
-	}
-	if action == string(corpusActionComplete) && hasCorpusFault(setup, "commit_after_verdict_fails") {
-		return executeCorpusCompletionFault(ctx, s, workID, beforeSeq, request, actor)
-	}
-
-	var beforeState string
-	if setup.CurrentState != nil {
-		beforeState = contractCorrectionEffectSnapshot(t, s, workID)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return workflowObservation{}, err
-	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		_ = tx.Rollback()
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	workflowRequest := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project-1"}`, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}
-	if action == string(corpusActionReplaceCheck) {
-		// The evaluator replaces a check only through the verdict route.
-		workflowRequest.ActionID = "record_verdict"
-	}
-	result, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, actionRegistry, workflowRequest)
-	_ = scope.close(ctx)
-	if actionErr != nil {
-		_ = tx.Rollback()
-		resultObservation := map[string]any{}
-		if setup.CurrentState != nil {
-			resultObservation["state_unchanged"] = contractCorrectionEffectSnapshot(t, s, workID) == beforeState
-		}
-		if hasCorpusFault(setup, "missing_registry") {
-			available, availabilityErr := WorkflowActionAvailableWithRegistry(ctx, s, actionRegistry, workID)
-			if availabilityErr != nil {
-				return observeWorkflowStore(ctx, s, workID, beforeSeq, availabilityErr, resultObservation)
-			}
-			resultObservation["workflow_action_available"] = available
-		}
-		if request.ActionID == "unknown-action" {
-			resultObservation["envelope"] = map[string]any{"outcome": "error", "error": map[string]any{"recovery_action": map[string]any{"kind": "reread_entities"}}}
-		}
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, resultObservation)
-	}
-	if err := tx.Commit(); err != nil {
-		return observeWorkflowStore(ctx, s, workID, beforeSeq, err, nil)
-	}
-	actionResult := map[string]any{}
-	actionResult["operation_id"] = result.OperationID
-	if setup.CurrentState != nil {
-		actionResult["state_unchanged"] = contractCorrectionEffectSnapshot(t, s, workID) == beforeState
-	}
-	return observeWorkflowStore(ctx, s, workID, beforeSeq, nil, actionResult)
-}
-
-func corpusSetupInputDeclaresLaw(input workflowCorpusEvent) bool {
-	if input.Kind != WorkflowContractApproved {
-		return false
-	}
-	values, ok := input.Payload["spec_mandate"].([]any)
-	if !ok {
-		return strings.Contains(fmt.Sprint(input.Payload["spec_mandate"]), "spec:one")
-	}
-	for _, value := range values {
-		if fmt.Sprint(value) == "spec:one" {
-			return true
-		}
-	}
-	return false
-}
-
-func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, fields map[string]any) error {
-	rawBinding, ok := fields["architecture_binding"]
-	if !ok {
-		return workflowScenarioGap{"Product-changing approval is missing architecture_binding"}
-	}
-	raw, err := json.Marshal(rawBinding)
-	if err != nil {
-		return err
-	}
-	var binding WorkflowArchitectureBinding
-	if err := json.Unmarshal(raw, &binding); err != nil {
-		return err
-	}
-	if binding.DomainRegistryContentHash == "" || len(binding.AffectedDomainIDs) == 0 {
-		return workflowScenarioGap{"Product-changing approval has an incomplete architecture_binding"}
-	}
-	var productID string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? LIMIT 1`, workID).Scan(&productID); err != nil {
-		return err
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	rollback := func(cause error) error { _ = scope.close(ctx); _ = tx.Rollback(); return cause }
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now')`); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, "project", "workflow-corpus-locator"); err != nil {
-		return rollback(err)
-	}
-	rootDomain := binding.AffectedDomainIDs[0]
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?)`, productID, "project", "workflow-corpus-locator", productID, rootDomain, "1.0", binding.DomainRegistryContentHash, "corpus"); err != nil {
-		return rollback(err)
-	}
-	for _, domainID := range binding.AffectedDomainIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, "project", "workflow-corpus-locator", productID, domainID, domainID, "Synthetic corpus domain", "current", binding.DomainRegistryContentHash, "corpus"); err != nil {
-			return rollback(err)
-		}
-	}
-	if lawID, _ := corpusCompletionVerificationObligationFromFields(fields); lawID != "" {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,'spec','accepted','.concord/docs/spec.md','Synthetic corpus law','sha256:`+strings.Repeat("a", 64)+`','corpus')`, lawID); err != nil {
-			return rollback(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,?,?,?, 'corpus')`, lawID, productID, rootDomain, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			return rollback(err)
-		}
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
 }
 
 func corpusArchitectureBinding() map[string]any {
 	return map[string]any{"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64), "home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
-}
-
-func corpusCompletionVerificationObligationFromFields(fields map[string]any) (string, string) {
-	prerequisites, _ := fields["complete_gate_prerequisites"].(map[string]any)
-	if nested, ok := prerequisites["payload"].(map[string]any); ok {
-		prerequisites = nested
-	}
-	law, _ := prerequisites["verification_obligation_law"].(string)
-	subject, _ := prerequisites["verification_obligation_subject"].(string)
-	return law, subject
-}
-
-func seedCorpusOperations(ctx context.Context, s *Store, initial map[string]any, request workflowCorpusRequest, definition WorkflowDefinition) error {
-	if request.Operation.OpID == "" || (request.ActionID != string(corpusActionCompleteExternal) && request.ActionID != string(corpusActionRetry)) {
-		return nil
-	}
-	maxEpoch := int64(1)
-	logicalKey := request.Idempotency.Key
-	if payload, ok := request.Fields["payload"].(map[string]any); ok {
-		if value, ok := payload["idempotency_identity"].(string); ok && value != "" {
-			logicalKey = value
-		}
-	}
-	if current, ok := workflowCorpusInt(initial["current_epoch"]); ok && current > maxEpoch {
-		maxEpoch = current
-	}
-	if epochs, ok := initial["epochs"].([]any); ok {
-		maxEpoch = 0
-		for _, raw := range epochs {
-			if epoch, valid := workflowCorpusInt(raw); valid && epoch > maxEpoch {
-				maxEpoch = epoch
-			}
-		}
-	}
-	for epoch := int64(1); epoch <= maxEpoch; epoch++ {
-		if _, err := ClaimStepAuthorized(ctx, s, ClaimRequest{
-			OpID: request.Operation.OpID, WorkID: request.Fields["payload"].(map[string]any)["work"].(string), WorkflowTypeRef: definition.Ref, WorkflowTypeVersion: int(definition.Version), StepID: request.Operation.StepID, StepKind: StepKindExternalEffect,
-			AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, AcceptedScopeSnapshot: `{"project":"project-1"}`, PrincipalRef: request.Grant.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: logicalKey + ":claim:" + strconv.FormatInt(epoch, 10), RequestID: request.Idempotency.RequestID + ":claim:" + strconv.FormatInt(epoch, 10), ObservedAt: corpusNow, ContractDigest: testManifestDigest,
-		}, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {
@@ -1586,567 +499,16 @@ func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64
 	return version, err
 }
 
-func recordCorpusActor(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		return err
-	}
-	var recorded int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
-		return err
-	}
-	if recorded != 0 {
-		return nil
-	}
-	version, err := workflowCurrentVersion(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	payload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": string(actor.ActorClass)}
-	return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-actor", WorkflowActorRecorded, workID, actorRef, payload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-}
-
-type workflowReplayEvidence struct {
-	EventID              string `json:"event_id"`
-	Kind                 string `json:"kind"`
-	StoredPayloadVersion int    `json:"stored_payload_version"`
-	ReplayPayloadVersion int    `json:"replay_payload_version"`
-	ProjectionVersion    int64  `json:"projection_version"`
-}
-
-func readWorkflowReplayEvidence(ctx context.Context, s *Store, workID, kind string) (workflowReplayEvidence, error) {
-	var evidence workflowReplayEvidence
-	var event Event
-	var occurredAt string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq LIMIT 1`, SubjectWorkItem, workID, kind).Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload); err != nil {
-		return evidence, err
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, occurredAt)
-	if err != nil {
-		return evidence, err
-	}
-	event.OccurredAt = parsed
-	replayed, err := upcastEvent(event)
-	if err != nil {
-		return evidence, err
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&evidence.ProjectionVersion); err != nil {
-		return evidence, err
-	}
-	evidence.EventID = event.EventID
-	evidence.Kind = event.Kind
-	evidence.StoredPayloadVersion = event.PayloadVersion
-	evidence.ReplayPayloadVersion = replayed.PayloadVersion
-	return evidence, nil
-}
-
-func replayCorpusEventStream(ctx context.Context, s *Store, fields map[string]any) error {
-	values, ok := fields["event_stream"].([]any)
-	if !ok {
-		return nil
-	}
-	for _, raw := range values {
-		entry, ok := raw.(map[string]any)
-		if !ok {
-			return workflowScenarioGap{"event_stream entry is not a typed object"}
-		}
-		eventID, _ := entry["event_id"].(string)
-		kind, _ := entry["kind"].(string)
-		workID, _ := entry["work_id"].(string)
-		actor, _ := entry["actor_ref"].(string)
-		occurredAt, _ := entry["occurred_at"].(string)
-		version, _ := workflowCorpusInt(entry["payload_version"])
-		payload, _ := entry["payload"].(map[string]any)
-		if eventID == "" || kind == "" || workID == "" || actor == "" || version < 1 || payload == nil {
-			return workflowScenarioGap{"event_stream entry is missing typed identity or payload"}
-		}
-		var exists int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&exists); err != nil {
-			return err
-		}
-		if exists != 0 {
-			continue
-		}
-		when, err := time.Parse(time.RFC3339Nano, occurredAt)
-		if err != nil {
-			return workflowScenarioGap{"event_stream has an invalid occurred_at timestamp"}
-		}
-		rawPayload, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		expected, valid := workflowCorpusInt(payload["expected_version"])
-		if !valid {
-			// Some corpus entries carry descriptive event-stream observations for
-			// a dedicated owning API; they are not append inputs for this action.
-			continue
-		}
-		event := Event{EventID: eventID, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: when.UTC(), PayloadVersion: int(version), Payload: rawPayload}
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-type projectionCorruptionFaultInput struct {
-	WorkID string
-	Target string
-	Field  string
-	Value  string
-}
-
-// applyProjectionCorruptionFault is the sole raw projection mutation in the
-// corpus harness. It is test-only, typed, and intentionally rejects any target
-// or field not declared by the fault input.
-func applyProjectionCorruptionFault(ctx context.Context, s *Store, input projectionCorruptionFaultInput) error {
-	if input.WorkID == "" || input.Target != "workflow_instances" || input.Field != "current_step" || input.Value == "" {
-		return workflowScenarioGap{"projection_corruption must declare workflow_instances.current_step and a value"}
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, input.Value, input.WorkID); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
-func applyCorpusFaultAdapters(ctx context.Context, s *Store, setup workflowCorpusSetup, workID string) error {
-	for _, fault := range setup.Faults {
-		switch fault.Kind {
-		case "projection_corruption":
-			target, _ := fault.Input["target"].(string)
-			field, _ := fault.Input["field"].(string)
-			value, _ := fault.Input["value"].(string)
-			faultWorkID, _ := fault.Input["work_id"].(string)
-			if faultWorkID == "" {
-				faultWorkID = workID
-			}
-			if err := applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: faultWorkID, Target: target, Field: field, Value: value}); err != nil {
-				return err
-			}
-		case "unreadable_authority":
-			conditionID, _ := fault.Input["condition_id"].(string)
-			removed, _ := fault.Input["removed"].(bool)
-			if !removed || conditionID == "" {
-				return workflowScenarioGap{"unreadable_authority must name a removed condition authority"}
-			}
-			var authority string
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT resolution_authority FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, conditionID).Scan(&authority); err != nil {
-				return err
-			}
-			const prefix = "durable_operation:"
-			if !strings.HasPrefix(authority, prefix) || len(authority) == len(prefix) {
-				return workflowScenarioGap{"unreadable_authority condition lacks a durable operation"}
-			}
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM durable_operations WHERE op_id=?`, strings.TrimPrefix(authority, prefix)); err != nil {
-				return err
-			}
-		case "mismatched_commit":
-			// The completion boundary reads the declared commit pair and refuses
-			// before any terminal event is appended.
-		case "event_poison":
-			// Injected after a valid rebuild in repair_and_rebuild so corruption
-			// repair and poison refusal remain independently observable.
-		}
-	}
-	return nil
-}
-
-func corpusHasBlockingStaleness(request workflowCorpusRequest) bool {
-	payload, _ := request.Fields["payload"].(map[string]any)
-	staleness, _ := payload["staleness"].(map[string]any)
-	severity, _ := staleness["severity"].(string)
-	drifted, _ := staleness["drifted"].(bool)
-	return severity == "block" && drifted
-}
-
-func corpusHasCompletionPrerequisiteMarker(request workflowCorpusRequest) bool {
-	_, ok := request.Fields["complete_gate_prerequisites"]
-	return ok
-}
-
-func corpusHasDeclaredCompletionHistory(setup workflowCorpusSetup) bool {
-	seen := map[string]bool{}
-	for _, event := range setup.EventHistory {
-		seen[event.Kind] = true
-	}
-	return seen[WorkflowContractApproved] && seen[WorkflowEvidenceBound] && seen[WorkflowVerdictRecorded] && seen[WorkflowPremiseConfirmed]
-}
-
-func corpusForwardRelation(request workflowCorpusRequest) bool {
-	if relation, ok := request.Fields["relation"].(string); ok && relation == "nested" {
-		return false
-	}
-	if relation, ok := request.Fields["relation_data"].(map[string]any); ok {
-		kind, _ := relation["kind"].(string)
-		return kind == "forward_link"
-	}
-	relation, _ := request.Fields["relation"].(string)
-	return relation == "forward_link"
-}
-
-func seedCorpusCompletionPrerequisites(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest) error {
-	version, err := workflowCurrentVersion(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	var contracts int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
-		return err
-	}
-	if contracts != 0 {
-		return seedCorpusCompletionEvidenceAndVerdicts(ctx, s, workID, actor, request)
-	}
-	specMandate := []any{}
-	lawRevisions := []any{}
-	architectureBinding := corpusArchitectureBinding()
-	obligationLaw, _ := corpusCompletionVerificationObligation(request)
-	if obligationLaw != "" {
-		specMandate = []any{obligationLaw}
-		lawRevisions = []any{map[string]any{"law_id": obligationLaw, "content_hash": "sha256:" + strings.Repeat("a", 64)}}
-		architectureBinding["verification_obligations"] = []any{map[string]any{"law_id": obligationLaw, "obligation_id": "verification"}}
-	}
-	contractPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": specMandate, "law_modifies": []string{}, "law_revisions": lawRevisions, "law_boundary_version": 1, "architecture_binding": architectureBinding, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "outcome_predicates": corpusRequestedPredicates(request)}
-	contractEvent := workflowEventWithActor(workID+":contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
-	contractEvent.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
-	}
-	version++
-	return seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, actor, request, version, true, true)
-}
-
-func corpusCompletionVerificationObligation(request workflowCorpusRequest) (string, string) {
-	return corpusCompletionVerificationObligationFromFields(request.Fields)
-}
-
-func seedCorpusCompletionEvidenceAndVerdicts(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest) error {
-	version, err := workflowCurrentVersion(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	return seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx, s, workID, actor, request, version, true, true)
-}
-
-func seedCorpusCompletionEvidenceAndVerdictsAtVersion(ctx context.Context, s *Store, workID string, actor WorkflowActor, request workflowCorpusRequest, version int64, seedVerdicts, seedPremise bool) error {
-	for _, kind := range []string{"verification", "review"} {
-		opID := workID + ":corpus-evidence:" + kind
-		immutable := "evidence:" + kind
-		if kind == "verification" {
-			_, subject := corpusCompletionVerificationObligation(request)
-			if subject != "" {
-				immutable = subject
-			}
-		}
-		if err := replayWorkflowAuthority(ctx, s, opID, workID, actor.PrincipalRef, opID+":request", []string{immutable}); err != nil {
-			return err
-		}
-		payload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": kind, "immutable_subject_ref": immutable, "producer_id": actor.PrincipalRef, "producer_run_ref": opID, "producer_watermark": opID + ":request", "observed_at": corpusNow.Format(time.RFC3339Nano)}
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":evidence:"+kind, WorkflowEvidenceBound, workID, actorRefForCorpus(actor), payload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-			return err
-		}
-		version++
-	}
-	operator := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent:evaluator", SessionRef: "session:evaluator", ActorClass: ActorOperator}
-	operatorRef, err := WorkflowActorRef(operator)
-	if err != nil {
-		return err
-	}
-	actorPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": string(operator.ActorClass)}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":evaluator", WorkflowActorRecorded, workID, operatorRef, actorPayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
-	}
-	version++
-	if seedVerdicts {
-		for index, verdict := range corpusRequestedVerdicts(request) {
-			verdictPayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": verdict.PredicateID, "verdict_kind": verdict.VerdictKind, "verdict_actor_ref": operatorRef, "evaluation_evidence": []string{"evidence:review"}, "incomparable_with_approved": verdict.Incomparable}
-			verdictEvent := workflowEventWithActor(workID+":verdict:"+strconv.Itoa(index), WorkflowVerdictRecorded, workID, operatorRef, verdictPayload)
-			verdictEvent.PayloadVersion = 2
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{verdictEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-				return err
-			}
-			version++
-		}
-	}
-	if !seedPremise {
-		return nil
-	}
-	premisePayload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": operatorRef}
-	return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":premise", WorkflowPremiseConfirmed, workID, operatorRef, premisePayload)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-}
-
-type corpusRequestedVerdict struct {
-	PredicateID  string
-	VerdictKind  string
-	Incomparable bool
-}
-
-func corpusRequestedPredicates(request workflowCorpusRequest) []map[string]any {
-	if raw, ok := request.Fields["outcome_predicates"].([]any); ok && len(raw) != 0 {
-		predicates := make([]map[string]any, 0, len(raw))
-		for _, value := range raw {
-			if predicate, ok := value.(map[string]any); ok {
-				predicates = append(predicates, predicate)
-			}
-		}
-		if len(predicates) != 0 {
-			return predicates
-		}
-	}
-	return []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
-}
-
-func corpusRequestedVerdicts(request workflowCorpusRequest) []corpusRequestedVerdict {
-	if raw, ok := request.Fields["verdicts"].([]any); ok {
-		verdicts := make([]corpusRequestedVerdict, 0, len(raw))
-		for _, value := range raw {
-			entry, ok := value.(map[string]any)
-			if !ok {
-				continue
-			}
-			predicateID, _ := entry["predicate_id"].(string)
-			verdictKind, _ := entry["verdict_kind"].(string)
-			incomparable, _ := entry["incomparable_with_approved"].(bool)
-			verdicts = append(verdicts, corpusRequestedVerdict{PredicateID: predicateID, VerdictKind: verdictKind, Incomparable: incomparable})
-		}
-		if len(verdicts) != 0 {
-			return verdicts
-		}
-	}
-	verdicts := make([]corpusRequestedVerdict, 0)
-	for _, predicate := range corpusRequestedPredicates(request) {
-		predicateID, _ := predicate["predicate_id"].(string)
-		verdicts = append(verdicts, corpusRequestedVerdict{PredicateID: predicateID, VerdictKind: "ok"})
-	}
-	return verdicts
-}
-
-// corpusAtStartStep reports whether an instance still occupies its pinned
-// definition's declared start step, which is where a fixture advance begins.
-func corpusAtStartStep(ctx context.Context, s *Store, workID string) (bool, error) {
-	var step, ref, digest string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &ref, &version, &digest); err != nil {
-		return false, err
-	}
-	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: ref, Version: version, Digest: digest})
-	if err != nil {
-		return false, err
-	}
-	return step == registered.Definition.StepGraph.StartStep, nil
-}
-
-func advanceCorpusWorkflowToLink(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
-	atStart, err := corpusAtStartStep(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	if !atStart {
-		return nil
-	}
-	definitionRef := ""
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
-		return err
-	}
-	actions := []string{"record_proposal", "record_discovery", "record_design", "approve_contract"}
-	if definitionRef == "workflow.generic_one_off" {
-		actions = []string{"approve_contract"}
-	}
-	for _, action := range actions {
-		version, err := workflowCurrentVersion(ctx, s, workID)
-		if err != nil {
-			return err
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		scope, err := beginFold(ctx, tx)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		actionPayload := map[string]any{}
-		if action == "record_proposal" {
-			actionPayload = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
-		}
-		if action == "approve_contract" {
-			actionPayload["premise"] = "The operator stated this premise."
-			actionPayload["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
-		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
-		_ = scope.close(ctx)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func advanceCorpusWorkflowToPlanning(ctx context.Context, s *Store, workID string, actor WorkflowActor) error {
-	atStart, err := corpusAtStartStep(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	if !atStart {
-		return nil
-	}
-	for _, action := range []string{"record_proposal", "record_discovery", "record_design"} {
-		version, err := workflowCurrentVersion(ctx, s, workID)
-		if err != nil {
-			return err
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		scope, err := beginFold(ctx, tx)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		actionPayload := map[string]any{}
-		if action == "record_proposal" {
-			actionPayload = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
-		}
-		_, err = applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(mustJSON(actionPayload)), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: workID + ":fixture:" + action, OperationID: workID + ":fixture:" + action, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: workID + ":fixture:" + action, RequestID: workID + ":fixture:" + action, ContractDigest: testManifestDigest, Now: corpusNow})
-		_ = scope.close(ctx)
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func advanceCorpusWorkflowToAcceptance(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any) error {
-	if err := advanceCorpusWorkflowToPlanning(ctx, s, workID, actor); err != nil {
-		return err
-	}
-	version, err := workflowCurrentVersion(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	planning := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "planning", "action_id": "approve_contract", "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRefForCorpus(actor)}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-planning", WorkflowActionCompleted, workID, actorRefForCorpus(actor), planning)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
-	}
-	version++
-	contract := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []any{}, "law_boundary_version": 1, "architecture_binding": corpusArchitectureBinding(), "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
-	contractEvent := workflowEventWithActor(workID+":fixture-contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contract)
-	contractEvent.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
-	}
-	version++
-	started := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": workID + ":fixture:start", "actor_ref": actorRefForCorpus(actor)}
-	completed := map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "execution", "action_id": "checkpoint_execution", "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRefForCorpus(actor)}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{workflowEventWithActor(workID+":fixture-started", WorkflowActionStarted, workID, actorRefForCorpus(actor), started), workflowEventWithActor(workID+":fixture-execution", WorkflowActionCompleted, workID, actorRefForCorpus(actor), completed)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		return err
-	}
-	return applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: "acceptance"})
-}
-
-func advanceCorpusWorkflowToRelease(ctx context.Context, s *Store, workID string, actor WorkflowActor, predicates []map[string]any, request workflowCorpusRequest) error {
-	atStart, err := corpusAtStartStep(ctx, s, workID)
-	if err != nil {
-		return err
-	}
-	if !atStart {
-		return nil
-	}
-	// These are retained, typed action-completed boundaries from the owning
-	// workflow fold. They establish the prior step history without writing the
-	// projection directly; completion prerequisites are added separately below.
-	steps := []struct{ id, action string }{{"proposal", "record_proposal"}, {"discovery", "record_discovery"}, {"design", "record_design"}, {"planning", "approve_contract"}, {"execution", "checkpoint_execution"}, {"acceptance", "confirm_premise"}}
-	for _, item := range steps {
-		if item.id == "acceptance" {
-			if err := applyProjectionCorruptionFault(ctx, s, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: item.id}); err != nil {
-				return err
-			}
-		}
-		version, err := workflowCurrentVersion(ctx, s, workID)
-		if err != nil {
-			return err
-		}
-		events := []Event{}
-		if item.id == "execution" {
-			started := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": item.id, "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": workID + ":fixture:start", "actor_ref": actorRefForCorpus(actor)}
-			events = append(events, workflowEventWithActor(workID+":fixture-started", WorkflowActionStarted, workID, actorRefForCorpus(actor), started))
-			version++
-		}
-		payload := map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": item.id, "action_id": item.action, "attempt_epoch": 1, "result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRefForCorpus(actor)}
-		events = append(events, workflowEventWithActor(workID+":fixture-step:"+item.id, WorkflowActionCompleted, workID, actorRefForCorpus(actor), payload))
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version - int64(len(events)) + 1}}); err != nil {
-			return err
-		}
-		if item.id == "planning" {
-			contractVersion, contractErr := workflowCurrentVersion(ctx, s, workID)
-			if contractErr != nil {
-				return contractErr
-			}
-			specMandate := []any{}
-			lawRevisions := []any{}
-			architectureBinding := corpusArchitectureBinding()
-			obligationLaw, _ := corpusCompletionVerificationObligation(request)
-			if obligationLaw != "" {
-				specMandate = []any{obligationLaw}
-				lawRevisions = []any{map[string]any{"law_id": obligationLaw, "content_hash": "sha256:" + strings.Repeat("a", 64)}}
-				architectureBinding["verification_obligations"] = []any{map[string]any{"law_id": obligationLaw, "obligation_id": "verification"}}
-			}
-			contractPayload := map[string]any{"work_id": workID, "expected_version": contractVersion, "resulting_version": contractVersion + 1, "contract_version": 1, "premise": "corpus premise", "outcome_predicates": predicates, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": specMandate, "law_modifies": []string{}, "law_revisions": lawRevisions, "law_boundary_version": 1, "architecture_binding": architectureBinding, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
-			contractEvent := workflowEventWithActor(workID+":fixture-contract", WorkflowContractApproved, workID, actorRefForCorpus(actor), contractPayload)
-			contractEvent.PayloadVersion = 3
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contractEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): contractVersion}}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func uniqueStringsAny(values []any) []string {
-	seen := map[string]bool{}
-	result := []string{}
-	for _, value := range values {
-		text := fmt.Sprint(value)
-		if !seen[text] {
-			seen[text] = true
-			result = append(result, text)
-		}
-	}
-	return result
-}
-
 func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64, error) {
-	var sequence int64
-	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&sequence)
-	return sequence, err
+	var seq int64
+	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&seq)
+	return seq, err
 }
 
 func seedCorpusProduct(ctx context.Context, s *Store) error {
 	return ApplyOperation(ctx, s, Operation{Events: []Event{
-		productCreatedEvent("product", "workflow-corpus-product"),
-		projectCreatedEvent("project", "workflow-corpus-project"),
+		operationEvent("workflow-corpus-product", "product.created", SubjectProduct, "product", productCreatedPayload{DisplayName: "Workflow corpus Product", StageMaturity: "prototype", StageAudienceCommitment: "operator_only"}),
+		operationEvent("workflow-corpus-project", "project.created", SubjectProject, "project", projectCreatedPayload{DisplayName: "Workflow corpus Project"}),
 		operationEvent("workflow-corpus-product-project", "product_project.added", SubjectProduct, "product", map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "workflow corpus", "expected_version": 1, "resulting_version": 2}),
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0}})
 }
@@ -2154,7 +516,7 @@ func seedCorpusProduct(ctx context.Context, s *Store) error {
 func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, registered RegisteredDefinition, actor WorkflowActor, fields map[string]any) error {
 	registration, ok := registeredEventKind("work.created")
 	if !ok {
-		return workflowScenarioGap{"current capture registration is unavailable"}
+		return fmt.Errorf("current capture registration is unavailable")
 	}
 	title, _ := fields["title"].(string)
 	if title == "" {
@@ -2172,8 +534,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 		}
 	}
 	priority := int64(1)
-	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion,
-		Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority, WorkflowTypeRef: registered.Definition.Ref})}
+	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority, WorkflowTypeRef: registered.Definition.Ref})}
 	return s.Transact(ctx, func(transaction *Transaction) error {
 		events := []Event{created}
 		for i, projectID := range projectIDs {
@@ -2183,297 +544,25 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 			}
 			events = append(events, operationEvent(fmt.Sprintf("%s:membership:%d", workID, i), "work_project.added", SubjectWorkItem, workID, map[string]any{"work_id": workID, "project_id": projectID, "role": role, "reason": "workflow corpus", "expected_version": i + 1, "resulting_version": i + 2}))
 		}
-		_, err := ApplyOperationTx(ctx, transaction, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}})
-		if err != nil {
+		if _, err := ApplyOperationTx(ctx, transaction, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 			return err
 		}
 		return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: corpusNow})
 	})
 }
 
-func replayWorkflowCorpusSetup(ctx context.Context, t *testing.T, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, _ string, initializeMissing bool) error {
-	if err := seedCorpusProduct(ctx, s); err != nil {
-		return err
-	}
-	initialized := map[string]bool{}
-	for _, input := range setup.EventHistory {
-		if input.WorkID == "" || input.EventID == "" || input.Kind == "" || input.PayloadVersion < 1 {
-			return workflowScenarioGap{"setup event is missing typed identity or payload version"}
-		}
-		if input.Kind == WorkflowContractApproved {
-			if err := composeCorpusProductContract(ctx, s, input.Payload); err != nil {
-				return err
-			}
-			if _, productAuthority := input.Payload["architecture_binding"]; productAuthority {
-				if err := seedCorpusArchitectureScope(ctx, s, input.WorkID, input.Payload); err != nil {
-					return err
-				}
-			}
-		}
-		event := workflowEventWithActor(input.EventID, input.Kind, input.WorkID, input.ActorRef, input.Payload)
-		event.PayloadVersion = input.PayloadVersion
-		if input.Kind == WorkflowContractApproved {
-			if _, productAuthority := input.Payload["architecture_binding"]; productAuthority {
-				event.PayloadVersion = 3
-			}
-		}
-		occurred, err := time.Parse(time.RFC3339Nano, input.OccurredAt)
-		if err != nil {
-			return workflowScenarioGap{"setup event has an invalid occurred_at timestamp"}
-		}
-		event.OccurredAt = occurred.UTC()
-		if input.Kind == WorkflowActionCompleted && input.Payload["action_id"] == "dispatch_worker" {
-			if _, supplied := input.Payload["worker_worktree_identity"]; !supplied {
-				event = workerDispatchAuthorizationAtClaim(t, s, event)
-			}
-		}
-		if input.Kind == "work.created" {
-			membership := operationEvent("workflow-corpus-membership:"+input.WorkID, "work_project.added", SubjectWorkItem, input.WorkID, map[string]any{"work_id": input.WorkID, "project_id": "project", "role": "primary", "reason": "workflow corpus", "expected_version": 1, "resulting_version": 2})
-			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, input.WorkID): 0}}); err != nil {
-				return err
-			}
-			continue
-		}
-		if initializeMissing && !initialized[input.WorkID] && input.Kind != WorkflowActorRecorded && input.Kind != WorkflowDefinitionSelected {
-			tx, txErr := s.DatabaseForTesting().BeginTx(ctx, nil)
-			if txErr != nil {
-				return txErr
-			}
-			if txErr = initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: input.WorkID, Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: ActorAgent}, Now: event.OccurredAt}); txErr != nil {
-				_ = tx.Rollback()
-				return txErr
-			}
-			if txErr = tx.Commit(); txErr != nil {
-				return txErr
-			}
-			initialized[input.WorkID] = true
-		}
-		if input.Kind == WorkflowEvidenceBound {
-			producerRun, _ := input.Payload["producer_run_ref"].(string)
-			producerID, _ := input.Payload["producer_id"].(string)
-			watermark, _ := input.Payload["producer_watermark"].(string)
-			immutable, _ := input.Payload["immutable_subject_ref"].(string)
-			if producerRun == "" || producerID == "" || watermark == "" || immutable == "" {
-				return workflowScenarioGap{"evidence setup event lacks durable authority identity"}
-			}
-			if err := replayWorkflowAuthority(ctx, s, producerRun, input.WorkID, producerID, watermark, []string{immutable}); err != nil {
-				return err
-			}
-		}
-		if input.Kind == WorkflowConditionAdded {
-			authority, _ := input.Payload["resolution_authority"].(string)
-			opID := strings.TrimPrefix(authority, "durable_operation:")
-			if opID != "" {
-				if err := replayWorkflowAuthority(ctx, s, opID, input.WorkID, "principal:operator", input.EventID, []string{"evidence-verification"}); err != nil {
-					return err
-				}
-			}
-		}
-		if input.Kind == WorkflowContractApproved && corpusSetupInputDeclaresLaw(input) {
-			lawSetup := `INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','product','domain/corpus-main','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`
-			lawSetup = strings.Replace(lawSetup, "domain/corpus-main", "domain/corpus-main/"+input.WorkID, 1)
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, lawSetup); err != nil {
-				return err
-			}
-		}
-		// CD-0017 D4/D5: a worker attempt carries no workflow authority and does
-		// not advance the work version, so worker evidence replays without an
-		// expected-version fence. The store still validates the typed payload.
-		if input.Kind == WorkerDispatched || input.Kind == WorkerCompleted || input.Kind == WorkerFailed {
-			if input.Kind == WorkerCompleted {
-				event = workerCompletionAtClaim(t, s, event)
-			}
-			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
-				return fmt.Errorf("setup event %s (%s): %w", input.EventID, input.Kind, err)
-			}
-			continue
-		}
-		expected, ok := workflowCorpusInt(input.Payload["expected_version"])
-		if !ok {
-			return workflowScenarioGap{"workflow setup event lacks expected_version"}
-		}
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, input.WorkID): expected}}); err != nil {
-			return fmt.Errorf("setup event %s (%s): %w", input.EventID, input.Kind, err)
-		}
-		if input.Kind == WorkflowDefinitionSelected {
-			initialized[input.WorkID] = true
-		}
-	}
-	// A corpus may provide only a typed work.created history for a fixture. The
-	// owning initialization API supplies the authenticated actor and immutable
-	// definition pin; no projection row is synthesized by the runner.
-	if !initializeMissing {
-		return nil
-	}
-	workIDs := map[string]bool{}
-	for _, input := range setup.EventHistory {
-		workIDs[input.WorkID] = true
-	}
-	for workID := range workIDs {
-		if err := ensureCorpusWorkflowInitialized(ctx, s, workID, registered, corpusNow); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func composeCorpusProductContract(ctx context.Context, s *Store, payload map[string]any) error {
-	workID, _ := payload["work_id"].(string)
-	if workID == "" {
-		return workflowScenarioGap{"Product-changing contract is missing work_id"}
-	}
-	var definitionRef string
-	var definitionVersion int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
-		return err
-	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
-	if !ok || registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
-		return nil
-	}
-	if _, ok := payload["spec_mandate"]; !ok {
-		payload["spec_mandate"] = []any{}
-	}
-	if _, ok := payload["law_modifies"]; !ok {
-		payload["law_modifies"] = []any{}
-	}
-	payload["law_boundary_version"] = float64(1)
-	if _, ok := payload["law_revisions"]; !ok {
-		payload["law_revisions"] = []any{}
-	}
-	mandate, _ := payload["spec_mandate"].([]any)
-	for _, value := range mandate {
-		if value == "spec:one" {
-			payload["law_revisions"] = []any{map[string]any{"law_id": "spec:one", "content_hash": "sha256:" + strings.Repeat("a", 64)}}
-			break
-		}
-	}
-	domainID := "domain/corpus-main/" + workID
-	payload["architecture_binding"] = map[string]any{
-		"domain_registry_content_hash": "sha256:" + strings.Repeat("b", 64),
-		"home_domain_id":               domainID,
-		"affected_domain_ids":          []any{domainID},
-		"domain_modifies":              []any{},
-		"domain_relation_modifies":     []any{},
-		"law_additions":                []any{},
-		"verification_obligations":     []any{},
-	}
-	if len(mandate) != 0 {
-		payload["architecture_binding"].(map[string]any)["verification_obligations"] = []any{map[string]any{"law_id": "spec:one", "obligation_id": "verification"}}
-	}
-	return nil
-}
-
-func ensureCorpusWorkflowInitialized(ctx context.Context, s *Store, workID string, fallback RegisteredDefinition, now time.Time) error {
-	var existing int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=?`, workID).Scan(&existing); err != nil {
-		return err
-	}
-	if existing != 0 {
-		return nil
-	}
-	var kind string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
-		return err
-	}
-	definition := fallback
-	for _, candidate := range BuiltinWorkflowDefinitions() {
-		if string(candidate.WorkKind) == kind {
-			definition, _ = BuiltinWorkflowRegistry().Register(candidate)
-			break
-		}
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent-engineer", SessionRef: "session-executor", ActorClass: ActorAgent}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
-func workflowCorpusInt(value any) (int64, bool) {
-	switch value := value.(type) {
-	case float64:
-		return int64(value), value == float64(int64(value))
-	case int:
-		return int64(value), true
-	case int64:
-		return value, true
-	default:
-		return 0, false
-	}
-}
-
-func inlineTransactionEvidence(ctx context.Context, s *Store, workID string, beforeSeq int64, result map[string]any) (map[string]any, bool) {
-	operation, ok := result["operation_id"].(string)
-	if !ok || operation == "" {
-		return nil, false
-	}
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT seq,event_id,kind,json_extract(payload,'$.resulting_version') FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND event_id LIKE ? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq, operation+":%")
-	if err != nil {
-		return nil, false
-	}
-	defer rows.Close()
-	var events []struct {
-		seq, version int64
-		id, kind     string
-	}
-	for rows.Next() {
-		var event struct {
-			seq, version int64
-			id, kind     string
-		}
-		if err := rows.Scan(&event.seq, &event.id, &event.kind, &event.version); err != nil {
-			return nil, false
-		}
-		events = append(events, event)
-	}
-	if rows.Err() != nil {
-		return nil, false
-	}
-	if len(events) < 2 || events[len(events)-1].seq-events[0].seq != int64(len(events)-1) {
-		return nil, false
-	}
-	var durableKind, stepKind string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(result_kind,''),COALESCE(step_kind,'') FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, operation).Scan(&durableKind, &stepKind); err != nil || durableKind != string(ResultCompleted) || stepKind != string(StepInternalSQLite) {
-		return nil, false
-	}
-	return map[string]any{"count": 1, "operation_id": operation, "event_count": len(events), "first_event": events[0].kind, "last_event": events[len(events)-1].kind, "resulting_version": events[len(events)-1].version}, true
-}
-
-func workflowFailureObservationKind(err error) string {
-	var failure *Failure
-	if !failureAs(err, &failure) {
-		return err.Error()
-	}
-	switch failure.Kind {
-	case KindStaleAttempt:
-		return string(KindOperationConflict)
-	case KindInvalidPayload, KindInvalidOperation:
-		return "invalid_input"
-	case KindIllegalLifecycleTransition:
-		return string(KindInvalidTransition)
-	default:
-		return string(failure.Kind)
-	}
-}
-
-// observeWorkflowStore is the only observation constructor. It reads the
-// persisted event log, workflow projections, and durable operation state after
-// the action. The event sequence is bounded by beforeSeq so no-side-effect
-// assertions compare authoritative before/after state rather than an
-// in-memory assertion object.
+// Observations read current rows and the bounded writes of this request. They
+// never reconstruct a fixture or a projection from stored history.
 func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSeq int64, actionErr error, result map[string]any) (workflowObservation, error) {
-	observation := workflowObservation{State: map[string]any{}, Result: result, Communication: map[string]any{}, Effects: map[string]any{}, Authority: map[string]any{}, WorkerAttempts: map[string]any{}}
+	observation := workflowObservation{State: map[string]any{}, Result: result, Communication: map[string]any{}, Effects: map[string]any{}}
 	if actionErr != nil {
 		var failure *Failure
 		if failureAs(actionErr, &failure) {
-			kind := workflowFailureObservationKind(actionErr)
-			if available, ok := result["workflow_action_available"].(bool); ok && !available {
+			kind := string(failure.Kind)
+			switch failure.Kind {
+			case KindInvalidPayload, KindInvalidOperation:
+				kind = "invalid_input"
+			case KindIllegalLifecycleTransition:
 				kind = string(KindInvalidTransition)
 			}
 			observation.Communication["error"] = map[string]any{"kind": kind, "detail": failure.Detail}
@@ -2483,350 +572,99 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	} else {
 		observation.Communication["outcome"] = "ok"
 	}
-	if available, ok := result["workflow_action_available"].(bool); ok && !available {
-		if _, present := observation.Communication["error"]; present {
-			observation.Communication["error"].(map[string]any)["kind"] = string(KindInvalidTransition)
-		}
-	}
-	if stale, ok := result["stale_attempt_error"].(error); ok {
-		observation.Communication["epoch-4"] = map[string]any{"error": map[string]any{"kind": workflowFailureObservationKind(stale)}}
-	}
-	if envelope, ok := result["envelope"].(map[string]any); ok {
-		observation.Communication["envelope"] = envelope
-	}
 	var lifecycle string
-	var workVersion int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &workVersion); err == nil {
-		observation.State["work"] = map[string]any{"lifecycle": lifecycle, "version": workVersion}
-		observation.State[workID] = map[string]any{"version": workVersion}
+	var version int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &version); err != nil {
+		return observation, err
 	}
-	if err := observeWorkerAttempts(ctx, s, workID, &observation); err != nil {
-		return workflowObservation{}, err
+	work := map[string]any{"lifecycle": lifecycle, "version": version}
+	observation.State["work"] = work
+	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		return observation, err
 	}
-	projection, readErr := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
-	if readErr == nil {
-		observation.State[workID] = map[string]any{"state": projection.State, "current_step": projection.CurrentStep}
-		contract := map[string]any{}
-		if projection.Contract != nil {
-			if work, ok := observation.State["work"].(map[string]any); ok {
-				work["outcome_contract"] = contract
-			}
-			contract["version"] = projection.Contract.Version
-			contract["premise"] = projection.Contract.Premise
-			contract["outcome_predicates"] = projection.Contract.OutcomePredicates
-			contract["required"] = true
-			contract["required_evidence"] = projection.Contract.RequiredEvidence
-			contract["route_conventions"] = projection.Contract.RouteConventions
-			contract["spec_mandate"] = projection.Contract.SpecMandate
-			contract["rigor_class"] = projection.Contract.RigorClass
-			if len(projection.Contract.OutcomePredicates) != 0 && projection.Contract.OutcomePredicates[0].OutcomeKind == "check" {
-				var predicate map[string]any
-				if json.Unmarshal([]byte(projection.Contract.OutcomePredicates[0].OutcomePayload), &predicate) == nil {
-					if check, ok := predicate["check_ref"].(string); ok {
-						contract["outcome"] = "check:" + strings.TrimPrefix(check, "check:")
-					}
-				}
-			}
-			if len(projection.Contract.OutcomePredicates) != 0 && projection.Contract.OutcomePredicates[0].OutcomeKind == "outcome" {
-				var predicate map[string]any
-				if json.Unmarshal([]byte(projection.Contract.OutcomePredicates[0].OutcomePayload), &predicate) == nil {
-					if allowed, ok := predicate["allowed"].([]any); ok && len(allowed) == 1 {
-						contract["outcome"] = fmt.Sprint(allowed[0])
-					}
-				}
-			}
-			contract["premise_hash"] = projection.Contract.Premise
-			if len(projection.Contract.OutcomePredicates) != 0 {
-				contract["outcome_hash"] = projection.Contract.OutcomePredicates[0].OutcomePayload
-			}
-			var contractPayload []byte
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowContractApproved).Scan(&contractPayload); err == nil {
-				var typed map[string]any
-				if json.Unmarshal(contractPayload, &typed) == nil {
-					if value, ok := typed["premise_hash"].(string); ok && value != "" {
-						contract["premise_hash"] = value
-					}
-					if value, ok := typed["outcome_hash"].(string); ok && value != "" {
-						contract["outcome_hash"] = value
-					}
-				}
-			}
-		}
-		observation.State["contract"] = contract
-		contracts := map[string]any{"versions": []any{}}
-		contractRows, contractErr := s.DatabaseForTesting().QueryContext(ctx, `SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? ORDER BY contract_version`, workID)
-		if contractErr != nil {
-			return observation, contractErr
-		}
-		var versions []any
-		for contractRows.Next() {
-			var version int64
-			var premise string
-			if err := contractRows.Scan(&version, &premise); err != nil {
-				contractRows.Close()
-				return observation, err
-			}
-			versions = append(versions, version)
-			contracts[fmt.Sprintf("%d", version)] = map[string]any{"premise": premise}
-		}
-		if err := contractRows.Err(); err != nil {
-			contractRows.Close()
-			return observation, err
-		}
-		contractRows.Close()
-		contracts["versions"] = versions
-		observation.State["contracts"] = contracts
-		var supersedes int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MIN(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NOT NULL`, workID).Scan(&supersedes); err == nil && supersedes != 0 {
-			observation.State["audit"] = map[string]any{"supersedes": supersedes}
-		}
-		var rigorClass string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT rigor_class FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&rigorClass); err == nil && rigorClass != "" {
-			observation.State["rigor"] = map[string]any{"proof_depth": rigorClass}
-		}
-		if projection.CurrentStep == "planning" {
-			observation.Communication["planning_required"] = true
-		}
-		observation.State["candidates"] = map[string]any{"ids": projection.CandidateIDs}
-		observation.State["conditions"] = projection.Conditions
-		awaitTypes := make([]any, 0, len(projection.Conditions))
-		conditionStates := map[string]any{}
-		for _, condition := range projection.Conditions {
-			awaitTypes = append(awaitTypes, condition.AwaitType)
-		}
-		observation.State["resolved"] = map[string]any{"await_types": awaitTypes}
-		notices := make([]any, len(projection.ImpactNotices))
-		for i, notice := range projection.ImpactNotices {
-			notices[i] = map[string]any{"notice_id": notice.NoticeID, "source_work_id": notice.SourceWorkID, "source_contract_version": notice.SourceContractVersion, "entity_kind": notice.EntityKind, "entity_ref": notice.EntityRef, "target_work_id": notice.TargetWorkID, "edge_owner_work_id": notice.EdgeOwnerWorkID, "edge_id": notice.EdgeID, "severity": notice.Severity}
-		}
-		noticeView := map[string]any{"count": len(notices), "items": notices}
-		for i, item := range notices {
-			noticeView[strconv.Itoa(i)] = item
-		}
-		observation.State["impact_notices"] = noticeView
-		if len(notices) > 0 {
-			observation.State["notice"] = notices[0]
-		}
-		if observation.Result == nil {
-			observation.Result = map[string]any{"ready": projection.Ready, "unknown_conditions": projection.UnreadableConditions, "blocking_conditions": projection.BlockingConditions}
-		}
-		observation.Authority["unknown"] = map[string]any{"condition": projection.UnreadableConditions}
-		unreadable := make([]any, len(projection.UnreadableConditions))
-		for i, condition := range projection.UnreadableConditions {
-			unreadable[i] = condition
-		}
-		observation.Authority["unreadable_set"] = unreadable
-		observation.Authority["source"] = "event_log"
-		observation.State["workflow_instances"] = map[string]any{workID: map[string]any{"state": projection.State, "current_step": projection.CurrentStep}}
-		var decision string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision); err == nil {
-			observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
-		} else if projection.Contract != nil {
-			for _, predicate := range projection.Contract.OutcomePredicates {
-				var outcome map[string]any
-				if json.Unmarshal([]byte(predicate.OutcomePayload), &outcome) != nil {
-					continue
-				}
-				if record, ok := outcome["decision_record"].(map[string]any); ok {
-					decision, _ = record["decision"].(string)
-					observation.Authority["decision_record"] = map[string]any{"operator_accepted": decision == "accepted_decision" || decision == "insufficient_evidence"}
-					break
-				}
-			}
-		}
-		for _, condition := range projection.Conditions {
-			conditionMap := map[string]any{"state": condition.State, "await_type": condition.AwaitType, "resolution_authority": condition.ResolutionAuthority}
-			var cancellationAuthority, resolutionEvidence, cancellationEvidence string
-			_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(cancellation_authority,''),COALESCE(resolution_evidence,''),COALESCE(cancellation_evidence,'') FROM workflow_external_conditions WHERE work_id=? AND condition_id=?`, workID, condition.ID).Scan(&cancellationAuthority, &resolutionEvidence, &cancellationEvidence)
-			if resolutionEvidence == "" {
-				resolutionEvidence = cancellationEvidence
-			}
-			if cancellationAuthority != "" {
-				conditionMap["cancellation_authority"] = cancellationAuthority
-			}
-			if resolutionEvidence != "" {
-				conditionMap["resolution_evidence"] = resolutionEvidence
-			}
-			conditionStates[condition.ID] = conditionMap
-			if resolutionEvidence != "" {
-				observation.Authority["resolution"] = map[string]any{"evidence": resolutionEvidence}
-			}
-		}
-		observation.State["condition"] = conditionStates
-		observation.Authority["condition"] = conditionStates
+	observation.State[workID] = map[string]any{"state": projection.State, "current_step": projection.CurrentStep}
+	if projection.Contract != nil {
+		work["outcome_contract"] = projection.Contract
 	}
-	var successor, relation, successorKind, successorDefinition string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT e.target_work_id,e.edge_kind,COALESCE(w.kind,''),COALESCE(i.definition_ref,'') FROM workflow_impact_edges e LEFT JOIN work_items w ON w.id=e.target_work_id LEFT JOIN workflow_instances i ON i.work_id=e.target_work_id WHERE e.work_id=? AND e.edge_kind='forward_link' ORDER BY e.recorded_at,e.edge_id LIMIT 1`, workID).Scan(&successor, &relation, &successorKind, &successorDefinition); err == nil {
-		observation.State["successor"] = map[string]any{"work_id": successor, "relation": relation, "kind": successorKind, "definition_ref": successorDefinition, "family": successorKind}
-		observation.State["successor_authority_independent"] = true
-		observation.Effects["successor_authority_independent"] = true
+	conditions := map[string]any{}
+	for _, condition := range projection.Conditions {
+		conditions[condition.ID] = map[string]any{"state": condition.State}
 	}
+	observation.State["condition"] = conditions
 	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT kind FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {
 		return observation, err
 	}
 	defer rows.Close()
-	eventOrder := []any{}
-	eventCounts := map[string]any{}
+	order := []any{}
 	for rows.Next() {
 		var kind string
 		if err := rows.Scan(&kind); err != nil {
 			return observation, err
 		}
 		observation.Effects[kind] = true
-		switch kind {
-		case WorkflowContractApproved:
-			observation.Effects["contract_approved"] = true
-		case WorkflowCandidateSetRevised:
-			observation.Effects["candidate_set_revised"] = true
-		case WorkflowContractSuperseded:
-			observation.Effects["contract_superseded"] = true
+		if kind == "work.created" {
+			observation.Effects["work.created_event"] = true
 		}
-		eventOrder = append(eventOrder, kind)
-		if count, ok := eventCounts[kind].(int); ok {
-			eventCounts[kind] = count + 1
-		} else {
-			eventCounts[kind] = 1
-		}
+		order = append(order, kind)
 	}
-	if err := rows.Err(); err != nil {
-		return observation, err
-	}
-	var verdictKind string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.verdict_kind') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowVerdictRecorded).Scan(&verdictKind); err == nil && verdictKind != "" {
-		observation.Communication["verdict"] = map[string]any{"kind": verdictKind}
-	}
-	if value, ok := observation.Effects["work.created"]; ok {
-		observation.Effects["work.created_event"] = value
-	}
-	observation.Effects["events"] = map[string]any{"order": eventOrder, "counts": eventCounts}
-	var operationCount int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE work_id=?`, workID).Scan(&operationCount); err == nil && operationCount > 0 {
-		observation.Authority["durable_operation"] = map[string]any{"count": operationCount}
-		operationRows, queryErr := s.DatabaseForTesting().QueryContext(ctx, `SELECT op_id,attempt_epoch,COALESCE(result_kind,''),COALESCE(resume_cursor,'') FROM durable_operations WHERE work_id=? ORDER BY op_id,attempt_epoch`, workID)
-		if queryErr == nil {
-			defer operationRows.Close()
-			epochs := map[string]any{}
-			for operationRows.Next() {
-				var opID, resultKind, cursor string
-				var epoch int64
-				if err := operationRows.Scan(&opID, &epoch, &resultKind, &cursor); err == nil {
-					entry := map[string]any{"status": resultKind, "resume_cursor": cursor, "op_id": opID}
-					epochs[fmt.Sprintf("epoch-%d", epoch)] = entry
-					observation.State[fmt.Sprintf("epoch-%d", epoch)] = entry
-				}
-			}
-			if err := operationRows.Err(); err != nil {
-				return observation, err
-			}
-			observation.State["epochs"] = epochs
-		}
-	}
-	if transaction, ok := inlineTransactionEvidence(ctx, s, workID, beforeSeq, observation.Result); ok {
-		observation.Effects["domain_transaction"] = transaction
-	}
-	for _, key := range []string{"resume_step", "last_checkpoint", "resume_boundary"} {
-		if value, ok := observation.Result[key]; ok {
-			observation.State[key] = value
-			if key == "resume_boundary" {
-				observation.Authority[key] = value
-			}
-		}
-	}
-	if operation, ok := observation.Result["operation"].(map[string]any); ok {
-		observation.State["idempotency"] = map[string]any{"identity": operation["idempotency_identity"]}
-	}
-	for key, value := range observation.Result {
-		switch key {
-		case "rebuilt_projection_hash", "before_projection_hash", "projection_hash_equal", "projection_corruption_rebuilt", "event_poison_quarantined", "history_retained":
-			observation.State[key] = value
-		case "next_read":
-			observation.Result[key] = value
-		case "authority":
-			observation.Result[key] = value
-		case "workflow_action_available":
-			observation.Authority[key] = value
-		case "unreadable_set":
-			observation.Authority[key] = value
-		}
-	}
-	if value, ok := observation.Result["projection_corruption_rebuilt"]; ok {
-		observation.Authority["projection_corruption"] = map[string]any{"rebuilt": value}
-	}
-	if value, ok := observation.Result["event_poison_quarantined"]; ok {
-		observation.Authority["event_poison"] = map[string]any{"quarantined": value}
-	}
-	if value, ok := observation.Result["history_retained"]; ok {
-		observation.State["history"] = map[string]any{"retained": value}
-	}
-	if value, ok := observation.Result["old_event_upcasted"]; ok {
-		observation.Authority["old_event"] = map[string]any{"upcasted": value}
-	}
-	if value, ok := observation.Result["new_event_refused"]; ok {
-		observation.Communication["new_event"] = map[string]any{"error": map[string]any{"kind": "invariant_violation", "refused": value}}
-	}
-	if evidence, ok := observation.Result["replay_evidence"].(workflowReplayEvidence); ok {
-		observation.Authority["old_event"] = map[string]any{"upcasted": evidence.StoredPayloadVersion < evidence.ReplayPayloadVersion, "stored_version": evidence.StoredPayloadVersion, "replay_version": evidence.ReplayPayloadVersion, "projection_version": evidence.ProjectionVersion}
-	}
-	if warnings, warningErr := workflowRecordedStalenessWarnings(ctx, s.DatabaseForTesting(), workID); warningErr == nil && len(warnings) != 0 {
-		if observation.Result == nil {
-			observation.Result = map[string]any{}
-		}
-		observation.Result["next_read"] = map[string]any{"warnings": warnings}
-		observation.State["completion"] = map[string]any{"warnings": warnings}
-	}
-	if value, ok := observation.Result["database_count"]; ok {
-		observation.Authority["database"] = map[string]any{"count": value}
-	}
-	if truth, ok := observation.Result["worktree_truth_sources"]; ok {
-		observation.State["worktree"] = map[string]any{"truth_sources": truth}
-	}
-	if attempt, ok := observation.Result["attempt"].(map[string]any); ok {
-		observation.Authority["attempt"] = attempt
-	}
-	if result, ok := observation.Result["operation"].(map[string]any); ok {
-		observation.State["operation"] = result
-		ids, _ := result["result_event_ids"].([]string)
-		observation.Effects["native_effect"] = map[string]any{"count": len(ids)}
-		observation.Communication["replay"] = result["replayed"]
-	}
-	if successorID, ok := observation.Result["related_work_id"].(string); ok && successorID != "" && successorID != workID {
-		var childState string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, successorID).Scan(&childState); err == nil {
-			observation.State[successorID] = map[string]any{"authority": "independent", "state": childState}
-		}
-	}
-	return observation, nil
+	observation.Effects["events"] = map[string]any{"order": order}
+	return observation, rows.Err()
 }
 
-// observeWorkerAttempts exposes the CD-0017 D5 worker attempt evidence to the
-// scenario corpus. Every dispatched attempt carries its registered lane
-// identity and the readback executing model (CD-0058: the only model evidence
-// Concord records), so a scenario can assert typed lane evidence rather than
-// response wording.
-func observeWorkerAttempts(ctx context.Context, s *Store, workID string, observation *workflowObservation) error {
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at, attempt_id`, workID)
-	if err != nil {
+func workflowObservationAssertionError(observation workflowObservation, assertion workflowAssertion) error {
+	targets := map[string]any{"state": observation.State, "result": observation.Result, "communication": observation.Communication, "effects": observation.Effects}
+	target, known := targets[assertion.Target]
+	if !known {
+		return fmt.Errorf("unsupported target %q", assertion.Target)
+	}
+	got, present := workflowLookup(target, assertion.Path)
+	if assertion.Op == "absent" {
+		if present {
+			return fmt.Errorf("path %s present with %#v", assertion.Path, got)
+		}
 		return nil
 	}
-	defer rows.Close()
-	lanes := []any{}
-	for rows.Next() {
-		var attemptID, laneID, laneDigest, capability, readback, lifecycle string
-		var laneVersion int64
-		if err := rows.Scan(&attemptID, &laneID, &laneVersion, &laneDigest, &capability, &readback, &lifecycle); err != nil {
-			return err
-		}
-		observation.WorkerAttempts[attemptID] = map[string]any{
-			"lane_id": laneID, "lane_version": laneVersion, "lane_digest": laneDigest,
-			"capability_class": capability,
-			"readback_model":   readback, "lifecycle_state": lifecycle,
-		}
-		lanes = append(lanes, laneID)
+	if !present {
+		return fmt.Errorf("path %s is absent", assertion.Path)
 	}
-	if err := rows.Err(); err != nil {
-		return err
+	var pass bool
+	switch assertion.Op {
+	case "eq":
+		pass = reflect.DeepEqual(got, assertion.Value)
+	case "nonempty":
+		pass = got != nil && fmt.Sprint(got) != "" && fmt.Sprint(got) != "[]" && fmt.Sprint(got) != "map[]"
+	default:
+		return fmt.Errorf("unsupported operation %q", assertion.Op)
 	}
-	observation.WorkerAttempts["lanes"] = lanes
+	if !pass {
+		return fmt.Errorf("%s.%s %s %#v, got %#v", assertion.Target, assertion.Path, assertion.Op, assertion.Value, got)
+	}
 	return nil
+}
+
+func workflowLookup(current any, path string) (any, bool) {
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		if object, ok := current.(map[string]any); ok {
+			if value, exists := object[strings.Join(parts[i:], ".")]; exists {
+				return value, true
+			}
+			value, exists := object[part]
+			if !exists {
+				return nil, false
+			}
+			current = value
+		} else if values, ok := current.([]any); ok {
+			index, err := strconv.Atoi(part)
+			if err != nil || index < 0 || index >= len(values) {
+				return nil, false
+			}
+			current = values[index]
+		} else {
+			return nil, false
+		}
+	}
+	return current, true
 }

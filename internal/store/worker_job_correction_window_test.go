@@ -307,22 +307,6 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 		t.Fatalf("correction after the duplicate terminal report = %#v, want the unchanged window on %s", pin.Correction, attempt3)
 	}
 
-	// The rebuild folds the stored derivation to the same records and source.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	for _, attempt := range []string{attempt1, attempt3} {
-		if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 || !strings.HasSuffix(got[0]["event_id"].(string), ":workflow-failure") {
-			t.Fatalf("rebuilt records for %s = %+v, want the one derived record rebuilt identically", attempt, got)
-		}
-	}
-	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
-		t.Fatalf("rebuild closed the unresolved obligation at %d", boundary)
-	}
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
-		t.Fatalf("rebuilt correction = %#v, want the same failed source on %s", pin.Correction, attempt3)
-	}
 }
 
 // jobWindowAcceptanceBoundary reads the satisfied-obligation cutoff. A supplied

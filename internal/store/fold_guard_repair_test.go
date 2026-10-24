@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
 type foldRowReader interface {
@@ -183,8 +182,8 @@ func TestFoldGuardCollisionIsInvariantFailure(t *testing.T) {
 	if failure.RetrySafe {
 		t.Fatal("collision reports retry_safe")
 	}
-	if !strings.Contains(failure.RecoveryAction, "recover-fold-guard") {
-		t.Fatalf("recovery action %q does not name the offline recovery route", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "concord restore") || !strings.Contains(failure.RecoveryAction, "new path") {
+		t.Fatalf("recovery action %q does not name verified backup restore into a new path", failure.RecoveryAction)
 	}
 }
 
@@ -210,147 +209,7 @@ func TestOpenRefusesCommittedFoldGuard(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {
 		t.Fatalf("Open error = %v, want %s", err, KindInvariantViolation)
 	}
-	if !strings.Contains(failure.RecoveryAction, "recover-fold-guard") {
-		t.Fatalf("recovery action %q does not name the offline recovery route", failure.RecoveryAction)
-	}
-}
-
-// Offline recovery clears the stranded guard and rebuilds every projection
-// through the shared rebuild, so a forged projection row does not survive,
-// while the event log is preserved.
-func TestRecoverFoldGuardRebuildsAndClears(t *testing.T) {
-	t.Parallel()
-	s := openRepairStore(t)
-	ctx := context.Background()
-	path := s.Path()
-	seedRepairProduct(t, s)
-	var events int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('forged','Forged','prototype','operator_only',1,'now','now')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	report, err := RecoverFoldGuard(ctx, path)
-	if err != nil {
-		t.Fatalf("RecoverFoldGuard() error = %v", err)
-	}
-	if !report.Rebuilt || report.Events != events {
-		t.Fatalf("report = %+v, want rebuilt with %d events", report, events)
-	}
-	reopened, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open after recovery error = %v", err)
-	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	if got := foldGuardRows(t, reopened.DatabaseForTesting()); got != 0 {
-		t.Fatalf("guard rows after recovery = %d, want 0", got)
-	}
-	var forged int
-	if err := reopened.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM products WHERE id='forged'`).Scan(&forged); err != nil {
-		t.Fatal(err)
-	}
-	if forged != 0 {
-		t.Fatal("the forged projection row survived the rebuild")
-	}
-	var live int
-	if err := reopened.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM products WHERE id='prod'`).Scan(&live); err != nil {
-		t.Fatal(err)
-	}
-	if live != 1 {
-		t.Fatalf("live projection rows = %d, want 1", live)
-	}
-	var eventsAfter int64
-	if err := reopened.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
-		t.Fatal(err)
-	}
-	if eventsAfter != events {
-		t.Fatalf("event log rows = %d, want %d", eventsAfter, events)
-	}
-}
-
-// A failed recovery rolls back the clearing transaction, which restores the
-// stranded guard, so ordinary writes stay refused exactly as before.
-func TestRecoverFoldGuardFailureKeepsStoreRefused(t *testing.T) {
-	t.Parallel()
-	s := openRepairStore(t)
-	ctx := context.Background()
-	path := s.Path()
-	var events int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('repair-poison','unregistered.kind','product','prod','test',?,1,'{}')`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := RecoverFoldGuard(ctx, path); err == nil {
-		t.Fatal("RecoverFoldGuard succeeded on an unlog-replayable event")
-	}
-	reopened, err := Open(ctx, path)
-	if err == nil {
-		_ = reopened.Close()
-		t.Fatal("ordinary Open admitted the database after a failed recovery")
-	}
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {
-		t.Fatalf("Open error = %v, want %s", err, KindInvariantViolation)
-	}
-	// The event log is preserved even though the rebuild refused it.
-	raw, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = raw.Close() }()
-	var eventsAfter int64
-	if err := raw.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
-		t.Fatal(err)
-	}
-	if eventsAfter != events+1 {
-		t.Fatalf("event log rows = %d, want %d", eventsAfter, events+1)
-	}
-}
-
-// One recovery at a time: a second recovery while the lock is held refuses.
-func TestRecoverFoldGuardRefusesConcurrentRecovery(t *testing.T) {
-	t.Parallel()
-	s := openRepairStore(t)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
-	})
-	lock, err := acquireRecoveryLock(s.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = lock.close() }()
-	if _, err := RecoverFoldGuard(context.Background(), s.Path()); err == nil {
-		t.Fatal("a second recovery ran while the lock was held")
-	}
-	var failure *Failure
-	_, recoverErr := RecoverFoldGuard(context.Background(), s.Path())
-	if !errors.As(recoverErr, &failure) || failure.Kind != KindOperationConflict {
-		t.Fatalf("concurrent recovery error = %v, want %s", recoverErr, KindOperationConflict)
+	if !strings.Contains(failure.RecoveryAction, "concord restore") || !strings.Contains(failure.RecoveryAction, "new path") {
+		t.Fatalf("recovery action %q does not name verified backup restore into a new path", failure.RecoveryAction)
 	}
 }

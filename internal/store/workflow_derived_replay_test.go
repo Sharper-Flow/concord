@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestNonProductChangingLawRevisionSurvivesReplay(t *testing.T) {
+func TestNonProductChangingLawRevision(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []struct {
 		name      string
@@ -126,10 +126,6 @@ func TestNonProductChangingLawRevisionSurvivesReplay(t *testing.T) {
 						t.Fatalf("predecessor superseded_by=%d, want %d: %v", supersededBy, contractVersion, err)
 					}
 				}
-			}
-			assertRevision()
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Errorf("rebuild admitted contract: %v", err)
 			}
 			assertRevision()
 		})

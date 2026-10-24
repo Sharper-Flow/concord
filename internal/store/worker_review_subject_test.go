@@ -253,10 +253,9 @@ func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) Worke
 
 // reviewSubjectImplementComplete dispatches one implementation attempt on a
 // fresh ready job revision and records its terminal event, preparing the
-// core delivery observation when the terminal version carries one.
+// core delivery observation through the current producer path.
 func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string) {
 	t.Helper()
-	const observed = true
 	s := f.store
 	lane := laneForID(t)
 	job := reviewSubjectReadyRevision(t, f)
@@ -271,21 +270,16 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 		t.Fatal(err)
 	}
 	version := WorkerEvidenceEventPayloadVersion(WorkerCompleted)
-	if !observed {
-		version = workerCompletedTerminalDeliveryVersion - 1
-	}
 	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}
 	ctx := context.Background()
-	if observed {
-		prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
-		if prepErr != nil {
-			t.Fatalf("terminal delivery preparation refused: %v", prepErr)
-		}
-		ctx = WithWorkerTerminalPreparation(ctx, prepared)
+	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
+	if prepErr != nil {
+		t.Fatalf("terminal delivery preparation refused: %v", prepErr)
 	}
+	ctx = WithWorkerTerminalPreparation(ctx, prepared)
 	workerTerminalEventThroughSeamCtx(t, ctx, s, completion)
 }
 

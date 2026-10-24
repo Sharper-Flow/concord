@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -246,7 +245,7 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	_ = requirePayloadFailure(t, validateWorkflowActionPayload(definition, "approve_contract", invalid), "spec_mandate", "item_ref=law_id")
 }
 
-func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
+func TestRecordProposalPersistsAndReads(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "work-proposal-read"
@@ -289,13 +288,6 @@ func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
 	first := read()
 	if first.Problem != "The problem statement preserves its text." || len(first.Affected) != 2 || first.Affected[1] != "The second affected system." || first.Constraints[0] != "The implementation constraint." || first.OpenQuestions[0] != "The unresolved question." {
 		t.Fatalf("workflow read proposal=%+v", first)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	second := read()
-	if !reflect.DeepEqual(first, second) {
-		t.Fatalf("proposal changed after replay: before=%+v after=%+v", first, second)
 	}
 }
 

@@ -124,7 +124,6 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		}
 	}
 	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractPayload)
-	contract.PayloadVersion = 3
 	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
 	for _, kind := range boundKinds {
 		evidenceRef := "evidence:return-route-" + kind

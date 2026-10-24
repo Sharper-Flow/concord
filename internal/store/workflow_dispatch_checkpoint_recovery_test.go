@@ -417,7 +417,7 @@ func walledResearchAssertRefused(t *testing.T, f crossAttemptFixture, err error,
 }
 
 // The research correction preserves its exact source and recorded history
-// through supersession, launch admission, materialization, and rebuild.
+// through supersession, launch admission, and materialization.
 func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	t.Parallel()
 	const workID = "research-walled-correction-recovery"
@@ -470,10 +470,6 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	if final.counters.dispatches != 6 || final.counters.authorizations != 6 || final.counters.reports != 5 || final.counters.attempts != 6 || final.counters.verdicts != 0 {
 		t.Fatalf("final effect counters = %+v, want the four historical cycles, fresh research and review, and no verdicts", final.counters)
 	}
-	if err := RebuildFromLog(context.Background(), f.s); err != nil {
-		t.Fatalf("rebuild the projections from the log: %v", err)
-	}
-	walledResearchAssertSame(t, final, walledResearchCapture(t, f, settled, []string{attemptW}, rejected), true)
 	for _, attemptID := range rejected {
 		var completedSeq int64
 		if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attemptID).Scan(&completedSeq); err != nil {

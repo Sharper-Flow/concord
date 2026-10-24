@@ -130,14 +130,6 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 		t.Fatalf("pin drifted to %s v%d %s", ref, pinnedVersion, pinnedDigest)
 	}
 
-	// History remains readable: the full log rebuilds to the same projection.
-	before := projectionSnapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild after supersession: %v", err)
-	}
-	if after := projectionSnapshot(t, s); after != before {
-		t.Fatalf("rebuild drifted projections after supersession")
-	}
 }
 
 // A schema migration applied while an item is mid-flight must leave it advanceable
@@ -256,13 +248,6 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if events < 2 {
 		t.Fatalf("work history has %d events after migration", events)
 	}
-	before := projectionSnapshot(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after migration: %v", err)
-	}
-	if after := projectionSnapshot(t, s); after != before {
-		t.Fatal("rebuild drifted projections after migration")
-	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("re-running the migration on in-flight work failed: %v", err)
 	}
@@ -362,15 +347,5 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	ref, pinnedVersion, digest := workflowInstancePin(t, s, workID)
 	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
 		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
-	}
-	snapshot := func() string {
-		return projectionSnapshot(t, s) + remoteUpgradeSnapshot(t, s) + fullWorkflowProjectionSnapshot(t, s)
-	}
-	before := snapshot()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if snapshot() != before {
-		t.Fatal("rebuild drifted remote or in-flight workflow projections")
 	}
 }

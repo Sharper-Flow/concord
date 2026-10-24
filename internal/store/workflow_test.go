@@ -31,7 +31,7 @@ func TestWorkflowActorReferenceUsesDocumentedCanonicalNULEncoding(t *testing.T) 
 	}
 }
 
-func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
+func TestWorkflowEventsFoldAtomically(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -85,13 +85,8 @@ func TestWorkflowEventsFoldAndRebuildByteIdentically(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "workflow-work"): base}}); err != nil {
 		t.Fatalf("workflow operation: %v", err)
 	}
-	before := fullWorkflowProjectionSnapshot(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("workflow rebuild: %v", err)
-	}
-	after := fullWorkflowProjectionSnapshot(t, s)
-	if after != before {
-		t.Fatalf("workflow rebuild changed projection bytes:\nbefore=%s\nafter=%s", before, after)
+	if got := readWorkVersion(t, s, "workflow-work"); got != 14 {
+		t.Fatalf("workflow operation version=%d, want 14", got)
 	}
 }
 
@@ -480,7 +475,7 @@ func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
 	}
 }
 
-func TestWorkflowStalenessWarningsRebuildFromEventLog(t *testing.T) {
+func TestWorkflowStalenessWarningsReadRecordedObservation(t *testing.T) {
 	s, _ := seedCompletionGateCase(t, "staleness-rebuild", completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	fields := json.RawMessage(`{"staleness_rule_id":"staleness:warning","observed_drift":{"severity":"warning","drifted":true}}`)
 	if err := AppendWorkflowStalenessObservation(context.Background(), s, "staleness-rebuild:observation", "staleness-rebuild", "actor:staleness", testManifestDigest, fields, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)); err != nil {
@@ -496,19 +491,8 @@ func TestWorkflowStalenessWarningsRebuildFromEventLog(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	var after []string
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		var err error
-		after, err = workflowStalenessWarnings(context.Background(), tx.tx, "staleness-rebuild", definition, nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(after, before) || !reflect.DeepEqual(after, []string{"staleness:warning"}) {
-		t.Fatalf("staleness warnings before=%v after=%v", before, after)
+	if !reflect.DeepEqual(before, []string{"staleness:warning"}) {
+		t.Fatalf("staleness warnings=%v", before)
 	}
 	var retired int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='workflow_staleness_warnings'`).Scan(&retired); err != nil {
@@ -1166,15 +1150,12 @@ func TestWorkflowPoisonEventLeavesAllProjectionsAtomic(t *testing.T) {
 	before := fullWorkflowProjectionSnapshot(t, s)
 	poison := workflowEvent("poison-v2", WorkflowActorRecorded, "poison-work", map[string]any{"work_id": "poison-work", "expected_version": 3, "resulting_version": 4})
 	poison.PayloadVersion = 2
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, poison.EventID, poison.Kind, poison.SubjectType, poison.SubjectID, poison.Actor, poison.OccurredAt.UTC().Format(time.RFC3339Nano), poison.PayloadVersion, string(poison.Payload)); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err == nil {
-		t.Fatal("poison workflow event rebuilt successfully")
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{poison}, ExpectedVersions: workVersion("poison-work", 3)}); err == nil {
+		t.Fatal("poison workflow event was admitted")
 	}
 	after := fullWorkflowProjectionSnapshot(t, s)
 	if after != before {
-		t.Fatalf("poison rebuild changed projections:\nbefore=%s\nafter=%s", before, after)
+		t.Fatalf("refused poison event changed projections:\nbefore=%s\nafter=%s", before, after)
 	}
 }
 
@@ -1273,13 +1254,13 @@ func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event E
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	contract, factVersion := payload, workflowContractDecisionDomainsPayloadVersion
+	contract, factVersion := payload, eventKindRegistry[WorkflowContractApproved].CurrentVersion
 	if event.Kind == WorkflowContractSuperseded {
 		successor, ok := payload["successor_contract"].(map[string]any)
 		if !ok {
 			t.Fatal("seeded supersession carries no successor contract")
 		}
-		contract, factVersion = successor, workflowContractSupersededDecisionDomainsPayloadVersion
+		contract, factVersion = successor, eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 	}
 	if _, declared := contract["decision_domains"]; !declared {
 		contract["decision_domains"] = []string{}

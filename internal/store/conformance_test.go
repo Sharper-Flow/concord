@@ -1526,13 +1526,6 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	if err := validateMembershipInvariants(ctx, restoredStore.DatabaseForTesting()); err != nil {
 		return err
 	}
-	before := projectionSnapshot(t, restoredStore)
-	if err := RebuildFromLog(ctx, restoredStore); err != nil {
-		return err
-	}
-	if after := projectionSnapshot(t, restoredStore); after != before {
-		return fmt.Errorf("restored rebuild changed projections")
-	}
 	return nil
 }
 

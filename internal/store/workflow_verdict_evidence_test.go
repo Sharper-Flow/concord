@@ -106,10 +106,9 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
 	attemptEpoch := latestStepStartEpoch(t, s, workID, "execution")
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
-		t.Fatal(err)
-	}
+	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
+	terminalCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completed.EventID)
+	workerTerminalEventThroughSeamCtx(t, terminalCtx, s, completed)
 	if prebind {
 		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`)); err != nil {
 			t.Fatalf("bind verification evidence: %v", err)

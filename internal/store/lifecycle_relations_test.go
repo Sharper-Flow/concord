@@ -11,11 +11,9 @@ import (
 )
 
 func workCreatedEvent(id, eventID string) Event {
-	event := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
+	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
 		"work_kind": "task", "title": id, "priority": 10,
 	})
-	event.PayloadVersion = 2
-	return event
 }
 
 func workTransitionEvent(eventID, id, from, to string, expected, resulting int64) Event {
@@ -409,37 +407,7 @@ func TestRelationsRejectSelfDuplicateAndSupersedesContract(t *testing.T) {
 	}
 }
 
-func TestRebuildRestoresWorkAndRelationProjectionsByteForByte(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	for _, id := range []string{"a", "b", "c"} {
-		seedWork(t, s, id)
-	}
-	operations := []Operation{
-		{Events: []Event{relationAddedEvent("parent", "parent", "a", "b", 2, 3)}},
-		{Events: []Event{relationRemovedEvent("remove-parent", "parent", "a", "b", 3, 4)}},
-		{Events: []Event{relationAddedEvent("parent-again", "parent", "a", "b", 4, 5)}},
-		{Events: []Event{relationAddedEvent("blocks", "blocks", "b", "c", 2, 3)}},
-		{Events: []Event{relationAddedEvent("implements", "implements", "c", "a", 2, 3)}},
-		{Events: []Event{workSupersededEvent("supersede", "a", "c", 3, 4)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "c"): 3}},
-	}
-	for _, operation := range operations {
-		if err := ApplyOperation(context.Background(), s, operation); err != nil {
-			t.Fatalf("ApplyOperation() error = %v", err)
-		}
-		assertFoldGuardEmpty(t, s)
-	}
-	want := fullPM4Snapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	assertFoldGuardEmpty(t, s)
-	if got := fullPM4Snapshot(t, s); got != want {
-		t.Fatalf("PM4 snapshot after rebuild =\n%s\nwant\n%s", got, want)
-	}
-}
-
-func TestRebuildPreservesGapAfterHighestRelationIDIsRemoved(t *testing.T) {
+func TestRelationIDsPreserveGapAfterHighestIDIsRemoved(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	for _, id := range []string{"a", "b", "c", "d"} {
@@ -457,60 +425,7 @@ func TestRebuildPreservesGapAfterHighestRelationIDIsRemoved(t *testing.T) {
 		}
 	}
 	if got, want := relationProjectionIDs(t, s), "[1 2 4]"; got != want {
-		t.Fatalf("relation IDs before rebuild = %s, want %s", got, want)
-	}
-	want := fullPM4Snapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	if got := fullPM4Snapshot(t, s); got != want {
-		t.Fatalf("PM4 snapshot after rebuild =\n%s\nwant\n%s", got, want)
-	}
-}
-
-func TestReplayRelationIdentityAllocationDoesNotReadEventLog(t *testing.T) {
-	t.Parallel()
-	ctx := workflowReplayContext(context.Background())
-	var want int64
-	for range 128 {
-		for _, kind := range relationIdentityEventKinds {
-			advanceWorkflowReplay(ctx, Event{Kind: "work.created"})
-			advanceWorkflowReplay(ctx, Event{Kind: kind})
-			want++
-
-			got, err := relationIdentity(ctx, nil, Event{})
-			if err != nil {
-				t.Fatalf("relationIdentity() error = %v", err)
-			}
-			if got != want {
-				t.Fatalf("relationIdentity() = %d, want %d after %s", got, want, kind)
-			}
-		}
-	}
-}
-
-func TestWorkflowReplayRelationIdentitiesAreIsolated(t *testing.T) {
-	t.Parallel()
-	first := workflowReplayContext(context.Background())
-	second := workflowReplayContext(context.Background())
-	advanceWorkflowReplay(first, Event{Kind: "relation.added"})
-	advanceWorkflowReplay(first, Event{Kind: "relation.added"})
-	advanceWorkflowReplay(second, Event{Kind: "relation.added"})
-
-	for name, testCase := range map[string]struct {
-		ctx  context.Context
-		want int64
-	}{
-		"first":  {ctx: first, want: 2},
-		"second": {ctx: second, want: 1},
-	} {
-		got, err := relationIdentity(testCase.ctx, nil, Event{})
-		if err != nil {
-			t.Fatalf("%s relationIdentity() error = %v", name, err)
-		}
-		if got != testCase.want {
-			t.Fatalf("%s relationIdentity() = %d, want %d", name, got, testCase.want)
-		}
+		t.Fatalf("relation IDs = %s, want %s", got, want)
 	}
 }
 

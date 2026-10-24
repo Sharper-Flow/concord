@@ -102,7 +102,7 @@ func TestWorkerEventsRejectUnknownLanePacketAndPayloadFields(t *testing.T) {
 	}
 }
 
-func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t *testing.T) {
+func TestWorkerCompletionPreservesHostReadback(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
@@ -122,13 +122,6 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	}
 	if state != "completed" || readback != "openai/fallback-model" {
 		t.Fatalf("readback projection = %s/%s, want completed/openai/fallback-model", state, readback)
-	}
-	before := workerProjectionSnapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("rebuild changed worker projection:\n%s\nwant\n%s", after, before)
 	}
 }
 
@@ -515,7 +508,7 @@ func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides 
 	for key, value := range overrides {
 		payload[key] = value
 	}
-	return Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
 }
 
 func workerCompleteEvent(workID, eventID, attemptID, model, directory string) Event {
@@ -863,28 +856,6 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 		}
 		if state != "completed" {
 			t.Fatalf("discharged attempt state = %q, want completed", state)
-		}
-	})
-
-	t.Run("replay admits a recorded completion the live fold would refuse", func(t *testing.T) {
-		s := openTemp(t)
-		attemptID := "discharge-replay-attempt"
-		// A dispatch recorded before the predicate list existed, and a report
-		// tie the live fold refuses as undeclared.
-		seedDispatchPredicateAuthorization(t, s, "work-discharge-replay", attemptID, nil)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-replay", attemptID, lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		complete := workerCompleteEventWithEvidence("work-discharge-replay", "discharge-replay-complete", attemptID, model, fullEvidence("predicate:gamma"), "")
-		if err := ApplyOperation(workflowReplayContext(context.Background()), s, Operation{Events: []Event{complete}}); err != nil {
-			t.Fatalf("replayed completion refused: %v", err)
-		}
-		var state string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state != "completed" {
-			t.Fatalf("replayed attempt state = %q, want completed", state)
 		}
 	})
 

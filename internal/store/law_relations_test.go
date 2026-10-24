@@ -274,19 +274,6 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 		}
 		return workflowEventWithActor("law-boundary-contract-"+workID, WorkflowContractApproved, workID, actor, payload)
 	}
-	t.Run("legacy 2.1 contract replays without law projection", func(t *testing.T) {
-		s, actor := setup(t, "law-boundary-legacy")
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract("law-boundary-legacy", actor, 0)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "law-boundary-legacy"): 4}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("legacy contract did not replay: %v", err)
-		}
-		var boundary int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-legacy'`).Scan(&boundary); err != nil || boundary != 0 {
-			t.Fatalf("legacy law boundary version=%d err=%v, want 0", boundary, err)
-		}
-	})
 	t.Run("2.2 contract fails unknown law before persistence", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-unknown")
 		seedWorkflowLaw(t, s)

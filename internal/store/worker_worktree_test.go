@@ -126,7 +126,6 @@ func appendWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, at
 		"worker_packet_digest": "sha256:" + strings.Repeat("f", 64), "worker_packet_predicate_ids": []string{},
 		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
 	})
-	completed.PayloadVersion = 2
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{started, completed}}); err != nil {
 		t.Fatal(err)
 	}

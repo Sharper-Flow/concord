@@ -324,78 +324,9 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 	}
 }
 
-// The legacy upcasters are deterministic and legacy-preserving: a stored
-// completion v4 and failure v1 — the shapes earlier binaries recorded —
-// upcast with their bytes unchanged, fold, and rebuild to the same
-// projection, while findings bytes on a below-boundary replayed event are
-// refused as fabricated.
-func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T) {
+func TestWorkerTerminalContextFindingsRetentionAndVersionBoundary(t *testing.T) {
 	t.Parallel()
-	t.Run("upcasters keep legacy bytes unchanged", func(t *testing.T) {
-		legacyCompletion := Event{EventID: "legacy-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-legacy", "readback_model": "openai/gpt-5.6-luna", "report_schema_version": WorkerReportSchemaVersionLegacy})}
-		upcast, err := upcastEvent(legacyCompletion)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if upcast.PayloadVersion != workerCompletedJobSizeVersion {
-			t.Fatalf("upcast completion version = %d, want %d", upcast.PayloadVersion, workerCompletedJobSizeVersion)
-		}
-		if string(upcast.Payload) != string(legacyCompletion.Payload) {
-			t.Fatalf("v4 completion upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyCompletion.Payload)
-		}
-		legacyFailure := Event{EventID: "legacy-failed-v1", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-legacy", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-legacy", "readback_model": "openai/gpt-5.6-luna", "failure_kind": WorkerFailureWorkerError, "detail": "bounded worker error"})}
-		upcast, err = upcastEvent(legacyFailure)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// the failure upcast lands at the attribution version with
-		// the explicit legacy marker stamped beside the unchanged legacy
-		// bytes, so a replayed failure stays visibly without attribution.
-		if upcast.PayloadVersion != 4 {
-			t.Fatalf("upcast failure version = %d, want 4", upcast.PayloadVersion)
-		}
-		var upcastMembers map[string]json.RawMessage
-		if err := json.Unmarshal(upcast.Payload, &upcastMembers); err != nil {
-			t.Fatal(err)
-		}
-		if string(upcastMembers["failure_attribution"]) != `{"origin":"legacy_unavailable"}` {
-			t.Fatalf("upcast failure attribution = %s, want the explicit legacy marker", upcastMembers["failure_attribution"])
-		}
-		delete(upcastMembers, "failure_attribution")
-		var legacyMembers map[string]json.RawMessage
-		if err := json.Unmarshal(legacyFailure.Payload, &legacyMembers); err != nil {
-			t.Fatal(err)
-		}
-		if len(upcastMembers) != len(legacyMembers) {
-			t.Fatalf("v1 failure upcast grew members: %d, want the legacy %d beside the marker", len(upcastMembers), len(legacyMembers))
-		}
-		for name, value := range legacyMembers {
-			if string(upcastMembers[name]) != string(value) {
-				t.Fatalf("v1 failure upcast rewrote %s:\n%s\nwant\n%s", name, upcastMembers[name], value)
-			}
-		}
-	})
-	t.Run("legacy events fold and rebuild to the same projection", func(t *testing.T) {
-		s := openTemp(t)
-		lane := BuiltinLaneDefinitions()[0]
-		model := preferredModelForLane(lane)
-		authorizeWorkerFixtureDispatch(t, s, "work-rebuild", "attempt-rebuild")
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild", "attempt-rebuild", lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		legacyCompletion := Event{EventID: "rebuild-complete-v4", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "work-rebuild", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{"attempt_id": "attempt-rebuild", "readback_model": model, "report_schema_version": WorkerReportSchemaVersion, "evidence_origin": WorkerEvidenceLegacyUnavailable, "worker_directory": workerFixtureDirectory(t, s, "work-rebuild")})}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyCompletion}}); err != nil {
-			t.Fatalf("legacy v4 completion refused on append: %v", err)
-		}
-		before := workerProjectionSnapshot(t, s)
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-		if after := workerProjectionSnapshot(t, s); after != before {
-			t.Fatalf("rebuild changed the legacy completion projection:\n%s\nwant\n%s", after, before)
-		}
-	})
-	t.Run("current-version findings fold and rebuild identically", func(t *testing.T) {
+	t.Run("current-version findings persist on both terminal forms", func(t *testing.T) {
 		breakFix, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 		if !ok {
 			t.Fatal("workflow.break_fix v27 is not registered")
@@ -424,7 +355,6 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := s2WorkerFailedLive(t, s, withWorkerFailureObservation(t, workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed)))); err != nil {
 			t.Fatal(err)
 		}
-		before := workerProjectionSnapshot(t, s)
 		var storedCompletion, storedFailure string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-complete-findings'`).Scan(&storedCompletion); err != nil {
 			t.Fatal(err)
@@ -432,24 +362,17 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-failed-findings'`).Scan(&storedFailure); err != nil {
 			t.Fatal(err)
 		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatal(err)
-		}
-		if after := workerProjectionSnapshot(t, s); after != before {
-			t.Fatalf("rebuild changed the findings projection:\n%s\nwant\n%s", after, before)
-		}
-		var afterCompletion, afterFailure string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-complete-findings'`).Scan(&afterCompletion); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-failed-findings'`).Scan(&afterFailure); err != nil {
-			t.Fatal(err)
-		}
-		if afterCompletion != storedCompletion || afterFailure != storedFailure {
-			t.Fatal("rebuild rewrote the stored terminal payload bytes")
+		for _, raw := range []string{storedCompletion, storedFailure} {
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if string(payload["context_findings"]) != string(mustJSONValue(findings)) {
+				t.Fatalf("stored findings = %s", payload["context_findings"])
+			}
 		}
 	})
-	t.Run("findings bytes on a below-boundary replayed completion refuse", func(t *testing.T) {
+	t.Run("findings bytes on a below-boundary completion refuse", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)

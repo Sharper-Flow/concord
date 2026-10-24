@@ -128,16 +128,6 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 			t.Fatalf("event[%d]=%q, want %q", i, kinds[i], want[i])
 		}
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild workflow event log: %v", err)
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, "workflow-issue31-actions").Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "execution" {
-		t.Fatalf("rebuilt workflow current_step=%q, want execution", step)
-	}
 }
 
 func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {

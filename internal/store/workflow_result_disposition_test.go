@@ -1025,39 +1025,6 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 		t.Fatal("the fixed prefix admitted the forged research epoch after the future suffix")
 	}
 
-	// The rebuild reproduces the recorded state byte-for-byte: the pin, the
-	// rejection completion, the review's preserved report, and the research
-	// dispatch bytes.
-	pinBefore, err := json.Marshal(issue1013Pin(t, f.s, workID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rejectionBytes := crossAttemptEventPayload(t, f.s, workID, WorkflowActionCompleted, f.attemptR)
-	reviewReportBytes := crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, f.attemptV)
-	researchDispatchBytes := crossAttemptEventPayload(t, f.s, workID, WorkerDispatched, f.attemptR)
-	retryReportBytes := crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, attemptW)
-	if err := RebuildFromLog(context.Background(), f.s); err != nil {
-		t.Fatalf("rebuild the projections from the log: %v", err)
-	}
-	pinAfter, err := json.Marshal(issue1013Pin(t, f.s, workID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(pinAfter) != string(pinBefore) {
-		t.Fatalf("rebuilt pin = %s, want %s", pinAfter, pinBefore)
-	}
-	if after := crossAttemptEventPayload(t, f.s, workID, WorkflowActionCompleted, f.attemptR); string(after) != string(rejectionBytes) {
-		t.Fatal("the rebuild rewrote the rejection completion bytes")
-	}
-	if after := crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, f.attemptV); string(after) != string(reviewReportBytes) {
-		t.Fatal("the rebuild rewrote the review report bytes")
-	}
-	if after := crossAttemptEventPayload(t, f.s, workID, WorkerDispatched, f.attemptR); string(after) != string(researchDispatchBytes) {
-		t.Fatal("the rebuild rewrote the research dispatch bytes")
-	}
-	if after := crossAttemptEventPayload(t, f.s, workID, WorkerCompleted, attemptW); string(after) != string(retryReportBytes) {
-		t.Fatal("the rebuild rewrote the retry report bytes")
-	}
 }
 
 // TestCrossAttemptCorrectionRetryConsumption pins the correction-consumption

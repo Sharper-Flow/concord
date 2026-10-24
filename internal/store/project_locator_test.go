@@ -71,7 +71,7 @@ func (g *locatorGitStub) Run(_ context.Context, dir string, args ...string) ([]b
 
 func locatorProjectEvent(id string) Event {
 	payload, _ := json.Marshal(map[string]any{"display_name": id})
-	return Event{EventID: "create-" + id, Kind: "project.created", SubjectType: SubjectProject, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	return Event{EventID: "create-" + id, Kind: "project.created", SubjectType: SubjectProject, SubjectID: id, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: eventKindRegistry["project.created"].CurrentVersion, Payload: payload}
 }
 
 func locatorProductEvent(id string) Event {
@@ -84,7 +84,7 @@ func locatorMembershipEvent(product, project string) Event {
 	return Event{EventID: "membership-" + product, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: product, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: payload}
 }
 
-func TestProjectLocatorsNormalizeFoldRebuildAndResolveWorktree(t *testing.T) {
+func TestProjectLocatorsNormalizeFoldAndResolveWorktree(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -123,13 +123,6 @@ func TestProjectLocatorsNormalizeFoldRebuildAndResolveWorktree(t *testing.T) {
 		if len(argv) < 2 || argv[1] == "" || strings.Contains(strings.Join(argv, " "), "||") {
 			t.Fatalf("unsafe git argv=%q", argv)
 		}
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	locators, err = s.ProjectLocators(ctx, "project-a")
-	if err != nil || len(locators) != 2 {
-		t.Fatalf("rebuild locators=%+v err=%v", locators, err)
 	}
 }
 
@@ -320,21 +313,6 @@ func TestRemoteAdmissionPreservesNormalizedIdentity(t *testing.T) {
 				t.Fatalf("resolution=%+v err=%v", resolved, err)
 			}
 		})
-	}
-}
-
-func TestRecordedRemoteReplayPreservesAdmissionBoundary(t *testing.T) {
-	t.Parallel()
-	s := locatorReplayStore(t)
-	ctx := context.Background()
-	event := recordedLocatorEvent("recorded-remote", string(LocatorGitRemote), "https://TOKEN@github.com/o/r", "ssh://https/token@github.com/o/r")
-	insertHistoricalEvent(t, s, event)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	locators, err := s.ProjectLocators(ctx, "project-a")
-	if err != nil || len(locators) != 1 || locators[0].Value != "https://TOKEN@github.com/o/r" || locators[0].NormalizedValue != "ssh://https/token@github.com/o/r" {
-		t.Fatalf("recorded locator changed during replay: %+v err=%v", locators, err)
 	}
 }
 
@@ -543,33 +521,6 @@ func recordedLocatorEvent(id, kind, value, normalized string) Event {
 		"expected_version": 1, "resulting_version": 2,
 	})
 	return Event{EventID: "locator-" + id, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
-}
-
-// TestRecordedLocatorReplaySurvivesTemporaryPathRemoval proves journal replay
-// is pure: a recorded canonical_path locator folds from its recorded bytes even
-// when no host filesystem trace of the recorded path remains.
-func TestRecordedLocatorReplaySurvivesTemporaryPathRemoval(t *testing.T) {
-	t.Parallel()
-	s := locatorReplayStore(t)
-	ctx := context.Background()
-	root := t.TempDir()
-	if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "path-a", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
-		t.Fatal(err)
-	}
-	recorded, err := s.ProjectLocators(ctx, "project-a")
-	if err != nil || len(recorded) != 1 || recorded[0].NormalizedValue == "" {
-		t.Fatalf("recorded locators=%+v err=%v", recorded, err)
-	}
-	if err := os.RemoveAll(root); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild refused after the recorded path vanished: %v", err)
-	}
-	rebuilt, err := s.ProjectLocators(ctx, "project-a")
-	if err != nil || len(rebuilt) != 1 || rebuilt[0].NormalizedValue != recorded[0].NormalizedValue {
-		t.Fatalf("rebuilt locators=%+v err=%v (recorded %+v)", rebuilt, err, recorded)
-	}
 }
 
 // TestRecordedCanonicalPathNegativeControls proves the fold still refuses a

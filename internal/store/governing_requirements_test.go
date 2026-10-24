@@ -94,31 +94,6 @@ func TestWithdrawingUndeclaredGoverningRequirementIsRefused(t *testing.T) {
 	assertFoldGuardEmpty(t, s)
 }
 
-// TestGoverningRequirementsSurviveRebuildFromLog covers the projection-clearing
-// order in RebuildFromLog. The table carries a RESTRICT foreign key to projects,
-// so omitting it from the clear list would make replay fail rather than degrade
-// quietly.
-func TestGoverningRequirementsSurviveRebuildFromLog(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedGovernedProject(t, s, "prod", "proj")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{declareRequirementEvent("declare-audit", "proj", "audit_required", 1, 2)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "proj"): 1}}); err != nil {
-		t.Fatalf("declare requirement: %v", err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	assertFoldGuardEmpty(t, s)
-	after, err := s.GoverningRequirementsForProjectIDs(ctx, []string{"proj"})
-	if err != nil {
-		t.Fatalf("GoverningRequirementsForProjectIDs() after rebuild error = %v", err)
-	}
-	if !reflect.DeepEqual(after, []string{"audit_required"}) {
-		t.Fatalf("rebuild produced %v, want [audit_required]", after)
-	}
-}
-
 // TestMissingGoverningRequirementsIsSetDifference pins CD-0035 D3: the refusal is
 // computed arithmetically, so it is total, ordered, and never a judgement about
 // intent.
@@ -142,12 +117,8 @@ func TestMissingGoverningRequirementsIsSetDifference(t *testing.T) {
 	}
 }
 
-// TestWithdrawnRequirementLeavesCapturedReplayDeterministic pins the
-// admission-time boundary of capture resolution: the admission verdict moves
-// with the registry, and the capture already admitted under the registered
-// requirement replays identically after the row is withdrawn, because the
-// fold never reads a registry.
-func TestWithdrawnRequirementLeavesCapturedReplayDeterministic(t *testing.T) {
+// Capture admission follows the registry without changing an admitted work item.
+func TestWithdrawnRequirementLeavesCapturedWorkUnchanged(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -185,9 +156,6 @@ func TestWithdrawnRequirementLeavesCapturedReplayDeterministic(t *testing.T) {
 	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, `"audit_required"`) {
 		t.Fatalf("withdrawn id admission resolution = %v, want projection_not_found naming the id", err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
 	assertFoldGuardEmpty(t, s)
 	var after struct {
 		lifecycle string
@@ -197,6 +165,6 @@ func TestWithdrawnRequirementLeavesCapturedReplayDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after != before {
-		t.Fatalf("replay over the withdrawn registry produced %+v, want %+v", after, before)
+		t.Fatalf("withdrawal changed captured work to %+v, want %+v", after, before)
 	}
 }

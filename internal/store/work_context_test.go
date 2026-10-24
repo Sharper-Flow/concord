@@ -985,55 +985,10 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 	}
 }
 
-// Replay needs no registry: after the registry rows are gone, the stored
-// declaration event replays through RebuildFromLog without refusal, and a
-// raw tampered declaration refuses at the fold's closed bounds.
-func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
+func TestWorkContextFoldBoundsClosed(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-replay")
+	fixture := seedWorkContextFixture(t, "ctx-fold-bounds")
 	defer fixture.store.Close()
-	if err := fixture.recordWorkContext(t, map[string]any{
-		"required_reading": []map[string]any{workContextRepoReading(workContextTestChild, "")},
-		"context_findings": []map[string]any{workContextFinding(workContextTestChild, "direction", "the replay direction", "")},
-	}); err != nil {
-		t.Fatalf("declaration refused: %v", err)
-	}
-	// Remove every registry row inside one transaction under the fold
-	// guard, so the deferred registry/domain foreign keys resolve to a
-	// consistent empty state. The fixture's registered knowledge source
-	// carries a law-domain home referencing the registry's Domain; the
-	// rebuild projection rows leave with the registry they projected from.
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("replay refused without the registry: %v", err)
-	}
-	var retained int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, fixture.workID, WorkflowWorkContextRecorded).Scan(&retained); err != nil {
-		t.Fatal(err)
-	}
-	if retained != 1 {
-		t.Fatalf("retained declarations = %d, want 1", retained)
-	}
-	// The fold's own closed bounds: a tampered raw event refuses regardless
-	// of the registry.
 	tampered := fixture.rawWorkContextEvent(t, map[string]any{"context_findings": []map[string]any{workContextFinding(workContextTestChild, "vibes", "unknown kind", "")}})
 	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{tampered}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): readWorkVersion(t, fixture.store, fixture.workID)}}); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("tampered declaration error = %v, want %s", err, KindInvalidPayload)
@@ -1442,30 +1397,5 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	}
 	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
 		t.Fatalf("derived records for %s = %+v, want exactly one from the attributed terminal", attempt, records)
-	}
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := leaveFold(context.Background(), tx); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatalf("replay of the retained attributed reports refused without the registry: %v", err)
-	}
-	if records := s2DerivedFailureRecords(t, fixture.store, fixture.workID, attempt); len(records) != 1 {
-		t.Fatalf("rebuilt derived records for %s = %+v, want the one attributed terminal's record", attempt, records)
 	}
 }

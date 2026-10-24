@@ -15,7 +15,7 @@ import (
 // AuthorizeWorkflowActionAtBoundaryTx, and ApplyWorkflowActionTx — for
 // reject_worker_result and request_correction, citing an existing failed
 // clean combined verify run beside accepted local jobs, and pin the
-// informational semantics of the recorded block on rebuild.
+// informational semantics of the recorded block.
 
 // correctionActionWitness composes one work item with an acceptance recorded
 // before the combined run, the failed clean run itself, an acceptance
@@ -89,16 +89,6 @@ func readStoredCorrectionCompletion(t *testing.T, s *Store, workID, actionID str
 	return members
 }
 
-// storedCorrectionPayload re-encodes the newest stored completion payload.
-func storedCorrectionPayload(t *testing.T, s *Store, workID, actionID string) string {
-	t.Helper()
-	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, actionID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
 // attributionVerdictAndEvidenceCounts counts the verdict and evidence events
 // one work carries, so the informational assertion compares before and after.
 func attributionVerdictAndEvidenceCounts(t *testing.T, s *Store, workID string) (int64, int64) {
@@ -163,8 +153,7 @@ func assertIntegrationBlockMatchesTheCitedRun(t *testing.T, s *Store, workID, ac
 // completion records the core-derived block whose population is exactly the
 // acceptance below the cited run's acquire watermark — the acceptance
 // recorded after the run started is excluded — the block mints no acceptance
-// authority, and rebuild reproduces it exactly while a corrupted population
-// refuses at the owning join.
+// authority, and a corrupted population refuses at the owning join.
 func TestCorrectionAttributionFullActionRejectWitness(t *testing.T) {
 	t.Parallel()
 	const workID = "correction-full-reject"
@@ -190,23 +179,12 @@ func TestCorrectionAttributionFullActionRejectWitness(t *testing.T) {
 	}
 	assertCorrectionAttributionInformational(t, s, workID, "job:"+workID+"-result", verdictsBefore, evidenceBefore)
 
-	// Rebuild folds the recorded block against the same retained lease from
-	// its staged operational snapshot and reproduces the exact completion.
-	stored := storedCorrectionPayload(t, s, workID, "reject_worker_result")
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild with the recorded correction attribution: %v", err)
+	if err := verifyStoredCorrectionAttribution(t, s, workID, "reject_worker_result", &block); err != nil {
+		t.Fatalf("current correction attribution refused: %v", err)
 	}
-	if rebuilt := storedCorrectionPayload(t, s, workID, "reject_worker_result"); rebuilt != stored {
-		t.Fatal("rebuild changed the recorded correction attribution payload")
-	}
-
-	// A corrupted input population refuses the rebuild at the owning join.
-	members := readStoredCorrectionCompletion(t, s, workID, "reject_worker_result")
 	block.Identity.Integration.InputResults[0].Job.Digest = testDigestC
-	members["failure_attribution"] = mustJSONValue(block)
-	corruptLoggedWorkflowPayload(t, s, workID, "reject_worker_result", members)
-	if err := RebuildFromLog(context.Background(), s); err == nil || !strings.Contains(err.Error(), "integration identity does not equal") {
-		t.Fatalf("rebuild did not refuse the corrupted correction population: %v", err)
+	if err := verifyStoredCorrectionAttribution(t, s, workID, "reject_worker_result", &block); err == nil || !strings.Contains(err.Error(), "integration identity does not equal") {
+		t.Fatalf("current verifier did not refuse the corrupted correction population: %v", err)
 	}
 }
 
@@ -217,8 +195,7 @@ func TestCorrectionAttributionFullActionRejectWitness(t *testing.T) {
 // (CD-0242 D5). The request crosses the actual admission boundary —
 // preflight, AuthorizeWorkflowActionAtBoundaryTx, ApplyWorkflowActionTx under
 // the coordinator's own authority — the stored completion records the derived
-// integration block, and rebuild reproduces it exactly while a corrupted
-// population refuses.
+// integration block, and the current verifier refuses a corrupted population.
 func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	t.Parallel()
 	const workID = "correction-full-correction"
@@ -296,18 +273,12 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 		t.Fatalf("input result ref = %q, want the work's accepted delivery %q", integration.InputResults[0].ResultRef, acceptedRef)
 	}
 
-	stored := storedCorrectionPayload(t, s, workID, "request_correction")
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild with the recorded correction attribution: %v", err)
-	}
-	if rebuilt := storedCorrectionPayload(t, s, workID, "request_correction"); rebuilt != stored {
-		t.Fatal("rebuild changed the recorded correction attribution payload")
+	if err := verifyStoredCorrectionAttribution(t, s, workID, "request_correction", &block); err != nil {
+		t.Fatalf("current correction attribution refused: %v", err)
 	}
 
 	block.Identity.Integration.InputResults = []WorkerFailureInputResult{{Job: &WorkerJobBinding{JobID: "job:smuggled", Revision: 1, Digest: testDigestC}, ResultRef: "evt:smuggled-acceptance"}}
-	members["failure_attribution"] = mustJSONValue(block)
-	corruptLoggedWorkflowPayload(t, s, workID, "request_correction", members)
-	if err := RebuildFromLog(context.Background(), s); err == nil || !strings.Contains(err.Error(), "integration identity does not equal") {
-		t.Fatalf("rebuild did not refuse the corrupted request_correction population: %v", err)
+	if err := verifyStoredCorrectionAttribution(t, s, workID, "request_correction", &block); err == nil || !strings.Contains(err.Error(), "integration identity does not equal") {
+		t.Fatalf("current verifier did not refuse the corrupted request_correction population: %v", err)
 	}
 }

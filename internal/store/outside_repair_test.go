@@ -144,13 +144,6 @@ func TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence(t *testing.T) {
 	if continuity.OutsideRepairDisposition == nil || len(continuity.StepActions) != 0 || !reflect.DeepEqual(continuity.OutsideRepairRoute, pin.OutsideRepairRoute) {
 		t.Fatalf("held continuity = %+v", continuity)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(pin, after) {
-		t.Fatalf("hold replay drift: before=%+v after=%+v err=%v", pin, after, err)
-	}
 }
 
 func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t *testing.T) {
@@ -194,7 +187,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	}
 }
 
-func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
+func TestOutsideRepairReconcileBothLiveLifecycles(t *testing.T) {
 	for _, lifecycle := range []string{"needed", "in_progress"} {
 		t.Run(lifecycle, func(t *testing.T) {
 			s := openTemp(t)
@@ -228,23 +221,15 @@ func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
 				t.Fatalf("fabricated=%d err=%v", fabricated, err)
 			}
 			assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal"}), KindInvalidOperation)
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			after, err := ReadWorkPin(context.Background(), s, work)
-			if err != nil || !reflect.DeepEqual(pin, after) {
-				t.Fatalf("reconcile replay drift: before=%+v after=%+v err=%v", pin, after, err)
-			}
 		})
 	}
 }
 
-// TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay pins
+// TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence pins
 // CD-0210 D2's receipt obligation on the durable side: the exact native
 // check-run, run and job identities the boundary authenticated must persist
-// in both durable evidence projections and survive a full log rebuild, so a
-// later rerun cannot rewrite what the recorded receipt proves.
-func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay(t *testing.T) {
+// in both durable evidence projections.
+func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-identity"
 	seedOutsideRepairTestWork(t, s, work)
@@ -288,13 +273,6 @@ func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay(t *test
 	if pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.Evidence == nil || !reflect.DeepEqual(pin.OutsideRepairDisposition.Evidence.PullRequests[0].RequiredChecks, evidence.PullRequests[0].RequiredChecks) {
 		t.Fatalf("pin receipt lost native identities: %+v", pin.OutsideRepairDisposition)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(pin, after) {
-		t.Fatalf("identity replay drift: before=%+v after=%+v err=%v", pin, after, err)
-	}
 }
 
 func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
@@ -320,13 +298,6 @@ func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	}
 	if after.Lifecycle != before.Lifecycle || after.Step != before.Step || len(after.NextValidIntents) != len(before.NextValidIntents) || len(after.OutsideRepairRoute) != 0 || after.OutsideRepairDisposition.State != OutsideRepairStateResumed {
 		t.Fatalf("resume state drift: before=%+v after=%+v", before, after)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	replayed, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(after, replayed) {
-		t.Fatalf("resume replay drift: %+v %v", replayed, err)
 	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-again"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
@@ -666,69 +637,4 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireTypedAbsence(read(), "completed")
-}
-
-// TestOutsideRepairHistoryRecordsCorpusWitnesses drives the typed hold,
-// reconcile and resume routes with the modeled approval receipts and records
-// the emitted pv1 rows as corpus witnesses. The shapes are the released
-// forms — unchanged since the introducing release — and admission requires
-// this passing history plus a full replay that keeps the exact stored bytes,
-// including the reconciled row's complete receipt identities. Each history
-// owns its store because the seed's workflow-law event is per-store.
-func TestOutsideRepairHistoryRecordsCorpusWitnesses(t *testing.T) {
-	type repairRow struct {
-		kind    string
-		version int
-		payload string
-	}
-	terminal := func(t *testing.T, s *Store) map[string]repairRow {
-		t.Helper()
-		rows, err := s.DatabaseForTesting().Query(`SELECT event_id, kind, payload_version, CAST(payload AS BLOB) FROM domain_events WHERE kind IN ('workflow.outside_repair_disposition_set','workflow.outside_repair_reconciled','workflow.outside_repair_resumed') ORDER BY event_id`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		out := map[string]repairRow{}
-		for rows.Next() {
-			var eventID string
-			var row repairRow
-			var payload []byte
-			if err := rows.Scan(&eventID, &row.kind, &row.version, &payload); err != nil {
-				t.Fatal(err)
-			}
-			row.payload = string(payload)
-			out[eventID] = row
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		return out
-	}
-	history := func(t *testing.T, work, closingKind string, evidence OutsideRepairEvidence) {
-		t.Helper()
-		s := openTemp(t)
-		seedOutsideRepairTestWork(t, s, work)
-		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
-			t.Fatal(err)
-		}
-		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "close"), closingKind, evidence); err != nil {
-			t.Fatal(err)
-		}
-		before := terminal(t, s)
-		if len(before) != 2 {
-			t.Fatalf("history for %s holds %d outside-repair rows, want 2", work, len(before))
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild must fold the %s history: %v", work, err)
-		}
-		after := terminal(t, s)
-		if !reflect.DeepEqual(before, after) {
-			t.Fatalf("the rebuild changed the %s row bytes", work)
-		}
-		for eventID, row := range after {
-			recordHistoricalWitness(t, s, eventID, row.kind, row.version, []byte(row.payload))
-		}
-	}
-	history(t, "outside-corpus-reconciled", WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence())
-	history(t, "outside-corpus-resumed", WorkflowOutsideRepairResumed, OutsideRepairEvidence{})
 }

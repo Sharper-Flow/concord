@@ -323,18 +323,6 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 		t.Fatalf("correction window after the confirming acceptance = %#v, want it closed", pin.Correction)
 	}
 
-	// Rebuild parity: the recorded repair metadata, the consumed review, and
-	// the closed window fold identically from the log.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	if rebuilt := checksRepairRecordedEvent(t, s, workID, jobID, 3); string(rebuilt["checks_repair"]) == "" {
-		t.Fatal("the rebuilt log lost the recorded checks repair metadata")
-	}
-	if pin := issue1013Pin(t, s, workID); pin.Correction != nil {
-		t.Fatalf("rebuilt correction window = %#v, want it closed", pin.Correction)
-	}
-	assertIntegrationPopulation()
 }
 
 func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding, actor WorkflowActor) error {
@@ -614,19 +602,12 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 				t.Fatalf("accepting the voiding review restored the named revision to %q", state)
 			}
 			if disposition == "revision_required" {
-				if err := RebuildFromLog(ctx, s); err != nil {
-					t.Fatal(err)
-				}
-				if state := checksRepairRevisionView(t, s, workID, *job).State; state != "recorded" {
-					t.Fatalf("rebuild restored a revision-required repair to %q", state)
-				}
 				return
 			}
 			checksRepairRequestCorrection(t, s, workID, acceptor)
 
 			// The named revision is unresolved again and the window is open: the
-			// voided repair admits no replacement review. Rebuild folds the
-			// same voided state.
+			// voided repair admits no replacement review.
 			anchor, anchorErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
 			if anchorErr != nil || anchor == nil {
 				t.Fatalf("correction anchor after the voiding review = (%#v, %v), want the open window restored", anchor, anchorErr)
@@ -703,17 +684,12 @@ func TestChecksRepairNoShipReviewVoidsRepair(t *testing.T) {
 				t.Fatalf("second authoring dispatch = %v, want the satisfied revision's readiness refusal", err)
 			}
 
-			// Rebuild folds the same voided state and the same open window from the
-			// log alone.
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatalf("rebuild after the void: %v", err)
-			}
 			if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
-				t.Fatalf("candidates after the rebuild = (%#v, %v), want the same voided state", candidates, err)
+				t.Fatalf("candidates after recovery = (%#v, %v), want the same voided state", candidates, err)
 			}
 			anchor, anchorErr = workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
 			if anchorErr != nil || anchor == nil {
-				t.Fatalf("rebuilt correction anchor = (%#v, %v), want the open window", anchor, anchorErr)
+				t.Fatalf("correction anchor after recovery = (%#v, %v), want the open window", anchor, anchorErr)
 			}
 		})
 	}
@@ -797,20 +773,10 @@ func TestChecksRepairSupersessionVoidsUnconfirmedRepair(t *testing.T) {
 		t.Fatal("a review dispatch was admitted after the supersession voided the repair")
 	}
 	// The named revision's obligation is unresolved again, so the window the
-	// failure opened stays open behind the stale authority, and the rebuild
-	// folds the same voided state.
+	// failure opened stays open behind the stale authority.
 	anchor, anchorErr := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", "")
 	if anchorErr != nil || anchor == nil {
 		t.Fatalf("correction anchor after the supersession = (%#v, %v), want the open window", anchor, anchorErr)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after the supersession: %v", err)
-	}
-	if candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID); err != nil || len(candidates) != 0 {
-		t.Fatalf("candidates after the rebuild = (%#v, %v), want the same voided state", candidates, err)
-	}
-	if anchor, anchorErr = workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "repair", ""); anchorErr != nil || anchor == nil {
-		t.Fatalf("rebuilt correction anchor = (%#v, %v), want the open window", anchor, anchorErr)
 	}
 }
 

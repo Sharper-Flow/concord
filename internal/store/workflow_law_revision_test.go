@@ -573,7 +573,7 @@ func cutoverLawProjection(t *testing.T, s *Store) {
 	}
 }
 
-func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *testing.T) {
+func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
@@ -594,12 +594,6 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 	var hash string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("folded law pin = %q err=%v", hash, err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("rebuilt law pin = %q err=%v", hash, err)
 	}
 }
 

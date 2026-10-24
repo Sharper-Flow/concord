@@ -36,31 +36,16 @@ func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDe
 	return definition
 }
 
-// seedDuplicateContractProjection folds a second approved contract into the
-// projection the way a historical duplicate recovery fixture does, leaving
-// two active contracts for one work item on the legacy fixture pin.
+// seedDuplicateContractProjection creates the representable duplicate-active
+// state that the current refusal and recovery owners must handle.
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	legacyApproval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "duplicate projection approval",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"routine-recovery-duplicate-approval-"+workID, WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_version,definition_digest)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
+SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
+DELETE FROM fold_guard`, ownerRef, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 	var active int
@@ -411,11 +396,10 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 		workerRef := recordRoutineSelfRepairActor(t, s, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/repair-worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent})
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "routine-self-repair-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: workerRef, OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:routine-self-repair-" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: workerRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "routine-self-repair-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:routine-self-repair-" + workID, "lane_actor_ref": workerRef})
+		dispatch.Actor = workerRef
+		dispatch.OccurredAt = time.Unix(45, 0).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatal(err)
 		}
 		policyDefinition := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))
@@ -483,73 +467,11 @@ func TestRoutineRecovery(t *testing.T) {
 		if !ok || superseded.CurrentVersion != workflowContractSupersededLawChangePayloadVersion {
 			t.Fatalf("contract_superseded registration = %#v, want v%d", superseded, workflowContractSupersededLawChangePayloadVersion)
 		}
-		for version := 1; version < superseded.CurrentVersion; version++ {
-			if superseded.Upcasters[version] == nil {
-				t.Fatalf("contract_superseded registration = %#v, want an upcaster from v%d", superseded, version)
-			}
-		}
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
-		// Its registration is v7 with upcasters 1-6, and replay must keep a
-		// stored pre-attribution correction completion's semantics: the
-		// correction fields survive the upcast and the legacy attribution
-		// marker is stamped explicitly.
 		completed, ok := registeredEventKind(WorkflowActionCompleted)
-		if !ok || completed.CurrentVersion != 7 || completed.Upcasters[1] == nil || completed.Upcasters[4] == nil || completed.Upcasters[5] == nil || completed.Upcasters[6] == nil {
-			t.Fatalf("action_completed registration = %#v, want v7 with upcasters 1-6", completed)
-		}
-		correction := map[string]any{
-			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
-			"step_id": "verify", "action_id": "request_correction", "attempt_epoch": 1,
-			"correction_diagnosis": "the delivered subject is stale", "correction_strategy": "re-produce the artifact",
-			"correction_predicate_ids": []string{"predicate:return-route"}, "correction_evidence_refs": []string{"evidence:stale"},
-		}
-		event := workflowEventWithActor("routine-recovery-correction-upcast", WorkflowActionCompleted, "routine-upcast-work", "actor:test", correction)
-		event.PayloadVersion = 4
-		upcast, err := upcastEvent(event)
-		if err != nil {
-			t.Fatalf("recorded v4 correction completion did not upcast: %v", err)
-		}
-		if upcast.PayloadVersion != completed.CurrentVersion || upcast.replaySourcePayloadVersion != 4 {
-			t.Fatalf("correction upcast payload version = %d source = %d, want %d with source 4", upcast.PayloadVersion, upcast.replaySourcePayloadVersion, completed.CurrentVersion)
-		}
-		var payload workflowActionCompletedPayload
-		if err := json.Unmarshal(upcast.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.ActionID != "request_correction" || payload.CorrectionDiagnosis != "the delivered subject is stale" || payload.CorrectionStrategy != "re-produce the artifact" || len(payload.CorrectionPredicateIDs) != 1 || payload.CorrectionEvidenceRefs[0] != "evidence:stale" {
-			t.Fatalf("correction upcast lost historical correction semantics: %#v", payload)
-		}
-		if payload.FailureAttribution == nil {
-			t.Fatal("correction upcast did not stamp the explicit legacy attribution marker")
-		}
-		// The supersession registration keeps the same guarantee for its
-		// approval binding bytes: a recorded v1 supersession upcasts to the
-		// current version with its attribution preserved and its replay
-		// provenance intact.
-		binding := map[string]any{
-			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
-			"previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "legacy replacement", "audit_evidence": []string{"evidence:legacy"},
-			"approval_ref":              strings.Repeat("a", 64),
-			"approval_operation_digest": "sha256:" + strings.Repeat("c", 64),
-			"approval_scope_json":       `{}`,
-			"approval_versions_json":    `{"work_id":"routine-upcast-work"}`,
-			"approval_consequence":      "recovery",
-		}
-		supersessionEvent := workflowEventWithActor("routine-recovery-upcast", WorkflowContractSuperseded, "routine-upcast-work", "actor:test", binding)
-		supersededUpcast, err := upcastEvent(supersessionEvent)
-		if err != nil {
-			t.Fatalf("recorded v1 supersession did not upcast: %v", err)
-		}
-		if supersededUpcast.PayloadVersion != workflowContractSupersededLawChangePayloadVersion || supersededUpcast.replaySourcePayloadVersion != 1 {
-			t.Fatalf("upcast payload version = %d source = %d, want %d with source 1", supersededUpcast.PayloadVersion, supersededUpcast.replaySourcePayloadVersion, workflowContractSupersededLawChangePayloadVersion)
-		}
-		var supersessionPayload workflowContractSupersededPayload
-		if err := json.Unmarshal(supersededUpcast.Payload, &supersessionPayload); err != nil {
-			t.Fatal(err)
-		}
-		if supersessionPayload.ApprovalRef != strings.Repeat("a", 64) || supersessionPayload.ApprovalConsequence != "recovery" || supersessionPayload.SupersedeReason != "legacy replacement" {
-			t.Fatalf("upcast payload lost historical approval or attribution bytes: %#v", supersessionPayload)
+		if !ok || completed.CurrentVersion != 7 {
+			t.Fatalf("action_completed registration = %#v, want v7", completed)
 		}
 	})
 

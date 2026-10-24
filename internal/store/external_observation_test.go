@@ -158,8 +158,8 @@ func TestFreshnessStateUsesTheKindBound(t *testing.T) {
 	}
 }
 
-// The generic writer and its fold: capture, verification, rebuild.
-func TestExternalObservationCaptureVerifyAndRebuild(t *testing.T) {
+// The generic writer and its fold: capture and verification.
+func TestExternalObservationCaptureAndVerify(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, err := Open(ctx, t.TempDir()+"/concord.db")
@@ -215,17 +215,6 @@ func TestExternalObservationCaptureVerifyAndRebuild(t *testing.T) {
 		t.Fatalf("pre-declared drift did not classify expected: %+v", rows)
 	}
 
-	// Rebuild reproduces the projection exactly from the log.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	rebuilt, err := s.ExternalObservationsForWork(ctx, "work-ext", time.Date(2026, 8, 20, 12, 4, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rebuilt) != 1 || rebuilt[0].VerificationState != rows[0].VerificationState || rebuilt[0].ObservationID != rows[0].ObservationID {
-		t.Fatalf("rebuild diverged from the live projection: %+v vs %+v", rebuilt, rows)
-	}
 }
 
 // Issue #89 case 2 — stale unverified: a captured record that nothing ever

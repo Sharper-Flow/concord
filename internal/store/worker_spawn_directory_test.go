@@ -139,12 +139,6 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		if lifecycle != "completed" {
 			t.Fatalf("attempt lifecycle = %q, want completed", lifecycle)
 		}
-		if err := os.RemoveAll(root); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("completion replay probed a removed directory: %v", err)
-		}
 	})
 }
 

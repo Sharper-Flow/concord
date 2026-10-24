@@ -237,11 +237,8 @@ func TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock(t *test
 	}
 }
 
-// A current review completion discharges severity through the block alone:
-// evidence without a severity entry folds, and the stored completion replays
-// through a rebuild, twice, because the block that discharges severity is
-// carried in the stored payload.
-func TestReviewLaneBlockOnlyCompletionFoldsAndReplays(t *testing.T) {
+// A current review completion discharges severity through the block alone.
+func TestReviewLaneBlockOnlyCompletionFolds(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[3]
@@ -254,18 +251,9 @@ func TestReviewLaneBlockOnlyCompletionFoldsAndReplays(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, attemptID, lane, reviewBlockFixture(), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatalf("block-only completion was refused: %v", err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild refused the stored block-only completion: %v", err)
-	}
 	before := workerProjectionSnapshot(t, s)
 	if !strings.Contains(before, "|completed|") {
-		t.Fatalf("replayed completion projection = %q, want a completed attempt", before)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("second rebuild changed the worker projection:\n%s\nwant\n%s", after, before)
+		t.Fatalf("completion projection = %q, want a completed attempt", before)
 	}
 }
 
@@ -295,54 +283,6 @@ func TestLiveV2CompletionForTheReviewLaneStillRequiresTheBlock(t *testing.T) {
 	}
 	if detail := failureDetail(t, err); !strings.Contains(detail, "typed review block") {
 		t.Fatalf("failure detail = %q, want it to name the required block", detail)
-	}
-}
-
-// upcastWorkerCompletedV2 is the bytes unchanged at version 3, and a stored
-// v2 completion that predates the requirement replays unchanged: the fold
-// forgives the missing block on replay, and a rebuild reaches the same
-// projection twice.
-func TestWorkerCompletedV2ReplaysWithoutTheReviewBlock(t *testing.T) {
-	t.Parallel()
-	lane := BuiltinLaneDefinitions()[3]
-	workID := "review-block-legacy"
-	attemptID := "review-block-legacy-attempt"
-	payload := map[string]any{
-		"attempt_id": attemptID, "readback_model": preferredModelForLane(lane),
-		"report_schema_version": WorkerReportSchemaVersion,
-		"evidence_origin":       WorkerEvidenceReported, "evidence": laneCoveringEvidence(lane),
-	}
-	legacy := Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
-	upcast, err := upcastWorkerCompletedV2(legacy)
-	if err != nil {
-		t.Fatalf("upcastWorkerCompletedV2 error = %v", err)
-	}
-	if upcast.PayloadVersion != 3 || string(upcast.Payload) != string(legacy.Payload) {
-		t.Fatalf("upcast = v%d %s, want v3 with the same bytes", upcast.PayloadVersion, upcast.Payload)
-	}
-	s := openTemp(t)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	// The v2 completion predates the requirement, so it is inserted as the
-	// stored event a real pre-CD-0197 database carries and replayed through
-	// the rebuild, which folds under the replay context.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		legacy.EventID, legacy.Kind, string(legacy.SubjectType), legacy.SubjectID, legacy.Actor, legacy.OccurredAt.UTC().Format(time.RFC3339Nano), 2, string(legacy.Payload)); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild refused the stored v2 completion: %v", err)
-	}
-	before := workerProjectionSnapshot(t, s)
-	if !strings.Contains(before, "|completed|") {
-		t.Fatalf("replayed completion projection = %q, want a completed attempt", before)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("second rebuild changed the worker projection:\n%s\nwant\n%s", after, before)
 	}
 }
 

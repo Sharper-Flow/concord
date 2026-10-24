@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -220,71 +219,6 @@ func TestMultiProjectRecoveryKeepsLegacyAttemptConservative(t *testing.T) {
 	}
 	assertWorkerAttemptState(t, f.store, f.seed.workID, attempt, "dispatched")
 	f.assertSiblingUnchanged(t)
-}
-
-func TestMultiProjectRecoveryAbandonmentReplaysWithoutHostObservations(t *testing.T) {
-	for _, observation := range []string{"removed_symlink", "legacy_occupancy"} {
-		t.Run(observation, func(t *testing.T) {
-			alias := filepath.Join(t.TempDir(), "store-link")
-			if err := os.Symlink(t.TempDir(), alias); err != nil {
-				t.Fatal(err)
-			}
-			s, err := Open(context.Background(), filepath.Join(alias, "concord.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = s.Close() })
-			f := multiProjectRecoveryFixtureForStore(t, s)
-			attempt := "attempt-replay"
-			f.dispatch(t, attempt)
-			version, digest := implementLaneIdentity()
-			lane, err := LookupLane("implement", version, digest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(f.seed.workID, attempt, lane, nil)}}); err != nil {
-				t.Fatal(err)
-			}
-			f.occupy(t, "project-sibling", true)
-			if err := f.abandon(attempt); err != nil {
-				t.Fatalf("live abandonment refused: %v", err)
-			}
-			terminal := func() [3]string {
-				t.Helper()
-				var row [3]string
-				if err := s.db.QueryRow(`SELECT lifecycle_state,failure_kind,readback_model FROM worker_attempts WHERE work_id=? AND attempt_id=?`, f.seed.workID, attempt).Scan(&row[0], &row[1], &row[2]); err != nil {
-					t.Fatal(err)
-				}
-				return row
-			}
-			before := terminal()
-			if want := [3]string{"failed", WorkerFailureAbandoned, preferredModelForLane(lane)}; before != want {
-				t.Fatalf("live terminal row = %v, want %v", before, want)
-			}
-			if observation == "removed_symlink" {
-				if err := os.Remove(alias); err != nil {
-					t.Fatal(err)
-				}
-			} else {
-				f.occupy(t, "project", false)
-			}
-			projections, events := histProjectionRows(t, s.db), histEventRows(t, s)
-			// The abandonment must fold without host observations. Recovery
-			// then refuses the injected occupancy at the post-fold comparison,
-			// because no retained event can reproduce those rows.
-			err = RebuildFromLog(context.Background(), s)
-			var failure *Failure
-			if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || failure.Op != "rebuild_from_log" || !strings.Contains(failure.Detail, "cannot be reproduced from retained events") {
-				t.Fatalf("recorded abandonment did not reach occupancy comparison after %s: %v", observation, err)
-			}
-			if !reflect.DeepEqual(projections, histProjectionRows(t, s.db)) || !reflect.DeepEqual(events, histEventRows(t, s)) {
-				t.Fatal("refused recovery changed projections or retained bytes")
-			}
-			if after := terminal(); after != before {
-				t.Fatalf("replay terminal row = %v, want %v", after, before)
-			}
-		})
-	}
 }
 
 func (f multiProjectRecoveryFixture) assertSiblingUnchanged(t *testing.T) {

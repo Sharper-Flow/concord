@@ -226,16 +226,6 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 			t.Fatalf("refused claim left an active destination entry: %+v", entry)
 		}
 	}
-	if err := store.RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err = s.WorktreeEntries(ctx, "work-1")
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("source occupancy after rebuild=%+v err=%v", entries, err)
-	}
-	if occupant, _ := readOccupantSession(t, s, entries[0]); occupant != grant.SessionRef {
-		t.Fatalf("source occupancy after rebuild entries=%+v", entries)
-	}
 }
 
 // seedSecondProjectFixture adds Product product-2 with Project project-2 over

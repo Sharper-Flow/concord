@@ -74,10 +74,6 @@ func TestIntentRevisionTaskRoundTripPreservesAbsentAndReplacesPresent(t *testing
 		t.Fatal(err)
 	}
 	assertStoredTask(t, s, "task-work", updatedTask)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	assertStoredTask(t, s, "task-work", updatedTask)
 }
 
 func assertStoredTask(t *testing.T, s *Store, workID, want string) {

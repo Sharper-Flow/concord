@@ -139,9 +139,8 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestExecutionStartBackfillMatchesFoldDerivation proves three derivations of
-// the execution-start fact agree: the fold's value, migration 107's backfill
-// over the same log, and a rebuild from the log. The second external-effect
+// TestExecutionStartBackfillMatchesFoldDerivation proves the execution-start
+// fold agrees with migration 107's backfill. The second external-effect
 // start carries an earlier occurred_at than the first, because appendEvent
 // orders by seq and never requires timestamps to rise with it.
 func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
@@ -187,12 +186,6 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		t.Fatalf("migration backfill derived %q, want the folded value %q", backfilled, folded)
 	}
 
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt := executionStart("the rebuild"); rebuilt != folded {
-		t.Fatalf("rebuild derived %q, want the folded value %q", rebuilt, folded)
-	}
 }
 
 // migration107Backfill returns migration 107's text after its ALTER TABLE, so

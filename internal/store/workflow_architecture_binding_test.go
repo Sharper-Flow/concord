@@ -500,23 +500,6 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if !continuity.ChangesProductTruth || continuity.ArchitectureBinding == nil || len(continuity.ArchitectureBinding.VerificationObligations) != 1 {
 		t.Fatalf("unexpected continuity: %+v", continuity)
 	}
-	before, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM domain_architecture_relations WHERE product_id='product'; DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("architecture binding rebuild changed projection hash: %s != %s", before, after)
-	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}

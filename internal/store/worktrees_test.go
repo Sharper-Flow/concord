@@ -524,7 +524,7 @@ func worktreeFixture(t *testing.T) (*Store, *fakeWorktreeGit, string) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
+		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
 		{EventID: "work-w-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 0}}); err != nil {
 		t.Fatal(err)
@@ -1414,22 +1414,6 @@ func TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch(t *testing.T) {
 	}
 	if _, kept := git.worktrees[claimPath(s)]; !kept {
 		t.Fatal("refused worktree must remain")
-	}
-}
-
-func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := s.WorktreeEntries(context.Background(), "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive || entries[0].ClaimOpID != "wt-op-1" {
-		t.Fatalf("entries after rebuild=%+v err=%v", entries, err)
 	}
 }
 

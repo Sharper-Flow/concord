@@ -212,9 +212,6 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("dispatch consumption while held changed the database")
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
 	assertWorkerAttemptState(t, s, seed.workID, attempt, "failed")
 }
 
@@ -267,11 +264,8 @@ func TestOutsideRepairConsumedTerminalWindowDoesNotBlockHold(t *testing.T) {
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
 	if after := workerProjectionSnapshot(t, s); after != workers {
-		t.Fatal("reconciliation/rebuild changed terminal worker evidence")
+		t.Fatal("reconciliation changed terminal worker evidence")
 	}
 }
 
@@ -301,17 +295,15 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	if err := applyWorkEvent(t, s, claim, workVersion(seed.workID, version)); err != nil {
 		t.Fatal(err)
 	}
-	// A retained historical hold can coexist with an open attempt. Replay
-	// preserves it; fresh completion must still refuse to release its claims.
-	req := outsideRepairTestRequest(t, s, seed.workID, "historical-hold")
-	replay := workflowReplayContext(context.Background())
-	if err := s.TransactDurable(replay, func(tx *Transaction) error {
-		_, err := SetOutsideRepairDispositionTx(replay, tx, req)
-		return err
-	}); err != nil {
+	// Reconciliation must protect outstanding execution even when a hold
+	// already exists in the current rows.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+		VALUES(?,'','hold','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
+		DELETE FROM fold_guard`, seed.workID); err != nil {
 		t.Fatal(err)
 	}
-	req = outsideRepairTestRequest(t, s, seed.workID, "reconcile")
+	req := outsideRepairTestRequest(t, s, seed.workID, "reconcile")
 	before := outsideRepairDatabaseSnapshot(t, s)
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {

@@ -28,11 +28,25 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
     def test_current_carrier_checks_need_no_historical_scenario(self):
         self.assertEqual(lane_checker._current_scenario_carrier_check(self.corpus), [])
 
+    def test_current_operation_rejects_recorded_execution_members(self):
+        schema = lane_checker._load_json(self.schema_path)
+        operation = {"op_id": self.current["request"]["operation"]["op_id"]}
+        generator.schema_validate(operation, schema["$defs"]["operationInput"], schema)
+        for member, value in (
+            ("attempt_epoch", 1),
+            ("step_id", "proposal"),
+            ("step_kind", "internal_sqlite"),
+            ("state", "pending"),
+        ):
+            with self.subTest(member=member):
+                with self.assertRaisesRegex(ValueError, rf"unknown properties.*{member}"):
+                    generator.schema_validate(operation | {member: value}, schema["$defs"]["operationInput"], schema)
+
     def test_full_checker_reports_missing_inventory_without_historical_lookup(self):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] not in {"WF28-recorded-conditions-rebuild", "WF42-ten-worktrees-one-truth"}]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF26-condition-actions-refused"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -44,9 +58,9 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 schema = copy.deepcopy(original)
                 if mutation == "history":
-                    del schema["$defs"]["scenarioSetup"]["oneOf"][0]["not"]
+                    schema["$defs"]["scenarioSetup"]["additionalProperties"] = True
                 elif mutation == "pin":
-                    del schema["$defs"]["scenarioRequest"]["oneOf"][0]["not"]
+                    schema["$defs"]["scenarioRequest"]["additionalProperties"] = True
                 elif mutation == "missing_step":
                     schema["$defs"]["scenarioSetup"]["properties"]["current_state"]["required"] = []
                 else:
@@ -63,6 +77,34 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
 
     def test_missing_current_fixture_is_reported(self):
         self.assertEqual(lane_checker._current_scenario_carrier_check({"scenarios": []}), ["current-scenario-baseline: no current-state scenario exists"])
+
+    def test_workflow_contract_checker_accepts_current_inventory(self):
+        self.assertEqual(lane_checker.check_workflow_contracts(), [])
+
+    def test_checker_mutations_reach_current_safeguards(self):
+        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
+        original = lane_checker._load_json(corpus_path)
+        for mutation, expected in (
+            ("actor", "actor-ID derivation mismatch"),
+            ("scope", "request scope mismatch"),
+            ("definition", "dangling fixture reference definition"),
+            ("error", "undeclared scenario error kind"),
+        ):
+            with self.subTest(mutation=mutation):
+                corpus = copy.deepcopy(original)
+                scenario = corpus["scenarios"][0]
+                if mutation == "actor":
+                    scenario["request"]["grant"]["agent_ref"] = "agent:other"
+                elif mutation == "scope":
+                    scenario["request"]["grant"]["scope"] = "project:other"
+                elif mutation == "definition":
+                    scenario["request"]["definition_ref"] = "workflow.missing"
+                else:
+                    corpus["scenarios"][1]["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                load = lane_checker._load_json
+                with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
+                    findings = lane_checker.check_workflow_contracts()
+                self.assertTrue(any(expected in finding for finding in findings), findings)
 
 
 class ContractGuidanceProjectionTests(unittest.TestCase):

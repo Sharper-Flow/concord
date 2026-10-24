@@ -426,7 +426,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 			"supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"},
 			"successor_contract": successor,
 		})
-		supersede.PayloadVersion = workflowContractSupersededDecisionDomainsPayloadVersion
+		supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 		currentVersion := readWorkVersion(t, s, workID)
 		supersede.Payload = mustJSONValue(map[string]any{"work_id": workID, "expected_version": currentVersion, "resulting_version": currentVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "upgrade to decision-bearing work", "audit_evidence": []string{"evidence:upgrade-audit"}, "successor_contract": successor})
 		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {

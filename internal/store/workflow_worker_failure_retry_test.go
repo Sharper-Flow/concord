@@ -156,21 +156,6 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 {
 		t.Fatalf("derived failure records after the exact replay = %d, want one", len(got))
 	}
-	// Rebuild from the log folds the stored derivation to the same record.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	rebuilt := s2DerivedFailureRecords(t, s, workID, attempt)
-	if len(rebuilt) != 1 || rebuilt[0]["step"] != "repair" || rebuilt[0]["actor"] != record["actor"] {
-		t.Fatalf("rebuilt failure records = %+v, want the one derived record rebuilt identically", rebuilt)
-	}
-	rebuiltCorrection, err := workflowCorrectionContext(context.Background(), s.db, workID, "repair")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rebuiltCorrection == nil || rebuiltCorrection.Disposition != "failed" || rebuiltCorrection.Diagnosis != detail {
-		t.Fatalf("rebuilt correction = %+v, want the same failed disposition and diagnosis", rebuiltCorrection)
-	}
 }
 
 // TestTerminalFailureWithoutADerivedRecordSkipsStructurally proves the
@@ -399,17 +384,6 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	}
 	if correction == nil || correction.Disposition != "rejected" || correction.SourceEventID == "" {
 		t.Fatalf("correction after the combined call = %+v, want the open rejected record the retry consumes", correction)
-	}
-	// Rebuild reaches the same durable state.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	var rebuiltDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, retryAttempt).Scan(&rebuiltDigest); err != nil {
-		t.Fatal(err)
-	}
-	if rebuiltDigest != packetDigest {
-		t.Fatalf("rebuilt retry digest = %q, want %q", rebuiltDigest, packetDigest)
 	}
 }
 

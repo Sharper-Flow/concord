@@ -21,14 +21,15 @@
     "fixtures": {"$ref": "#/$defs/fixtures"},
     "assertion_contract": {"$ref": "#/$defs/assertionContract"},
     "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
-    "scenarios": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/scenario"}}
+    "scenarios": {"type": "array", "minItems": 12, "maxItems": 12, "items": {"$ref": "#/$defs/scenario"}}
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
     "short": {"type": "string", "minLength": 1, "maxLength": 4096},
     "actorRef": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
+    "actorIdentityRef": {"type": "string", "pattern": "^[^\\x09-\\x0d \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+$", "minLength": 1, "maxLength": 128, "x-minBytes": 2, "x-maxBytes": 128},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "currentAction": {"type": "string", "enum": ["capture", "add_condition", "resolve_condition", "cancel_condition"]},
+    "currentAction": {"type": "string", "enum": ["capture", "add_condition", "resolve_condition", "cancel_condition", "record_proposal", "approve_contract", "record_verdict", "complete", "accept_worker_result"]},
     "jsonValue": {"oneOf": [
       {"type": "null"}, {"type": "boolean"},
       {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
@@ -52,8 +53,8 @@
     "actor": {
       "type": "object", "additionalProperties": false, "required": ["actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class"],
       "properties": {
-        "actor_ref": {"$ref": "#/$defs/actorRef"}, "principal_ref": {"$ref": "#/$defs/id"}, "client_ref": {"$ref": "#/$defs/id"},
-        "agent_ref": {"$ref": "#/$defs/id"}, "session_ref": {"$ref": "#/$defs/id"}, "actor_class": {"type": "string", "enum": ["agent", "operator"]}
+        "actor_ref": {"$ref": "#/$defs/actorRef"}, "principal_ref": {"$ref": "#/$defs/actorIdentityRef"}, "client_ref": {"$ref": "#/$defs/actorIdentityRef"},
+        "agent_ref": {"$ref": "#/$defs/actorIdentityRef"}, "session_ref": {"$ref": "#/$defs/actorIdentityRef"}, "actor_class": {"type": "string", "enum": ["agent", "operator"]}
       }
     },
     "definitionRef": {"type": "object", "additionalProperties": false, "required": ["ref"], "properties": {"ref": {"$ref": "#/$defs/id"}}},
@@ -88,7 +89,13 @@
       "type": "object", "additionalProperties": false, "required": ["fixture_refs", "current_state", "faults"],
       "properties": {
         "fixture_refs": {"$ref": "#/$defs/fixtureRefs"},
-        "current_state": {"type": "object", "additionalProperties": false, "required": ["step"], "properties": {"step": {"$ref": "#/$defs/id"}}},
+        "current_state": {
+          "type": "object", "additionalProperties": false, "required": ["step"],
+          "properties": {
+            "step": {"$ref": "#/$defs/id"},
+            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "implement_verdict", "completion_rollback", "impact_notice_identity", "missing_definition", "evidence_commit_mismatch", "lane_pipeline", "one_conjunct_weaker"]}
+          }
+        },
         "faults": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
       }
     },
@@ -99,7 +106,7 @@
     "grantInput": {
       "type": "object", "additionalProperties": false, "required": ["principal_ref", "client_ref", "agent_ref", "session_ref", "capability", "scope"],
       "properties": {
-        "principal_ref": {"$ref": "#/$defs/id"}, "client_ref": {"$ref": "#/$defs/id"}, "agent_ref": {"$ref": "#/$defs/id"}, "session_ref": {"$ref": "#/$defs/id"},
+        "principal_ref": {"$ref": "#/$defs/actorIdentityRef"}, "client_ref": {"$ref": "#/$defs/actorIdentityRef"}, "agent_ref": {"$ref": "#/$defs/actorIdentityRef"}, "session_ref": {"$ref": "#/$defs/actorIdentityRef"},
         "capability": {"type": "string", "enum": ["work_transition", "workflow_action", "workflow_read"]}, "scope": {"$ref": "#/$defs/id"}
       }
     },
@@ -112,14 +119,34 @@
       "properties": {"op_id": {"$ref": "#/$defs/id"}}
     },
     "requestFields": {
-      "type": "object", "additionalProperties": false, "required": ["payload"],
+      "type": "object", "additionalProperties": false,
       "properties": {
         "payload": {"$ref": "#/$defs/jsonObject"}, "title": {"$ref": "#/$defs/short"}, "value_statement": {"$ref": "#/$defs/short"},
-        "project_ids": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/id"}}
+        "project_ids": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/id"}},
+        "premise": {"$ref": "#/$defs/short"},
+        "problem": {"$ref": "#/$defs/short"},
+        "affected": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/short"}},
+        "stakes": {"$ref": "#/$defs/short"},
+        "user_outcomes": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/short"}},
+        "current_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
+        "evidence_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
+        "decision_domains": {"type": "array", "minItems": 0, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "enum": ["preference", "product", "ui_ux"]}},
+        "impact_verdict": {"type": "string", "enum": ["breaking", "non-breaking"]},
+        "verdicts": {"type": "array", "minItems": 1, "maxItems": 8, "items": {
+          "type": "object", "additionalProperties": false, "required": ["predicate_id", "receipt_refs"],
+          "properties": {
+            "predicate_id": {"$ref": "#/$defs/id"},
+            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/short"}}
+          }
+        }},
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "attempt_epoch": {"type": "integer", "minimum": 1, "maximum": 2147483647}
       }
     },
     "scenarioRequest": {
       "type": "object", "additionalProperties": false, "required": ["actor_ref", "definition_ref", "action_id", "fields", "idempotency", "grant", "approval", "operation"],
+      "if": {"properties": {"action_id": {"type": "string", "enum": ["capture", "add_condition", "resolve_condition", "cancel_condition"]}}},
+      "then": {"properties": {"fields": {"required": ["payload"]}}},
       "properties": {
         "actor_ref": {"$ref": "#/$defs/actorRef"}, "definition_ref": {"$ref": "#/$defs/id"}, "expected_version": {"type": "integer", "minimum": 1},
         "action_id": {"$ref": "#/$defs/currentAction"}, "fields": {"$ref": "#/$defs/requestFields"}, "idempotency": {"$ref": "#/$defs/idempotencyInput"},

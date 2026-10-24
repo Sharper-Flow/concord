@@ -12,7 +12,10 @@
     ],
     "actors": [
       {"actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "principal_ref": "principal:operator", "client_ref": "client:concord-1", "actor_class": "agent", "agent_ref": "agent-engineer", "session_ref": "session-executor"},
-      {"actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "principal_ref": "principal:operator", "client_ref": "client:concord-1", "actor_class": "operator", "agent_ref": "agent-reviewer", "session_ref": "session-reviewer"}
+      {"actor_ref": "actor:017389e1649c56f00f9265c121eed78cb73aca12052cefae3df35d9036a029bc", "principal_ref": "principal:operator", "client_ref": "client:concord-1", "actor_class": "operator", "agent_ref": "agent-reviewer", "session_ref": "session-reviewer"},
+      {"actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "principal_ref": "principal/operator", "client_ref": "client/concord-1", "actor_class": "agent", "agent_ref": "agent/owner", "session_ref": "session/work-alpha"},
+      {"actor_ref": "actor:d91c4ba0bc66973b5d6563ff872e06967615e20029bb85007f97b728ef149808", "principal_ref": "principal/operator", "client_ref": "client/concord-1", "actor_class": "agent", "agent_ref": "agent/lane:implement", "session_ref": "session/attempt:work-alpha:corpus"},
+      {"actor_ref": "actor:e94b0b38598749c887fb5fdf75dc90629953a8a81374d9df4061855df8a774fb", "principal_ref": "principal/operator", "client_ref": "client/concord-1", "actor_class": "agent", "agent_ref": "agent/lane:implement", "session_ref": "session/attempt:corpus-implement"}
     ],
     "definitions": [{"ref": "workflow.implementation"}],
     "evidence": [
@@ -65,6 +68,139 @@
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "needed"},
         {"target": "state", "path": "new.current_step", "op": "eq", "value": "proposal"}
       ]}
+    },
+    {
+      "id": "WF02-planning-requires-outcome", "scenario_number": 2,
+      "mechanism": "planning refuses an omitted end-state without recording a contract or changing the pre-approval instance",
+      "initial_state": {"work": "work-alpha", "outcome": null}, "action": "approve_contract",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "planning", "proof_case": "planning_without_outcome"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "approve_contract",
+        "fields": {"premise": "The fixture needs a decidable approved end-state.", "decision_domains": []},
+        "idempotency": {"key": "wf02-key", "request_id": "wf02-request", "operation_id": "wf02-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf02-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_input"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action payload field \"outcome_predicates\" is required for action \"approve_contract\""},
+        {"target": "state", "path": "work.outcome_contract", "op": "absent"},
+        {"target": "state", "path": "work-alpha.state", "op": "eq", "value": "running"},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.contract_approved", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "planning"}]}
+    },
+    {
+      "id": "WF04-weaker-delivery", "scenario_number": 4,
+      "mechanism": "an accepted mismatch Review supplies no passing criterion proof, so completion refuses without terminal effects",
+      "initial_state": {"work": "work-alpha", "assessment": "mismatch"}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "weaker_delivery"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "idempotency": {"key": "wf04-key", "request_id": "wf04-request", "operation_id": "wf04-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf04-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow verdict is missing for approved predicate predicate:return-route"},
+        {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "mismatch"},
+        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
+        {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
+        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
+        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}]}
+    },
+    {
+      "id": "WF05-stronger-delivery", "scenario_number": 5,
+      "mechanism": "a delivery satisfying every approved criterion completes without changing the approved contract",
+      "initial_state": {"work": "work-alpha", "assessment": "supported"}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "satisfied_delivery"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "idempotency": {"key": "wf05-key", "request_id": "wf05-request", "operation_id": "wf05-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf05-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error", "op": "absent"},
+        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "completed"},
+        {"target": "state", "path": "work.outcome_contract", "op": "nonempty"},
+        {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "supported"},
+        {"target": "state", "path": "verdicts.predicate:return-route", "op": "nonempty"},
+        {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "nonempty"}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work.terminal_metadata", "op": "nonempty"}]}
+    },
+    {
+      "id": "WF13-verdict-actor-distinctness", "scenario_number": 13,
+      "mechanism": "the original Implement worker cannot associate acceptance proof with its own result",
+      "initial_state": {"work": "work-alpha", "lane": "implement"}, "action": "record_verdict",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:d91c4ba0bc66973b5d6563ff872e06967615e20029bb85007f97b728ef149808"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "acceptance", "proof_case": "implement_verdict"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:d91c4ba0bc66973b5d6563ff872e06967615e20029bb85007f97b728ef149808", "definition_ref": "workflow.implementation", "action_id": "record_verdict",
+        "fields": {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["worktree_verify:candidate-observe-corpus-proof"]}]},
+        "idempotency": {"key": "wf13-key", "request_id": "wf13-request", "operation_id": "wf13-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/lane:implement", "session_ref": "session/attempt:work-alpha:corpus", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf13-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "unauthorized"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "a worker cannot accept results, associate criterion proof, or complete work"},
+        {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "supported"},
+        {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.verdict_recorded", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "acceptance"}]}
+    },
+    {
+      "id": "WF19-completion-one-transaction", "scenario_number": 19,
+      "mechanism": "a completion append conflict rolls back the completion record, notices, terminal metadata and lifecycle change",
+      "initial_state": {"work": "work-alpha", "dependent": "work-alpha-dependent"}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "completion_rollback"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "idempotency": {"key": "wf19-key", "request_id": "wf19-request", "operation_id": "wf19-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf19-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "operation_conflict"},
+        {"target": "communication", "path": "error.clause", "op": "eq", "value": 7},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "completion append conflicted"},
+        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
+        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428", "op": "absent"},
+        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}, {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"}]}
     },
     {
       "id": "WF26-condition-actions-refused",
@@ -168,6 +304,176 @@
         "operation": {"op_id": "wf26-add-condition-operation"}
       },
       "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_transition"}]}
+    },
+    {
+      "id": "WF29-impact-notice-identity", "scenario_number": 29,
+      "mechanism": "completion records the deterministic notice for a current hard dependent using the source contract and impact tuple",
+      "initial_state": {"work": "work-alpha", "dependent": "work-alpha-dependent", "source_contract_version": 1, "severity": "non-breaking"}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "impact_notice_identity"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "idempotency": {"key": "wf29-key", "request_id": "wf29-request", "operation_id": "wf29-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf29-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error", "op": "absent"},
+        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "completed"},
+        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428", "op": "nonempty"},
+        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428.target_work_id", "op": "eq", "value": "work-alpha-dependent"},
+        {"target": "state", "path": "impact_notices.notice:bff320e7a2d8a9f3806685fcb267ec30f7370a9546861e11860af77be69a1428.severity", "op": "eq", "value": "non-breaking"},
+        {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "nonempty"},
+        {"target": "effects", "path": "workflow.impact_notice_recorded", "op": "nonempty"}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work.terminal_metadata", "op": "nonempty"}]}
+    },
+    {
+      "id": "WF37-action-availability-before-register", "scenario_number": 37,
+      "mechanism": "an empty current definition registry refuses the action without falling back to a recorded definition",
+      "initial_state": {"work": "work-alpha", "registry": "empty"}, "action": "record_proposal",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "proposal", "proof_case": "missing_definition"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "definition_ref": "workflow.implementation", "action_id": "record_proposal",
+        "fields": {"problem": "The fixture needs an available current definition.", "affected": ["The current work item."], "stakes": "An unregistered action must not change durable state.", "user_outcomes": ["Only the current registered definition authorizes actions."]},
+        "idempotency": {"key": "wf37-key", "request_id": "wf37-request", "operation_id": "wf37-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf37-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "invariant_violation"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "current workflow definition is unavailable: workflow.implementation"},
+        {"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "proposal"},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work.outcome_contract", "op": "absent"}]}
+    },
+    {
+      "id": "WF47-evidence-commit-binding", "scenario_number": 47,
+      "mechanism": "completion refuses evidence bound to a different commit even after supported Review, proof association and premise confirmation",
+      "initial_state": {"work": "work-alpha", "premise_confirmed": true}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "evidence_commit_mismatch"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete",
+        "fields": {"impact_verdict": "non-breaking", "evidence_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "current_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        "idempotency": {"key": "wf47-key", "request_id": "wf47-request", "operation_id": "wf47-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf47-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "immutable evidence commit does not match the current commit"},
+        {"target": "state", "path": "verdicts.predicate:return-route", "op": "nonempty"},
+        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}, {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"}]}
+    },
+    {
+      "id": "WF48-lane-pipeline-typed-evidence", "scenario_number": 48,
+      "mechanism": "the owner accepts a registered Implement lane's typed result while that worker cannot accept its own result",
+      "initial_state": {"work": "work-alpha", "attempt": "attempt:corpus-implement"}, "action": "accept_worker_result",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "execution", "proof_case": "lane_pipeline"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "accept_worker_result", "fields": {"attempt_id": "attempt:corpus-implement", "attempt_epoch": 2},
+        "idempotency": {"key": "wf48-owner-key", "request_id": "wf48-owner-request", "operation_id": "wf48-owner-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf48-owner-operation"}
+      },
+      "observations": {"expected_reads": [{"target": "state", "path": "workers.attempt:corpus-implement.evidence", "op": "nonempty"}]},
+      "cases": [
+        {
+          "id": "WF48-owner-accepts-typed-result", "initial_state": {"work": "work-alpha", "attempt": "attempt:corpus-implement"}, "action": "accept_worker_result",
+          "setup": {
+            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+            "current_state": {"step": "execution", "proof_case": "lane_pipeline"}, "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "accept_worker_result", "fields": {"attempt_id": "attempt:corpus-implement", "attempt_epoch": 2},
+            "idempotency": {"key": "wf48-owner-key", "request_id": "wf48-owner-request", "operation_id": "wf48-owner-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+            "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+            "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf48-owner-operation"}
+          },
+          "expected": {"assertions": [
+            {"target": "communication", "path": "error", "op": "absent"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.state", "op": "eq", "value": "completed"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.lane_id", "op": "eq", "value": "implement"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.evidence", "op": "nonempty"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.accepted_by", "op": "eq", "value": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"},
+            {"target": "effects", "path": "events.order", "op": "nonempty"}
+          ]},
+          "observations": {"expected_reads": [{"target": "result", "path": "state_unchanged", "op": "eq", "value": false}]}
+        },
+        {
+          "id": "WF48-worker-self-accept-refused", "initial_state": {"work": "work-alpha", "attempt": "attempt:corpus-implement"}, "action": "accept_worker_result",
+          "setup": {
+            "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:e94b0b38598749c887fb5fdf75dc90629953a8a81374d9df4061855df8a774fb"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+            "current_state": {"step": "execution", "proof_case": "lane_pipeline"}, "faults": []
+          },
+          "request": {
+            "actor_ref": "actor:e94b0b38598749c887fb5fdf75dc90629953a8a81374d9df4061855df8a774fb", "definition_ref": "workflow.implementation", "action_id": "accept_worker_result", "fields": {"attempt_id": "attempt:corpus-implement", "attempt_epoch": 2},
+            "idempotency": {"key": "wf48-worker-key", "request_id": "wf48-worker-request", "operation_id": "wf48-worker-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+            "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/lane:implement", "session_ref": "session/attempt:corpus-implement", "capability": "workflow_action", "scope": "project"},
+            "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf48-worker-operation"}
+          },
+          "expected": {"assertions": [
+            {"target": "communication", "path": "error.kind", "op": "eq", "value": "unauthorized"},
+            {"target": "communication", "path": "error.detail", "op": "eq", "value": "a worker cannot accept results, associate criterion proof, or complete work"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.state", "op": "eq", "value": "completed"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.lane_id", "op": "eq", "value": "implement"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.evidence", "op": "nonempty"},
+            {"target": "state", "path": "workers.attempt:corpus-implement.accepted_by", "op": "absent"},
+            {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+            {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+          ]},
+          "observations": {"expected_reads": [{"target": "communication", "path": "error.kind", "op": "eq", "value": "unauthorized"}]}
+        }
+      ]
+    },
+    {
+      "id": "WF50-one-conjunct-weaker", "scenario_number": 50,
+      "mechanism": "one supported conjunct cannot compensate for an accepted mismatch on another; completion refuses missing criterion proof",
+      "initial_state": {"work": "work-alpha", "supported": "predicate:present", "mismatch": "predicate:absent"}, "action": "complete",
+      "setup": {
+        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
+        "current_state": {"step": "release", "proof_case": "one_conjunct_weaker"}, "faults": []
+      },
+      "request": {
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "idempotency": {"key": "wf50-key", "request_id": "wf50-request", "operation_id": "wf50-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
+        "approval": {"required": false, "approval_ref": null}, "operation": {"op_id": "wf50-operation"}
+      },
+      "expected": {"assertions": [
+        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow verdict is missing for approved predicate predicate:absent"},
+        {"target": "state", "path": "review.assessments.predicate:present", "op": "eq", "value": "supported"},
+        {"target": "state", "path": "review.assessments.predicate:absent", "op": "eq", "value": "mismatch"},
+        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
+        {"target": "state", "path": "verdicts.predicate:present", "op": "nonempty"},
+        {"target": "state", "path": "verdicts.predicate:absent", "op": "absent"},
+        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
+        {"target": "state", "path": "impact_notices", "op": "eq", "value": {}},
+        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
+        {"target": "effects", "path": "workflow.completed", "op": "absent"},
+        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
+      ]},
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}]}
     }
   ]
 }

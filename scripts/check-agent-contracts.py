@@ -30,6 +30,14 @@ ADAPTER_FILES = _installer.ADAPTER_FILES
 
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
+CURRENT_SCENARIO_IDS = [
+    "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
+    "WF04-weaker-delivery", "WF05-stronger-delivery",
+    "WF13-verdict-actor-distinctness", "WF19-completion-one-transaction",
+    "WF26-condition-actions-refused", "WF29-impact-notice-identity",
+    "WF37-action-availability-before-register", "WF47-evidence-commit-binding",
+    "WF48-lane-pipeline-typed-evidence", "WF50-one-conjunct-weaker",
+]
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
 
 
@@ -261,6 +269,11 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "add_condition": {"payload"},
         "resolve_condition": {"payload"},
         "cancel_condition": {"payload"},
+        "record_proposal": {"problem", "affected", "stakes", "user_outcomes"},
+        "approve_contract": {"premise", "decision_domains"},
+        "record_verdict": {"verdicts"},
+        "complete": {"impact_verdict"},
+        "accept_worker_result": {"attempt_id", "attempt_epoch"},
     }
     def walk(item: dict) -> None:
         action = item.get("action")
@@ -468,14 +481,18 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
         findings.extend(_current_scenario_carrier_check(corpus))
-        expected_ids = ["WF01-capture-late-outcome", "WF26-condition-actions-refused"]
+        expected_ids = CURRENT_SCENARIO_IDS
         if [item.get("id") for item in corpus["scenarios"]] != expected_ids:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
-        expected_cases = ["WF26-add-condition-refused", "WF26-resolve-condition-refused", "WF26-cancel-condition-refused"]
-        if [case.get("id") for case in corpus["scenarios"][1].get("cases", [])] != expected_cases:
-            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected current refusal cases {expected_cases}")
-            return findings
+        for scenario_id, expected_cases in (
+            ("WF26-condition-actions-refused", ["WF26-add-condition-refused", "WF26-resolve-condition-refused", "WF26-cancel-condition-refused"]),
+            ("WF48-lane-pipeline-typed-evidence", ["WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"]),
+        ):
+            scenario = next(item for item in corpus["scenarios"] if item["id"] == scenario_id)
+            if [case.get("id") for case in scenario.get("cases", [])] != expected_cases:
+                findings.append(f".concord/scenarios/workflow-engine.v1.json: expected current cases {expected_cases} in {scenario_id}")
+                return findings
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:
@@ -533,7 +550,8 @@ def check_workflow_contracts() -> list[str]:
             elif case["mutation"] == "invalid_float":
                 mutated["scenarios"][0]["initial_state"]["invalid_float"] = 1.5
             elif case["mutation"] == "unknown_error_kind":
-                mutated["scenarios"][1]["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                condition = next(item for item in mutated["scenarios"] if item["id"] == "WF26-condition-actions-refused")
+                condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
             elif case["mutation"] == "removed_surface_version_rejection":
                 # Rejection test: removed agent-surface metadata must remain unknown.
                 mutated["surface_version"] = "5.0.0"
@@ -584,7 +602,7 @@ def check_workflow_contracts() -> list[str]:
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         # CD-0242 D2/D14 removes replay and historical-definition carriers.
-        expected_numbers = [1, 26]
+        expected_numbers = [int(identity[2:4]) for identity in CURRENT_SCENARIO_IDS]
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if numbers != expected_numbers:

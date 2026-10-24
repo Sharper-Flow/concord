@@ -46,10 +46,8 @@ instructions. No record shows which rule settled a conflict. Accepted records
 still require operator approval for every law change: CD-0006 D5 ("Human
 approval is always required to enact law changes or governed scope cuts"),
 CD-0159 D4 ("Human approval remains required to enact a law change"),
-CD-0222 D1 ("it carries an operator-approved mandate"), CD-0218 D1
-("Product-law changes require the existing operator-approved Git law route"),
-and CD-0036 D2 ("The operator makes this legislative choice through the Git
-delta"). CD-0006 D10, CD-0013 D9, and CD-0222 D4 and D5 bound each law change
+CD-0222 D1 ("it carries an operator-approved mandate"), and CD-0218 D1
+("Product-law changes require the existing operator-approved Git law route"). CD-0006 D10, CD-0013 D9, and CD-0222 D4 and D5 bound each law change
 by an operator-approved spec mandate. Rule R3 says instead: "change the law or
 if serious than consult the user", and P12 defines serious.
 
@@ -95,11 +93,10 @@ Seriousness, Domain count, and crucial size do not independently require
 approval. Adding, removing, or reclassifying an operator approval always
 requires the operator's approval of its exact wording.
 
-Where CD-0006 D5 and D10, CD-0013 D9, CD-0036 D2, CD-0159 D4, CD-0218 D1,
+Where CD-0006 D5 and D10, CD-0013 D9, CD-0159 D4, CD-0218 D1,
 and CD-0222 D1, D4, and D5 require human or operator approval
-for a law change, a law mandate, or the choice between amendment and
-replacement, that approval is required only under CD-0243 D2. An agent-owned
-change carries the agent's recorded reason and its CD-0036 choice.
+for a law change or a law mandate, that approval is required only under
+CD-0243 D2. An agent-owned change carries the agent's recorded reason.
 
 A law revision enacted without the operator's
 approval gives the record the `derived` tier, whatever tier it held before,

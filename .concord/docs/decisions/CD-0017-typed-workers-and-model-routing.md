@@ -172,10 +172,3 @@ schema or state checks.
 - Worker execution demonstrably creates no nested workflow authority and weakens no
   CD-0013 completion rule.
 - Lane prompt behavioral evals exist; deterministic authority remains in Go tests.
-
-## Supersession
-
-CD-0017 does not supersede CD-0005, CD-0013, or CD-0016. It adds the worker-lane
-dimension above CD-0005's adapter boundary. A compatible amendment keeps this ID
-and publishes a new content hash under CD-0036 D2. A breaking replacement uses
-an accepted new law ID and the CD-0036 cutover. The operator approves the law delta.

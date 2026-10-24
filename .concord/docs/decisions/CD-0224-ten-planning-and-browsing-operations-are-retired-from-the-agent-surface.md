@@ -34,10 +34,7 @@ decision, because its subject retires with the read.
 
 CD-0213 moved planning to Linear, so no planning write belongs on the agent
 surface. The ten operations had no consumer that the surviving reads could
-not serve, and every one of them is a removal surface for the Product
-changes CD-0036 D2 protects. CD-0036 D2 also forbids hiding a removal behind
-a same-ID rewrite: a retirement that existing records describe as live is a
-breaking change, and the break needs its own accepted record.
+not serve.
 
 CD-0068's live subject was the observation record and
 dismiss channel, and that channel retires here, so CD-0068 is superseded
@@ -110,9 +107,6 @@ are, and relation changes write current rows in one transaction.
 
 ## Alternatives considered
 
-- Compatible in-place amendments only. CD-0036 D2 forbids the form: ten
-  removals that consumers must stop using are not a compatible amendment,
-  and a same-ID rewrite would hide the break.
 - Keeping the reads until a consumer appears. No read had a consumer, and
   each one is removal surface for later Product changes, so the surface tax
   bought nothing.

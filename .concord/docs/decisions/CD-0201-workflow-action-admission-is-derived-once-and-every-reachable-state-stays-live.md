@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
-- **Scope:** Workflow action admission in the store; the post-rejection
-  review debt settlement clause; the workflow liveness checks
+- **Scope:** Workflow action admission in the store; the workflow liveness
+  checks
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
@@ -21,7 +21,7 @@ recovery action refuses. The item strands.
 
 Admission for each action is computed by hand at four or more sites:
 preflight, the guard table, the work pin intents, the dispatch recording, and
-the correction binding. Conditions such as settled review debt, the same-step
+the correction binding. Conditions such as the accepted Review disposition, the same-step
 wall, and an unsettled attempt are re-derived per site. The copies drift, and
 each drift ships as another guard clause fix.
 
@@ -47,15 +47,15 @@ site.
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
 invariant). The request payload checks and the attempt identity checks stay
-in the guards. The accept guard binds the request's attempt against the
-ready review the decision names.
+in the guards. Admission binds an accept request's attempt to the Review it
+accepts before it decides.
 
 The derived admission state covers every condition the five sites read when
 this record was accepted: the step and lifecycle, the instance state, the active
 contract count, the law and registry pin staleness, the breaking impact
 notices, the design currency, the latest worker attempt and its capability
-class, the latest result disposition, the post-rejection review debt and
-its settling verdict, the recovery routes, the same-step wall and its
+class, the latest result disposition, the accepted Review disposition of the
+current candidate, the recovery routes, the same-step wall and its
 operator approval, the dispatch hold, the evidence-binding recovery, and
 the correction classifications. A duplicated contract projection follows the
 same rule: the count classifies the supersede recovery, and the singular-reader
@@ -129,12 +129,6 @@ integration boundary
   actions forever, so the weaker property passes hold loops.
 - Raise the sampler depth and budget. Rejected: still bounded, still slow,
   still inconclusive.
-- Treat a no_ship review as settled debt. Rejected: it advertises delivery
-  for a result the review refused.
-- Add a delivery-gate special case for no_ship. Rejected: one more clause at
-  one site is the pattern this record removes.
-- Require reject_worker_result for a no_ship review. Rejected: it discards
-  valid findings and blames the reviewer.
 
 ## Consequences
 

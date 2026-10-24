@@ -25,7 +25,7 @@ enforced and the folded state did not carry:
    recorded verdict, a verdict for each approved predicate, or a bound
    required evidence kind. The preflight and the work pin did not read that
    gate. They offered a confirmation that execution then refused.
-2. Behind outstanding post-rejection review debt, admission refuses
+2. Behind a blocking Review disposition, admission refuses
    `record_delivery` at a review step with the fresh-review refusal. The
    preflight deferred that refusal to the guards, as it does for the accept
    that can name the ready review. No guard owns the refusal over
@@ -80,8 +80,8 @@ verdict. A late verdict does not move the step.
 ## Consequences
 
 A caller that asks the preflight or reads the work pin gets the refusal that
-execution applies, for the confirmation and for a delivery behind review
-debt. A recorded ops runbook at cleanup without a verdict records the verdict
+execution applies, for the confirmation and for a delivery behind a blocking
+Review disposition. A recorded ops runbook at cleanup without a verdict records the verdict
 there, then confirms. The liveness checks read the recorded verdict at the
 premise question
 ([CD-0242 D3](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d3-stage-exits-are-the-unit-of-enforcement)).

@@ -95,7 +95,7 @@ Oracle enforcement joins the attempt's dispatched job revision, not the
 current definition. Historical reports retain their recorded content and
 requirements; nothing fabricates a tie, receipt, or closure ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### D4. The verdict couplings are structural
+### D4. The review reports one of four dispositions
 
 The review reports one disposition, continue, correction required, revision required, or ready for final proof, and Main records its acceptance; an open in-scope blocking finding blocks both a new assignment and leaving execution ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
@@ -154,10 +154,10 @@ Scenario: A review completion without the block is not a completion
   When the coordinator records a completion that carries no review block
   Then the store refuses with a typed failure and the attempt stays dispatched
 
-Scenario: The verdict couplings refuse the two broken shapes
+Scenario: A disposition outside the four refuses
   Given a dispatched review attempt
-  When a completion carries a ship verdict with a P0 finding
-  Then the store refuses it, and a no_ship verdict with zero findings refuses too
+  When a completion names a disposition other than continue, correction required, revision required, or ready for final proof
+  Then the store refuses it and the attempt stays dispatched
 
 Scenario: Severity has one source
   Given a dispatched review attempt

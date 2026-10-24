@@ -4,7 +4,6 @@
 - **Date:** 2026-10-09
 - **Scope:** Live workflow catalog, typed authoring, and authorized cutover. No
   live migration or release activation is authorized.
-- **Classification:** Breaking replacement under CD-0036 D2
 - **Planning record:** [Concord (CON) issue 902](https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent)
 - **Approval:** The operator approved this successor as designed on 2026-10-09
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball

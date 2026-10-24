@@ -247,8 +247,8 @@ the dispatch record. The caller never supplies it.
 Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Both routes run one
 complete delivery admission — the same function, not two. That admission
-includes the fenced start, the refine proof, the declared tooling, the review
-debt, the verdicts, the operator
+includes the fenced start, the refine proof, the declared tooling, the accepted ready-for-final-proof
+Review of the current candidate, the verdicts, the operator
 checkpoint, and — where the work has recorded
 worker jobs — the satisfied required jobs and the integration evidence. Local
 acceptances and their count prove no integration and no delivery:

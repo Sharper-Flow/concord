@@ -69,8 +69,7 @@ coordination witnesses and the composed single-work fixture are merged
 evidence.
 
 The navigation layer's only consumers are deleted by the same repository
-change that retires it. CD-0036 D2 requires a new law identity when consumers
-must stop, so this record takes a new identity. D2 and D3 state
+change that retires it. D2 and D3 state
 package-boundary code ownership. D12 states the navigation retirement.
 
 ## Decision

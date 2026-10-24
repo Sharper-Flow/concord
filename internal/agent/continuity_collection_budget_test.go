@@ -968,7 +968,7 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	// losslessly and refuse on state drift.
 	const continuationResearchPack = "pack-continuation-research"
 	ownerEvents := []store.Event{
-		{EventID: "continuation-research-owner", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"research","title":"Continuation research owner","priority":1}`)},
+		{EventID: "continuation-research-owner", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"research","title":"Continuation research owner","priority":1}`)},
 		{EventID: "continuation-research-owner-members", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: ownerEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-research-owner"): 0}}); err != nil {

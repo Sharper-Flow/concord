@@ -103,7 +103,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				// over the caller path the repair changes.
 				const holder = "work-holder"
 				if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
-					{EventID: holder + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Holder","priority":1}`)},
+					{EventID: holder + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Holder","priority":1}`)},
 					{EventID: holder + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 					{EventID: holder + "-claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: holder, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"` + holder + `","expected_version":2,"resulting_version":3,"resource_key":"path:caller/use.go","reason":"another item's held path claim","holder_agent":"agent/other","holder_session":"session/other"}`)},
 				}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, holder): 0}}); err != nil {
@@ -120,7 +120,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attempt).Scan(&packetDigest); err != nil {
 				t.Fatal(err)
 			}
-			dispatch := store.Event{EventID: "caller-lane-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2,
+			dispatch := store.Event{EventID: "caller-lane-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched),
 				Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 				prepared, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)

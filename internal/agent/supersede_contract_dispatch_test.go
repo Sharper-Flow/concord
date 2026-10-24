@@ -339,7 +339,7 @@ func workflowDispatchWorktreeFixture(t *testing.T, s *store.Store, env CallEnvel
 func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 	t.Helper()
 	events := []store.Event{
-		{EventID: "correction-peer-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "correction-peer", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Peer work","priority":1}`)},
+		{EventID: "correction-peer-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "correction-peer", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Peer work","priority":1}`)},
 		{EventID: "correction-peer-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "correction-peer", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		{EventID: "correction-peer-active", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: "correction-peer", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"peer execution is active","expected_version":2,"resulting_version":3}`)},
 	}

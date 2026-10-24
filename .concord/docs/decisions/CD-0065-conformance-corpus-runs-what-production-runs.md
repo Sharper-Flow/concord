@@ -11,8 +11,8 @@
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5388341229)
 - **Related:** CD-0012, CD-0013, CD-0222, CD-0053,
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
-- **Preserves:** Scenario count and 1..48 numbering; the six evidence records
-  that cite the corpus, which regain the anchors their text already claims
+- **Preserves:** Stable IDs for current scenarios; broader evidence records
+  require controls that prove their own obligations.
 - **Supersedes:** nothing
 - **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D14 — no rebuild exists, and no released-definition versions are retained.
 
@@ -53,10 +53,12 @@ At least one scenario exercises unresolved overlap blocking, so the refusal path
 carries conformance coverage. Domains are separate by default; intersections
 exist only where they earn coverage, held to the minimum that proves the path.
 
-### D5. Numbering is preserved
+### D5. Current scenarios keep their IDs
 
-Scenario count and 1..48 numbering are preserved, per
+The current corpus contains two scenarios and three nested cases, per
 [`scripts/check-agent-contracts.py`](../../../scripts/check-agent-contracts.py).
+Their stable IDs are `WF01-capture-late-outcome` and
+`WF26-condition-actions-refused`.
 
 ## Resolutions recorded with acceptance
 
@@ -92,8 +94,10 @@ leaves two corpora to keep in sync.
 
 ## Verification
 
-- `.concord/scenarios/workflow-engine.v1.json` holds 48 scenarios, each pinning the
-  shipped definition version and its seven digests.
+- `.concord/scenarios/workflow-engine.v1.json` holds two current scenarios and
+  three nested condition-refusal cases. They select current production
+  definitions without historical version pins, as required by
+  [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source).
 - Every Product-changing scenario declares `domain_home` and an architecture
   binding in setup; at least one declares unresolved overlap and is blocked.
 - `internal/store` suite passes against the corpus, including

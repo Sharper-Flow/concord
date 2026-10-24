@@ -25,10 +25,6 @@
       "value": "internal/store.TestRefineToolingResolutionReadsTheDefaultRefOnly"
     },
     {
-      "kind": "scenario",
-      "value": "WF57-refine-exit-needs-green-verify-run"
-    },
-    {
       "kind": "validator",
       "value": "scripts/check-project-tooling.py"
     },

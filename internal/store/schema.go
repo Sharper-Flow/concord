@@ -6552,7 +6552,71 @@ INSERT INTO store_revision(id,revision) SELECT 1,COALESCE(MAX(seq),0) FROM domai
 		Name:           "worker_current_facts",
 		Breaking:       true,
 		FoldMaintained: "advance",
-		SQL:            workerCurrentFactsMigration,
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+ALTER TABLE worker_job_revisions ADD COLUMN recorded_payload TEXT CHECK(recorded_payload IS NULL OR json_valid(recorded_payload));
+ALTER TABLE worker_attempts ADD COLUMN dispatch_payload TEXT CHECK(dispatch_payload IS NULL OR json_valid(dispatch_payload));
+ALTER TABLE worker_attempts ADD COLUMN dispatch_event_id TEXT;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_actor TEXT;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_payload_version INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_seq INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN terminal_payload TEXT CHECK(terminal_payload IS NULL OR json_valid(terminal_payload));
+ALTER TABLE worker_attempts ADD COLUMN terminal_event_id TEXT;
+ALTER TABLE worker_attempts ADD COLUMN terminal_payload_version INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN terminal_kind TEXT;
+ALTER TABLE worker_attempts ADD COLUMN failure_recorded INTEGER NOT NULL DEFAULT 0 CHECK(failure_recorded>=0);
+ALTER TABLE workflow_instances ADD COLUMN result_disposition TEXT NOT NULL DEFAULT '';
+CREATE TABLE worker_authorizations (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ attempt_id TEXT NOT NULL,
+ seq INTEGER NOT NULL,
+ payload TEXT NOT NULL CHECK(json_valid(payload)),
+ PRIMARY KEY(work_id,attempt_id)
+);
+CREATE TABLE workflow_step_epochs (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ step_id TEXT NOT NULL,
+ attempt_epoch INTEGER NOT NULL,
+ PRIMARY KEY(work_id,step_id)
+);
+UPDATE worker_job_revisions AS j SET recorded_payload=(SELECT payload FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=j.work_id AND e.kind='worker.job_recorded'
+ AND json_extract(e.payload,'$.job_id')=j.job_id AND json_extract(e.payload,'$.revision')=j.revision
+ ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET (dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_seq,dispatch_payload_version)=(SELECT payload,event_id,actor,seq,payload_version FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind='worker.dispatched'
+ AND json_extract(e.payload,'$.attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET (terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind)=(SELECT payload,event_id,payload_version,kind FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind IN ('worker.completed','worker.failed')
+ AND json_extract(e.payload,'$.attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET failure_recorded=(SELECT count(*) FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind='workflow.action_completed'
+ AND json_extract(e.payload,'$.action_id')='record_worker_failure' AND json_extract(e.payload,'$.worker_attempt_id')=a.attempt_id);
+INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload)
+ SELECT subject_id,json_extract(payload,'$.worker_attempt_id'),seq,payload FROM domain_events e
+ WHERE subject_type='work_item' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker'
+ AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ AND json_extract(payload,'$.worker_attempt_id') IS NOT NULL
+ AND json_extract(payload,'$.worker_attempt_id')<>''
+ AND seq=(SELECT max(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind
+ AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id'));
+INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch)
+ SELECT subject_id,json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch') FROM domain_events e
+ WHERE subject_type='work_item' AND kind='workflow.action_started'
+ AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ AND seq=(SELECT max(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind
+ AND json_extract(d.payload,'$.step_id')=json_extract(e.payload,'$.step_id'));
+UPDATE workflow_instances AS w SET result_disposition=COALESCE((SELECT json_extract(payload,'$.action_id') FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=w.work_id AND e.kind='workflow.action_completed'
+ AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY seq DESC LIMIT 1),'');
+CREATE TRIGGER worker_authorizations_guard_insert BEFORE INSERT ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_authorizations_guard_update BEFORE UPDATE ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_authorizations_guard_delete BEFORE DELETE ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_insert BEFORE INSERT ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_update BEFORE UPDATE ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_delete BEFORE DELETE ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
 	},
 }
 

@@ -571,6 +571,13 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if frontier != latest {
 		t.Fatalf("effect frontier = %d, want the nested impact notice's sequence %d", frontier, latest)
 	}
+	var receiptSeq int64
+	if err := source.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=? AND subject_id='revision-source'`, result.EventIDs[1], WorkflowImpactNoticeRecorded).Scan(&receiptSeq); err != nil {
+		t.Fatal(err)
+	}
+	if receiptSeq != latest {
+		t.Fatalf("notice receipt sequence = %d, want %d", receiptSeq, latest)
+	}
 }
 
 func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testing.T) {

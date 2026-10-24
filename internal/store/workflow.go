@@ -1524,6 +1524,9 @@ func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, even
 			if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
 				return err
 			}
+			if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
+				return err
+			}
 			version++
 		}
 	}

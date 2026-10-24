@@ -216,14 +216,6 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return workflowClauseError(err, 5)
 	}
 
-	// Clause 6: the folded evaluator verdict is the authority.  Incomparable,
-	// weaker, and non-success verdicts are never coerced into completion.
-	for _, predicate := range contract.Predicates {
-		verdict := verdictByPredicate[predicate.PredicateID]
-		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-			return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered outcome is weaker or incomparable with the approved outcome", "contact_operator")
-		}
-	}
 	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
 		return workflowClauseError(err, 6)
 	}

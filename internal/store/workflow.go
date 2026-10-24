@@ -3455,7 +3455,11 @@ func foldWorkflowStalenessObserved(ctx context.Context, tx *sql.Tx, event Event)
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
 	}
-	return validateWorkflowStalenessObservedPayload(event, payload)
+	if err := validateWorkflowStalenessObservedPayload(event, payload); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_staleness_observations(event_id,work_id,rule_id,severity,drifted,accepted_inputs_digest,observed_at) VALUES(?,?,?,?,?,?,?)`, event.EventID, event.SubjectID, payload.RuleID, payload.Severity, payload.Drifted, payload.AcceptedInputsDigest, payload.ObservedAt)
+	return err
 }
 
 func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

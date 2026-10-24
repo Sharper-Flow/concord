@@ -175,6 +175,21 @@ func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, atte
 		workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
 		t.Fatalf("seed pre-cutover attempt row: %v", err)
 	}
+	// Migration 145 backfills this identity for an older binary's dispatch.
+	var decoded any
+	decoder := json.NewDecoder(strings.NewReader(mustJSON(t, payload)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canonical)
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,? FROM domain_events WHERE event_id=?`, "sha256:"+hex.EncodeToString(sum[:]), eventID); err != nil {
+		t.Fatalf("seed migrated dispatch identity: %v", err)
+	}
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}

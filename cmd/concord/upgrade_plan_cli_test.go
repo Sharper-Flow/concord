@@ -287,6 +287,10 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 }
 
 var migrationTailReversals = map[int][]string{
+	145: {
+		`DROP TABLE workflow_staleness_observations`,
+		`DROP TABLE effect_receipts`,
+	},
 	// Rebuild-only steps replace their own tables when reapplied.
 	111: nil,
 	119: nil,

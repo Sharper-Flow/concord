@@ -27,7 +27,7 @@ func TestLaneTakeoverReadsCurrentAttemptState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			startEvent, err := readWorkerAuthorizationStartTx(t.Context(), s.db, work, attempt)
+			startEvent, err := readWorkflowActionStartTx(t.Context(), s.db, work, "repair", true)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -287,15 +287,14 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if err != nil {
 		return err
 	}
-	claimOpID := p.ClaimOpID
-	if currentClaim != claimOpID {
+	if currentClaim != p.ClaimOpID {
 		return newFailure(KindProjectionConflict, "fold_event", "reclaim event targets a stale worktree claim generation", false, "reclaim the active claim generation")
 	}
 	if state == worktreeEntryReclaimed {
 		return nil
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed', reclaimed_at=?, git_facts=? WHERE set_id=? AND project_id=? AND claim_op_id=? AND state='active'`,
-		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID, claimOpID)
+		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID, p.ClaimOpID)
 	if err != nil {
 		return err
 	}
@@ -306,11 +305,11 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	// claim generation: every retained ref and every deletion the recorded
 	// plan owes holds one row, so the retention and the debt survive
 	// directory removal and later claims (CD-0212 D3-D4).
-	if err := recordReclaimedRefOutcomesTx(ctx, tx, p, claimOpID, entryPath, event.OccurredAt); err != nil {
+	if err := recordReclaimedRefOutcomesTx(ctx, tx, p, p.ClaimOpID, entryPath, event.OccurredAt); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
-		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
+		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), p.ClaimOpID, worktreeStateVerified); err != nil {
 		return err
 	}
 	if !advanceVersion {
@@ -1656,9 +1655,7 @@ func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *Worktr
 // worktreeRefSettlementEventBase derives the one per-ref settlement event
 // identity prefix from the raw work identity the event records: the claim
 // generation and the branch every settlement event for this ref shares,
-// whatever phase it holds. The same owner derives the invocation sequence
-// and the event identity, so a count can never range over keys the append
-// never wrote.
+// whatever phase it holds.
 func worktreeRefSettlementEventBase(workID, projectID, claimOpID, branch string) string {
 	return fmt.Sprintf("%s:%s:%s:worktree-removal-settled:%s:", workID, projectID, claimOpID, branch)
 }

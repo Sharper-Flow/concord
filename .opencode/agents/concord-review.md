@@ -168,8 +168,7 @@ A caller-capable packet expands no capability: this lane reports no
 evidence a completed report carries, and distinguish missing evidence from a
 proven defect.
 
-A packet without these members is historical or carries no caller scope: report
-without the absent fields and never invent them.
+Without caller scope, omit the caller-repair fields and never invent them.
 
 ## Objective and binding
 
@@ -244,14 +243,13 @@ shell tool ends a command at its `timeout` parameter, about 120 seconds by
 default. Give a command that can take minutes an explicit `timeout` in
 milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
 
-When `inputs.report_protocol` is present, return exactly one Markdown fence
-whose info string is `concord-worker-result-v1`.
+Return exactly one Markdown fence whose info string is
+`concord-worker-result-v1`.
 Open it with exactly three backticks and that info string on one line. Put one
 strict JSON report object inside it and close it with three backticks on their
 own line. Return the entire frame as one final text part. Do not repeat the frame,
 quote a frame example, use duplicate JSON keys, or put report content after it.
-For a historical packet without `inputs.report_protocol`, return one plain JSON
-report object as your final text part. Never return multiple report candidates.
+Never return multiple report candidates.
 The adapter supplies report identity from the dispatch packet and host readback.
 Set `status` to one of `completed`, `failed`.
 

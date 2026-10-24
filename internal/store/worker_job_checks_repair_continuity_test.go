@@ -367,7 +367,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 			EvidenceRefs: []string{run3.OperationRef},
 		})
 	checksRepairRejection(t, s, attempt3, open[:2], acceptor, false)
-	// The settling acceptance discharges the failed confirming review's
+	// The confirming acceptance discharges the failed confirming review's
 	// repairing revision, leaving only the original revision unresolved.
 	acceptChecksRepairAttempt(t, s, workID, attempt3, acceptor)
 	watermark, watermarkErr := workerChecksRepairWatermarkTx(ctx, s.DatabaseForTesting(), workID)

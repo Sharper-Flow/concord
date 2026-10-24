@@ -269,7 +269,7 @@ func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixtu
 	f.materializeDispatch(t, attemptR2, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptR2, f.researchLane, 31)
 	f.dispatch(t, attemptV2, f.reviewLane, f.dispatcher)
-	f.completeReviewNoShip(t, attemptV2, 32)
+	f.completeCorrectiveReview(t, attemptV2, 32)
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR2, crossAttemptDispatchEpoch(t, f.s, workID, attemptR2), "r2", 33); err != nil {
 		t.Fatalf("reject the corrected research result: %v", err)
 	}
@@ -462,7 +462,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 		t.Fatalf("post-materialization review dispatch: %v", reviewErr)
 	}
 	f.materializeDispatch(t, refusedReview, f.reviewLane, f.dispatcher)
-	f.completeReviewNoShip(t, refusedReview, 34)
+	f.completeCorrectiveReview(t, refusedReview, 34)
 	settled = append(settled, refusedReview)
 
 	final := walledResearchCapture(t, f, settled, []string{attemptW}, rejected)

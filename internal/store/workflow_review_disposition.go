@@ -52,10 +52,6 @@ ORDER BY completed.seq DESC LIMIT 1`, WorkerDispatched, WorkerCompleted, workID,
 	if err != nil {
 		return "", wrapFailure(KindUnavailable, subject, "cannot inspect refinement review evidence", true, "retry once the worker projection is readable", err)
 	}
-	stale, err := workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attemptID, subject, beforeSeq)
-	if err != nil || stale {
-		return "", err
-	}
 	return attemptID, nil
 }
 

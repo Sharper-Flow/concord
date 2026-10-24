@@ -1,53 +1,10 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
-
-// reviewLaneVerdictCompleteEvent builds one worker.completed fixture event
-// whose typed review block carries the named verdict, the shape a review lane
-// bound to the CD-0197 report contract completes with.
-func reviewLaneVerdictCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, verdict string, occurredAt time.Time, directory string) Event {
-	payload := WorkerCompletedPayload{
-		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-		EvidenceOrigin:  WorkerEvidenceLegacyUnavailable,
-		WorkerDirectory: directory,
-		Review: &WorkerReviewBlock{Disposition: verdict, Findings: []WorkerReviewFinding{{
-			Severity: "P1", Confidence: "high",
-			Detail: "the delivered result does not satisfy the contract's outcome predicates",
-		}}},
-	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: 3, Payload: mustJSONValue(payload)}
-}
-
-// reviewGateRunAttemptWithVerdict records the attempt's dispatch_worker
-// authorization, worker.dispatched evidence, and a completed report whose
-// typed review block carries the named verdict; it returns the attempt's
-// recorded authorization epoch, which later accepts and rejects must name.
-func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, ownerRef, verdict string, at int64) int64 {
-	t.Helper()
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "refine", ownerRef)
-	// The authorization just opened the step's newest action start, so the
-	// latest start epoch is this attempt's recorded authorization epoch.
-	epoch := latestStepStartEpoch(t, s, workID, "refine")
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "review-verdict-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		reviewLaneVerdictCompleteEvent(workID, "review-verdict-completed-"+attemptID, attemptID, lane, verdict, time.Unix(at+1, 0).UTC(), workerFixtureDirectory(t, s, workID)),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	return epoch
-}
 
 func TestBlockingReviewDispositionAcceptsWithoutAdvancing(t *testing.T) {
 	for _, disposition := range []string{"correction_required", "revision_required"} {

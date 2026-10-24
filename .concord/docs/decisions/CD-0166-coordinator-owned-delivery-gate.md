@@ -119,11 +119,11 @@ changes (CD-0242 D2, D14).
   item reads as unreconciled.
 - `TestWorkflowCompletionRefusedAtDeliveryGate` proves the completed
   transition refuses at the gate and names the unreconciled delivery.
-- `TestPostRejectionReviewGateHoldsBreakFixDelivery` proves the rejected
+- `TestDeliveryRequiresReviewOfCurrentCandidate` proves the rejected
   review holds every advance toward delivery and a fresh accepted review
   clears it.
-- `TestPostRejectionReviewGateRefusesPreRejectionReviewAccept` and
-  `TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair` prove that
+- `TestReviewOfReplacedCandidateCannotAuthorizeDelivery` and
+  `TestReviewApplicabilityFollowsCandidateNotDispatchOrder` prove that
   a Review of an earlier candidate cannot authorize delivery of a changed
   candidate, and that a later launch or Review's corrective output leaves an
   applicable Review standing; dispatch order alone does not decide

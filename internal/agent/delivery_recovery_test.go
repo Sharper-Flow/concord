@@ -229,8 +229,8 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
 
-	// A rejected review, then an accepted implement repair: the refinement
-	// history carries the post-rejection review debt.
+	// A rejected review, then an accepted implement repair that changes the
+	// candidate the earlier Review covered.
 	dispatch("refine", "attempt:work-1:gate-review", "review")
 	refineEpoch := attemptEpoch(t, s, "attempt:work-1:gate-review")
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/gate-reviewer", SessionRef: "session/work-1-gate-reviewer", ActorClass: store.ActorAgent}

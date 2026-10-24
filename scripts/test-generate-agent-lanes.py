@@ -542,16 +542,18 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Workers gain no general Concord tools", normalized)
         self.assertNotIn("Managed workers gain no Concord tools", normalized)
 
-    def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
+    def test_projection_frames_the_report_with_the_packet_protocol(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         marker = PACKET_SCHEMA["properties"]["inputs"]["properties"]["report_protocol"]["const"]
         normalized = " ".join(projection.split())
         self.assertIn(
-            f"When `inputs.report_protocol` is present, return exactly one Markdown fence whose info string is `{marker}`.",
+            f"Return exactly one Markdown fence whose info string is `{marker}`.",
             normalized,
         )
         self.assertIn("exactly three backticks and that info string on one line", normalized)
         self.assertIn("Return the entire frame as one final text part", normalized)
+        self.assertIn("Never return multiple report candidates", normalized)
+        self.assertNotIn("historical packet", normalized)
 
     def test_projection_takes_the_frame_marker_from_the_packet_schema(self):
         # The reserved fence info string belongs to the packet schema, not
@@ -562,17 +564,6 @@ class AgentProjectionTests(unittest.TestCase):
         normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed).split())
         self.assertIn("info string is `concord-worker-result-test9`", normalized)
         self.assertNotIn("concord-worker-result-v1", normalized)
-
-    def test_projection_names_the_legacy_plain_object_branch(self):
-        # A historical packet carries no `inputs.report_protocol`; the lane
-        # must be told that branch by name instead of guessing a format.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn(
-            "For a historical packet without `inputs.report_protocol`, return one plain JSON report object as your final text part.",
-            normalized,
-        )
-        self.assertIn("Never return multiple report candidates", normalized)
 
     def test_projection_requests_worker_content_without_host_or_packet_identity(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
@@ -1034,8 +1025,7 @@ class JobSizeProjectionTests(unittest.TestCase):
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
                 self.assertIn("## Caller boundary", text)
-                self.assertIn("A packet without these members is historical or carries no caller scope", text)
-                self.assertIn("report without the absent fields and never invent them", text)
+                self.assertIn("Without caller scope, omit the caller-repair fields and never invent them", text)
                 self.assertNotIn("production_size", text)
                 self.assertNotIn("measurement_basis", text)
 

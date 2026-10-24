@@ -39,6 +39,15 @@ func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, attemptID string, 
 // dispatch and the same observed commit in its stub terminal runner.
 func oAcceptOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, disposition string) {
 	t.Helper()
+	attempt := oCompleteOracleFixtureReview(t, f, workID, disposition)
+	j := &candidateJourney{fixture: workContextFixture{store: f.store, workID: workID, owner: f.owner}, s: f.store, workID: workID, repo: f.entry.Path}
+	if err := j.acceptEvidence(t, attempt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func oCompleteOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, disposition string) string {
+	t.Helper()
 	s := f.store
 	w := workContextFixture{store: s, workID: workID, owner: f.owner}
 	job := reviewSubjectReadyRevision(t, w)
@@ -95,9 +104,7 @@ func oAcceptOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, dis
 	payload.Review = &WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies, Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
 	event.Payload = mustJSONValue(payload)
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), terminal), s, event)
-	if err := j.acceptEvidence(t, attempt); err != nil {
-		t.Fatal(err)
-	}
+	return attempt
 }
 
 func oProveReadyDelivery(t *testing.T, fixture workflowReturnRouteFixture, workID string) {

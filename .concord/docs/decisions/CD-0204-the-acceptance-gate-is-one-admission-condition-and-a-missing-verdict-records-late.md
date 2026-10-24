@@ -19,7 +19,7 @@
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14);
   every other route refusal keeps its scope
   (CD-0186)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D5, D14
 - **Related:** CD-0116, CD-0197, CD-0203
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
@@ -110,8 +110,8 @@ Scenario: The preflight refuses a confirmation that lacks its verdict
   Then the preflight refuses with missing evidence that names the verdict
   And the work pin does not offer confirm_premise
 
-Scenario: The preflight refuses a delivery behind review debt
-  Given an item at a review step with outstanding post-rejection review debt
+Scenario: The preflight refuses a delivery behind a blocking Review disposition
+  Given an item at a review step whose accepted Review disposition is correction required
   When the agent asks the preflight for record_delivery
   Then the preflight refuses with the fresh-review refusal that execution applies
 

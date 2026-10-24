@@ -19,7 +19,7 @@
   D4 (attribution records the observer and phase its producer observed;
   [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
   governs: no `host_changed` or other convergence basis exists)
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D14
 - **Amended:** 2026-10-19, approved by the operator as exact text for
   [Concord (CON) issue 1221](https://linear.app/sharper-flow/issue/CON-1221).
   D4 adds the checks repair; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
@@ -310,7 +310,7 @@ On a job-capable pin the payload-blind admission of `accept_worker_result` is
 local acceptance, so it does not apply the delivery admission. An accept that
 carries the delivery fields applies the one delivery admission at its guard,
 before any effect, with the same integration evidence, fenced start, refine
-proof, review debt, verdict, and operator gates as `record_delivery`. At a
+proof, Review disposition, and operator gates as `record_delivery`. At a
 refine step, a plain accept of an attempt without a job still refuses. That
 accept would assert neither a job disposition nor a delivery.
 

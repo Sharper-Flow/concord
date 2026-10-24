@@ -1,6 +1,6 @@
 # CD-0206: An accepted no-ship review opens the settling review obligation
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 - **Date:** 2026-10-05
 - **Scope:** The refinement review admission and the historical delivery-gate
   corrective return

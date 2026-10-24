@@ -10,7 +10,7 @@
 - **Related:** CD-0059, CD-0133, CD-0140, CD-0166
 - **Amends:** CD-0140, which preserved the human-checkpoint exclusion
 - **Amended by:** [CD-0193](CD-0193-cd-0187-d2-and-d3-release-the-checkpoint-gate-at-the-recorded-failure.md) at D2's composed action set and D3's hold release: the engine admits the failure record at a confirmation step as a hold-mode recovery, and the hold keys on attempts a worker actually dispatched.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D5, D14
 - **Refines:** CD-0133 D3 and D4 on the confirmation-step surface this record
   opens
 
@@ -79,9 +79,8 @@ review checks remain required. Missing, foreign, unfinished, stale, and already
 dispositioned reports refuse. Implementation and verification reports do not
 gain this route. Delivery fields refuse on this hold-mode acceptance.
 
-Both acceptance actions retain CD-0201 D3's verdict rule. A no_ship review binds
-findings and leaves review debt outstanding. A ship or legacy absent verdict
-settles the debt, but evidence acceptance still does not advance refinement.
+Both acceptance actions follow [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls): a blocking disposition binds its findings
+and holds delivery, and evidence acceptance still does not advance refinement.
 The delivery exits retain their verification and assertion requirements.
 
 CD-0133 D1 permits operator-approved correction after this disposition only
@@ -158,10 +157,10 @@ Scenario: Refinement recovery refuses a different worker class
   When the coordinator accepts worker evidence
   Then the recovery refuses without changing the work
 
-Scenario: Evidence acceptance preserves review debt semantics
-  Given an initial no_ship review at refinement
-  When the coordinator accepts its evidence and later accepts a fresh ship review
-  Then the debt stays outstanding until the ship review while refinement remains current
+Scenario: Evidence acceptance keeps a blocking disposition
+  Given a review report with the disposition correction required at refinement
+  When the coordinator accepts its evidence and later accepts a ready for final proof report
+  Then delivery stays held until the ready report while refinement remains current
 ```
 
 - `go test ./internal/store/ -run TestAcceptanceReviewRoundTrip` proves the

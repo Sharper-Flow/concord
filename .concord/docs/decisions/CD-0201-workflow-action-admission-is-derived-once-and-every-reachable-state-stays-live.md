@@ -20,7 +20,7 @@
   artifact-staleness bit;
   [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
   D3, equal answers require equal history and equal host observations
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
+- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D6, D9, D14
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
@@ -127,17 +127,11 @@ count, limit, or reset exists
 Each family extends the same admission owner; liveness checks count
 only the oracle dimensions their model actually derives.
 
-### D3. The review debt settles only on a settling verdict
+### D3. A blocking Review disposition holds delivery
 
-A fresh accepted review settles the post-rejection review debt only when its
-typed verdict is ship, or absent for the reports that predate CD-0197. A
-no_ship review binds its findings and leaves the debt outstanding.
-
-The consequence: refine does not advance to delivery behind a no_ship
-review, and an item parked on the delivery gate keeps the evidence-bearing
-corrective return. The gate admits request_correction while the debt stands.
-This amends CD-0166's settlement clause in this one point. Every other
-refusal on every other route keeps its scope (CD-0186).
+[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls) governs: an accepted Review disposition other than ready for final proof,
+or an open in-scope blocking finding, holds delivery, and no review debt or
+settling verdict exists.
 
 ### D4. No generated contract changes
 
@@ -170,9 +164,8 @@ integration boundary
 Every admission site that derives one of these conditions answers identically
 for the same current state and host observations (CD-0239 D3). A change that strands
 a reachable state fails the
-liveness checks with a witness before merge. A no_ship review can no longer
-carry an unreviewed result to delivery, and a parked gate keeps its typed
-corrective return.
+liveness checks with a witness before merge. A blocking Review disposition
+holds delivery under D3.
 
 The checks count only exits the derived state proves, so a future strand
 surfaces as a failing check rather than a silent pass. Each later family
@@ -202,16 +195,12 @@ Scenario: The loaded state matches the abstract successor
   When the replay performs each action
   Then the loader derives the state the abstract successor computed
 
-Scenario: A no_ship review keeps the debt outstanding
-  Given a rejected refinement result and a fresh review with a no_ship verdict
-  When the coordinator accepts the no_ship review
-  Then the debt stays outstanding and the pin hides the delivery exits
+Scenario: A blocking Review disposition holds delivery
+  Given a review report with the disposition correction required
+  When Main accepts the disposition
+  Then the disposition binds without advancing and the pin hides the delivery exits
 
 # [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the released-pin historical acceptance scenario and its parked-gate witness; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
-Scenario: A parked gate keeps the corrective return behind a no_ship review
-  Given an item parked on the delivery gate with the debt outstanding
-  When the operator requests correction with evidence
-  Then the gate admits request_correction and the item returns to repair
 ```
 
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
@@ -220,7 +209,7 @@ Scenario: A parked gate keeps the corrective return behind a no_ship review
 - `go test ./internal/store/ -run TestBlockingReviewDispositionAcceptsWithoutAdvancing` proves a blocking disposition binds without advancing and keeps delivery hidden under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
 - [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires the released-pin acceptance witness; `TestWorkItemUsesCurrentDefinitionWithoutInflightPin` checks that active work resolves the current definition without an in-flight pin.
 - [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the released-pin historical acceptance scenario and its parked-gate witness; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
-- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table and the settlement verdict rule.
+- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0201 identifier allocates once.
 - `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.

@@ -415,11 +415,19 @@ routeDeclaration("host-started session receives real core context without out-of
           actor: event.actor, payload_version: event.payload_version,
           payload_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
           delivery_assertion: 0,
+          relation_seq: null,
         })
         before.effect_receipts.push(receipts[0])
         before.effect_receipts.sort()
         before.domain_events.push(added[0])
         before.domain_events.sort()
+        expect(before.store_sequences).toHaveLength(2)
+        before.store_sequences = before.store_sequences.map((row) => {
+          const sequence = JSON.parse(row)
+          if (sequence.name !== "effect") return row
+          expect(sequence.last + 1).toBe(event.seq)
+          return JSON.stringify({ ...sequence, last: event.seq })
+        }).sort()
         before.sqlite_sequence = before.sqlite_sequence.map((row) => {
           const sequence = JSON.parse(row)
           return sequence.name === "domain_events" ? JSON.stringify({ ...sequence, seq: event.seq }) : row

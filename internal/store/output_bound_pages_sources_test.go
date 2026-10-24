@@ -1231,7 +1231,7 @@ func init() {
 		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/outcome/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.Outcome)", boundBytes))
 		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/settlement_ref/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.SettlementRef)", boundBytes))
 	}
-	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/occurred_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"))
+	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/occurred_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_event_page/properties/events/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
 	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/body/maxLength", goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes))
@@ -1275,7 +1275,7 @@ func init() {
 
 	registerOutputBound("/$defs/work_scope/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/work_scope/properties/memberships/maxItems", unboundedOutput("internal/store/query.go:readWorkProjects reads every work_projects row with no LIMIT and the membership folds enforce only unique edges and a single primary, never a per-work count", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/work_scope/properties/verdict/properties/completed_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"))
+	registerOutputBound("/$defs/work_scope/properties/verdict/properties/completed_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_scope/properties/verdict/properties/verdict_actor_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowVerdictRecorded", "workflowString", "p.VerdictActorRef", 1, boundBytes))
 
 	registerOutputBound("/$defs/work_summary/properties/narrative/maxLength", unboundedOutput("the narrative writer is retired (initiative.narrative_revised registers under EventAppendAuthorityRetired, internal/store/operation.go:249) and retained work_items.narrative rows project verbatim (internal/store/query.go:1323, internal/store/worker_packet_binding.go:108) with only CHECK(length(narrative) <= 16384), a NUL-terminated prefix count that bounds no complete string; no full-string guard exists on any current writer", "internal/agent/runtime.go:readSizeRefusal"))
@@ -2702,7 +2702,7 @@ func TestPkDerivations(t *testing.T) {
 		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),
-		"event time":     pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
+		"event time":     pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano"),
 		"claim intents":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 	}
 	for name, source := range realSites {

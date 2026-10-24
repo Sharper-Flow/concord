@@ -47,12 +47,9 @@ func init() {
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
 	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
-	// last_progress is the max domain_events.occurred_at column value, whose
-	// only two writers each render the same recorded layout.
-	eventOccurredAt := maxBound(
-		pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
-		pkTimeLayoutWidthBound("internal/store/workflow.go", "appendWorkflowContractImpactNoticesTx", "time.RFC3339Nano"),
-	)
+	// last_progress is the max domain_events.occurred_at column value,
+	// rendered by the shared effect writer.
+	eventOccurredAt := pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano")
 
 	// Step identity and workflow references are admitted through anchored
 	// regexp.MustCompile variables at definition registration; the pattern

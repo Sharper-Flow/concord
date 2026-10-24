@@ -152,21 +152,20 @@ func knowledge140AssertFK(t *testing.T, db *sql.DB) {
 func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 	t.Parallel()
 	db, preserved := knowledge140Seed(t)
-	beforeSchema := knowledge140Schema(t, db)
-	// Apply exactly migration 140: later migrations may change unrelated
-	// tables, and this test pins only what 140 itself preserves.
-	m140 := migrations[139]
-	if m140.Version != 140 {
-		t.Fatalf("migrations[139] is version %d, want 140", m140.Version)
-	}
-	if err := applyMigration(context.Background(), db, m140); err != nil {
+	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	knowledge140Exec(t, db, `INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,?,?,?,1)`, m140.Version, m140.Name, m140.checksum(), "2026-08-27T00:00:00Z")
 	if got := knowledge140Snapshot(t, db, knowledge140Tables); !reflect.DeepEqual(got, preserved) {
 		t.Fatalf("current projection changed:\ngot %v\nwant %v", got, preserved)
 	}
-	afterSchema := knowledge140Schema(t, db)
+	// Compare this step's schema changes in isolation; later migrations may
+	// independently extend otherwise unrelated tables.
+	schemaDB, _ := knowledge140Seed(t)
+	beforeSchema := knowledge140Schema(t, schemaDB)
+	if err := applyMigration(context.Background(), schemaDB, migrations[139]); err != nil {
+		t.Fatal(err)
+	}
+	afterSchema := knowledge140Schema(t, schemaDB)
 	for _, entry := range beforeSchema {
 		// Only these three table CHECK declarations change. All indexes,
 		// triggers and unrelated work/contract schema must remain identical.

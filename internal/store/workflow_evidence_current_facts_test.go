@@ -120,6 +120,7 @@ func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`
+CREATE TEMP TABLE relation_positions_fixture AS SELECT event_id,relation_seq FROM effect_receipts WHERE relation_seq IS NOT NULL;
 DROP TABLE workflow_phase_exits;
 DROP TABLE workflow_artifact_actions;
 DROP TABLE workflow_action_obligations;
@@ -155,6 +156,14 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 		}
 	}
 	if err := backfillEffectReceiptDigests(t.Context(), tx); err != nil {
+		t.Fatal(err)
+	}
+	// Migration 146 positions relations on the receipt; carry the positions
+	// across the receipt rebuild instead of renumbering them.
+	if _, err := tx.Exec(`
+ALTER TABLE effect_receipts ADD COLUMN relation_seq INTEGER;
+UPDATE effect_receipts AS r SET relation_seq=(SELECT p.relation_seq FROM temp.relation_positions_fixture p WHERE p.event_id=r.event_id);
+DROP TABLE temp.relation_positions_fixture;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

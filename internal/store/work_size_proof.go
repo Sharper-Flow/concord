@@ -44,12 +44,11 @@ func deriveWorkSizeProofsTx(ctx context.Context, q queryer, workID string, befor
 	if err != nil || !sized || decision.Effective != WorkSizeLarger {
 		return nil, err
 	}
-	var boundary int64
 	// The folded records bound the window, so a size record being folded
 	// reads the window its predecessor opened.
-	if err := q.QueryRowContext(ctx, `SELECT coalesce(max(e.seq),0) FROM work_size_assessments s
-		JOIN domain_events e ON e.event_id=s.event_id WHERE s.work_id=?`, workID).Scan(&boundary); err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the latest size record", true, "retry once the event log is readable", err)
+	boundary, err := workSizeAssessmentFrontierTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.event_id, e.kind,
 		coalesce(json_extract(e.payload,'$.action_id'),''), coalesce(json_extract(e.payload,'$.worker_attempt_id'),''),
@@ -102,6 +101,14 @@ func deriveWorkSizeProofsTx(ctx context.Context, q queryer, workID string, befor
 	return proofs, nil
 }
 
+func workSizeAssessmentFrontierTx(ctx context.Context, q queryer, workID string) (int64, error) {
+	var boundary int64
+	if err := q.QueryRowContext(ctx, `SELECT coalesce(max(effect_seq),0) FROM work_size_assessments WHERE work_id=?`, workID).Scan(&boundary); err != nil {
+		return 0, wrapFailure(KindUnavailable, "work_size", "cannot read the latest size record", true, "retry once the database is readable", err)
+	}
+	return boundary, nil
+}
+
 // workSizeReviewFindsInScopeTx reads the accepted review attempt's report
 // recorded before its acceptance and reports whether it still carries a
 // qualifying finding.
@@ -152,8 +159,8 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 // workSizeRecordedBasisTx lists every proof an earlier size record on this
 // item names. A proof stays recorded after the fix: the change has proved bigger.
 func workSizeRecordedBasisTx(ctx context.Context, q queryer, workID string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT basis.value FROM work_size_assessments s
-		JOIN domain_events e ON e.event_id=s.event_id, json_each(coalesce(json_extract(e.payload,'$.review_basis'),'[]')) basis WHERE s.work_id=?`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT basis.value FROM work_size_assessments s,
+		json_each(s.review_basis) basis WHERE s.work_id=?`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the recorded review basis", true, "retry once the event log is readable", err)
 	}

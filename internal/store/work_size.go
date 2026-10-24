@@ -111,9 +111,9 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode the footprint snapshot", false, "repair the event payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at)
-		VALUES(?,?,(SELECT coalesce(max(sequence),0)+1 FROM work_size_assessments WHERE work_id=?),?,?,?,?,?)`,
-		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at,effect_seq,review_basis)
+		VALUES(?,?,(SELECT coalesce(max(sequence),0)+1 FROM work_size_assessments WHERE work_id=?),?,?,?,?,?,?,?)`,
+		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Seq, workflowJSON(sliceOrEmpty(p.ReviewBasis))); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size record", true, "retry once the database is writable", err)
 	}
 	return nil

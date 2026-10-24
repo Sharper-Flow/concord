@@ -241,15 +241,15 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		noticePayload["expected_version"] = nextVersion - 1
 		noticePayload["resulting_version"] = nextVersion
 		notice.Payload, _ = json.Marshal(noticePayload)
-		noticeSeq, err := appendEvent(ctx, tx, notice, true)
+		seq, err := appendEvent(ctx, tx, notice, true)
 		if err != nil {
 			return workflowClauseFailure(KindOperationConflict, 7, "impact notice append conflicted", "reconcile_operation")
 		}
-		notice.Seq = 0
+		notice.Seq = seq
+		scope.eventIDs = append(scope.eventIDs, notice.EventID)
 		if err := foldRegisteredEvent(ctx, tx, notice, scope); err != nil {
 			return workflowClauseError(err, 7)
 		}
-		notice.Seq = noticeSeq
 		if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
 			return workflowClauseError(err, 7)
 		}
@@ -266,15 +266,15 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		completionPayload["warnings"] = warnings
 	}
 	completion.Payload, _ = json.Marshal(completionPayload)
-	completionSeq, err := appendEvent(ctx, tx, completion, true)
+	seq, err := appendEvent(ctx, tx, completion, true)
 	if err != nil {
 		return workflowClauseFailure(KindOperationConflict, 7, "completion append conflicted", "reconcile_operation")
 	}
-	completion.Seq = 0
+	completion.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, completion.EventID)
 	if err := foldRegisteredEvent(ctx, tx, completion, scope); err != nil {
 		return workflowClauseError(err, 7)
 	}
-	completion.Seq = completionSeq
 	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
@@ -310,10 +310,11 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *f
 	if err != nil {
 		return err
 	}
+	transition.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, transition.EventID)
 	if err := foldRegisteredEvent(ctx, tx, transition, scope); err != nil {
 		return err
 	}
-	transition.Seq = seq
 	return advanceWorkEffectSeqTx(ctx, tx, transition)
 }
 

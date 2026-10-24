@@ -290,7 +290,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 		}
 		var mandated []string
 		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		var err error
 		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
@@ -518,7 +518,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 	}
 	var mandated []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	var mandateErr error
 	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, contractVersion, mandated)

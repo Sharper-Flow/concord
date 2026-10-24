@@ -340,7 +340,7 @@ func workflowPremiseConfirmationAuthority(ctx context.Context, tx *sql.Tx, defin
 		return nil
 	}
 	if !contract.DecisionDomainsPresent {
-		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "complete_workflow", "consequence_v1 completion requires the contract's stored decision-domain fact", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: contract.DecisionDomains})
 	if err != nil {
@@ -449,17 +449,17 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 	var predicateErr error
 	result.Predicates, predicateErr = readWorkflowContractPredicates(ctx, tx, workID, result.Version)
 	if predicateErr != nil || len(result.Predicates) == 0 {
-		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "rebuild projections from the event log")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract predicates are missing", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(decisionDomains)
 	if domainsErr != nil {
-		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "rebuild projections from the event log")
+		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
 	if lawChange.Valid {
 		result.LawChange = &WorkflowLawChange{}
 		if err := json.Unmarshal([]byte(lawChange.String), result.LawChange); err != nil {
-			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "rebuild projections from the event log")
+			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 	}
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
@@ -894,7 +894,7 @@ func workflowStalenessObservationState(ctx context.Context, q queryer, workID st
 		}
 		var observation workflowStalenessObservedPayload
 		if err := json.Unmarshal([]byte(raw), &observation); err != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, "workflow_staleness", "staleness observation event is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if _, exists := observations[observation.RuleID]; !exists {
 			observations[observation.RuleID] = observation
@@ -1031,7 +1031,7 @@ func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contr
 // must stop before the binding whose completion they validate.
 func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string, contractVersion, beforeSeq int64) ([]workflowVerdictRecordedPayload, error) {
 	if contractVersion <= 0 {
-		return nil, newFailure(KindInvariantViolation, "complete_workflow", "active workflow contract version is invalid", false, "rebuild the workflow contract projection")
+		return nil, newFailure(KindInvariantViolation, "complete_workflow", "active workflow contract version is invalid", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contracts, err := workflowContractPredicateHistory(ctx, q, workID, contractVersion)
 	if err != nil {

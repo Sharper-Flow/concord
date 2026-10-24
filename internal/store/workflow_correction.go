@@ -98,7 +98,7 @@ func workflowCompleteStepCorrectionEvidenceCutoff(ctx context.Context, q queryer
 		return 0, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the complete-step correction cutoff", true, "retry once the workflow projection is readable", err)
 	}
 	if seq == 0 {
-		return 0, newFailure(KindInvariantViolation, "workflow_correction", "complete-step correction contract has no supersession event", false, "rebuild the workflow contract projection")
+		return 0, newFailure(KindInvariantViolation, "workflow_correction", "complete-step correction contract has no supersession event", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return seq, nil
 }
@@ -260,7 +260,7 @@ func workflowLatestComparableHealthySequence(ctx context.Context, q queryer, wor
 		}
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(raw, &verdict); err != nil {
-			return 0, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "rebuild workflow projections from the event log")
+			return 0, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if !predicates[verdict.PredicateID] || verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion {
 			continue
@@ -441,7 +441,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 			ContractVersion int64 `json:"new_contract_version"`
 		}
 		if err := json.Unmarshal([]byte(row.payload), &successor); err != nil {
-			return newFailure(KindInvariantViolation, subject, "contract supersession payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, subject, "contract supersession payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		for _, repair := range h.checksRepairs {
 			if !repair.confirmed && repair.contractVersion != successor.ContractVersion {
@@ -451,7 +451,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 	case string(WorkerCompleted):
 		var report WorkerCompletedPayload
 		if err := json.Unmarshal([]byte(row.payload), &report); err != nil {
-			return newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if report.Review != nil {
 			h.reviewVerdict[row.dispatchAttempt] = report.Review.Disposition
@@ -514,7 +514,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 	case "record_worker_failure", "reject_worker_result", "request_correction":
 		var fields workflowCorrectionCompletionFields
 		if err := json.Unmarshal([]byte(row.payload), &fields); err != nil {
-			return newFailure(KindInvariantViolation, subject, "correction completion payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, subject, "correction completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if row.actionID == "reject_worker_result" {
 			h.voidConfirmingRepair(row.actionAttempt)
@@ -853,7 +853,7 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 		}
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(raw, &verdict); err != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "rebuild workflow projections from the event log")
+			return nil, newFailure(KindInvariantViolation, "workflow_correction", "workflow verdict payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if verdict.ContractVersion <= 0 || verdict.ContractVersion > contractVersion || seen[verdict.PredicateID] {
 			continue
@@ -1018,7 +1018,7 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 		ResultEvidence       []string `json:"result_evidence_refs"`
 	}
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, newFailure(KindInvariantViolation, subject, "review disposition payload is malformed", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, subject, "review disposition payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	predicates := correctionReferenceStrings(fields.CorrectionPredicates)
 	if len(predicates) == 0 {
@@ -1423,7 +1423,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		}, nil
 	}
 	if fields.AttemptID == "" && fields.ActionID != "request_correction" {
-		return nil, newFailure(KindInvariantViolation, "workflow_correction", "correction completion has no worker attempt", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_correction", "correction completion has no worker attempt", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if stepID != "" && fields.ActionID != "request_correction" {
 		var actionStep string
@@ -1588,7 +1588,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		case string(WorkflowActionStarted):
 			var p workflowActionStartedPayload
 			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "workflow action start payload is malformed", false, "rebuild workflow projections from the event log")
+				return nil, newFailure(KindInvariantViolation, subject, "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			if p.ActionID != "dispatch_worker" || checkpoint {
 				closeInterval(event.seq)
@@ -1596,7 +1596,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		case string(WorkflowActionCompleted):
 			var p workflowActionCompletedPayload
 			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "workflow action completion payload is malformed", false, "rebuild workflow projections from the event log")
+				return nil, newFailure(KindInvariantViolation, subject, "workflow action completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			if workflowCompletedActionAdvances(definition, p) || p.ActionID == "request_correction" {
 				closeInterval(event.seq)
@@ -1606,7 +1606,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		case string(WorkerDispatched):
 			var p WorkerDispatchedPayload
 			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker dispatched payload is malformed", false, "rebuild workflow projections from the event log")
+				return nil, newFailure(KindInvariantViolation, subject, "worker dispatched payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			candidate := &workflowRejectableResult{AttemptID: p.AttemptID, ExecutorRef: p.LaneActorRef, DispatchSeq: event.seq}
 			var window WorkerDispatchWindow
@@ -1637,7 +1637,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		case string(WorkerCompleted):
 			var p WorkerCompletedPayload
 			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "rebuild workflow projections from the event log")
+				return nil, newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			if candidate := live[p.AttemptID]; candidate != nil && p.ReadbackModel != "" {
 				candidate.completed = true
@@ -1645,7 +1645,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		case string(WorkerFailed):
 			var p WorkerFailedPayload
 			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker failure payload is malformed", false, "rebuild workflow projections from the event log")
+				return nil, newFailure(KindInvariantViolation, subject, "worker failure payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			delete(live, p.AttemptID)
 		}

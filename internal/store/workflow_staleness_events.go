@@ -96,7 +96,7 @@ func workflowStalenessObservationRecordedTx(ctx context.Context, tx *sql.Tx, eve
 	}
 	var recorded, requested workflowStalenessObservedPayload
 	if err := json.Unmarshal([]byte(payload), &recorded); err != nil {
-		return false, newFailure(KindInvariantViolation, "workflow_staleness", "recorded staleness observation event is malformed", false, "rebuild projections from the event log")
+		return false, newFailure(KindInvariantViolation, "workflow_staleness", "recorded staleness observation event is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if err := json.Unmarshal(event.Payload, &requested); err != nil {
 		return false, newFailure(KindInvalidPayload, "workflow_staleness", "staleness observation event is malformed", false, "supply the typed staleness observation")

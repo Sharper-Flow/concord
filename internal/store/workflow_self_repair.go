@@ -160,7 +160,7 @@ func readWorkflowSelfRepair(ctx context.Context, q queryer, workID string, contr
 	}
 	repair, err := parseWorkflowSelfRepair(json.RawMessage(raw))
 	if err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "rebuild the workflow projection from its event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return repair, nil
 }
@@ -184,7 +184,7 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	}
 	repair, err := parseWorkflowSelfRepair(json.RawMessage(raw))
 	if err != nil {
-		return false, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "rebuild the workflow projection from its event log")
+		return false, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if repair == nil {
 		return false, nil

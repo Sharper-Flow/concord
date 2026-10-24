@@ -284,19 +284,19 @@ func validateDomainAttachmentInvariantsTx(ctx context.Context, tx *sql.Tx) error
 	}
 	var resourceID string
 	if err := tx.QueryRowContext(ctx, `SELECT resource_id FROM managed_resources WHERE (SELECT count(*) FROM resource_products WHERE resource_id=managed_resources.resource_id AND role='owner') <> 1 LIMIT 1`).Scan(&resourceID); err == nil {
-		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "managed resource does not have exactly one owner: "+resourceID, false, "rebuild from a valid managed_resource.created event")
+		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "managed resource does not have exactly one owner: "+resourceID, false, "restore a verified backup into a new path with concord restore, then swap")
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "domain_attachment_invariants", "cannot validate managed resource ownership", true, "retry once the database is readable", err)
 	}
 	var edgeResource string
 	if err := tx.QueryRowContext(ctx, `SELECT resource_id FROM domain_resource_attachment_edges WHERE NOT EXISTS (SELECT 1 FROM managed_resources r WHERE r.resource_id=domain_resource_attachment_edges.resource_id) LIMIT 1`).Scan(&edgeResource); err == nil {
-		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "Domain resource attachment has no resource endpoint: "+edgeResource, false, "rebuild from a valid attachment event log")
+		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "Domain resource attachment has no resource endpoint: "+edgeResource, false, "restore a verified backup into a new path with concord restore, then swap")
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "domain_attachment_invariants", "cannot validate Domain resource endpoints", true, "retry once the database is readable", err)
 	}
 	var domainID string
 	if err := tx.QueryRowContext(ctx, `SELECT domain_id FROM domain_project_attachment_edges WHERE NOT EXISTS (SELECT 1 FROM domain_project_attachment_sets s WHERE s.product_id=domain_project_attachment_edges.product_id AND s.domain_id=domain_project_attachment_edges.domain_id) LIMIT 1`).Scan(&domainID); err == nil {
-		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "Domain Project attachment has no attachment set: "+domainID, false, "rebuild from a valid attachment event log")
+		return newFailure(KindInvariantViolation, "domain_attachment_invariants", "Domain Project attachment has no attachment set: "+domainID, false, "restore a verified backup into a new path with concord restore, then swap")
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "domain_attachment_invariants", "cannot validate Domain Project attachment sets", true, "retry once the database is readable", err)
 	}

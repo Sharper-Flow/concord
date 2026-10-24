@@ -1235,7 +1235,7 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		return nil, workflowProjectionError(err, "cannot inspect active workflow contracts")
 	}
 	if activeCount != len(predecessors) {
-		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
+		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "supply the exact duplicate recovery set or restore a verified backup into a new path with concord restore, then swap")
 	}
 	if activeCount > 1 {
 		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
@@ -1450,7 +1450,7 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 		return err
 	}
 	if !available {
-		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "rebuild the workflow projection from the event log")
+		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
 }
@@ -2139,7 +2139,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	}
 	var pending []string
 	if json.Unmarshal([]byte(pendingDecisions), &pending) != nil {
-		return newFailure(KindInvariantViolation, "fold_event", "checkpoint pending decisions are malformed", false, "rebuild context projections from the event log")
+		return newFailure(KindInvariantViolation, "fold_event", "checkpoint pending decisions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if len(pending) != 0 {
 		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden while operator decisions remain pending", false, "resolve pending decisions before crossing a summary boundary")
@@ -3133,7 +3133,7 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 	}
 	var payload workflowActionStartedPayload
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "rebuild workflow projections from the event log")
+		return 0, 0, false, newFailure(KindInvariantViolation, "fold_event", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return seq, payload.AttemptEpoch, true, nil
 }
@@ -3726,7 +3726,7 @@ func workflowPremiseConfirmedAuthorityTx(ctx context.Context, tx *sql.Tx, defini
 	}
 	var domains []string
 	if json.Unmarshal([]byte(stored.String), &domains) != nil {
-		return newFailure(KindInvariantViolation, "fold_event", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "fold_event", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	decision, err := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
 	if err != nil {

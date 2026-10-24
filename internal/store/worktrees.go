@@ -3459,7 +3459,7 @@ func transferSessionClaimOccupancyTx(ctx context.Context, tx *sql.Tx, event Even
 	var claimOpID string
 	if err := tx.QueryRowContext(ctx, `SELECT claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=? AND path=? AND state='active'`, WorktreeSetID(event.SubjectID), projectID, filepath.Clean(landedDirectory)).Scan(&claimOpID); err != nil {
 		if err == sql.ErrNoRows {
-			return newFailure(KindProjectionNotFound, "fold_event", "landed path has no active worktree row to attach occupancy to", false, "rebuild the worktree row before re-folding")
+			return newFailure(KindProjectionNotFound, "fold_event", "landed path has no active worktree row to attach occupancy to", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return err
 	}
@@ -3469,7 +3469,7 @@ func transferSessionClaimOccupancyTx(ctx context.Context, tx *sql.Tx, event Even
 	// the landing it retires. Payloads recorded before the field existed
 	// carry no claim op and keep the path resolution alone.
 	if payloadClaimOpID != "" && payloadClaimOpID != claimOpID {
-		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload names a claim generation the landed path no longer carries", false, "rebuild projections from the event log")
+		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload names a claim generation the landed path no longer carries", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	// Insert (or replace) the destination occupancy row with the recorded
 	// host identity. A prior legacy row from worktree_created for the same

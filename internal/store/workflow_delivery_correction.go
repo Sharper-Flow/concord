@@ -245,7 +245,7 @@ func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, e
 		DeliveryState    string `json:"delivery_state"`
 	}
 	if err := json.Unmarshal(payload, &fields); err != nil {
-		return 0, 0, "", newFailure(KindInvariantViolation, "fold_event", "delivery correction target payload is malformed", false, "rebuild workflow projections from the event log")
+		return 0, 0, "", newFailure(KindInvariantViolation, "fold_event", "delivery correction target payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if fields.DeliveryArtifact == "" || fields.DeliveryState != "asserted" {
 		return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not a recorded delivery assertion", false, "target the completed delivery event that carries the asserted artifact")
@@ -319,7 +319,7 @@ func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string
 		DeliveryState    string `json:"delivery_state"`
 	}
 	if err := json.Unmarshal([]byte(payload), &fields); err != nil || fields.DeliveryArtifact == "" {
-		return nil, newFailure(KindInvariantViolation, "workflow_read", "delivery assertion payload is malformed", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_read", "delivery assertion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	assertion := &WorkflowReadDeliveryAssertion{EventID: eventID, Seq: seq, TargetPayloadVersion: payloadVersion, Artifact: fields.DeliveryArtifact, State: fields.DeliveryState, ActorRef: actor, AssertedAt: occurredAt}
 	correction, err := workflowDeliveryCorrectionRead(ctx, q, workID, eventID)
@@ -340,7 +340,7 @@ func workflowDeliveryCorrectionRead(ctx context.Context, q queryer, workID, targ
 		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read the delivery correction", true, "retry once the event log is readable", err)
 	}
 	if artifact == "" || evidenceSource == "" {
-		return nil, newFailure(KindInvariantViolation, "workflow_read", "delivery correction payload is malformed", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_read", "delivery correction payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return &WorkflowReadDeliveryCorrection{EventID: eventID, Reason: reason, Artifact: artifact, EvidenceSource: evidenceSource, ApprovalRef: approvalRef, CorrectedAt: occurredAt}, nil
 }

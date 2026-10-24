@@ -76,7 +76,7 @@ func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*
 		return nil, workflowProjectionError(err, "cannot read workflow design")
 	}
 	if json.Unmarshal([]byte(decisions), &design.Decisions) != nil || json.Unmarshal([]byte(touched), &design.TouchedRefs) != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return &design, nil
 }

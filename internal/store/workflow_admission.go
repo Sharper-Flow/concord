@@ -649,7 +649,7 @@ func foldWorkflowConfirmationTx(ctx context.Context, q queryer, workID string, d
 	var domains []string
 	if stored.Valid {
 		if err := json.Unmarshal([]byte(stored.String), &domains); err != nil {
-			fold.factFailure = newFailure(KindInvalidInput, "workflow_admission", "the stored decision-domain fact is malformed", false, "rebuild projections from the event log")
+			fold.factFailure = newFailure(KindInvalidInput, "workflow_admission", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			return fold, nil
 		}
 	}
@@ -1030,7 +1030,7 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 		return decision
 	}
 	if state.ActiveContracts == 0 {
-		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
+		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "restore a verified backup into a new path with concord restore, then swap")
 		return decision
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(definition, state.Step)

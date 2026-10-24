@@ -134,7 +134,7 @@ func readActiveWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the active workflow contract law bindings", true, "retry once the workflow contract projection is readable", err)
 	}
 	if json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, workID, contractVersion)
 	if err != nil {

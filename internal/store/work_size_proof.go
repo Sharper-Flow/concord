@@ -115,7 +115,7 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 	}
 	var report WorkerCompletedPayload
 	if err := json.Unmarshal([]byte(raw), &report); err != nil {
-		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "rebuild the worker events from the authoritative log")
+		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if report.Review == nil {
 		return false, nil

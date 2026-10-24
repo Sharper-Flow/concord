@@ -665,7 +665,7 @@ func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID stri
 	}
 	decode := func(raw string, target *[]string) error {
 		if json.Unmarshal([]byte(raw), target) != nil {
-			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return nil
 	}
@@ -1013,7 +1013,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 				facts.recorded = true
 				facts.handoffID = handoffID
 				if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {
-					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "rebuild projections from the event log")
+					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "restore a verified backup into a new path with concord restore, then swap")
 				}
 			}
 		}

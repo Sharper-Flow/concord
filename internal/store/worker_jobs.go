@@ -856,7 +856,7 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 		}{{pathScope, &view.PathScope}, {predicates, &view.PredicateIDs}, {checks, &view.Checks}, {prerequisites, &view.Prerequisites}, {unresolved, &view.UnresolvedRefs}} {
 			if err := json.Unmarshal([]byte(column.raw), column.target); err != nil {
 				_ = rows.Close()
-				return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision column is not valid JSON", false, "rebuild the worker-job projection from the event log", err)
+				return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision column is not valid JSON", false, "restore a verified backup into a new path with concord restore, then swap", err)
 			}
 		}
 		views = append(views, view)

@@ -465,6 +465,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return output, err
 		}
+		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
+			return output, err
+		}
 	}
 	output.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
 	if err != nil {
@@ -574,6 +577,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 		event.Seq = seq
 		if err := foldRegisteredEvent(ctx, tx.Tx, event, scope); err != nil {
+			return output, rollback(err)
+		}
+		if err := advanceWorkEffectSeqTx(ctx, tx.Tx, event); err != nil {
 			return output, rollback(err)
 		}
 	}

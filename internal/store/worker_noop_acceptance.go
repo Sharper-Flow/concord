@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 )
@@ -35,24 +36,18 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	if window.SubjectCommit == "" || window.SubjectCommit != completed.ObservedDelivery.Commit {
 		return nil
 	}
-	var firstAttempt string
-	err = g.tx.QueryRowContext(g.ctx, `SELECT a.attempt_id FROM domain_events e
-		JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind=?
-		AND json_extract(e.payload,'$.action_id')='dispatch_worker'
-		AND json_extract(e.payload,'$.worker_job.job_id')=? AND a.capability_class='implementation'
-		ORDER BY e.seq LIMIT 1`, string(SubjectWorkItem), g.request.WorkID, WorkflowActionCompleted, completed.WorkerJob.JobID).Scan(&firstAttempt)
+	firstAttempt, err := firstWorkerEditingJobAttemptTx(g.ctx, g.tx, g.request.WorkID, completed.WorkerJob.JobID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot read the editing job's first authorization")
 	}
 	if firstAttempt != attemptID {
 		return nil
 	}
-	lineage, err := readWorkerOracleFindingLineageTx(g.ctx, g.tx, g.request.WorkID)
+	oracles, err := readWorkerJobOraclesTx(g.ctx, g.tx, g.request.WorkID)
 	if err != nil {
 		return err
 	}
-	oracle := lineage.oracleForBinding(*completed.WorkerJob)
+	oracle := oracles[*completed.WorkerJob]
 	if proven, err := unchangedJobOutcomeProven(g, &completed, oracle); err != nil {
 		return err
 	} else if proven {
@@ -60,6 +55,15 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	}
 	return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: the job has no changed paths and lacks fresh passing evidence that its declared outcome already holds", false,
 		"bind_evidence for each independently executed control run and retry; otherwise reject_worker_result and dispatch a correction whose report proves every declared job control passes on the unchanged subject, or that delivers the outcome a failing control shows unmet; no edit is required when the outcome already holds")
+}
+
+func firstWorkerEditingJobAttemptTx(ctx context.Context, q queryer, workID, jobID string) (string, error) {
+	var attempt string
+	err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_authorizations r
+		JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id
+		WHERE r.work_id=? AND json_extract(r.payload,'$.worker_job.job_id')=? AND a.capability_class='implementation'
+		ORDER BY r.seq LIMIT 1`, workID, jobID).Scan(&attempt)
+	return attempt, err
 }
 
 func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerCompletedPayload, oracle *AcceptanceOracle) (bool, error) {

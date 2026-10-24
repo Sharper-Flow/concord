@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,30 +68,14 @@ func TestReviewRepairDiffKeepsInputBWhileCheckoutChanges(t *testing.T) {
 }
 
 func TestReviewRepairDispatchDoesNotResetAccumulatedDiffBase(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload TEXT); CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_version INTEGER,lane_digest TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	for _, seq := range []int{1, 3} {
-		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, seq, WorkflowContractApproved, `{"contract_version":1}`); err != nil {
-			t.Fatal(err)
-		}
-	}
+	db := workerFoundationCurrentDB(t)
 	foundation := strings.Repeat("a", 40)
 	for i, id := range []string{"implement", "review"} {
-		version, digest := registeredLaneIdentity(t, id)
 		subject := foundation
 		if id == "review" {
 			subject = strings.Repeat("b", 40)
 		}
-		payload := map[string]any{"action_id": "dispatch_worker", "worker_lane_id": id, "worker_lane_version": version, "worker_lane_digest": digest, "worker_worktree_identity": "claim", "worker_subject_commit": subject}
-		if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, 2+i*2, WorkflowActionCompleted, string(mustJSONValue(payload))); err != nil {
-			t.Fatal(err)
-		}
+		foundationAuthorizationForTest(t, db, int64(2+i*2), int64(i+1), id, id, subject, "claim")
 	}
 	base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 5)
 	if err != nil || base != foundation {

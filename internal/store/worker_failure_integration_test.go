@@ -145,6 +145,9 @@ func TestDeriveWorkerFailureIntegrationComposesWatermarkPopulation(t *testing.T)
 	attemptB := "attempt:" + workID + ":input-b"
 	oDispatchJobBoundAttempt(t, s, workID, attemptB, nil, fixture.owner, 0, "integration-input-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
+	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
+		t.Fatal(err)
+	}
 
 	identity, err := deriveWorkerFailureIntegration(ctx, s.db, workID, integrationAttributionObservation(failed.LeaseID))
 	if err != nil {

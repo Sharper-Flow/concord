@@ -285,7 +285,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 		return refuse()
 	}
 	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, req.WorkID, WorkflowActionStarted, dispatch.StepID, auth.Seq).Scan(&auth.StartSeq, &epoch)
+	err = q.QueryRowContext(ctx, `SELECT start_seq,json_extract(start_payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0 AND start_seq<seq AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=?`, req.WorkID, o.AttemptID, dispatch.StepID).Scan(&auth.StartSeq, &epoch)
 	if err == sql.ErrNoRows {
 		return refuse()
 	}
@@ -296,7 +296,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 		return refuse()
 	}
 	var jobRaw []byte
-	err = q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, req.WorkID, WorkerJobRecorded, auth.Seq, o.WorkerJobBinding.JobID, o.WorkerJobBinding.Revision, o.WorkerJobBinding.Digest).Scan(&jobRaw)
+	err = q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND recorded_seq>0 AND recorded_seq<? AND job_id=? AND revision=? AND digest=?`, req.WorkID, auth.Seq, o.WorkerJobBinding.JobID, o.WorkerJobBinding.Revision, o.WorkerJobBinding.Digest).Scan(&jobRaw)
 	if err == sql.ErrNoRows {
 		return refuse()
 	}
@@ -340,9 +340,9 @@ func readNativeOracleDispatchBindingTx(ctx context.Context, q queryer, workID, a
 	var dispatch workflowActionCompletedPayload
 	var auth nativeOracleAuthorization
 	var payload []byte
-	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
+	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM worker_authorizations d JOIN worker_attempts a ON a.work_id=d.work_id AND a.attempt_id=d.attempt_id
  AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
- WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
+	 WHERE d.work_id=? AND d.attempt_id=? AND a.lifecycle_state IN ('in_flight','dispatched')`, workID, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
 	if err == sql.ErrNoRows || err == nil && json.Unmarshal(payload, &dispatch) != nil {
 		return dispatch, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
 	}
@@ -960,17 +960,17 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 		job = *req.Oracle.WorkerJobBinding
 	}
 	err := q.QueryRowContext(ctx, `SELECT
-		coalesce((SELECT max(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=?),0),
+		coalesce((SELECT effect_seq FROM work_items WHERE id=?),0),
 		coalesce((`+oracleCurrentVerifyReceiptSQL+`),''),
 		coalesce((SELECT json_array(lane_id,lane_version,lane_digest,capability_class,lifecycle_state)
 			FROM worker_attempts WHERE work_id=? AND attempt_id=?),''),
 		(SELECT json_group_array(json_array(lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,stdout_length,stderr_length))
 		 FROM (SELECT lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,length(stdout_blob) stdout_length,length(stderr_blob) stderr_length
 			FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND json_extract(result_json,'$.operation_ref') IN
-			(SELECT refs.value FROM domain_events j,json_each(j.payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
-			 WHERE j.subject_type='work_item' AND j.subject_id=? AND j.kind=? AND json_extract(j.payload,'$.job_id')=? AND json_extract(j.payload,'$.revision')=? AND json_extract(j.payload,'$.digest')=?)
+			(SELECT refs.value FROM worker_job_revisions j,json_each(j.recorded_payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
+			 WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.recorded_payload IS NOT NULL)
 			ORDER BY lease_id))`, req.WorkID, req.WorkID, WorktreeSetID(req.WorkID), req.WorkID, req.Oracle.AttemptID,
-		req.WorkID, req.ProjectID, req.WorkID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).
+		req.WorkID, req.ProjectID, req.WorkID, job.JobID, job.Revision, job.Digest).
 		Scan(&stamp.Frontier, &stamp.CoreReceipt, &stamp.Attempt, &stamp.Preparations)
 	return stamp, err
 }

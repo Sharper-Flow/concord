@@ -242,17 +242,7 @@ func (f crossAttemptFixture) rejectionCount(t *testing.T, attemptID string, epoc
 	return count
 }
 
-func (f crossAttemptFixture) rejectionSequence(t *testing.T, attemptID string) int64 {
-	t.Helper()
-	var seq int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, f.workID, WorkflowActionCompleted, attemptID).Scan(&seq); err != nil {
-		t.Fatalf("read the rejection sequence of %s: %v", attemptID, err)
-	}
-	return seq
-}
-
-// rejectableResults reads the interval-bounded eligibility reader directly at
-// the named exclusive bound (0 reads the current settled prefix).
+// rejectableResults reads current rejection eligibility through admission's signature.
 func (f crossAttemptFixture) rejectableResults(t *testing.T, beforeSeq int64) []workflowRejectableResult {
 	t.Helper()
 	results, err := workflowRejectableWorkerResults(context.Background(), f.s.DatabaseForTesting(), f.workID, f.definition, f.step, "test", beforeSeq)
@@ -879,25 +869,24 @@ func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 	// inside one transaction drops the attempt from the eligibility reader —
 	// a missing modern authorization/executor grants no cross-epoch authority
 	// under the step's later start. The witness is test damage: it mutates the
-	// log only inside a rollback transaction, and no production route blanks a
+	// current descriptor only inside a rollback transaction, and no production route blanks a
 	// recorded lane actor.
-	beforeWitness := crossAttemptEventPayload(t, f.s, workID, WorkerDispatched, f.attemptR)
+	var beforeWitness []byte
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&beforeWitness); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := f.s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	var trigger string
-	if err := tx.QueryRowContext(context.Background(), `SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&trigger); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DROP TRIGGER domain_events_no_update`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `UPDATE worker_attempts SET dispatch_payload=json_set(dispatch_payload,'$.lane_actor_ref','') WHERE work_id=? AND attempt_id=?`, workID, f.attemptR); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `UPDATE domain_events SET payload=json_set(payload,'$.lane_actor_ref','') WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptR); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(context.Background(), trigger); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	damaged, err := workflowRejectableWorkerResults(context.Background(), tx, workID, f.definition, f.step, "test", 0)
@@ -913,7 +902,11 @@ func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	if after := crossAttemptEventPayload(t, f.s, workID, WorkerDispatched, f.attemptR); string(after) != string(beforeWitness) {
+	var afterWitness []byte
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&afterWitness); err != nil {
+		t.Fatal(err)
+	}
+	if string(afterWitness) != string(beforeWitness) {
 		t.Fatal("the rolled-back witness left the research dispatch provenance rewritten")
 	}
 
@@ -938,66 +931,28 @@ func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 	}
 }
 
-// TestCrossAttemptRejectionPrefixParity pins the prefix bound: the rejection's
-// own exclusive sequence keeps validating the rejected pair, and no later
-// legal record or projection rebuild changes that fixed prefix.
-func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
+func TestCrossAttemptRejectionCurrentDisposalAndRetry(t *testing.T) {
 	t.Parallel()
-	const workID = "cross-attempt-prefix-parity"
+	const workID = "cross-attempt-current-disposal"
 	f := seedCrossAttemptFixture(t, workID)
 	f.buildTwoAttemptHistory(t)
 	epochR := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR)
 	epochV := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptV)
-	versionBefore := readWorkVersion(t, f.s, workID)
-
-	if _, err := f.invokeReject(t, versionBefore, f.attemptR, epochR, "", 50); err != nil {
+	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), f.attemptR, epochR, "", 50); err != nil {
 		t.Fatalf("reject the epoch-1 research result: %v", err)
 	}
-	rejectionSeq := f.rejectionSequence(t, f.attemptR)
-
-	// At the rejection's exclusive sequence the fixed prefix still lists the
-	// research result at its own epoch, and a forged epoch refuses there.
-	prefix := f.rejectableResults(t, rejectionSeq)
-	if !crossAttemptResultsContain(prefix, f.attemptR, epochR) || !crossAttemptResultsContain(prefix, f.attemptV, epochV) {
-		t.Fatalf("the retained prefix before the rejection = %#v, want the research result and the review", prefix)
-	}
-	if _, err := validateWorkerResultRejection(context.Background(), f.s.DatabaseForTesting(), workID, f.definition, f.step, "test", f.attemptR, epochR, rejectionSeq); err != nil {
-		t.Fatalf("the retained prefix no longer validates the rejected pair: %v", err)
-	}
-	if _, err := validateWorkerResultRejection(context.Background(), f.s.DatabaseForTesting(), workID, f.definition, f.step, "test", f.attemptR, epochR+1, rejectionSeq); err == nil {
-		t.Fatal("the retained prefix admitted a forged research epoch")
-	} else {
-		expectMembershipRefusal(t, err, "the forged research epoch at the retained prefix")
-	}
-
-	// At the current prefix the rejected result is gone even though the
-	// review remains undispositioned.
 	current := f.rejectableResults(t, 0)
-	if crossAttemptResultsContain(current, f.attemptR, epochR) {
-		t.Fatalf("the rejected research result stayed eligible at the current prefix: %#v", current)
+	if crossAttemptResultsContain(current, f.attemptR, epochR) || !crossAttemptResultsContain(current, f.attemptV, epochV) {
+		t.Fatalf("current results=%#v, want only the undisposed review", current)
 	}
-	if !crossAttemptResultsContain(current, f.attemptV, epochV) {
-		t.Fatalf("the review vanished from the current prefix: %#v", current)
-	}
-
-	// Extend the future suffix through legal operation routes only: a fresh
-	// dispatch whose packet consumes the rejection's correction context, its
-	// completed report, and local acceptance.
 	attemptW := "attempt:" + workID + ":3"
-	retryPacket := func(t *testing.T) map[string]any {
-		t.Helper()
-		correction, err := workflowCorrectionContextForDispatch(context.Background(), f.s.DatabaseForTesting(), workID, f.step, attemptW)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if correction == nil {
-			t.Fatal("no correction context stands for the correction-consuming retry dispatch")
-		}
-		packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
-		packet["inputs"].(map[string]any)["correction"] = correction
-		return packet
+	correction, err := workflowCorrectionContextForDispatch(context.Background(), f.s.DatabaseForTesting(), workID, f.step, attemptW)
+	if err != nil || correction == nil {
+		t.Fatalf("correction-consuming retry context: %+v, %v", correction, err)
 	}
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, retryPacket(t)); err != nil {
+	packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+	packet["inputs"].(map[string]any)["correction"] = correction
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, packet); err != nil {
 		t.Fatalf("dispatch the correction-consuming retry: %v", err)
 	}
 	f.materializeDispatch(t, attemptW, f.researchLane, f.dispatcher)
@@ -1008,18 +963,9 @@ func TestCrossAttemptRejectionPrefixParity(t *testing.T) {
 	if step := currentStep(t, f.s, workID); step != f.step {
 		t.Fatalf("local retry acceptance advanced from %q to %q", f.step, step)
 	}
-
-	// No future record affects the fixed prefix.
-	if after := f.rejectableResults(t, rejectionSeq); !reflect.DeepEqual(after, prefix) {
-		t.Fatalf("the retained prefix after the future suffix = %#v, want %#v", after, prefix)
+	if results := f.rejectableResults(t, 0); crossAttemptResultsContain(results, f.attemptR, epochR) || crossAttemptResultsContain(results, attemptW, epochV+1) {
+		t.Fatalf("disposed result became rejectable: %#v", results)
 	}
-	if _, err := validateWorkerResultRejection(context.Background(), f.s.DatabaseForTesting(), workID, f.definition, f.step, "test", f.attemptR, epochR, rejectionSeq); err != nil {
-		t.Fatalf("the fixed prefix stopped validating the rejected pair after the future suffix: %v", err)
-	}
-	if _, err := validateWorkerResultRejection(context.Background(), f.s.DatabaseForTesting(), workID, f.definition, f.step, "test", f.attemptR, epochR+1, rejectionSeq); err == nil {
-		t.Fatal("the fixed prefix admitted the forged research epoch after the future suffix")
-	}
-
 }
 
 // TestCrossAttemptCorrectionRetryConsumption pins the correction-consumption
@@ -1415,6 +1361,9 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 
 	// Witness B: one contract supersession closes the interval.
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET supersession_seq=(SELECT MAX(seq) FROM domain_events WHERE subject_id=?) WHERE work_id=? AND superseded_by IS NULL; DELETE FROM fold_guard`, witnessWorkID, witnessWorkID); err != nil {
+		t.Fatal(err)
+	}
 	if results := w.rejectableResults(t, 0); len(results) != 0 {
 		t.Fatalf("rejectable results after the supersession witness = %#v, want the interval closed", results)
 	}
@@ -1424,6 +1373,14 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	const attemptE = "attempt:cross-attempt-interval-witness:9"
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerDispatched), `{"attempt_id":"`+attemptE+`"}`)
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerCompleted), `{"attempt_id":"`+attemptE+`","readback_model":"model/witness"}`)
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,dispatch_seq,dispatch_payload,terminal_seq,terminal_payload)
+VALUES(?,?,'lane:witness',1,?,'research','model/witness','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z',
+(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),'{}',
+(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),?);
+DELETE FROM fold_guard`, witnessWorkID, attemptE, "sha256:"+strings.Repeat("0", 64), witnessWorkID, WorkerDispatched, attemptE, witnessWorkID, WorkerCompleted, attemptE, string(mustJSONValue(map[string]any{"attempt_id": attemptE, "readback_model": "model/witness"}))); err != nil {
+		t.Fatal(err)
+	}
 	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptE, heldEpoch) {
 		t.Fatalf("rejectable results after the unprovenanced witness = %#v, want the witness attempt at the latest start's epoch %d", results, heldEpoch)
 	}
@@ -1435,6 +1392,9 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 
 	// Witness D: a non-dispatch action start closes the interval again.
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkflowActionStarted), stalenessActionPayload("investigate", "record_finding"))
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET latest_non_dispatch_start_seq=(SELECT MAX(seq) FROM domain_events WHERE subject_id=?) WHERE work_id=?; DELETE FROM fold_guard`, witnessWorkID, witnessWorkID); err != nil {
+		t.Fatal(err)
+	}
 	if results := w.rejectableResults(t, 0); len(results) != 0 {
 		t.Fatalf("rejectable results after the non-dispatch start witness = %#v, want the interval closed", results)
 	}
@@ -1621,7 +1581,7 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 	completionPayload := func() []byte {
 		t.Helper()
 		var payload []byte
-		if err := f.s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, f.attemptR).Scan(&payload); err != nil {
+		if err := f.s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&payload); err != nil {
 			t.Fatal(err)
 		}
 		return payload
@@ -1657,28 +1617,23 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 	}
 
 	// Rollback-only test damage: move the completion's recorded epoch away
-	// from the start it authorized, inside one transaction, with the
-	// established trigger drop/restore pattern.
+	// from the start it authorized, inside one transaction.
 	tx, err := f.s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	var trigger string
-	if err := tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&trigger); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DROP TRIGGER domain_events_no_update`); err != nil {
-		t.Fatal(err)
-	}
-	damage, err := tx.ExecContext(ctx, `UPDATE domain_events SET payload=json_set(payload,'$.attempt_epoch',?) WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, completionEpoch+1, workID, WorkflowActionCompleted, f.attemptR)
+	damage, err := tx.ExecContext(ctx, `UPDATE worker_authorizations SET payload=json_set(payload,'$.attempt_epoch',?) WHERE work_id=? AND attempt_id=?`, completionEpoch+1, workID, f.attemptR)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if moved, err := damage.RowsAffected(); err != nil || moved != 1 {
 		t.Fatalf("the epoch damage touched %d rows (%v), want exactly the research authorization completion", moved, err)
 	}
-	if _, err := tx.ExecContext(ctx, trigger); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := findAuthorizedDispatchWindowBefore(ctx, tx, workID, f.attemptR, completionSeq+1); err == nil {
@@ -1909,6 +1864,35 @@ func TestCrossAttemptRejectionIntervalClosesOnAdvanceAndReturn(t *testing.T) {
 			payload["worker_job"] = row.job
 		}
 		stalenessEvent(t, w.s, w.workID, string(WorkflowActionCompleted), string(mustJSONValue(payload)))
+		var seq int64
+		var eventID string
+		if err := w.s.DatabaseForTesting().QueryRow(`SELECT seq,event_id FROM domain_events WHERE subject_id=? ORDER BY seq DESC LIMIT 1`, w.workID).Scan(&seq, &eventID); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := w.s.DatabaseForTesting().BeginTx(t.Context(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			t.Fatal(err)
+		}
+		if row.closes {
+			if _, err := tx.Exec(`INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,?,?) ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq`, w.workID, row.actionID, seq); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if row.actionID == "accept_worker_result" {
+			if _, err := tx.Exec(`INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload`, w.workID, w.attemptV, row.actionID, seq, eventID, string(mustJSONValue(payload))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
 		results := w.rejectableResults(t, 0)
 		if row.closes && len(results) != 0 {
 			t.Fatalf("%s: rejectable results = %#v, want the interval closed", row.name, results)

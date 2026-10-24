@@ -227,9 +227,9 @@ func readWorkerJobAllowancesTx(ctx context.Context, q queryer, workID string) (m
 // attempt ids dispatched after that cutoff. The read uses the queryer
 // already in hand and issues no nested query while rows are open.
 func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) (map[string]bool, map[string][]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.worker_job.job_id'), json_extract(payload,'$.attempt_id'), seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.capability_class')='implementation' AND json_extract(payload,'$.worker_job.job_id') IS NOT NULL ORDER BY seq`, string(SubjectWorkItem), workID, WorkerDispatched)
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(dispatch_payload,'$.worker_job.job_id'), attempt_id, dispatch_seq FROM worker_attempts WHERE work_id=? AND json_extract(dispatch_payload,'$.capability_class')='implementation' AND json_extract(dispatch_payload,'$.worker_job.job_id') IS NOT NULL ORDER BY dispatch_seq`, workID)
 	if err != nil {
-		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the work's implementation dispatches", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the work's implementation dispatches", true, "retry once the worker-attempt projection is readable", err)
 	}
 	type dispatchRecord struct {
 		attempt string
@@ -241,16 +241,16 @@ func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) 
 		var seq int64
 		if err := rows.Scan(&jobID, &attemptID, &seq); err != nil {
 			_ = rows.Close()
-			return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
+			return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan the work's implementation dispatches", true, "retry once the worker-attempt projection is readable", err)
 		}
 		byJob[jobID] = append(byJob[jobID], dispatchRecord{attempt: attemptID, seq: seq})
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan the work's implementation dispatches", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan the work's implementation dispatches", true, "retry once the worker-attempt projection is readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot close the implementation dispatch read", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot close the implementation dispatch read", true, "retry once the worker-attempt projection is readable", err)
 	}
 	corrections := map[string]bool{}
 	attempts := map[string][]string{}
@@ -279,11 +279,11 @@ func workerJobCorrectionStatesTx(ctx context.Context, q queryer, workID string) 
 	return corrections, attempts, nil
 }
 
-// workerJobSatisfactionSeqTx returns the highest event seq that satisfied a
+// workerJobSatisfactionSeqTx returns the highest effect seq that satisfied a
 // revision of the named job, or zero when no revision is satisfied.
 func workerJobSatisfactionSeqTx(ctx context.Context, q queryer, workID, jobID string) (int64, error) {
 	var cutoff int64
-	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(e.seq),0) FROM worker_job_revisions r JOIN domain_events e ON e.event_id=r.satisfied_result_ref WHERE r.work_id=? AND r.job_id=? AND r.state='satisfied'`, workID, jobID).Scan(&cutoff)
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(satisfied_seq),0) FROM worker_job_revisions WHERE work_id=? AND job_id=? AND state='satisfied'`, workID, jobID).Scan(&cutoff)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the job's satisfied revisions", true, "retry once the worker-job projection is readable", err)
 	}

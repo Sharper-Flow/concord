@@ -165,7 +165,7 @@ func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed
 // workflowDerivedWorkerFailureEventIDSuffix pairs the derived workflow
 // failure record with the terminal event it derives from. The pair is the
 // fold's structural admission: an event carrying the suffix folds only when
-// the terminal worker.failed event it names exists earlier in the log and
+// the terminal worker.failed fact it names exists earlier in effect order and
 // its attempt window matches the record's step and epoch.
 const workflowDerivedWorkerFailureEventIDSuffix = ":workflow-failure"
 
@@ -181,7 +181,7 @@ func workflowDerivedWorkerFailureActive(definition WorkflowDefinition) bool {
 // record_worker_failure completion is the derivation pair of a terminal
 // worker.failed event (CD-0198 D5). The check mirrors the CD-0198 D3
 // derived-start pair: the pin must derive the record, the completing event's
-// id must name a terminal worker.failed event recorded earlier in the log,
+// id must name a terminal worker.failed fact recorded earlier in effect order,
 // that event's attempt must be the record's attempt, and the attempt's
 // authorized dispatch window must name the record's step and epoch. A
 // caller-authored event carrying the suffix without its terminal event
@@ -193,10 +193,11 @@ func workflowDerivedWorkerFailurePairAdmitsFold(ctx context.Context, tx *sql.Tx,
 	if !strings.HasSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix) {
 		return false, nil
 	}
+	if event.Seq <= 0 {
+		return false, nil
+	}
 	terminalEventID := strings.TrimSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix)
-	var attemptID string
-	var occurredAt string
-	err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_id'),occurred_at FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkerFailed, terminalEventID, event.Seq).Scan(&attemptID, &occurredAt)
+	_, attemptID, err := readWorkerTerminalSourceBefore(ctx, tx, event.SubjectID, terminalEventID, WorkerFailed, event.Seq)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -215,6 +216,19 @@ func workflowDerivedWorkerFailurePairAdmitsFold(ctx context.Context, tx *sql.Tx,
 		return false, err
 	}
 	return window.StepID == payload.StepID && window.AttemptEpoch == payload.AttemptEpoch, nil
+}
+
+// readWorkerTerminalSourceBefore resolves the exact current terminal identity.
+// A zero bound reads current state; a positive bound is strictly exclusive.
+func readWorkerTerminalSourceBefore(ctx context.Context, q queryer, workID, eventID, kind string, beforeSeq int64) (payload, attemptID string, err error) {
+	var sourceAttempt string
+	err = q.QueryRowContext(ctx, `SELECT terminal_payload,COALESCE(json_extract(terminal_payload,'$.attempt_id'),''),attempt_id
+FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND terminal_event_id=?
+AND terminal_seq>0 AND (?=0 OR terminal_seq<?)`, workID, kind, eventID, beforeSeq, beforeSeq).Scan(&payload, &sourceAttempt, &attemptID)
+	if err == nil && (sourceAttempt == "" || sourceAttempt != attemptID) {
+		err = newFailure(KindInvariantViolation, "worker_terminal_source", "terminal payload attempt_id does not match its owning attempt", false, "reconcile_operation")
+	}
+	return payload, attemptID, err
 }
 
 // latestWorkflowActionStartEpochOnly reads the latest start epoch at a step

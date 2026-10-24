@@ -950,7 +950,7 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 		return nil, nil
 	}
 	var seq int64
-	if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, state.Review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT terminal_seq FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_seq>0`, workID, state.Review.Accepted.AttemptID, state.Review.Accepted.ReportRef).Scan(&seq); err != nil {
 		return nil, err
 	}
 	return &WorkflowCorrectionContext{
@@ -1103,15 +1103,15 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 				return nil, workflowCorrectionMissingNone, err
 			}
 			var seq int64
-			if err := q.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=? AND subject_id=?`, review.Accepted.ReportRef, workID).Scan(&seq); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT terminal_seq FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_seq>0`, workID, review.Accepted.AttemptID, review.Accepted.ReportRef).Scan(&seq); err != nil {
 				return nil, workflowCorrectionMissingNone, err
 			}
 			// One accepted Review authorizes one correction (CD-0166).
-			var consumed int
-			if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<>?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, seq, excludeSeq).Scan(&consumed); err != nil {
+			consumed, err := workflowReviewCorrectionConsumed(ctx, q, workID, seq, excludeSeq)
+			if err != nil {
 				return nil, workflowCorrectionMissingNone, err
 			}
-			if consumed != 0 {
+			if consumed {
 				return nil, workflowCorrectionMissingFreshReview, nil
 			}
 			return &WorkflowCorrectionContext{Disposition: "verification", PredicateIDs: predicates, EvidenceRefs: []string{review.Accepted.ReportRef}, SourceEventID: review.Accepted.ReportRef, SourceEventSeq: seq, Diagnosis: "the accepted current Review requires correction", Strategy: "perform the declared corrective work and obtain applicable Review"}, workflowCorrectionMissingNone, nil
@@ -1146,6 +1146,12 @@ func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q querye
 		return nil, workflowCorrectionMissingNone, nil
 	}
 	return nil, workflowCorrectionMissingVerdict, nil
+}
+
+func workflowReviewCorrectionConsumed(ctx context.Context, q queryer, workID string, reportSeq, excludeSeq int64) (bool, error) {
+	var consumed int
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_phase_exits WHERE work_id=? AND action_id='request_correction' AND exit_seq>? AND exit_seq<>?`, workID, reportSeq, excludeSeq).Scan(&consumed)
+	return consumed != 0, err
 }
 
 // workflowCorrectionRequestAdmissionStateForRegistry resolves the same
@@ -1400,124 +1406,95 @@ func validateWorkerResultRejection(ctx context.Context, q queryer, workID string
 	return workflowRejectableResult{}, newFailure(KindIllegalLifecycleTransition, subject, "worker result rejection does not name an eligible completed result", false, "reread the work pin and reject one of its eligible results")
 }
 
-// workflowRejectableWorkerResults reads the completed worker results still open to rejection before
-// beforeSeq (exclusive; 0 reads the current settled prefix), each joined through its dispatch's recorded authorization.
+// workflowRejectableWorkerResults reads current completed results still open to
+// rejection, each joined through its dispatch's exact recorded authorization.
+// Admission runs before the action writes its own current-state effects.
 func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, beforeSeq int64) ([]workflowRejectableResult, error) {
 	if currentStep == "" || !stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		return nil, nil
 	}
-	latestStartSeq, latestStartEpoch, latestStartFound, err := latestWorkflowActionStartAt(ctx, q, workID, currentStep, beforeSeq)
+	latestStartSeq, latestStartEpoch, latestStartFound, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
 	if err != nil {
 		return nil, err
 	}
-	type resultEvent struct {
-		seq     int64
-		kind    string
-		payload []byte
+	advancing := append(advancingWorkflowActions(definition), "request_correction")
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
+	args := []any{workID, workID, workID}
+	for _, action := range advancing {
+		args = append(args, action)
 	}
-	var events []resultEvent
-	rows, err := q.QueryContext(ctx, `SELECT seq,kind,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND (?=0 OR seq<?) AND kind IN (?,?,?,?,?,?) ORDER BY seq`, string(SubjectWorkItem), workID, beforeSeq, beforeSeq, WorkflowActionStarted, WorkflowActionCompleted, WorkflowContractSuperseded, WorkerDispatched, WorkerCompleted, WorkerFailed)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the worker result history", true, "retry once the workflow event log is readable", err)
+	var boundary int64
+	if err := q.QueryRowContext(ctx, `SELECT MAX(
+ COALESCE((SELECT latest_non_dispatch_start_seq FROM workflow_instances WHERE work_id=?),0),
+ COALESCE((SELECT MAX(supersession_seq) FROM workflow_contracts WHERE work_id=?),0),
+ COALESCE((SELECT MAX(exit_seq) FROM workflow_phase_exits WHERE work_id=? AND action_id IN (`+placeholders+`)),0))`, args...).Scan(&boundary); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the worker result interval", true, "retry once the workflow projection is readable", err)
 	}
-	for rows.Next() {
-		var event resultEvent
-		if err := rows.Scan(&event.seq, &event.kind, &event.payload); err != nil {
-			rows.Close()
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the worker result history", true, "retry once the workflow event log is readable", err)
+	if workflowStep(definition, currentStep).Kind == WorkflowStepHumanCheckpoint {
+		var startSeq int64
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(latest_start_seq),0) FROM workflow_step_epochs WHERE work_id=?`, workID).Scan(&startSeq); err != nil {
+			return nil, wrapFailure(KindUnavailable, subject, "cannot read the checkpoint worker result interval", true, "retry once the workflow projection is readable", err)
 		}
-		events = append(events, event)
+		boundary = max(boundary, startSeq)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.dispatch_seq,a.dispatch_payload FROM worker_attempts a
+ WHERE a.work_id=? AND a.lifecycle_state='completed' AND a.readback_model<>'' AND a.dispatch_seq>?
+ AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id
+  AND d.action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result'))
+ ORDER BY a.dispatch_seq`, workID, boundary)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read completed worker results", true, "retry once the worker projection is readable", err)
+	}
+	var candidates []workflowRejectableResult
+	for rows.Next() {
+		var candidate workflowRejectableResult
+		var raw []byte
+		if err := rows.Scan(&candidate.AttemptID, &candidate.DispatchSeq, &raw); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan completed worker results", true, "retry once the worker projection is readable", err)
+		}
+		var dispatch WorkerDispatchedPayload
+		if err := json.Unmarshal(raw, &dispatch); err != nil {
+			rows.Close()
+			return nil, newFailure(KindInvariantViolation, subject, "worker dispatched payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+		}
+		candidate.ExecutorRef = dispatch.LaneActorRef
+		candidate.completed = true
+		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the worker result history", true, "retry once the workflow event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, subject, "cannot scan completed worker results", true, "retry once the worker projection is readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot close the worker result history", true, "retry once the workflow event log is readable", err)
-	}
-	var held []*workflowRejectableResult
-	live := make(map[string]*workflowRejectableResult)
-	boundary := int64(0)
-	checkpoint := workflowStep(definition, currentStep).Kind == WorkflowStepHumanCheckpoint
-	closeInterval := func(seq int64) {
-		boundary = seq
-		held = nil
-		live = make(map[string]*workflowRejectableResult)
-	}
-	for _, event := range events {
-		switch event.kind {
-		case string(WorkflowContractSuperseded):
-			closeInterval(event.seq)
-		case string(WorkflowActionStarted):
-			var p workflowActionStartedPayload
-			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			}
-			if p.ActionID != "dispatch_worker" || checkpoint {
-				closeInterval(event.seq)
-			}
-		case string(WorkflowActionCompleted):
-			var p workflowActionCompletedPayload
-			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "workflow action completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			}
-			if workflowCompletedActionAdvances(definition, p) || p.ActionID == "request_correction" {
-				closeInterval(event.seq)
-			} else if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" || p.ActionID == "reject_worker_result" {
-				delete(live, p.WorkerAttemptID)
-			}
-		case string(WorkerDispatched):
-			var p WorkerDispatchedPayload
-			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker dispatched payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			}
-			candidate := &workflowRejectableResult{AttemptID: p.AttemptID, ExecutorRef: p.LaneActorRef, DispatchSeq: event.seq}
-			var window WorkerDispatchWindow
-			var windowErr error
-			if p.LaneActorRef != "" {
-				window, windowErr = findAuthorizedDispatchWindowBefore(ctx, q, workID, p.AttemptID, event.seq)
-			}
-			var failure *Failure
-			if windowErr != nil && (!failureAs(windowErr, &failure) || failure.Kind != KindUnauthorizedDispatch) {
-				return nil, windowErr
-			}
-			if windowErr == nil && p.LaneActorRef != "" {
-				if window.StepID != currentStep || window.StartSeq < boundary || window.StartSeq >= event.seq {
-					continue
-				}
-				candidate.AttemptEpoch = window.AttemptEpoch
-			} else {
-				// No recorded authorization or executor: the attempt
-				// counts only under the step's latest start at this bound — no cross-epoch authority.
-				if !latestStartFound || event.seq <= latestStartSeq {
-					continue
-				}
-				candidate.AttemptEpoch = latestStartEpoch
-				candidate.ExecutorRef = ""
-			}
-			held = append(held, candidate)
-			live[p.AttemptID] = candidate
-		case string(WorkerCompleted):
-			var p WorkerCompletedPayload
-			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			}
-			if candidate := live[p.AttemptID]; candidate != nil && p.ReadbackModel != "" {
-				candidate.completed = true
-			}
-		case string(WorkerFailed):
-			var p WorkerFailedPayload
-			if err := json.Unmarshal(event.payload, &p); err != nil {
-				return nil, newFailure(KindInvariantViolation, subject, "worker failure payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-			}
-			delete(live, p.AttemptID)
-		}
+		return nil, wrapFailure(KindUnavailable, subject, "cannot close completed worker results", true, "retry once the worker projection is readable", err)
 	}
 	var results []workflowRejectableResult
-	for _, candidate := range held {
-		if candidate.completed && live[candidate.AttemptID] == candidate {
-			results = append(results, *candidate)
+	for _, candidate := range candidates {
+		var window WorkerDispatchWindow
+		var windowErr error
+		if candidate.ExecutorRef != "" {
+			window, windowErr = findAuthorizedDispatchWindowBefore(ctx, q, workID, candidate.AttemptID, candidate.DispatchSeq)
 		}
+		var failure *Failure
+		if windowErr != nil && (!failureAs(windowErr, &failure) || failure.Kind != KindUnauthorizedDispatch) {
+			return nil, windowErr
+		}
+		if windowErr == nil && candidate.ExecutorRef != "" {
+			if window.StepID != currentStep || window.StartSeq < boundary || window.StartSeq >= candidate.DispatchSeq {
+				continue
+			}
+			candidate.AttemptEpoch = window.AttemptEpoch
+		} else {
+			// Legacy dispatches without an executor or authorization gain
+			// no authority across a newer current step start.
+			if !latestStartFound || candidate.DispatchSeq <= latestStartSeq {
+				continue
+			}
+			candidate.AttemptEpoch = latestStartEpoch
+			candidate.ExecutorRef = ""
+		}
+		results = append(results, candidate)
 	}
 	return results, nil
 }

@@ -370,7 +370,7 @@ func (l workflowAdmissionLoad) attemptAndReview(state *WorkflowAdmissionState) e
 	if err := l.q.QueryRowContext(l.ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='in_flight')`, l.workID).Scan(&state.PendingWorkerAuthorization); err != nil {
 		return workflowProjectionError(err, "cannot read unresolved worker authorizations")
 	}
-	if err := l.q.QueryRowContext(l.ctx, `SELECT COALESCE(lifecycle_state,''),COALESCE(json_extract(dispatch_payload,'$.capability_class'),'') FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at DESC,attempt_id DESC LIMIT 1`, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
+	if err := l.q.QueryRowContext(l.ctx, `SELECT lifecycle_state,capability_class FROM worker_attempts WHERE work_id=? ORDER BY dispatched_at DESC,attempt_id DESC LIMIT 1`, l.workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, l.subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
 	if err := l.q.QueryRowContext(l.ctx, `SELECT result_disposition FROM workflow_instances WHERE work_id=?`, l.workID).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {

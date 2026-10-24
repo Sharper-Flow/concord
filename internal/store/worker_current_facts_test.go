@@ -248,22 +248,8 @@ func TestWorkerCurrentFactsMigrationBackfillsStoredBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"worker_authorizations", "workflow_step_epochs"} {
-		if _, err := tx.Exec(`DROP TABLE ` + table); err != nil {
-			t.Fatal(err)
-		}
-	}
-	columns := map[string][]string{
-		"worker_job_revisions": {"recorded_payload"},
-		"worker_attempts":      {"dispatch_payload", "dispatch_event_id", "dispatch_actor", "dispatch_seq", "dispatch_payload_version", "terminal_payload", "terminal_event_id", "terminal_payload_version", "terminal_kind", "failure_recorded"},
-		"workflow_instances":   {"result_disposition"},
-	}
-	for table, names := range columns {
-		for _, name := range names {
-			if _, err := tx.Exec(`ALTER TABLE ` + table + ` DROP COLUMN ` + name); err != nil {
-				t.Fatal(err)
-			}
-		}
+	if _, err := tx.Exec(workerCurrentFactsFixtureReversal); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := tx.Exec(workerCurrentFactsMigration); err != nil {
 		t.Fatal(err)
@@ -292,6 +278,23 @@ func TestWorkerCurrentFactsMigrationBackfillsStoredBytes(t *testing.T) {
 		}
 	}
 }
+
+const workerCurrentFactsFixtureReversal = `
+DROP TABLE worker_authorizations;
+DROP TABLE workflow_step_epochs;
+ALTER TABLE worker_job_revisions DROP COLUMN recorded_payload;
+ALTER TABLE worker_attempts DROP COLUMN dispatch_payload;
+ALTER TABLE worker_attempts DROP COLUMN dispatch_event_id;
+ALTER TABLE worker_attempts DROP COLUMN dispatch_actor;
+ALTER TABLE worker_attempts DROP COLUMN dispatch_seq;
+ALTER TABLE worker_attempts DROP COLUMN dispatch_payload_version;
+ALTER TABLE worker_attempts DROP COLUMN terminal_payload;
+ALTER TABLE worker_attempts DROP COLUMN terminal_event_id;
+ALTER TABLE worker_attempts DROP COLUMN terminal_payload_version;
+ALTER TABLE worker_attempts DROP COLUMN terminal_kind;
+ALTER TABLE worker_attempts DROP COLUMN failure_recorded;
+ALTER TABLE workflow_instances DROP COLUMN result_disposition;
+`
 
 func workerFactsQueryRows(t *testing.T, s *Store, queries []string) [][]string {
 	t.Helper()

@@ -411,7 +411,13 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.SchemaVersion != CurrentSchemaVersion() || inventory.EventWatermark != oldEvents[len(oldEvents)-1].Seq+1 {
+	wantRevision := oldEvents[len(oldEvents)-1].Seq
+	for _, migration := range migrations {
+		if migration.Version > oldSchema && migration.Version >= 138 {
+			wantRevision++
+		}
+	}
+	if inventory.SchemaVersion != CurrentSchemaVersion() || inventory.EventWatermark != wantRevision {
 		t.Fatalf("staging upgrade did not advance the seeded store revision: %+v", inventory)
 	}
 	restored, err := openUnmigrated(ctx, stage)

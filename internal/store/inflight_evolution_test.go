@@ -276,6 +276,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	const workID = "remote-upgrade-inflight-work"
+	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
@@ -299,10 +300,31 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	// The older store already owns an initialized, in-progress workflow.
+	// Do not run a current-binary action-start writer on its older schema.
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, preferredModelForLane(BuiltinLaneDefinitions()[0]), workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	actor, version := startSeededWorkflowPinnedToContext(t, ctx, s, workID, definition)
+	version := readWorkVersion(t, s, workID)
 	var beforeStep string
 	var beforeWorkVersion int64
 	if err := s.db.QueryRowContext(ctx, `SELECT i.current_step,w.version FROM workflow_instances i JOIN work_items w ON w.id=i.work_id WHERE w.id=?`, workID).Scan(&beforeStep, &beforeWorkVersion); err != nil {

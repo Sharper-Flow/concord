@@ -108,6 +108,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// the planning mirror, so undoMigration124 restores the pre-step schema
 	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
+	if _, err := db.ExecContext(context.Background(), workerCurrentFactsFixtureReversal); err != nil {
+		t.Fatalf("cannot restore the pre-139 worker facts: %v", err)
+	}
 	if err := dropMigration125Objects(context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-125 verify lease: %v", err)
 	}

@@ -288,32 +288,6 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 		return err
 	}
 	claimOpID := p.ClaimOpID
-	if claimOpID == "" {
-		// Payload version 1 events predate the claim generation field. They are
-		// safe to replay only while no later generation has replaced the row.
-		if event.Seq > 0 {
-			var currentClaimCreatedAt sql.NullInt64
-			if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events WHERE kind='work.worktree_created' AND subject_type=? AND subject_id=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.claim_op_id')=?`, string(SubjectWorkItem), event.SubjectID, p.ProjectID, currentClaim).Scan(&currentClaimCreatedAt); err != nil {
-				return err
-			}
-			if currentClaimCreatedAt.Valid && currentClaimCreatedAt.Int64 > event.Seq {
-				return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and targets a later worktree claim", false, "emit a reclaim event for the active claim generation")
-			}
-		}
-		// A fresh append cannot be disambiguated by ordering: the sequence is
-		// assigned before the fold runs, so it always sorts after every
-		// recorded claim, and a payload with no generation cannot prove which
-		// generation it targets. When an earlier generation sits reclaimed
-		// beside an active entry, refuse the append.
-		var reclaimedClaims int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE set_id=? AND project_id=? AND state=?`, p.SetID, p.ProjectID, worktreeStateReclaimed).Scan(&reclaimedClaims); err != nil {
-			return err
-		}
-		if reclaimedClaims > 0 && state == worktreeEntryActive {
-			return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and cannot target the active worktree", false, "emit a reclaim event for the active claim generation")
-		}
-		claimOpID = currentClaim
-	}
 	if currentClaim != claimOpID {
 		return newFailure(KindProjectionConflict, "fold_event", "reclaim event targets a stale worktree claim generation", false, "reclaim the active claim generation")
 	}

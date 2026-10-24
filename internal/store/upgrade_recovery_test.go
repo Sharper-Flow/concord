@@ -122,6 +122,7 @@ DROP TABLE workflow_delivery_state;
 DROP TABLE compaction_publications;
 DROP TABLE workflow_evidence_bindings;
 ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
+ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq;
 ALTER TABLE workflow_instances DROP COLUMN completion_payload;
 ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
 ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;

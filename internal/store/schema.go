@@ -91,7 +91,10 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 			"correct the migration definition", err)
 	}
 	if m.Name == "workflow_evidence_current_facts" {
-		return backfillWorkflowCorrectionFacts(ctx, q)
+		if err := backfillWorkflowCorrectionFacts(ctx, q); err != nil {
+			return err
+		}
+		return backfillWorkflowHealthySequences(ctx, q)
 	}
 	return nil
 }
@@ -6790,6 +6793,7 @@ ALTER TABLE workflow_step_epochs ADD COLUMN latest_dispatch_start_seq INTEGER NO
 ALTER TABLE workflow_step_epochs ADD COLUMN latest_dispatch_start_event_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE workflow_step_epochs ADD COLUMN latest_dispatch_start_payload TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(latest_dispatch_start_payload));
 ALTER TABLE workflow_contracts ADD COLUMN supersession_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workflow_contracts ADD COLUMN last_healthy_seq INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE workflow_instances ADD COLUMN completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload));
 ALTER TABLE workflow_instances ADD COLUMN completion_occurred_at TEXT;
 ALTER TABLE workflow_instances ADD COLUMN unhealthy_verdict_seq INTEGER NOT NULL DEFAULT 0;

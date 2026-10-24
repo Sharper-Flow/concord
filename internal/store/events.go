@@ -298,19 +298,6 @@ func classifyEventIDConflict(ctx context.Context, tx *sql.Tx, attempted Event, i
 		"treat the existing event as the durable effect", insertErr)
 }
 
-// eventIdentityDifferences returns the names of semantic-identity fields that
-// differ between attempted and existing, in a stable order. occurred_at is
-// deliberately omitted: a legitimate retry carries a fresh clock reading and
-// must not be misclassified as divergent. The canonical payload comparison
-// rules live on canonicalJSON.
-func eventIdentityDifferences(attempted, existing Event) []string {
-	diffs := eventHeaderDifferences(attempted, existing)
-	if !payloadsCanonicallyEqual(attempted.Payload, existing.Payload) {
-		diffs = append(diffs, "payload")
-	}
-	return diffs
-}
-
 func eventHeaderDifferences(attempted, existing Event) []string {
 	var diffs []string
 	if attempted.Kind != existing.Kind {
@@ -329,19 +316,4 @@ func eventHeaderDifferences(attempted, existing Event) []string {
 		diffs = append(diffs, "payload_version")
 	}
 	return diffs
-}
-
-// payloadsCanonicallyEqual reports whether two JSON payloads are semantically
-// equal under canonicalJSON. A canonicalization failure on either side is
-// treated as divergent so a malformed payload never silently masks a conflict.
-func payloadsCanonicallyEqual(a, b []byte) bool {
-	aCanonical, errA := canonicalJSON(a)
-	if errA != nil {
-		return false
-	}
-	bCanonical, errB := canonicalJSON(b)
-	if errB != nil {
-		return false
-	}
-	return string(aCanonical) == string(bCanonical)
 }

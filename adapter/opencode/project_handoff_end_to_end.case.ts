@@ -407,6 +407,16 @@ routeDeclaration("host-started session receives real core context without out-of
         expect(added).toHaveLength(1)
         const event = JSON.parse(added[0])
         expect(event).toMatchObject({ kind: "session.orchestrator_identity_asserted", subject_type: "session", subject_id: workID, payload_version: 1 })
+        const receipts = after.effect_receipts.filter((row) => !before.effect_receipts.includes(row))
+        expect(receipts).toHaveLength(1)
+        expect(JSON.parse(receipts[0])).toEqual({
+          event_id: event.event_id, effect_seq: event.seq, kind: event.kind,
+          subject_type: event.subject_type, subject_id: event.subject_id,
+          actor: event.actor, payload_version: event.payload_version,
+          payload_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        })
+        before.effect_receipts.push(receipts[0])
+        before.effect_receipts.sort()
         before.domain_events.push(added[0])
         before.domain_events.sort()
         before.sqlite_sequence = before.sqlite_sequence.map((row) => {

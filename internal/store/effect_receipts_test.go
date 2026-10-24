@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -197,7 +198,9 @@ func TestEffectReceiptWorkerAcknowledgmentLogBlind(t *testing.T) {
 			}
 			hideEffectLog(t, s)
 			got, found, err := eventByID(context.Background(), s.db, e.EventID)
-			if err != nil || !found || got.PayloadVersion != 3 || string(got.Payload) != string(e.Payload) || len(eventIdentityDifferences(got, e)) != 0 {
+			want := e
+			want.Seq, want.OccurredAt = 7, time.Time{}
+			if err != nil || !found || !reflect.DeepEqual(got, want) {
 				t.Fatalf("ack = %+v, %v, %v", got, found, err)
 			}
 		})

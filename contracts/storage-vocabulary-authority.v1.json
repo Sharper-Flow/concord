@@ -144,6 +144,18 @@
       "symbol": "builtinWorkflowRegistry"
     },
     {
+      "table": "effect_receipts",
+      "column": "kind",
+      "authority": "go_registry",
+      "symbol": "eventKindRegistry"
+    },
+    {
+      "table": "effect_receipts",
+      "column": "subject_type",
+      "authority": "go_registry",
+      "symbol": "subjectTypes"
+    },
+    {
       "table": "external_observations",
       "column": "subject_kind",
       "authority": "check"
@@ -452,6 +464,11 @@
     {
       "table": "workflow_overlap_resolutions",
       "column": "resolution_kind",
+      "authority": "check"
+    },
+    {
+      "table": "workflow_staleness_observations",
+      "column": "severity",
       "authority": "check"
     },
     {

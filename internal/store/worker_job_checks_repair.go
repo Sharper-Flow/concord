@@ -110,8 +110,8 @@ func workerChecksRepairWalkTx(ctx context.Context, q queryer, workID string, pre
 }
 
 func workerChecksRepairWatermarkTx(ctx context.Context, q queryer, workID string) (int64, error) {
-	var watermark int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&watermark); err != nil {
+	watermark, err := readWorkEffectSeq(ctx, q, workID)
+	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "worker_job", "cannot read the event watermark", true, "retry once the event log is readable", err)
 	}
 	return watermark, nil

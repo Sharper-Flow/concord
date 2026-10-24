@@ -344,7 +344,7 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if recorded != payload.Digest {
 			return newFailure(KindProjectionConflict, "fold_event", "a worker-job revision is immutable and cannot change content in place", false, "record a new revision of the job instead")
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.SubjectID, payload.JobID, payload.Revision); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=?,recorded_seq=?,recorded_event_id=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.Seq, event.EventID, event.SubjectID, payload.JobID, payload.Revision); err != nil {
 			return workflowProjectionError(err, "cannot retain the recorded job descriptor")
 		}
 		if err := advanceWorkflowVersion(ctx, tx, event, payload.WorkflowVersionFields); err != nil {
@@ -392,7 +392,7 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET (group_permission,group_review_ref,correction_ref)=(SELECT group_permission,group_review_ref,correction_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>'') ORDER BY revision DESC LIMIT 1) WHERE work_id=? AND job_id=? AND revision=? AND EXISTS(SELECT 1 FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>''))`, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision); err != nil {
 		return workflowProjectionError(err, "cannot carry the assignment's admitted group to its new revision")
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.SubjectID, payload.JobID, payload.Revision)
+	_, err = tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=?,recorded_seq=?,recorded_event_id=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.Seq, event.EventID, event.SubjectID, payload.JobID, payload.Revision)
 	if err != nil {
 		return workflowProjectionError(err, "cannot retain the recorded job descriptor")
 	}
@@ -672,7 +672,7 @@ func markWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, event Event
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	for _, entry := range metadata.Revisions {
-		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied', satisfied_at=?, satisfied_result_ref=? WHERE work_id=? AND job_id=? AND revision=? AND state='recorded'`, now, event.EventID, event.SubjectID, entry.WorkerJob.JobID, entry.WorkerJob.Revision); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied', satisfied_at=?, satisfied_result_ref=?,satisfied_seq=? WHERE work_id=? AND job_id=? AND revision=? AND state='recorded'`, now, event.EventID, event.Seq, event.SubjectID, entry.WorkerJob.JobID, entry.WorkerJob.Revision); err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot record the repairing revision's provisional readiness", true, "retry once the database is writable", err)
 		}
 	}
@@ -702,7 +702,7 @@ func revertWorkerJobRepairReadinessTx(ctx context.Context, tx *sql.Tx, workID st
 		return nil
 	}
 	for _, entry := range metadata.Revisions {
-		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='recorded', satisfied_at=NULL, satisfied_result_ref=NULL WHERE work_id=? AND job_id=? AND revision=? AND state='satisfied' AND satisfied_result_ref=?`, workID, entry.WorkerJob.JobID, entry.WorkerJob.Revision, repairRef); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='recorded', satisfied_at=NULL, satisfied_result_ref=NULL,satisfied_seq=0 WHERE work_id=? AND job_id=? AND revision=? AND state='satisfied' AND satisfied_result_ref=?`, workID, entry.WorkerJob.JobID, entry.WorkerJob.Revision, repairRef); err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot void the repairing revision's provisional readiness", true, "retry once the database is writable", err)
 		}
 	}
@@ -779,7 +779,7 @@ func markAcceptedWorkerJobTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 // order, so rebuilds derive the same state.
 func markWorkerJobSatisfiedTx(ctx context.Context, tx *sql.Tx, event Event, binding *WorkerJobBinding) error {
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	result, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied', satisfied_at=?, satisfied_result_ref=? WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, now, event.EventID, event.SubjectID, binding.JobID, binding.Revision, binding.Digest)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied', satisfied_at=?, satisfied_result_ref=?,satisfied_seq=? WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, now, event.EventID, event.Seq, event.SubjectID, binding.JobID, binding.Revision, binding.Digest)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record the worker-job disposition", true, "retry once the database is writable", err)
 	}

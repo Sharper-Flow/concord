@@ -55,14 +55,13 @@ const workerFailureIntegrationAcceptQuery = `SELECT e.event_id,
 	json_extract(e.payload,'$.worker_job.job_id'),
 	json_extract(e.payload,'$.worker_job.revision'),
 	json_extract(e.payload,'$.worker_job.digest')
-FROM domain_events e
-WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND e.seq<=?
-AND json_extract(e.payload,'$.action_id')='accept_worker_result'
+FROM worker_attempt_dispositions e
+WHERE e.work_id=? AND e.seq<=?
+AND e.action_id='accept_worker_result'
 AND json_extract(e.payload,'$.worker_job') IS NOT NULL
 AND NOT EXISTS (
-	SELECT 1 FROM domain_events d
-	WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind AND d.seq<e.seq
-	AND json_extract(d.payload,'$.action_id')='dispatch_worker'
+	SELECT 1 FROM worker_authorizations d
+	WHERE d.work_id=e.work_id AND d.seq<e.seq
 	AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id')
 	AND json_extract(d.payload,'$.checks_repair_review.worker_job.job_id')=json_extract(e.payload,'$.worker_job.job_id')
 	AND json_extract(d.payload,'$.checks_repair_review.worker_job.revision')=json_extract(e.payload,'$.worker_job.revision')
@@ -71,11 +70,10 @@ AND NOT EXISTS (
 ORDER BY e.seq`
 
 // workerFailureIntegrationJobRecordedQuery joins one accepted revision to
-// its retained recording, by the exact job, revision, and digest the
+// its recorded revision row, by the exact job, revision, and digest the
 // acceptance names.
-const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=?
-AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?)`
+const workerFailureIntegrationJobRecordedQuery = `SELECT EXISTS(SELECT 1 FROM worker_job_revisions
+WHERE work_id=? AND job_id=? AND revision=? AND digest=?)`
 
 // workerFailureIntegrationLease is one resolved lease row, scanned raw:
 // ambiguity is decided on row identity alone, and only the single resolved
@@ -263,7 +261,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 	if !watermark.Valid {
 		return nil, true, nil
 	}
-	rows, err := q.QueryContext(ctx, workerFailureIntegrationAcceptQuery, string(SubjectWorkItem), workID, WorkflowActionCompleted, watermark.Int64)
+	rows, err := q.QueryContext(ctx, workerFailureIntegrationAcceptQuery, workID, watermark.Int64)
 	if err != nil {
 		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the event log is readable", err)
 	}
@@ -308,7 +306,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "the accepted worker-job completion at "+key+" of "+workID+" carries a malformed binding", false, "reconcile_operation")
 		}
 		var recorded int
-		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, string(SubjectWorkItem), workID, WorkerJobRecorded, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
+		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, workID, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
 			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the recorded job revision of "+key, true, "retry once the event log is readable", err)
 		}
 		if recorded != 1 {

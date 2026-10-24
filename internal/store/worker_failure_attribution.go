@@ -1164,14 +1164,12 @@ func workerFailurePayloadDigest(payload string) string {
 // own view). A source event recorded after the citing correction is a future
 // citation no fold accepts.
 func workerFailureCompletedEventSource(ctx context.Context, q queryer, workID, eventID string, beforeSeq int64) (payload string, attemptID string, found bool, err error) {
-	err = q.QueryRowContext(ctx, `SELECT payload, COALESCE(json_extract(payload,'$.attempt_id'),'') FROM domain_events
-WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<?)`,
-		string(SubjectWorkItem), workID, WorkerCompleted, eventID, beforeSeq, beforeSeq).Scan(&payload, &attemptID)
+	payload, attemptID, err = readWorkerTerminalSourceBefore(ctx, q, workID, eventID, WorkerCompleted, beforeSeq)
 	if err == sql.ErrNoRows {
 		return "", "", false, nil
 	}
 	if err != nil {
-		return "", "", false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited completed event", true, "retry once the event log is readable", err)
+		return "", "", false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited completed event", true, "retry once the worker terminal fact is readable", err)
 	}
 	return payload, attemptID, true, nil
 }
@@ -1254,8 +1252,8 @@ func verifyWorkerFailureIntegrationResultSourceTx(ctx context.Context, q queryer
 		return workerFailureBoundFailure("integration result source " + source.Locator + " is not an accepted input reference of the cited run's population")
 	}
 	var payload string
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<?)`,
-		string(SubjectWorkItem), workID, WorkflowActionCompleted, source.Locator, beforeSeq, beforeSeq).Scan(&payload)
+	err := q.QueryRowContext(ctx, `SELECT payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND event_id=? AND (?=0 OR seq<?)`,
+		workID, source.Locator, beforeSeq, beforeSeq).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return workerFailureBoundFailure("integration result source " + source.Locator + " names no acceptance event at or before the correction")
 	}
@@ -1293,19 +1291,21 @@ func verifyDerivedFailureAttributionReferenceTx(ctx context.Context, tx *sql.Tx,
 	if p.FailureAttributionRef != terminalEventID {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref "+p.FailureAttributionRef+" does not name the terminal event "+terminalEventID+" the derivation pair derives from", false, "derive the record from the terminal worker.failed event")
 	}
-	var attemptID string
-	err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkerFailed, terminalEventID, event.Seq).Scan(&attemptID)
+	if event.Seq <= 0 {
+		return newFailure(KindMissingEvidence, "fold_event", "action_completed failure_attribution_ref "+terminalEventID+" names no retained terminal worker.failed event", false, "derive the record from the terminal worker.failed event")
+	}
+	_, attemptID, err := readWorkerTerminalSourceBefore(ctx, tx, event.SubjectID, terminalEventID, WorkerFailed, event.Seq)
 	if err == sql.ErrNoRows {
 		return newFailure(KindMissingEvidence, "fold_event", "action_completed failure_attribution_ref "+terminalEventID+" names no retained terminal worker.failed event", false, "derive the record from the terminal worker.failed event")
 	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read the referenced terminal failure event", true, "retry once the event log is readable", err)
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the referenced terminal failure event", true, "retry once the worker terminal fact is readable", err)
 	}
 	if attemptID == "" || attemptID != p.WorkerAttemptID {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref names a terminal whose attempt is not the record's attempt", false, "derive the record from the terminal worker.failed event")
 	}
 	// The reference resolves the terminal's attribution record through the
-	// event-based reader: a referenced terminal whose attribution bytes no
+	// current-fact reader: a referenced terminal whose attribution bytes no
 	// longer decode refuses the derived record too, so the reference always
 	// names a readable attribution or an explicit absence.
 	if _, err := WorkerFailureAttributionForAttemptTx(ctx, tx, event.SubjectID, attemptID); err != nil {

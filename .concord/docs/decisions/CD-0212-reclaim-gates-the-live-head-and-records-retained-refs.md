@@ -7,12 +7,6 @@
   native-removal plan, its original-plan replay, and its durable per-ref
   outcomes; the agent payload schemas that carry these facts,
   [Concord (CON) issue 829](https://linear.app/sharper-flow/issue/CON-829)
-- **Amends:** CD-0096 D3 Destroy at the gate subject, and CD-0144 D1-D2 at
-  the branch each content class reads
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md): [D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs the durable per-ref outcomes: each settlement is one current-row
-  write in one transaction, checked by an expected version and recorded by
-  its idempotency key
 - **Preserves:** CD-0181 in full, CD-0195 D2 in full, the clean-tree,
   observed-session, unstarted, unpublished-lesson, and operator-approval
   gates, and claim-time branch and base identity
@@ -25,10 +19,8 @@
   that contract (CD-0159 D2-D3). This citation records contract approval,
   not verbatim approval of every later exact commitment.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+Operator consent for destructive removal follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
+Other admission, safety, and evidence requirements remain required.
 
 ## Context
 
@@ -332,10 +324,9 @@ and the native removal stays behind the commit.
 - Every audit read reports each unsettled ref outcome as its own
   `retained_ref` drift row, so the operator who arrives after the directory
   is gone, or after a later claim, sees the branch that survived and why.
-- Branch deletions run as pinned no-deref argv git commands, so a
-  runner-level wrapper can no longer move a ref between the pin and the
-  mutation, and a symbolic ref can no longer redirect a deletion onto its
-  target. The whole native phase is carried by argv primitives.
+- Pinned no-deref argv git commands combine expected-tip checking and mutation
+  in one process and cannot redirect deletion through a symbolic ref.
+  The whole native phase is carried by argv primitives.
 - A replayed removal keeps the recorded plan's force and identity: retries
   converge approved forced removals, refuse changed surviving content, and
   never escalate a safe plan.
@@ -496,14 +487,13 @@ and the native removal stays behind the commit.
   asserts that an unavailable pre-deletion observation leaves a durable
   recovery phase carrying the actual failed-observation reason, visible to
   a fresh audit after the safe directory removal.
-- `internal/store.TestReclaimRefOutcomeRowsSurviveLogRebuild` asserts that
-  every phase move of a second cycle is a freshly recorded settlement, so
-  the durable rows keep their exact phase, tip, and reason across
-  interruption and later claims.
-- `internal/store.TestReclaimInterruptedRestorationDebtSurvivesLogRebuild`
-  asserts that restoration debt left by an interrupted repeat cycle stays
-  recorded and audit-visible, and a healthy retry
-  afterwards still restores the ref a checkout names at the pinned tip.
+- `internal/store.TestReclaimRefOutcomeSettlesAfterRestoration` asserts that
+  a healthy retry of a restored ref's recorded removal plan removes the ref
+  and records a settled outcome with the pinned tip and a reason.
+- `internal/store.TestReclaimInterruptedRestorationDebtResolvesAtPinnedTip`
+  asserts that an interrupted repeat cycle leaves recorded restoration debt,
+  and a healthy retry afterwards restores the ref a checkout names at the
+  pinned tip.
 - `internal/store.TestReclaimObservesEveryListedHeadBeforeConcluding`
   asserts that the pre-deletion observation reads every listed worktree's
   symbolic `HEAD`, accumulating holders instead of returning at the first

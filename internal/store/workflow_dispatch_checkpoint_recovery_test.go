@@ -167,7 +167,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 			available: true, model: admissionModelState{contracts: 1, dispatched: true, attempt: "failure_recorded"}, modelApplies: true,
 			build: func(t *testing.T, f crossAttemptFixture) {
 				f.dispatch(t, f.attemptR, f.researchLane, f.dispatcher)
-				failure := workerFailedContextFindingsEvent(f.workID, "failed-"+f.workID, f.attemptR, preferredModelForLane(f.researchLane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+				failure := workerFailedContextFindingsEvent(f.workID, "failed-"+f.workID, f.attemptR, preferredModelForLane(f.researchLane), WorkerFailureWorkerError, nil, CurrentEventPayloadVersion(WorkerFailed))
 				if err := s2WorkerFailedLive(t, f.s, withWorkerFailureObservation(t, failure)); err != nil {
 					t.Fatalf("record authenticated failed terminal: %v", err)
 				}
@@ -269,7 +269,7 @@ func seedResearchWalledCorrection(t *testing.T, workID string) crossAttemptFixtu
 	f.materializeDispatch(t, attemptR2, f.researchLane, f.dispatcher)
 	f.completeReport(t, attemptR2, f.researchLane, 31)
 	f.dispatch(t, attemptV2, f.reviewLane, f.dispatcher)
-	f.completeReviewNoShip(t, attemptV2, 32)
+	f.completeCorrectiveReview(t, attemptV2, 32)
 	if _, err := f.invokeReject(t, readWorkVersion(t, f.s, workID), attemptR2, crossAttemptDispatchEpoch(t, f.s, workID, attemptR2), "r2", 33); err != nil {
 		t.Fatalf("reject the corrected research result: %v", err)
 	}
@@ -417,7 +417,7 @@ func walledResearchAssertRefused(t *testing.T, f crossAttemptFixture, err error,
 }
 
 // The research correction preserves its exact source and recorded history
-// through supersession, launch admission, materialization, and rebuild.
+// through supersession, launch admission, and materialization.
 func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	t.Parallel()
 	const workID = "research-walled-correction-recovery"
@@ -462,7 +462,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 		t.Fatalf("post-materialization review dispatch: %v", reviewErr)
 	}
 	f.materializeDispatch(t, refusedReview, f.reviewLane, f.dispatcher)
-	f.completeReviewNoShip(t, refusedReview, 34)
+	f.completeCorrectiveReview(t, refusedReview, 34)
 	settled = append(settled, refusedReview)
 
 	final := walledResearchCapture(t, f, settled, []string{attemptW}, rejected)
@@ -470,10 +470,6 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	if final.counters.dispatches != 6 || final.counters.authorizations != 6 || final.counters.reports != 5 || final.counters.attempts != 6 || final.counters.verdicts != 0 {
 		t.Fatalf("final effect counters = %+v, want the four historical cycles, fresh research and review, and no verdicts", final.counters)
 	}
-	if err := RebuildFromLog(context.Background(), f.s); err != nil {
-		t.Fatalf("rebuild the projections from the log: %v", err)
-	}
-	walledResearchAssertSame(t, final, walledResearchCapture(t, f, settled, []string{attemptW}, rejected), true)
 	for _, attemptID := range rejected {
 		var completedSeq int64
 		if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attemptID).Scan(&completedSeq); err != nil {

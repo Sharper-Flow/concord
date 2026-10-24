@@ -26,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:14559889c41d6fecc2fdb9537879878846f1d366b2fe249a81f8481d8962acf4",
+  "sha256": "sha256:54da9b3e451c536abfcad467fbfcee3a76d28061c5404286242f8fc74ad93697",
   "status": "accepted",
   "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the recorded work-context view.",
   "tags": [

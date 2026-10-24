@@ -3,34 +3,16 @@
 - **Status:** Accepted
 - **Date:** 2026-09-27
 - **Scope:** How a work item reaches a second repository's coordinator
-  session; the retired session opener and the retired explicit Project
-  selector, the `cross_repository_claim` remedy, the installer's recognition
+  session; the `cross_repository_claim` remedy, the installer's recognition
   of the plugin tuple entry, the coordinator instructions that name the
   route, and the bounded Project-session handoff its sessions record and
   consume
-- **Amends:** CD-0078 D1 and D2 and its rejected pluggable-placement
-  alternative, CD-0163, CD-0176 D2
-- **Amended:** D5's consume binding widened from the authenticated
-  receiving session to the work-and-Project pair: every coordinator
-  session with a verified landing in the receiving Project may dispatch
-  under the frontier handoff's bind. The operator accepted the amendment
-  on 2026-10-07 through the delegated decision the Approval field below
-  records. The widening was first carried by work-65af7591013c1b4d4caa16ef
-  on 2026-10-06 for the Concord (CON) work item CON-850. The amendment
-  also touches CD-0178 D2 at the exclusive session count: the receiving
-  Project can reuse the one current bind from every verified landed
-  coordinator. CD-0178 D2's repository-local execution and its refusal
-  of a move into another repository stay unchanged.
-  Concord (CON) issue CON-910 (2026-10-13) removes the session opener, the
-  explicit Project selector, and the registration-consent rule, and settles
-  D3's expired launch-surface paragraphs and D5's opener-named recovery
-  restriction under the Snowball coordinator's operator-delegated approval.
+- **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
 - **Preserves:** CD-0078 D1's boundary for every Concord binary, CD-0093 D2's
   one-directory binding and D3's fail-closed resolution, CD-0176 D3's
   claimed-directory rules, and CD-0178 D2's repository-local execution with
-  its refusal of a move into another repository; CD-0178 D2's exclusive
-  session count is touched by the accepted amendment above, not preserved
+  its refusal of a move into another repository
 - **Approval:** The operator approved the seven-outcome contract in session
   on 2026-09-27, and that approval covers the original record. For the D5
   amendment, the operator delegated the decision to the coordinator
@@ -67,12 +49,6 @@ session, and a refusal remedy that named nothing an agent could call.
 
 ### D1. Retired: the session opener registration
 
-The session opener, its argv template, its `{directory}`, `{title}`, and
-`{command}` placeholders, and its registration-consent rule are removed. The
-adapter opens no session, runs no opener argv, and reports no opener exit
-status. Concord ships no opener, reads no opener registration from host
-configuration, and stores no opener data anywhere.
-
 The host starts the second coordinator session itself, over CON-771's typed
 `session_placement` detail and the Project's registered canonical checkout.
 A host-started session enters managed work through `concord_work_start`
@@ -80,8 +56,7 @@ A host-started session enters managed work through `concord_work_start`
 
 ### D2. Retired: the explicit Project selector
 
-The explicit member-Project landing selector retired with the session entry
-route. A different Project in the same repository is reached through an
+A different Project in the same repository is reached through an
 explicit `worktree_claim`; a different repository is reached through a
 host-started session there, placed through CON-771's typed
 `session_placement` detail. CD-0093 D3's fail-closed rule binds
@@ -189,12 +164,7 @@ non-member Project wastes a host-started session and fails at the placement
 read, so the membership record comes first.
 
 Two Projects in one repository keep the within-repository move, and this
-record adds no second landing rule inside one repository. The adapter's
-terminal naming retired with the launch layer it served.
-
-Session-to-session messages stay in work-033a2fb710eef89eb4b94e69, and the
-tab-rename parse fault stays in work-ece2f503b41959e5a7bce78d. Neither moves
-under this record.
+record adds no second landing rule inside one repository.
 
 ## Verification
 
@@ -211,8 +181,7 @@ under this record.
   proves the closed resume refuses a `project_id` selector before any child
   runs.
 - `python3 scripts/test-installer.py` proves D4: the tuple entry survives an
-  upgrade with its options and deregisters whole, with opener examples
-  replaced by a current neutral option.
+  upgrade with its options and deregisters whole.
 - `python3 scripts/check-primary-prompts.py` proves the instructions name
   the route, and `go test ./cmd/concord/ -run
   TestLauncherAndCommandCarryNoMultiplexerKnowledge` proves the binaries

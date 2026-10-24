@@ -84,7 +84,12 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; review_input?: AgentLanePacketReviewInput; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+export interface AgentLanePacketReviewInput {
+  input_candidate: AgentLaneReportReview["input_candidate"]
+  dependencies: AgentLaneReportReview["dependencies"]
 }
 
 // The recorded-state members below mirror inputs.law_context,
@@ -98,7 +103,7 @@ export interface AgentLanePacketLawContext {
     law_id: string
     obligation_ids?: string[]
     kind?: "constitution" | "decision" | "spec"
-    status?: "accepted" | "superseded"
+    status?: "accepted"
     title?: string
     path?: string
     criteria?: { criterion: number; predicate_id: string }[]

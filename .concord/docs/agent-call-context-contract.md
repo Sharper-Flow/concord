@@ -10,8 +10,6 @@
 > **Does not decide:** transport/adapter implementation (TS6), result/error field
 > layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
 > rendering, or C15.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** idempotent
-> request replay returns the committed result; no event replay exists.
 
 ## Context
 
@@ -261,6 +259,9 @@ but includes all domain inputs, explicit scope selection, expected entity versio
 and approval-bound consequence content.
 
 ### 7.2 Replay behavior
+
+Idempotent request replay returns the committed result; no event replay exists
+([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
 - Same key + same canonical request digest: re-authorize the caller against the
   original authorized scope, then return the original committed result or current

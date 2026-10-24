@@ -17,7 +17,8 @@ import (
 // Severity reads high as P0/P1 and medium as P2 (CD-0230 D4). A finding
 // qualifies when its oracle tie blocks delivery (it is not a follow-up), it
 // is P0-P2, and the same report does not resolve it; an oracle-free finding
-// has no scope classification and qualifies at P0-P2 in a no_ship report.
+// has no scope classification and qualifies at P0-P2 in a correction_required
+// or revision_required report.
 
 // RecoveryWorkSizeRerun names the one exit of the CD-0229 D6 stop.
 const RecoveryWorkSizeRerun = "rerun the size model through revise_intent with size_inputs"
@@ -115,7 +116,7 @@ func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemp
 	}
 	var report WorkerCompletedPayload
 	if err := json.Unmarshal([]byte(raw), &report); err != nil {
-		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "rebuild the worker events from the authoritative log")
+		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if report.Review == nil {
 		return false, nil

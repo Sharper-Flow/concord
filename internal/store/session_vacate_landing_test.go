@@ -11,10 +11,8 @@ import (
 // leaves every occupancy row standing (a refused host move must not leave a
 // live session in a worktree recorded as empty); the adapter-only
 // vacate-landing verb records the verified landing and releases the session's
-// rows in one transaction; and a recorded work.session_vacated of the prior
-// payload version still releases on fold, replayed unchanged.
-// TestSessionVacateReleasesEveryWorkItemRow in
-// worktree_occupancy_release_test.go carries the prior-version replay.
+// rows in one transaction. Migrated prior-version requests remain stored but
+// cannot supply a current relocation target.
 
 func vacateRequestEvent(eventID, source string) Event {
 	return Event{

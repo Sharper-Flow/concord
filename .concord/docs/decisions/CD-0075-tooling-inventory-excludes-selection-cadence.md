@@ -13,9 +13,6 @@
 - **Related:** CD-0043 (D1), CD-0074, issue #510
 - **Preserves:** CD-0074 D2's path-containment rules, D4's probe exclusion, the
   `tier` cost fact, optional `cost_hint`, `config_path`, and `automation_path`
-- **Supersedes:** CD-0074 D1 only where it requires `cadence`; D2's bad-cadence
-  claim; D3's classification of `on_demand` as a fact; D5 in full; and the
-  cadence clauses in CD-0074's consequences and verification
 
 ## Context
 
@@ -54,12 +51,6 @@ Fixture tests still prove the lexical edge cases against the checker. The new
 constant comparison proves that the schema declares the same edges without
 requiring a second JSON Schema implementation.
 
-### D3. Accepted law changes by narrow supersession
-
-CD-0074 remains the historical record of the original surface. This decision
-narrowly supersedes its cadence clauses instead of rewriting accepted law. All
-other CD-0074 decisions remain in force.
-
 ## Consequences
 
 - Agents can discover tools that never run in CI without receiving a command-
@@ -67,8 +58,7 @@ other CD-0074 decisions remain in force.
 - `tier` continues to describe cost. It never implies required or normal use.
 - Schema/checker drift fails in the repository's required Python test suite,
   including under `python3 -S`.
-- Projects with a `cadence` key must remove it when they adopt this corrected
-  contract. PR #513 introduced no other project manifest before this correction.
+- A `cadence` key fails validation as an unknown field.
 
 ## Rejected alternatives
 

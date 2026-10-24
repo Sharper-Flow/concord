@@ -76,35 +76,28 @@ func seedWorkflowConditionAuthority(t *testing.T, s *store.Store, workID, opID, 
 	}
 }
 
-// restoreWorkflowConditionEvents appends one recorded condition_added event
-// per condition directly to the journal, exactly the shape a pinned item
-// replays: no live workflow family still declares add_condition, so recorded
-// events are the only admission route conditions have.
-func restoreWorkflowConditionEvents(t *testing.T, s *store.Store, workID string, conditions []unboundedCondition) {
+// seedWorkflowConditions supplies the current rows the read producer classifies.
+func seedWorkflowConditions(t *testing.T, s *store.Store, workID string, conditions []unboundedCondition) {
 	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var seq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&seq); err != nil {
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, condition := range conditions {
-		seq++
-		payload, err := json.Marshal(map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"condition_id": condition.id, "await_type": "ci_result", "await_ref": "await:" + strings.TrimPrefix(condition.id, "condition:"),
-			"resolution_authority": "durable_operation:" + condition.opID,
-		})
-		if err != nil {
-			t.Fatal(err)
+		if _, err := tx.Exec(`INSERT INTO workflow_external_conditions(work_id,condition_id,await_type,await_ref,resolution_authority,condition_state,recorded_at) VALUES(?,?,'ci_result',?,?,'open',?)`,
+			workID, condition.id, "await:"+strings.TrimPrefix(condition.id, "condition:"), "durable_operation:"+condition.opID, fixedTime().Format(time.RFC3339Nano)); err != nil {
+			t.Fatalf("seed current condition %s: %v", condition.id, err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`,
-			seq, "condition-added-"+condition.id, store.WorkflowConditionAdded, "work_item", workID, "operator", fixedTime().Format(time.RFC3339Nano), 1, string(payload)); err != nil {
-			t.Fatalf("restore condition event %s: %v", condition.id, err)
-		}
-		version++
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -130,7 +123,7 @@ func seedDistinctStalenessWarnings(t *testing.T, s *store.Store, workID string, 
 }
 
 // classifiedReadFixture is one break-fix workflow whose open-condition and
-// warning populations are real folded store state.
+// warning populations are current store state.
 type classifiedReadFixture struct {
 	store    *store.Store
 	service  *Service
@@ -140,59 +133,15 @@ type classifiedReadFixture struct {
 	warnings []string
 }
 
-// restoreWorkflowDomainHomeLocator journals the Product law locator that the
-// direct Domain fixture seeds. project_locators is a fold projection the
-// rebuild clears, while the Git-derived domains and domain_registries rows
-// restore byte-for-byte after the replay and answer the home-pair triggers
-// against that projection, so the journal must fold the locator back or every
-// rebuild refuses. The locator identity comes from the live seeded Product
-// knowledge home and the recorded bytes from the live seeded row, never from
-// a copied literal; the recorded canonical path replay-validates because the
-// fixture directory is absolute and clean.
-func restoreWorkflowDomainHomeLocator(t *testing.T, s *store.Store, productID string) {
-	t.Helper()
-	var projectID, locatorID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id,locator_id FROM product_knowledge_homes WHERE product_id=?`, productID).Scan(&projectID, &locatorID); err != nil {
-		t.Fatal(err)
-	}
-	var value, normalized string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value,normalized_value FROM project_locators WHERE locator_id=? AND project_id=?`, locatorID, projectID).Scan(&value, &normalized); err != nil {
-		t.Fatal(err)
-	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, projectID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	payload, err := json.Marshal(map[string]any{
-		"project_id": projectID, "locator_id": locatorID, "kind": store.LocatorCanonicalPath,
-		"value": value, "normalized_value": normalized,
-		"expected_version": version, "resulting_version": version + 1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var seq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&seq); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`,
-		seq+1, "locator-replayable-"+locatorID, "project.locator_added", string(store.SubjectProject), projectID, "operator", fixedTime().Format(time.RFC3339Nano), 2, string(payload)); err != nil {
-		t.Fatalf("journal the replayable Domain home locator: %v", err)
-	}
-}
-
 // buildClassifiedReadFixture builds the fixture: blocking conditions with
 // live authority receipts, an optional condition whose authority receipt is
-// removed after the replay (the unreadable-authority shape the ready
+// removed after seeding (the unreadable-authority shape the ready
 // derivation must classify without rewriting), and distinct persisted
-// warnings. The direct Domain home is journaled first, the conditions restore
-// into the journal, and both replay through RebuildFromLog twice, so the
-// published read answers replayed history.
+// warnings.
 func buildClassifiedReadFixture(t *testing.T, blockingCount, idWidth, warningCount int, withUnknown bool) classifiedReadFixture {
 	t.Helper()
 	const workID = "work-1"
 	s, service, _, _, _ := workflowEngineFixture(t, "")
-	restoreWorkflowDomainHomeLocator(t, s, "product-1")
 	conditions := make([]unboundedCondition, 0, blockingCount+1)
 	blocking := make([]string, 0, blockingCount)
 	for i := 0; i < blockingCount; i++ {
@@ -210,12 +159,7 @@ func buildClassifiedReadFixture(t *testing.T, blockingCount, idWidth, warningCou
 		seedWorkflowConditionAuthority(t, s, workID, condition.opID, "evidence:"+condition.opID)
 	}
 	warnings := seedDistinctStalenessWarnings(t, s, workID, warningCount)
-	restoreWorkflowConditionEvents(t, s, workID, conditions)
-	for replay := 0; replay < 2; replay++ {
-		if err := store.RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("journal replay %d refused: %v", replay+1, err)
-		}
-	}
+	seedWorkflowConditions(t, s, workID, conditions)
 	if withUnknown {
 		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "op-unknown-authority"); err != nil {
 			t.Fatal(err)

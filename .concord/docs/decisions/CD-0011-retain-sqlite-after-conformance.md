@@ -4,8 +4,6 @@
 **Date:** 2026-08-07.
 **Approval:** Explicit operator approval after review of PR #16 and issue #17.
 **Type:** Architecture confirmation after a falsifier review.
-**Amended by:** [CD-0195](CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md) at §Falsifier interpretation's escaped-`SQLITE_BUSY` condition: CD-0195 holds the disposition of the two escape classes on record through 2026-09-30. The condition stands unchanged for any later escape.
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log or projection fold exists.
 
 ## Decision
 
@@ -32,7 +30,7 @@ The current architecture therefore remains:
 2. short-lived processes using the in-process store library;
 3. `WAL`, `synchronous=NORMAL`, per-connection foreign keys and busy timeout;
 4. current-row writes checked by expected version and recorded by idempotency key
-   ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event log or projection fold exists), explicit attempt
+, explicit attempt
    epochs, and PM10 Online Backup/Restore;
 5. git as the separate durable-knowledge authority fixed by PM6–PM10.
 
@@ -40,6 +38,12 @@ No single-writer IPC boundary, Dolt server, Postgres, or DBOS authority is intro
 now.
 
 ## Falsifier interpretation
+
+[CD-0195](CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md)
+holds the disposition of the two escaped-`SQLITE_BUSY` classes on record through
+2026-09-30. The condition applies to any later escape.
+The store keeps current rows; no event log or projection fold exists
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 CD-0002 and CD-0008 remain binding. A latency falsifier opens a review; it does not
 select a replacement by itself. This review is complete and retains SQLite.
@@ -78,10 +82,7 @@ required `verify` check with `CONCORD_ACCEPTANCE_RUNNER=1` set by the
 workflow, may report falsifier `passed` or `fired`. Local and development
 runs are diagnostic and remain `inconclusive` even when the threshold is
 exceeded; a CI run missing the required-check signal fails visibly rather
-than silently downgrading the required check. CD-0046 amends this wording
-from "structural" to "invocation provenance" because the enforceable claim
-is provenance of the invocation, not a measurement of how isolated the host
-was. Correctness precedes every latency verdict: any failed correctness
+than silently downgrading the required check. Correctness precedes every latency verdict: any failed correctness
 population forces the falsifier verdict to `inconclusive` and fails the
 run independently.
 

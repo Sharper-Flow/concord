@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8efc933fea4d981f527b2d0b6d1add845271b6b8eaa0775548f1140a3b240407",
+  "sha256": "sha256:2fd00e14183260c154abddc66211b8821f79016d1ac63416308cffdf4c265d41",
   "status": "accepted",
   "summary": "Live work captures with duplicate external references refuse with a typed owner unless raised_from_work_id names that owner, which records a raised_from relation atomically; terminal owners remain reusable.",
   "tags": [

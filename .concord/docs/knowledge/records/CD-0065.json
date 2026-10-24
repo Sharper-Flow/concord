@@ -8,6 +8,7 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/scenarios/workflow-engine.v1.json",
+    "internal/store/workflow_conformance_test.go",
     "internal/store/workflow_registry.go",
     ".concord/docs/workflow-engine-contract.md"
   ],
@@ -22,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ec85cb2abc4387576b2515407f365e4a5bacbb3f673bbcdedd9d78b50276afc9",
+  "sha256": "sha256:9b8b86227ac7d11764ecc3595c44cba0497adf251a12db5111cf3c8054df9e3a",
   "status": "accepted",
-  "summary": "The 48-scenario conformance corpus pins the shipped definition version and exercises the per-work-kind Product-truth classification the shipped definitions declare. Product-changing scenarios author their Domain home, architecture binding, overlap resolution, notice severity, and audit supersession explicitly; overlap blocking gains its first conformance coverage; no definition exists solely to give the corpus a non-Product-changing target; numbering 1..48 is preserved. Law revisions carry synthetic IDs, and the WF48 acceptance-step expectation stands with the version-keyed gate that suppressed strict checks removed under #400 rather than accommodated.",
+  "summary": "The conformance corpus runs current production definitions by reference, with no version pins (CD-0242 D14). Its twelve scenarios and fifteen cases run through the production action boundary and assert authoritative rows and events. No definition exists solely to give the corpus a non-Product-changing target. Obligations the corpus does not carry, such as Domain overlap refusal, require their own current behavioral controls.",
   "tags": [
     "conformance",
     "workflow-definitions",

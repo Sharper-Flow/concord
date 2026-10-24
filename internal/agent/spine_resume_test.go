@@ -334,7 +334,7 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 	}
 	epoch := state.Pinned.Pin.Attempt.Epoch
 	dispatch := store.Event{EventID: "spine-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
 			AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 			PacketDigest: f.packetDigest, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := f.s.Transact(ctx, func(tx *store.Transaction) error {
@@ -361,7 +361,7 @@ func (f *spineFixture) finishWorker(t *testing.T, lane store.LaneDefinition, att
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "Checked value implementation."})
 	}
 	completion := store.Event{EventID: "spine-host-completed-" + attempt, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted),
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted),
 		Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attempt, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion,
 			WorkerDirectory: f.path, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job, Review: review})}
 	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, f.s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: f.work, AttemptID: attempt, EventID: completion.EventID})

@@ -51,9 +51,8 @@ type migration struct {
 	// binary's fold leaves it wrong with no convergence — the migration 108 /
 	// last_activity_at class. Such a step must declare Breaking: true.
 	//
-	// "origin": the fold sets the column once and first derivation wins, so
-	// the backfill and RebuildFromLog agree — the migration 107 /
-	// execution_started_at class (CD-0183 D2).
+	// "origin": the fold sets the column once and first derivation wins —
+	// the execution_started_at class (CD-0183 D2).
 	//
 	// Empty: the step adds no fold-maintained column.
 	FoldMaintained string
@@ -72,8 +71,7 @@ type migrationRunner interface {
 }
 
 // applyMigration runs one step's SQL when the step applies to the database in
-// front of it. The runner and every replay share this, so a conditional step
-// stays conditional wherever it runs.
+// front of it.
 func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Applies != nil {
 		applies, err := m.Applies(ctx, q)
@@ -5970,9 +5968,7 @@ INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,positio
 		// Outside-repair dispositions suspend managed workflow actions
 		// on a live work item, preserve the historical workflow records, and
 		// close the work through an explicit reconciliation event. The
-		// disposition lives in a fold-only projection table; the workflow
-		// instance carries its own state column so a RebuildFromLog reproduces
-		// the same row the live fold wrote. The reconciliation row records the
+		// disposition lives in a fold-only projection table. The reconciliation row records the
 		// released merge and release tag the boundary code authenticated. The
 		// workflow instance gains a closed-outside-repair terminal state without
 		// folding through the ordinary completed gate.
@@ -6099,7 +6095,6 @@ CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_
 	},
 	{
 		// The schema refuses deletes while the owner or a consumer is active.
-		// Rebuild drops this guard during staging and restores it afterward.
 		Version:  123,
 		Name:     "research_retirement_delete_guard",
 		Breaking: true,
@@ -6129,9 +6124,8 @@ END;
 		// linear_issue_links keeps one recorded issue identity per work item
 		// (D3): the key, UUID, and URL the agent read from the Linear MCP
 		// server. A row without a key or URL never held a usable identity and
-		// stays only in the backup. The retired Initiative events still fold
-		// to nothing on replay, so the includes relation rows they wrote are
-		// deleted here to match a rebuild from the log.
+		// stays only in the backup. The retired Initiative's includes relations
+		// are deleted.
 		Version:  124,
 		Name:     "planning_mirror_retirement",
 		Breaking: true,
@@ -6211,7 +6205,7 @@ DELETE FROM fold_guard;
 		Name:     "native_oracle_plan_and_streams",
 		Breaking: true,
 		// Operational leases pin plans at acquire and streams at release, once
-		// per lease. Rebuild preserves these rows through its operational snapshot.
+		// per lease.
 		FoldMaintained: "origin",
 		SQL: `
 ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT CHECK(native_plan_json IS NULL OR (json_valid(native_plan_json) AND length(CAST(native_plan_json AS BLOB))<=65536));
@@ -6282,8 +6276,7 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		Name:     "verify_lease_event_watermark",
 		Breaking: false,
 		// The acquire INSERT, not the fold, writes this column, once per
-		// lease, and first write wins: a rebuild's operational snapshot and
-		// the writer agree, the origin class migration 125 declared for its
+		// lease, and first write wins, the origin class migration 125 declared for its
 		// acquire- and release-written columns.
 		FoldMaintained: "origin",
 		SQL: `
@@ -6432,9 +6425,8 @@ CREATE TRIGGER work_resize_lineage_guard_delete BEFORE DELETE ON work_resize_lin
 		Name:     "workflow_contract_decision_domains",
 		Breaking: false,
 		// The contract fold writes this column once per contract INSERT and
-		// never updates it: first derivation wins, so a rebuild from the event
-		// log and the live writer agree, the origin class migration 127
-		// declared for its lease column. Older rows read NULL.
+		// never updates it: first derivation wins, the origin class migration
+		// 127 declared for its lease column. Older rows read NULL.
 		FoldMaintained: "origin",
 		SQL: `
 -- The workflow contract records its declared decision fact: a canonical
@@ -6536,17 +6528,253 @@ ALTER TABLE worker_job_revisions ADD COLUMN correction_ref TEXT NOT NULL DEFAULT
 `,
 	},
 	{
-		// Migration 138 holds the relocation state live readers need, so none
-		// consults the event log. session_vacate_requests keeps the latest
-		// landing-verified vacate request per work item, session, Project,
-		// and source directory: whether a verified landing completed it, and
-		// its ordinal among the session's requests. session_claim_landings
-		// records each claim generation a session verifiably landed in.
-		// Requests recorded before the landing-verified release, and claim
-		// landings recorded before claim generations, leave no row: they
-		// prove no pending request and no current placement. The tables carry
-		// no foreign key, so work removal leaves them as it leaves the log.
 		Version:  138,
+		Name:     "store_revision",
+		Breaking: false,
+		SQL: `
+CREATE TABLE store_revision (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    revision INTEGER NOT NULL CHECK(typeof(revision)='integer' AND revision>=0)
+);
+INSERT INTO store_revision(id,revision) SELECT 1,COALESCE(MAX(seq),0) FROM domain_events;
+`,
+	},
+	{
+		Version:        139,
+		Name:           "worker_current_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+ALTER TABLE worker_job_revisions ADD COLUMN recorded_payload TEXT CHECK(recorded_payload IS NULL OR json_valid(recorded_payload));
+ALTER TABLE worker_attempts ADD COLUMN dispatch_payload TEXT CHECK(dispatch_payload IS NULL OR json_valid(dispatch_payload));
+ALTER TABLE worker_attempts ADD COLUMN dispatch_event_id TEXT;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_actor TEXT;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_payload_version INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN dispatch_seq INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN terminal_payload TEXT CHECK(terminal_payload IS NULL OR json_valid(terminal_payload));
+ALTER TABLE worker_attempts ADD COLUMN terminal_event_id TEXT;
+ALTER TABLE worker_attempts ADD COLUMN terminal_payload_version INTEGER;
+ALTER TABLE worker_attempts ADD COLUMN terminal_kind TEXT CHECK(terminal_kind IS NULL OR terminal_kind IN ('worker.completed','worker.failed'));
+ALTER TABLE worker_attempts ADD COLUMN failure_recorded INTEGER NOT NULL DEFAULT 0 CHECK(failure_recorded>=0);
+ALTER TABLE workflow_instances ADD COLUMN result_disposition TEXT NOT NULL DEFAULT '';
+CREATE TABLE worker_authorizations (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ attempt_id TEXT NOT NULL,
+ seq INTEGER NOT NULL,
+ payload TEXT NOT NULL CHECK(json_valid(payload)),
+ PRIMARY KEY(work_id,attempt_id)
+);
+CREATE TABLE workflow_step_epochs (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ step_id TEXT NOT NULL,
+ attempt_epoch INTEGER NOT NULL,
+ PRIMARY KEY(work_id,step_id)
+);
+UPDATE worker_job_revisions AS j SET recorded_payload=(SELECT payload FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=j.work_id AND e.kind='worker.job_recorded'
+ AND json_extract(e.payload,'$.job_id')=j.job_id AND json_extract(e.payload,'$.revision')=j.revision
+ ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET (dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_seq,dispatch_payload_version)=(SELECT payload,event_id,actor,seq,payload_version FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind='worker.dispatched'
+ AND json_extract(e.payload,'$.attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET (terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind)=(SELECT payload,event_id,payload_version,kind FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind IN ('worker.completed','worker.failed')
+ AND json_extract(e.payload,'$.attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1);
+UPDATE worker_attempts AS a SET failure_recorded=(SELECT count(*) FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind='workflow.action_completed'
+ AND json_extract(e.payload,'$.action_id')='record_worker_failure' AND json_extract(e.payload,'$.worker_attempt_id')=a.attempt_id);
+INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload)
+ SELECT subject_id,json_extract(payload,'$.worker_attempt_id'),seq,payload FROM domain_events e
+ WHERE subject_type='work_item' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker'
+ AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ AND json_extract(payload,'$.worker_attempt_id') IS NOT NULL
+ AND json_extract(payload,'$.worker_attempt_id')<>''
+ AND seq=(SELECT max(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind
+ AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=json_extract(e.payload,'$.worker_attempt_id'));
+INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch)
+ SELECT subject_id,json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch') FROM domain_events e
+ WHERE subject_type='work_item' AND kind='workflow.action_started'
+ AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ AND seq=(SELECT max(d.seq) FROM domain_events d WHERE d.subject_type=e.subject_type AND d.subject_id=e.subject_id AND d.kind=e.kind
+ AND json_extract(d.payload,'$.step_id')=json_extract(e.payload,'$.step_id'));
+UPDATE workflow_instances AS w SET result_disposition=COALESCE((SELECT json_extract(payload,'$.action_id') FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.subject_id=w.work_id AND e.kind='workflow.action_completed'
+ AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY seq DESC LIMIT 1),'');
+CREATE TRIGGER worker_authorizations_guard_insert BEFORE INSERT ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_authorizations_guard_update BEFORE UPDATE ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_authorizations_guard_delete BEFORE DELETE ON worker_authorizations BEGIN SELECT RAISE(ABORT, 'worker_authorizations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_insert BEFORE INSERT ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_update BEFORE UPDATE ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_epochs_guard_delete BEFORE DELETE ON workflow_step_epochs BEGIN SELECT RAISE(ABORT, 'workflow_step_epochs is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:  140,
+		Name:     "current_knowledge_vocabulary",
+		Breaking: true,
+		SQL: `
+-- Git-derived knowledge is current-only. Copy surviving rows before clearing
+-- the child tables: their RESTRICT keys must stay enforced during the rebuild.
+CREATE TEMP TABLE law_subjects_v140 AS SELECT * FROM law_subjects WHERE status='accepted';
+CREATE TEMP TABLE law_relations_v140 AS
+SELECT r.* FROM law_relations r
+JOIN law_subjects_v140 s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id
+JOIN law_subjects_v140 t ON t.home_project_id=r.home_project_id AND t.home_locator_id=r.home_locator_id AND t.law_id=r.target_law_id
+WHERE r.kind <> 'supersedes';
+CREATE TEMP TABLE law_cross_source_relations_v140 AS
+SELECT r.* FROM law_cross_source_relations r
+JOIN law_subjects_v140 s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id
+WHERE r.kind <> 'supersedes';
+CREATE TEMP TABLE law_bodies_v140 AS
+SELECT b.* FROM law_bodies b
+JOIN law_subjects_v140 s ON s.home_project_id=b.home_project_id AND s.home_locator_id=b.home_locator_id AND s.law_id=b.law_id;
+CREATE TEMP TABLE law_domain_homes_v140 AS
+SELECT h.* FROM law_domain_homes h
+JOIN law_subjects_v140 s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id;
+CREATE TEMP TABLE law_domain_applicability_v140 AS
+SELECT a.* FROM law_domain_applicability a
+JOIN law_subjects_v140 s ON s.home_project_id=a.home_project_id AND s.home_locator_id=a.home_locator_id AND s.law_id=a.law_id;
+CREATE TEMP TABLE domain_relation_governing_laws_v140 AS
+SELECT g.* FROM domain_relation_governing_laws g
+JOIN law_subjects_v140 s ON s.home_project_id=g.home_project_id AND s.home_locator_id=g.home_locator_id AND s.law_id=g.law_id;
+
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+DELETE FROM domain_relation_governing_laws;
+DELETE FROM law_domain_applicability;
+DELETE FROM law_domain_homes;
+DELETE FROM law_bodies;
+DELETE FROM law_cross_source_relations;
+DELETE FROM law_relations;
+DELETE FROM law_subjects;
+DROP TABLE law_cross_source_relations;
+DROP TABLE law_relations;
+DROP TABLE law_subjects;
+
+CREATE TABLE law_subjects (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    law_id             TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('constitution','decision','spec')),
+    status             TEXT NOT NULL CHECK(status='accepted'),
+    path               TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    content_hash       TEXT NOT NULL CHECK(length(content_hash)=71 AND substr(content_hash,1,7)='sha256:'),
+    scanned_commit_oid TEXT NOT NULL,
+    authority_tier     TEXT NOT NULL DEFAULT 'derived' CHECK(authority_tier IN ('legislated','derived')),
+    criterion_bindings TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(criterion_bindings) AND json_type(criterion_bindings)='array'),
+    PRIMARY KEY(home_project_id, home_locator_id, law_id)
+);
+CREATE INDEX law_subjects_lookup ON law_subjects(home_project_id, home_locator_id, status, law_id);
+CREATE UNIQUE INDEX law_subjects_identity_hash ON law_subjects(home_project_id, home_locator_id, law_id, content_hash);
+CREATE TRIGGER law_subjects_guard_insert BEFORE INSERT ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_update BEFORE UPDATE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_guard_delete BEFORE DELETE ON law_subjects FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_subjects is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_subjects_home_pair_bound_insert
+BEFORE INSERT ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_subjects_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_subjects FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_subjects home pair does not reference a Project locator');
+END;
+
+CREATE TABLE law_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('refines','subordinate_to','conflicts_with')),
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    declarer_law_id    TEXT CHECK(declarer_law_id IS NULL OR declarer_law_id IN (source_law_id, target_law_id)),
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_law_id),
+    CHECK(source_law_id <> target_law_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT,
+    FOREIGN KEY(home_project_id, home_locator_id, target_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_relations_target ON law_relations(home_project_id, home_locator_id, kind, target_law_id);
+CREATE UNIQUE INDEX law_relations_conflict_pair ON law_relations(
+    home_project_id, home_locator_id, kind,
+    CASE WHEN kind='conflicts_with' THEN min(source_law_id,target_law_id) ELSE source_law_id END,
+    CASE WHEN kind='conflicts_with' THEN max(source_law_id,target_law_id) ELSE target_law_id END
+);
+CREATE TRIGGER law_relations_guard_insert BEFORE INSERT ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_update BEFORE UPDATE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_guard_delete BEFORE DELETE ON law_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_relations_home_pair_bound_insert
+BEFORE INSERT ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+CREATE TRIGGER law_relations_home_pair_bound_update
+BEFORE UPDATE OF home_project_id, home_locator_id ON law_relations FOR EACH ROW
+WHEN NOT EXISTS (SELECT 1 FROM project_locators pl
+                 WHERE pl.project_id = NEW.home_project_id AND pl.locator_id = NEW.home_locator_id)
+BEGIN
+    SELECT RAISE(ABORT, 'law_relations home pair does not reference a Project locator');
+END;
+
+CREATE TABLE law_cross_source_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('refines','subordinate_to','conflicts_with')),
+    target_project_id  TEXT NOT NULL,
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_project_id, target_law_id),
+    CHECK(source_law_id <> target_law_id OR target_project_id <> home_project_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_cross_source_relations_target ON law_cross_source_relations(home_project_id, home_locator_id, kind, target_project_id, target_law_id);
+CREATE TRIGGER law_cross_source_relations_guard_insert BEFORE INSERT ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_update BEFORE UPDATE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_delete BEFORE DELETE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+INSERT INTO law_subjects SELECT * FROM law_subjects_v140;
+INSERT INTO law_relations SELECT * FROM law_relations_v140;
+INSERT INTO law_cross_source_relations SELECT * FROM law_cross_source_relations_v140;
+INSERT INTO law_bodies SELECT * FROM law_bodies_v140;
+INSERT INTO law_domain_homes SELECT * FROM law_domain_homes_v140;
+INSERT INTO law_domain_applicability SELECT * FROM law_domain_applicability_v140;
+INSERT INTO domain_relation_governing_laws SELECT * FROM domain_relation_governing_laws_v140;
+
+CREATE TEMP TABLE retired_knowledge_v140 AS
+SELECT home_project_id,home_locator_id,id FROM archived_work
+WHERE type <> 'work_note' AND terminal_state='superseded';
+DELETE FROM archived_work_products WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_projects WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_components WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_domains WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work_tags WHERE (home_project_id,home_locator_id,work_id) IN (SELECT * FROM retired_knowledge_v140);
+DELETE FROM archived_work WHERE (home_project_id,home_locator_id,id) IN (SELECT * FROM retired_knowledge_v140);
+
+-- A Git commit hash alone cannot identify the changed projection semantics.
+DELETE FROM knowledge_index_watermark;
+DELETE FROM fold_guard WHERE active=1;
+DROP TABLE retired_knowledge_v140;
+DROP TABLE domain_relation_governing_laws_v140;
+DROP TABLE law_domain_applicability_v140;
+DROP TABLE law_domain_homes_v140;
+DROP TABLE law_bodies_v140;
+DROP TABLE law_cross_source_relations_v140;
+DROP TABLE law_relations_v140;
+DROP TABLE law_subjects_v140;
+`,
+	},
+	{
+		// Requests retain their latest pending or landed state per source.
+		// Claim landings prove placement only for their exact claim generation.
+		Version:  141,
 		Name:     "session_relocation_facts",
 		Breaking: false,
 		SQL: `
@@ -6557,11 +6785,11 @@ CREATE TABLE session_vacate_requests (
  project_id TEXT NOT NULL,
  source_directory TEXT NOT NULL,
  destination_directory TEXT NOT NULL,
- request_ordinal INTEGER NOT NULL CHECK(request_ordinal>0),
+ request_seq INTEGER NOT NULL CHECK(request_seq>0),
  landed INTEGER NOT NULL CHECK(landed IN (0,1)),
  PRIMARY KEY(work_id,session_ref,project_id,source_directory)
 );
-CREATE INDEX session_vacate_requests_session ON session_vacate_requests(session_ref,project_id,request_ordinal);
+CREATE INDEX session_vacate_requests_session ON session_vacate_requests(session_ref,project_id,request_seq);
 CREATE TABLE session_claim_landings (
  work_id TEXT NOT NULL,
  session_ref TEXT NOT NULL,
@@ -6574,12 +6802,11 @@ CREATE TEMP TABLE session_vacate_history AS
   json_extract(payload,'$.session_ref') AS session_ref,
   json_extract(payload,'$.project_id') AS project_id,
   json_extract(payload,'$.source_directory') AS source_directory,
-  COALESCE(json_extract(payload,'$.destination_directory'),'') AS destination_directory,
-  ROW_NUMBER() OVER (PARTITION BY json_extract(payload,'$.session_ref') ORDER BY seq) AS request_ordinal
+  COALESCE(json_extract(payload,'$.destination_directory'),'') AS destination_directory
  FROM domain_events
  WHERE kind='work.session_vacated' AND payload_version=2;
-INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_ordinal,landed)
- SELECT h.work_id, h.session_ref, h.project_id, h.source_directory, h.destination_directory, h.request_ordinal,
+INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_seq,landed)
+ SELECT h.work_id, h.session_ref, h.project_id, h.source_directory, h.destination_directory, h.seq,
   EXISTS(SELECT 1 FROM domain_events l WHERE l.kind='work.session_vacate_landed' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.session_ref')=h.session_ref AND l.seq>h.seq)
  FROM session_vacate_history h
  WHERE h.seq=(SELECT max(o.seq) FROM session_vacate_history o WHERE o.work_id=h.work_id AND o.session_ref=h.session_ref AND o.project_id=h.project_id AND o.source_directory=h.source_directory);
@@ -6587,7 +6814,7 @@ DROP TABLE session_vacate_history;
 INSERT OR IGNORE INTO session_claim_landings(work_id,session_ref,project_id,claim_op_id)
  SELECT subject_id, json_extract(payload,'$.session_ref'), json_extract(payload,'$.project_id'), json_extract(payload,'$.claim_op_id')
  FROM domain_events
- WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.claim_op_id') IS NOT NULL;
+ WHERE kind='work.session_claim_landed' AND json_extract(payload,'$.claim_op_id') <> '';
 CREATE TRIGGER session_vacate_requests_guard_insert BEFORE INSERT ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER session_vacate_requests_guard_update BEFORE UPDATE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER session_vacate_requests_guard_delete BEFORE DELETE ON session_vacate_requests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'session_vacate_requests is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
@@ -6951,11 +7178,12 @@ func upgradeRequired(m migration) *Failure {
 }
 
 func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
-	tx, err := beginOrdinaryTx(ctx, db)
+	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
 			"retry once the database is writable", err)
 	}
+	tx := write.Tx
 	rollback := func(cause error) error {
 		_ = tx.Rollback()
 		return cause
@@ -7033,6 +7261,11 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 		if err := applyMigration(ctx, tx, m); err != nil {
 			return rollback(err)
+		}
+		if m.Version >= 138 {
+			if err := advanceStoreRevision(ctx, tx); err != nil {
+				return rollback(err)
+			}
 		}
 		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
 		if _, err := tx.ExecContext(ctx,

@@ -6,11 +6,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// supersedeCompactionMandatedLaw gives work-cancelled an active contract that
-// mandates one law, then supersedes that law in the Git-derived projection its
-// resolved knowledge home owns. The compaction claim must refuse against this
-// state before any git note is written.
-func supersedeCompactionMandatedLaw(t *testing.T, s *store.Store, home store.KnowledgeHome) {
+// deleteCompactionMandatedLaw leaves work-cancelled pinning a law deleted from
+// its resolved knowledge home. The claim must refuse before any Git note write.
+func deleteCompactionMandatedLaw(t *testing.T, s *store.Store, home store.KnowledgeHome) {
 	t.Helper()
 	actor := store.DeriveWorkflowActorRef("principal:operator", "client:compaction", "agent:operator", "session:compaction")
 	statements := []struct {
@@ -20,14 +18,13 @@ func supersedeCompactionMandatedLaw(t *testing.T, s *store.Store, home store.Kno
 		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
 		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:operator','client:compaction','agent:operator','session:compaction','operator','2026-08-19T00:00:00Z')`, []any{actor}},
 		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-cancelled',1,'compaction claim boundary','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'["spec:one"]','[]',1,'prototype_internal')`, []any{actor}},
-		{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,'spec:one','spec','superseded','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test')`, []any{home.HomeProjectID, home.HomeLocatorID}},
-		{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,'spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, []any{home.HomeProjectID, home.HomeLocatorID}},
-		{`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,'spec:two','supersedes','spec:one','test')`, []any{home.HomeProjectID, home.HomeLocatorID}},
+		{`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-cancelled',1,'spec:one','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`, nil},
+		{`DELETE FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id='spec:one'`, []any{home.HomeProjectID, home.HomeLocatorID}},
 		{`DELETE FROM fold_guard`, nil},
 	}
 	for _, statement := range statements {
 		if _, err := s.DatabaseForTesting().Exec(statement.query, statement.args...); err != nil {
-			t.Fatalf("supersede mandated law (%s): %v", statement.query, err)
+			t.Fatalf("delete mandated law (%s): %v", statement.query, err)
 		}
 	}
 }
@@ -39,7 +36,7 @@ func supersedeCompactionMandatedLaw(t *testing.T, s *store.Store, home store.Kno
 func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 	t.Parallel()
 	s, service, grant, privateKey, home := agentJobsCompactionFixture(t)
-	supersedeCompactionMandatedLaw(t, s, home)
+	deleteCompactionMandatedLaw(t, s, home)
 
 	var operationsBefore, eventsBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&operationsBefore); err != nil {
@@ -60,9 +57,9 @@ func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 	if response.Error.StaleLawRevision == nil {
 		t.Fatal("claim refusal carries no typed stale_law_revision detail")
 	}
-	if response.Error.StaleLawRevision.OldLawID != "spec:one" || response.Error.StaleLawRevision.AcceptedSuccessorLawID != "spec:two" {
-		t.Fatalf("claim refusal old=%q successor=%q, want spec:one and spec:two",
-			response.Error.StaleLawRevision.OldLawID, response.Error.StaleLawRevision.AcceptedSuccessorLawID)
+	if response.Error.StaleLawRevision.OldLawID != "spec:one" || response.Error.StaleLawRevision.OldContentHash != observationBoundaryOldHash {
+		t.Fatalf("claim refusal old=%q hash=%q, want the deleted law and its pin",
+			response.Error.StaleLawRevision.OldLawID, response.Error.StaleLawRevision.OldContentHash)
 	}
 
 	if archivedCancelledWorkCount(t, s) != 0 {

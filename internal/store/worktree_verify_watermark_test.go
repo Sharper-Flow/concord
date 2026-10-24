@@ -136,7 +136,7 @@ func TestAcquireVerifyLeaseRecordsWorkEventWatermark(t *testing.T) {
 	payload := `{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":` + strconv.FormatInt(version, 10) + `,"resulting_version":` + strconv.FormatInt(version+1, 10) + `}`
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "work-wm-after-acquire", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1,
+		Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.memberships_replaced"),
 		Payload: jsonRaw(payload),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): version}}); err != nil {
 		t.Fatal(err)

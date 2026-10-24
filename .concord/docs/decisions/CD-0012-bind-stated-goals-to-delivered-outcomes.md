@@ -73,8 +73,7 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: no historical pins are retained, and identities active work needs derive at the integration boundary.
-
+For definitions declaring `approval_policy=consequence_v1`, CD-0013 D11 qualifies the operator-authored contract and operator-confirmed premise requirements. A valid contract, current-version premise confirmation, independent evaluation, and every outcome/evidence obligation remain required. Engineering confirmation records its authenticated coordinator, not a fictitious operator. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D1. The outcome contract has three parts with three revision authorities
 
@@ -98,8 +97,7 @@ adopted because the counter-evidence requires it, and it is not adopted consensu
 further choices inside D1 are Concord design decisions that R5 does **not** establish:
 vesting candidate-set revision in the executing agent rather than the operator, and
 recording that revision as a current-row change rather than as a re-approval. Both follow from
-D6's requirement that revision be visible without being obstructive; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: each mutation writes current rows in one transaction, not an appended event. They
+D6's requirement that revision be visible without being obstructive; each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). They
 are stated here as design, not as findings.
 
 ### D2. The end-state mandate is approved at planning, beside the spec mandate
@@ -213,7 +211,7 @@ to in-flight discoveries generally.
 
 The approving authority authors the end-state check at approval, and it stays immutable for that contract: an execution-time write to it is refused, and the executing agent may not author, re-select, weaken, or disable it.
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result, and no separate final evaluator or executing-actor distinctness beyond these rules is required.
+Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 ### D8. Route conventions that determine the operative verb are declared at approval
 
@@ -304,9 +302,7 @@ about recorded findings, not about a change being made.
   pretend the floor is free: a type that becomes materially heavier is a genuine regression
   against Priority 5 and must surface rather than be absorbed.
 - **The loop names the second party.**
-  [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-  governs: Main dispatches Review as its own stage, Implement cannot accept its
-  own result, and no distinct final evaluator beyond Review is required.
+  Main dispatches Review as its own stage, Implement cannot accept its own result, and no distinct final evaluator beyond Review is required ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
  - A change to the agent-visible outcome contract carries generated-manifest,
    digest, strict-schema, deterministic-scenario, and authority-evidence cost that
    [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) attaches to it.
@@ -335,8 +331,8 @@ follow the existing corpus conventions; this decision does not itself modify
 2. A change contract approved with no required end-state is refused at approval (D4).
 3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
-4. A delivery asserting a weaker end-state than approved is refused at completion, with a
-   typed outcome-mismatch result rather than a generic error (D3, TS7).
+4. A delivery asserting a weaker end-state than approved is refused at completion,
+   because Review records no passing proof for the weaker criterion (D3, CD-0235 D2).
 5. A delivery asserting a stronger end-state than approved is accepted (D3).
 6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).
@@ -379,8 +375,7 @@ These are named rather than silently decided by implication.
    named executable check, or a bounded expression language. D3 requires only that two
    assertions be comparable for strength.
 2. **Storage shape.** How current rows record contract approval, candidate-set revision, and
-   outcome verdict ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction;
-   no domain events exist).
+   outcome verdict (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 3. **Strength ordering for behavioral assertions.** Mechanical for existence and absence;
    open for richer assertions. Until resolved, comparison in ambiguous cases surfaces to
    the operator rather than defaulting to pass.

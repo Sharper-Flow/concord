@@ -175,7 +175,7 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 	// transaction; the store pools one connection.
 	historicalWorkCreated := func(id, eventID, kind, title string) Event {
 		created := operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{"work_kind": kind, "title": title, "priority": 0})
-		created.PayloadVersion = 2
+		created.PayloadVersion = CurrentEventPayloadVersion("work.created")
 		return created
 	}
 	historical := []Event{

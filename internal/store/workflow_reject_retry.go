@@ -297,6 +297,13 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 		binding["contract_version"] = contractVersionValue
 	}
 	inputs := map[string]any{"task": task, "binding": binding, "report_protocol": reportProtocol}
+	reviewInput, err := currentWorkerReviewInput(ctx, tx, workID, lane, definition)
+	if err != nil {
+		return nil, err
+	}
+	if reviewInput != nil {
+		inputs["review_input"] = reviewInput
+	}
 	if err := retryPacketWorkerJobTx(ctx, tx, definition, workID, currentStep, lane, rejectedAttempt, inputs); err != nil {
 		return nil, err
 	}
@@ -477,7 +484,7 @@ func retryPacketOutcomePredicatesTx(ctx context.Context, tx *sql.Tx, workID stri
 	for _, predicate := range predicates {
 		var payload json.RawMessage
 		if json.Unmarshal([]byte(predicate.OutcomePayload), &payload) != nil {
-			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		decoded = append(decoded, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": payload})
 	}

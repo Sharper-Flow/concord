@@ -130,12 +130,6 @@
     },
     {
       "domain_ids": [
-        "workflow-engine"
-      ],
-      "path": "internal/workflowcorpus"
-    },
-    {
-      "domain_ids": [
         "agent-surface",
         "operator-surface",
         "product-memory",

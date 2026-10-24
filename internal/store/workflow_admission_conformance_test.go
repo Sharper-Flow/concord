@@ -43,11 +43,9 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 
 type admissionConformanceView struct {
 	Step, Lifecycle, InstanceState                                               string
-	RefinementWorkflow, ReviewStep                                               bool
+	RefinementWorkflow                                                           bool
 	ActiveContracts                                                              int64
 	LateCriterionAssociation, LawPinStale, DesignStale, ArtifactStale            bool
-	ReviewDebt                                                                   WorkflowReviewDebt
-	ReadyReview, ReadyReviewSettles                                              bool
 	Review                                                                       admissionReviewView
 	WorkerFailureRecovery, CorrectionRecovery, CorrectionRequestRecovery         bool
 	UnconsumedUnboundRejection, DispatchHold, PendingOperatorDecision            bool
@@ -69,10 +67,10 @@ type admissionConformanceView struct {
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
 	view := admissionConformanceView{
 		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
-		RefinementWorkflow: state.RefinementWorkflow, ReviewStep: state.ReviewStep,
-		ActiveContracts: state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
+		RefinementWorkflow: state.RefinementWorkflow,
+		ActiveContracts:    state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
 		LateCriterionAssociation: state.LateCriterionAssociation, ArtifactStale: state.ArtifactStale,
-		ReviewDebt: state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "", Review: admissionReviewViewOf(state.Review),
+		Review:                admissionReviewViewOf(state.Review),
 		WorkerFailureRecovery: state.WorkerFailureRecovery,
 		CorrectionRecovery:    state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		UnconsumedUnboundRejection: state.UnconsumedUnboundRejection,
@@ -90,9 +88,6 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 	}
 	if state.Delivery.ProofRequired {
 		view.DeliveryProofReady, view.DeliveryProofFailure = state.Delivery.ProofReady, state.Delivery.ProofFailure != nil
-	}
-	if view.ReadyReview {
-		view.ReadyReviewSettles = state.ReadyReviewSettles
 	}
 	return view
 }
@@ -137,7 +132,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	journey := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	s, workID := f.store, f.workID
 	definition := pinnedWorkflowDefinitionForTest(t, s, workID)
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1, engineering: true}
+	model := admissionModelState{step: "repair", contracts: 1, engineering: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "before worker job")
 	job := WorkerJobBinding{JobID: "job:conformance"}
 	for round := 1; round <= 2; round++ {
@@ -211,7 +206,7 @@ func conformanceImplementComplete(t *testing.T, j *candidateJourney, job *Worker
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	event := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: job,
 	})}

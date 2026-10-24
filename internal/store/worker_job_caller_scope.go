@@ -189,16 +189,12 @@ func validateWorkerJobAllowanceShape(projectScope string, allowance *WorkerJobCa
 	return nil
 }
 
-// readWorkerJobAllowancesTx scans the work's worker.job_recorded events once
-// and maps every recorded revision binding onto the direct-caller allowance
-// its event retained (absent when the revision carries none). Like the
-// oracle reader, the allowance reads from the events — no projection column
-// carries it — and the queryer already in hand is used, never a *Store
-// reach through the pool inside a transaction.
+// readWorkerJobAllowancesTx maps each current revision binding to its retained
+// direct-caller allowance, using the caller's queryer throughout.
 func readWorkerJobAllowancesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*WorkerJobCallerAllowance, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.direct_caller_allowance') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.direct_caller_allowance') FROM worker_job_revisions WHERE work_id=? AND recorded_payload IS NOT NULL`, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read recorded worker-job allowances", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read recorded worker-job allowances", true, "retry once the worker-job descriptors are readable", err)
 	}
 	defer rows.Close()
 	allowances := map[WorkerJobBinding]*WorkerJobCallerAllowance{}
@@ -207,19 +203,19 @@ func readWorkerJobAllowancesTx(ctx context.Context, q queryer, workID string) (m
 		var revision int64
 		var rawAllowance sql.NullString
 		if err := rows.Scan(&jobID, &revision, &digest, &rawAllowance); err != nil {
-			return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan recorded worker-job allowances", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan recorded worker-job allowances", true, "retry once the worker-job descriptors are readable", err)
 		}
 		if !rawAllowance.Valid || rawAllowance.String == "" || rawAllowance.String == "null" {
 			continue
 		}
 		var allowance WorkerJobCallerAllowance
 		if err := json.Unmarshal([]byte(rawAllowance.String), &allowance); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a direct-caller allowance that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a direct-caller allowance that is not one closed object", false, "reconcile the invalid retained worker-job descriptor before retrying")
 		}
 		allowances[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}] = &allowance
 	}
 	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan recorded worker-job allowances", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot scan recorded worker-job allowances", true, "retry once the worker-job descriptors are readable", err)
 	}
 	return allowances, nil
 }
@@ -338,7 +334,7 @@ func workerJobCorrectionPathsTx(ctx context.Context, q queryer, workID string) (
 		}
 		var scope []string
 		if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+			return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		paths[jobID] = scope
 	}
@@ -492,7 +488,7 @@ func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, bindin
 	}
 	var scope []string
 	if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return scope, nil
 }
@@ -501,38 +497,49 @@ func workerJobPathScopeTx(ctx context.Context, tx *sql.Tx, workID string, bindin
 // dispatch authorization bound to its completion.
 func workerDispatchCallerExclusionsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_caller_exclusions'),'[]') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_caller_exclusions'),'[]') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the dispatch's caller exclusions", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the dispatch's caller exclusions", true, "retry once the worker authorization is readable", err)
 	}
 	var exclusions []string
 	if err := json.Unmarshal([]byte(raw), &exclusions); err != nil {
-		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "rebuild the workflow events from the authoritative log")
+		return nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "a dispatch authorization carries caller exclusions that are not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return exclusions, nil
+}
+
+// workerDeliveredDelta contains the current observation acceptance can admit.
+// A nil ChangedPaths is missing evidence; an empty non-nil set is an observation.
+type workerDeliveredDelta struct {
+	Commit       string   `json:"commit"`
+	Tree         string   `json:"tree,omitempty"`
+	State        string   `json:"state"`
+	Base         string   `json:"base,omitempty"`
+	BaseTree     string   `json:"base_tree,omitempty"`
+	ChangedPaths []string `json:"changed_paths"`
 }
 
 // readWorkerCompletedDeliveryTx reads the direct-caller repairs and the
 // core's delivery observation the attempt's worker.completed report
 // carries; both are absent when the attempt recorded no completion.
-func readWorkerCompletedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, *WorkerObservedDelivery, error) {
+func readWorkerCompletedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]WorkerDirectCallerRepair, *workerDeliveredDelta, error) {
 	var raw string
-	err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&raw)
+	err := tx.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, attemptID, WorkerCompleted).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's completion", true, "retry once the event log is readable", err)
+		return nil, nil, wrapFailure(KindUnavailable, "worker_job_caller_scope", "cannot read the accepted attempt's completion", true, "retry once the worker terminal fact is readable", err)
 	}
 	var payload struct {
 		DirectCallerRepairs []WorkerDirectCallerRepair `json:"direct_caller_repairs"`
-		ObservedDelivery    *WorkerObservedDelivery    `json:"observed_delivery"`
+		ObservedDelivery    *workerDeliveredDelta      `json:"observed_delivery"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return nil, nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "the accepted attempt's completion payload is not readable", false, "rebuild the worker events from the authoritative log")
+		return nil, nil, newFailure(KindInvariantViolation, "worker_job_caller_scope", "the accepted attempt's completion payload is not readable", false, "reconcile the invalid retained worker terminal fact before retrying")
 	}
 	return payload.DirectCallerRepairs, payload.ObservedDelivery, nil
 }
@@ -583,7 +590,7 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 			return refuse("reports direct-caller repairs on a "+lane.CapabilityClass+" attempt without editing authority",
 				"reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
 		}
-		if observed != nil && (observed.Commit != observed.Base || len(observed.ChangedPaths) > 0 || len(observed.Paths) > 0) {
+		if observed != nil && (observed.Commit != observed.Base || len(observed.ChangedPaths) > 0) {
 			return refuse("changed its subject without editing authority", "reject the result with reject_worker_result and restore the assigned candidate")
 		}
 		return nil
@@ -592,16 +599,12 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 		if allowance == nil && !slices.Contains(lane.Capabilities, "inspect_diff") {
 			return nil
 		}
-		return newFailure(KindMissingEvidence, "workflow_action",
-			"accept_worker_result: worker job "+job.JobID+" completion carries no clean delta observed from the dispatched subject commit, so its changed paths cannot be held to its path scope",
-			false, "reject the result with reject_worker_result and dispatch a correction from a qualified subject that delivers a clean committed tree")
+		return workerDeliveredDeltaMissing(job)
 	}
-	// A stored v8 completion observed its delta as the retired measured
-	// paths; their names are the same changed-path set.
+	if observed.ChangedPaths == nil {
+		return workerDeliveredDeltaMissing(job)
+	}
 	delta := observed.ChangedPaths
-	for _, measured := range observed.Paths {
-		delta = append(delta, measured.Path)
-	}
 	changed := map[string]bool{}
 	for _, path := range delta {
 		changed[path] = true
@@ -652,6 +655,12 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 	return nil
 }
 
+func workerDeliveredDeltaMissing(job *WorkerJobBinding) error {
+	return newFailure(KindMissingEvidence, "workflow_action",
+		"accept_worker_result: worker job "+job.JobID+" completion carries no clean delta observed from the dispatched subject commit, so its changed paths cannot be held to its path scope",
+		false, "reject the result with reject_worker_result and dispatch a correction from a qualified subject that delivers a clean committed tree")
+}
+
 // workerCallerPathForeignOwnerTx names another work item that owns a caller
 // path: a non-terminal item whose recorded worker job in the same Project
 // scopes the path, or an item holding a path claim on it. It returns the
@@ -669,7 +678,7 @@ func workerCallerPathForeignOwnerTx(ctx context.Context, tx *sql.Tx, workID, pro
 		}
 		var scope []string
 		if err := json.Unmarshal([]byte(raw), &scope); err != nil {
-			return "", newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "rebuild the worker-job projection from the event log")
+			return "", newFailure(KindInvariantViolation, "worker_job_caller_scope", "a recorded worker-job revision carries a path scope that is not one string list", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if workerJobPathsIntersect(scope, path) {
 			return "work item " + otherWork + "'s recorded job scope covers", nil

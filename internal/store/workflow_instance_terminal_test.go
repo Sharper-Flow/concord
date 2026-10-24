@@ -138,61 +138,18 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	}
 }
 
-// Migration 74 closes the instances that earlier terminal folds left live,
-// with the state the fold now records and the item's terminal time as the
-// stamp. A log rebuild reproduces the same row, so the repaired projection
-// and the replayed projection agree.
+// Migration 75 closes instances that terminal work items left live and uses
+// each item's terminal time as the completion stamp.
 func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	// The event log must replay under the current registry, so it is
-	// authored by the current write path on a full-schema sibling store and
-	// copied verbatim. The fixture itself stops before 75: the write path
-	// now ends in the initiative invariant validator, whose projection
-	// tables belong to migration 120, so a v74 fixture cannot run it.
-	sibling := openTemp(t)
-	defer sibling.Close()
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
-	terminal := map[string]string{}
-	for workID, lifecycle := range orphans {
-		_, version := startWorkflowPinnedTo(t, sibling, workID, definition)
-		switch lifecycle {
-		case "superseded":
-			seedWork(t, sibling, workID+"-successor")
-			if err := applyWorkEvent(t, sibling, workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1), workVersion(workID, version)); err != nil {
-				t.Fatal(err)
-			}
-		case "completed":
-			// The historical orphan migration 75 repairs predates the
-			// CD-0183 gate, so the recorded transition folds under the
-			// replay context a rebuild gives it, exactly as the log that
-			// survives from an earlier release does.
-			event := workTransitionEvent(workID+"-end", workID, "in_progress", "completed", version, version+1)
-			if err := ApplyOperation(workflowReplayContext(context.Background()), sibling, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-				t.Fatal(err)
-			}
-			assertFoldGuardEmpty(t, sibling)
-		default:
-			// The action start above moves the item to in_progress (CD-0183
-			// D1), so the terminal transition starts from there.
-			if err := applyWorkEvent(t, sibling, workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1), workVersion(workID, version)); err != nil {
-				t.Fatal(err)
-			}
-		}
-		var lifecycleAt, terminalAt string
-		if err := sibling.DatabaseForTesting().QueryRow(`SELECT lifecycle,coalesce(terminal_time,'') FROM work_items WHERE id=?`, workID).Scan(&lifecycleAt, &terminalAt); err != nil {
-			t.Fatal(err)
-		}
-		if lifecycleAt != lifecycle || terminalAt == "" {
-			t.Fatalf("sibling %s lifecycle=%q terminal_time=%q", workID, lifecycleAt, terminalAt)
-		}
-		terminal[workID] = terminalAt
-	}
+	const terminalAt = "2026-09-06T01:00:00Z"
 
 	path := filepath.Join(t.TempDir(), "concord-orphans.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -217,47 +174,22 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := ensureInstallationKey(ctx, db); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',zeroblob(32),'2026-09-06T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 
-	// Reproduce the state an earlier binary left: the item is terminal, the
-	// instance is still live, and the log holds the history a rebuild
-	// replays. Guarded direct SQL writes the projection rows; the log is
-	// the sibling's, copied in order.
+	// Reproduce the migration input directly: terminal work with a live instance.
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for workID, lifecycle := range orphans {
 		if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,?,?,?,?,?)`,
-			workID, "task", "Orphan "+workID, lifecycle, 1, 2, terminal[workID], terminal[workID], terminal[workID]); err != nil {
+			workID, "task", "Orphan "+workID, lifecycle, 1, 2, terminalAt, terminalAt, terminalAt); err != nil {
 			t.Fatalf("seed %s: %v", workID, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_model) VALUES(?,?,?,?,?,'running','single_actor')`,
 			workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, "proposal"); err != nil {
 			t.Fatalf("seed instance %s: %v", workID, err)
-		}
-	}
-	siblingRows, err := sibling.DatabaseForTesting().Query(`SELECT event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var events [][]any
-	for siblingRows.Next() {
-		var eventID, kind, subjectType, subjectID, actor, occurredAt, payload string
-		var payloadVersion int
-		if err := siblingRows.Scan(&eventID, &kind, &subjectType, &subjectID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
-			siblingRows.Close()
-			t.Fatal(err)
-		}
-		events = append(events, []any{eventID, kind, subjectType, subjectID, actor, occurredAt, payloadVersion, payload})
-	}
-	if err := errors.Join(siblingRows.Err(), siblingRows.Close()); err != nil {
-		t.Fatal(err)
-	}
-	for _, event := range events {
-		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event...); err != nil {
-			t.Fatalf("copy event %v: %v", event[0], err)
 		}
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -272,7 +204,6 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 		t.Fatalf("seeded %d live instances, want %d", live, len(orphans))
 	}
 
-	s := &Store{db: db, path: path}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration over orphaned instances: %v", err)
 	}
@@ -296,8 +227,4 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 		}
 	}
 	assertOrphansClosed("after migration")
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after migration: %v", err)
-	}
-	assertOrphansClosed("after rebuild")
 }

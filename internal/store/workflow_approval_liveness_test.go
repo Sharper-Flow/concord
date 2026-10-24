@@ -470,6 +470,5 @@ func workflowRetryDispatchCompletion(workID, actorRef string, expected int64, la
 		"worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest,
 		"worker_capability_class": lane.CapabilityClass, "actor_ref": actorRef,
 	})
-	event.PayloadVersion = 2
 	return event
 }

@@ -6,9 +6,6 @@
 - **Approval:** The operator approved this decision for the development-store isolation fix.
 - **Related:** CD-0002, CD-0082, CD-0111
 - **Preserves:** Stamped release migration behavior and the existing repository-path refusal
-- **Amended by:** [CD-0240](CD-0240-a-binary-the-installer-did-not-place-never-opens-the-installed-store.md)
-  at D3 and D5: only a core the installer placed in a data root it manages
-  opens a store there, whatever its stamp. D1, D2, and D4 stand.
 
 ## Context
 

@@ -32,7 +32,7 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		}
 		for _, intent := range pin.NextValidIntents {
 			decision := workflowAdmit(registered.Definition, state, intent.ActionID)
-			if !decision.Admitted && !decision.FreshReviewRequired {
+			if !decision.Admitted {
 				return fmt.Errorf("%s step %s advertises unadmitted action %s: %+v", pin.WorkflowType, pin.Step, intent.ActionID, decision)
 			}
 			if intent.Tool != "concord_work_transition" || intent.Operation != "workflow_action" || intent.ExpectedVersion != pin.Version {

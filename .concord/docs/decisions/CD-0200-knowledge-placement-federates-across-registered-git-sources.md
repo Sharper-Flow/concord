@@ -7,16 +7,9 @@
   iteration over the registered source set; source-qualified law identity;
   cross-source law relations; workflow law-pin and law-context resolution;
   the Domain registry's single-owner rule
-- **Amends:** [CD-0020](CD-0020-retain-knowledge-index-shape.md) D1, D3, and
-  Invariant 2, and records that its reopen condition 1 is met;
-  [CD-0015](CD-0015-typed-law-relations.md) relation endpoints;
-  [PM1](../product-memory-query-contract.md) Q9/Q10 scope and identity text;
-  [PM6](../canonical-git-note-placement.md) home wording;
-  [the knowledge-index reference](../concord-knowledge-index.md)
 - **Preserves:** [CD-0194](CD-0194-product-knowledge-lives-under-concord.md)
   in full (the `.concord/` default stays); PM6's one-note-per-work-item rule
   stays; CD-0020 D2, D4, D5, D6, and Invariants 1, 3, 4, 5, 6 stay
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Approval:** The operator approved this work item contract in chat on
   2026-10-01, including the finding that CD-0020's reopen condition 1 is met.
 
@@ -42,8 +35,7 @@ copy.
 A Product resolves Product-wide knowledge over one designated shared-law
 home plus the member Project canonical-path locators the operator registers
 as sources. Registration is explicit operator configuration written as
-current rows in one transaction; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: the store keeps current rows, not an event log. Discovery never
+current rows in one transaction; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Discovery never
 makes a repository law. The designated home stays
 the single shared-law home and is always a source. It never appears in the
 registration table, so its removal is a typed not-found refusal.

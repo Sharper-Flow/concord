@@ -204,9 +204,62 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             self.assertIn("proven defects, missing required evidence, and optional suggestions", text)
             self.assertIn("existing finding detail", text)
             self.assertIn("use `review_finding.oracle.classification` and keep the detail consistent with it", text)
-            self.assertIn("Do not turn style preferences into defects or a `no_ship` verdict", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
             self.assertIn("do not broaden the review into an unrelated audit", text)
         self.assertEqual(carrying, {"review"})
+
+    def test_group_review_delivers_recurring_scan_without_a_new_report_contract(self):
+        approved = (
+            "Every code-changing workflow includes a slop scan in its implementation-group reviews. "
+            "The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions, "
+            "contradictory guidance and missing cleanup across the accumulated change and affected dependencies. "
+            "Use applicable deterministic checks plus semantic inspection; scanner warnings alone are not verdicts. "
+            "Resolve in-scope blocking findings before progression. Reuse applicable evidence, but check "
+            "subsequent changes before delivery. Small changes use their existing review; this adds no "
+            "separate review stage or repository-wide cleanup campaign."
+        )
+        retirement = (
+            "Implementation review checks the accumulated solution for superseded mechanisms and their "
+            "dependent tests, coverage, schemas, configuration and instructions. Those are removed together "
+            "under the governing retirement clause. Every retained mechanism must serve a named current "
+            "requirement; its existence or passing tests are not sufficient justification. Completion cannot "
+            "pass with unexplained legacy residue."
+        )
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if approved not in text and retirement not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn(approved, text)
+            self.assertIn(retirement, text)
+            self.assertIn("existing `findings`, `assessments` and `remaining_obligations`", text)
+            self.assertIn("Bind findings and applicable checks to the corrected `output_candidate`", text)
+            self.assertIn("Do not add a reviewer or install a scanner", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
+        self.assertEqual(carrying, {"review"})
+        block = REPORT_SCHEMA["$defs"]["review_block"]
+        self.assertNotIn("slop_scan", block["properties"])
+        self.assertEqual(set(block["properties"]["disposition"]["enum"]), {
+            "continue", "correction_required", "revision_required", "ready_for_final_proof",
+        })
+
+    def test_review_teaching_agrees_with_report_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        schema = json.loads((generator.ROOT / "contracts/agent-lane-report.schema.json").read_text())
+        block = schema["$defs"]["review_block"]
+        for field in block["required"]:
+            self.assertIn(field, text)
+        for disposition in block["properties"]["disposition"]["enum"]:
+            self.assertIn(f"`{disposition}`", text)
+        self.assertNotIn("`ship`", text)
+        self.assertNotIn("`no_ship`", text)
+        self.assertNotIn("Do not run shell commands", text)
+        self.assertIn("inputs.review_input.input_candidate", text)
+        self.assertIn("inputs.review_input.dependencies", text)
 
 
 class LaneDigestRetentionTests(unittest.TestCase):
@@ -489,16 +542,18 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Workers gain no general Concord tools", normalized)
         self.assertNotIn("Managed workers gain no Concord tools", normalized)
 
-    def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
+    def test_projection_frames_the_report_with_the_packet_protocol(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         marker = PACKET_SCHEMA["properties"]["inputs"]["properties"]["report_protocol"]["const"]
         normalized = " ".join(projection.split())
         self.assertIn(
-            f"When `inputs.report_protocol` is present, return exactly one Markdown fence whose info string is `{marker}`.",
+            f"Return exactly one Markdown fence whose info string is `{marker}`.",
             normalized,
         )
         self.assertIn("exactly three backticks and that info string on one line", normalized)
         self.assertIn("Return the entire frame as one final text part", normalized)
+        self.assertIn("Never return multiple report candidates", normalized)
+        self.assertNotIn("historical packet", normalized)
 
     def test_projection_takes_the_frame_marker_from_the_packet_schema(self):
         # The reserved fence info string belongs to the packet schema, not
@@ -509,17 +564,6 @@ class AgentProjectionTests(unittest.TestCase):
         normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed).split())
         self.assertIn("info string is `concord-worker-result-test9`", normalized)
         self.assertNotIn("concord-worker-result-v1", normalized)
-
-    def test_projection_names_the_legacy_plain_object_branch(self):
-        # A historical packet carries no `inputs.report_protocol`; the lane
-        # must be told that branch by name instead of guessing a format.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn(
-            "For a historical packet without `inputs.report_protocol`, return one plain JSON report object as your final text part.",
-            normalized,
-        )
-        self.assertIn("Never return multiple report candidates", normalized)
 
     def test_projection_requests_worker_content_without_host_or_packet_identity(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
@@ -981,8 +1025,7 @@ class JobSizeProjectionTests(unittest.TestCase):
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
                 self.assertIn("## Caller boundary", text)
-                self.assertIn("A packet without these members is historical or carries no caller scope", text)
-                self.assertIn("report without the absent fields and never invent them", text)
+                self.assertIn("Without caller scope, omit the caller-repair fields and never invent them", text)
                 self.assertNotIn("production_size", text)
                 self.assertNotIn("measurement_basis", text)
 
@@ -1114,22 +1157,6 @@ class AgentDirectoryInventoryTests(unittest.TestCase):
         code, stderr = self.run_check("concord-retired.md")
         self.assertEqual(code, 1)
         self.assertIn("unprojected agent definition: concord-retired.md", stderr)
-
-
-class EvalPacketProjectionTests(unittest.TestCase):
-    def test_projection_replaces_lane_digest_without_manual_edit(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text(json.dumps({"lane_id": "review", "lane_digest": "old"}, indent=2) + "\n", encoding="utf-8")
-            projected = generator.eval_packet_projection(path, {"review": "sha256:" + "a" * 64})
-            self.assertIn('"lane_digest": "sha256:' + "a" * 64 + '"', projected)
-
-    def test_projection_rejects_unknown_lane(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text('{"lane_id":"missing"}\n', encoding="utf-8")
-            with self.assertRaises(ValueError):
-                generator.eval_packet_projection(path, {})
 
 
 class WorkerScopeProjectionTests(unittest.TestCase):

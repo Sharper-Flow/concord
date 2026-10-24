@@ -33,6 +33,15 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	if view != nil {
 		inputs["work_context"] = view
 	}
+	if testLaneCapabilityClass(laneID) == "review" {
+		snapshot, err := ReadWorkflowContinuity(t.Context(), s, ContinuityRequest{Work: workID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reviewInput := reviewInputForPacketFixture(t, s, snapshot); reviewInput != nil {
+			inputs["review_input"] = reviewInput
+		}
+	}
 	packet := map[string]any{
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
@@ -323,7 +332,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	run := j.observeRun(t, "checkpoint-proof")
 	c := acceptDeliveryCandidate{f: f, j: j, early: run}
 	attemptID := "attempt:" + workID + ":checkpoint-review"
-	epoch := acceptDeliveryCompleteReview(t, c, attemptID)
+	epoch := acceptDeliveryCompleteReview(t, c, attemptID, "ready_for_final_proof")
 	seedPremiseDeliverablesInvestigation(t, s, workID)
 
 	// The unsettled attempt keeps the confirmation closed: the report is

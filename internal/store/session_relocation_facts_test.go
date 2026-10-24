@@ -211,7 +211,7 @@ func relocationFactRows(t *testing.T, s *Store) []string {
 	t.Helper()
 	var out []string
 	for _, query := range []string{
-		`SELECT 'v|'||work_id||'|'||session_ref||'|'||project_id||'|'||source_directory||'|'||destination_directory||'|'||request_ordinal||'|'||landed FROM session_vacate_requests ORDER BY work_id, session_ref, project_id, source_directory`,
+		`SELECT 'v|'||work_id||'|'||session_ref||'|'||project_id||'|'||source_directory||'|'||destination_directory||'|'||request_seq||'|'||landed FROM session_vacate_requests ORDER BY work_id, session_ref, project_id, source_directory`,
 		`SELECT 'c|'||work_id||'|'||session_ref||'|'||project_id||'|'||claim_op_id FROM session_claim_landings ORDER BY work_id, session_ref, project_id, claim_op_id`,
 	} {
 		rows, err := s.DatabaseForTesting().Query(query)
@@ -233,7 +233,7 @@ func relocationFactRows(t *testing.T, s *Store) []string {
 	return out
 }
 
-// Migration 138 carries existing stores' relocation state: the backfill
+// Migration 141 carries existing stores' relocation state: the backfill
 // derives exactly the rows the writers record, so a pending request, a
 // completed one, and a claim landing keep their meaning across the upgrade.
 // A request recorded before the landing-verified release leaves no row.
@@ -256,21 +256,39 @@ func TestSessionRelocationBackfillMatchesTheFolds(t *testing.T) {
 	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
+	insertHistoricalEvent(t, s, Event{
+		EventID: "backfill-v1", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "ses-old", OccurredAt: time.Unix(61, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + source + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
+	})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{
-			EventID: "backfill-v1", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-			Actor: "ses-old", OccurredAt: time.Unix(61, 0).UTC(), PayloadVersion: 1,
-			Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + source + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
-		},
 		vacateRequestEvent("backfill-request-2", source),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	folded := relocationFactRows(t, s)
-	if len(folded) != 2 || !strings.HasSuffix(folded[0], "|2|0") {
-		t.Fatalf("folded rows=%v, want the pending second request and one claim landing", folded)
+	other := vacateRequestEvent("backfill-other-work", source)
+	other.SubjectID = "work-relocation-other"
+	other.Payload = mustJSONValue(sessionVacatedPayload{WorkID: other.SubjectID, ProjectID: "project-w", SessionRef: "ses-x", SourceDirectory: source, DestinationDirectory: "/data/repo-main"})
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{other}}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=138`); err != nil {
+	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: other.SubjectID, SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(62, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	insertHistoricalEvent(t, s, Event{
+		EventID: "backfill-unbound-claim", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "ses-old", OccurredAt: time.Unix(63, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", SessionRef: "ses-old", LandedDirectory: source}),
+	})
+	folded := relocationFactRows(t, s)
+	if len(folded) != 3 || !strings.HasSuffix(folded[0], "|1") || !strings.HasSuffix(folded[1], "|0") {
+		t.Fatalf("folded rows=%v, want the landed cross-work request, pending second request, and one claim landing", folded)
+	}
+	var sequencesMatch bool
+	if err := s.DatabaseForTesting().QueryRow(`SELECT NOT EXISTS(SELECT 1 FROM session_vacate_requests r WHERE r.request_seq<>(SELECT max(seq) FROM domain_events e WHERE e.kind='work.session_vacated' AND e.payload_version=2 AND e.subject_id=r.work_id AND json_extract(e.payload,'$.session_ref')=r.session_ref AND json_extract(e.payload,'$.project_id')=r.project_id AND json_extract(e.payload,'$.source_directory')=r.source_directory))`).Scan(&sequencesMatch); err != nil || !sequencesMatch {
+		t.Fatalf("request sequences match their writing effects=%v err=%v", sequencesMatch, err)
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=141`); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {

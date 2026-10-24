@@ -4,8 +4,6 @@
 - **Date:** 2026-09-28
 - **Scope:** The reading of CD-0172 D1's refusal sentence at the complete step
   of a workflow kind with no complete-step correction route
-- **Amends:** CD-0172 D1 at its last sentence ("Any other work kind or step
-  refuses.")
 - **Preserves:** CD-0172 D1's admission gate and D2 through D6 in full;
   CD-0222 D7's ordinary stale recovery; the stale re-pin admission the store
   already performs
@@ -41,16 +39,15 @@ complete-step correction route that D1 admits. It does not refuse the
 stale-law or stale Domain registry re-pin that ordinary stale recovery admits
 at the complete step of a workflow kind with no correction route (CD-0222 D7).
 
-That re-pin keeps its pre-CD-0172 admission at any running step of any
-workflow kind. CD-0172 amends neither CD-0222 D7 nor stale recovery, so its
-route-scoping sentence does not reach them.
+That re-pin is admitted at any running step of any workflow kind through
+CD-0222 D7's ordinary stale recovery. CD-0172 D1's route-scoping sentence
+does not apply to that recovery.
 
 ## Alternatives considered
 
 - Refuse the stale re-pin and change the store and its tests to match.
   Rejected: the refusal makes cancellation the only exit for a stale-pinned
-  `workflow.ops_runbook` item at its complete step, and it changes released
-  behavior this amendment does not need.
+  item at a complete step with no complete-step correction route.
 
 ## Consequences
 

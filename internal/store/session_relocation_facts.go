@@ -11,13 +11,13 @@ func sessionRelocationWriteFailure(err error) error {
 
 // writeSessionVacateRequestTx makes a landing-verified request the latest
 // request of its work item, session, Project, and source directory, pending
-// until a verified landing completes it. The ordinal orders the session's
+// until a verified landing completes it. The writing effect's sequence orders
 // requests across work items.
 func writeSessionVacateRequestTx(ctx context.Context, tx *sql.Tx, event Event, p sessionVacatedPayload) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_ordinal,landed)
-		VALUES(?,?,?,?,?,(SELECT COALESCE(max(request_ordinal),0)+1 FROM session_vacate_requests WHERE session_ref=?),0)
-		ON CONFLICT(work_id,session_ref,project_id,source_directory) DO UPDATE SET destination_directory=excluded.destination_directory,request_ordinal=excluded.request_ordinal,landed=0`,
-		event.SubjectID, p.SessionRef, p.ProjectID, p.SourceDirectory, p.DestinationDirectory, p.SessionRef); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_vacate_requests(work_id,session_ref,project_id,source_directory,destination_directory,request_seq,landed)
+		VALUES(?,?,?,?,?,?,0)
+		ON CONFLICT(work_id,session_ref,project_id,source_directory) DO UPDATE SET destination_directory=excluded.destination_directory,request_seq=excluded.request_seq,landed=0`,
+		event.SubjectID, p.SessionRef, p.ProjectID, p.SourceDirectory, p.DestinationDirectory, event.Seq); err != nil {
 		return sessionRelocationWriteFailure(err)
 	}
 	return nil
@@ -33,8 +33,7 @@ func writeSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, event Event, s
 }
 
 // writeSessionClaimLandingTx records that the session landed in the claim
-// generation the landing names. A landing recorded before claim generations
-// existed names none and proves no current placement.
+// generation the landing names. A missing claim identity proves no placement.
 func writeSessionClaimLandingTx(ctx context.Context, tx *sql.Tx, event Event, p sessionClaimLandedPayload) error {
 	if p.ClaimOpID == "" {
 		return nil

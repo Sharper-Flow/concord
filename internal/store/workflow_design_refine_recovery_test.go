@@ -42,7 +42,7 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest'), json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&packetDigest, &epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
+	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := fixture.store.Transact(ctx, func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(ctx, transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {
@@ -80,10 +80,12 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding, directory string) Event {
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, WorkerJob: binding, EvidenceOrigin: WorkerEvidenceReported}
 	if len(lane.RequiredReportBlocks) > 0 {
-		payload.Review = &WorkerReviewBlock{Disposition: "ready_for_final_proof", Findings: []WorkerReviewFinding{}}
+		payload.Review = reviewBlockFixture()
+		payload.Review.Disposition = "ready_for_final_proof"
+		payload.Review.Findings = []WorkerReviewFinding{}
 	}
 	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 func reportedLaneEvidenceForTest(lane LaneDefinition, review *WorkerReviewBlock) []WorkerReportEvidence {
@@ -116,7 +118,7 @@ func refineRecoveryRefineEntry(t *testing.T, s *Store, workID string) string {
 // review lane attempt.
 func failReviewWorkerAttempt(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition) {
 	t.Helper()
-	fail := Event{EventID: "refine-failed-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "the review lane reported a failure"})}
+	fail := Event{EventID: "refine-failed-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "the review lane reported a failure"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
 		t.Fatal(err)
 	}

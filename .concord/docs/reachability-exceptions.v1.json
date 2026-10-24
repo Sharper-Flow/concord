@@ -21,10 +21,9 @@
         "internal/store/storetest/neighbor",
         "internal/store/storetest/projection",
         "internal/testenv",
-        "internal/testutil/schemawire",
-        "internal/workflowcorpus"
+        "internal/testutil/schemawire"
       ],
-      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
+      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, and derives schema budgets. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
       "id": "test-only-registry-assertions",

@@ -232,7 +232,7 @@ func removeTerminalResearchBindings(ctx context.Context, tx *sql.Tx, consumerWor
 		return researchUnavailable("cannot verify terminal consumer research cleanup", err)
 	}
 	if remaining != 0 {
-		return newFailure(KindInvariantViolation, "research_mutation", "terminal consumer bindings remain after cleanup", false, "rebuild the active research consumer projection")
+		return newFailure(KindInvariantViolation, "research_mutation", "terminal consumer bindings remain after cleanup", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return nil
 }

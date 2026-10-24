@@ -6,13 +6,10 @@
   liveness evidence, planning handoff, and replay-safe projection removal
 - **Approval:** The operator approved this bounded removal contract on 2026-09-14.
 - **Related:** PM4, PM6, compaction-retention-policy, CD-0213, CD-0217
-- **Amends:** PM4 lifecycle and reopen semantics; compaction-retention-policy live-query and renewed-work
-  boundary; CD-0217 D1 only for explicitly directed nonterminal execution removal
 - **Preserves:** The five-state lifecycle, exact recorded removal receipts, Product and Project
   identity, accepted law, Linear issue identity, and the no-polling boundary
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 keeps removal receipts as current rows
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+**Consent:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
 requirements remain unchanged.
@@ -23,7 +20,7 @@ Shelving execution does not mean cancellation. Both actions must preserve the
 current findings and remove the Concord execution identity from operational
 projections. A hidden or sixth work state would leave an agent able to select or
 resume the execution. A deletion without a recorded removal could return in
-recovery; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores verified snapshots and reconciles current rows.
+recovery; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Decision
 
@@ -35,7 +32,7 @@ emit cancellation. Cancellation uses the same removal machinery with the reason
 `cancelled`, but its reason remains distinct in the durable receipt it records.
 
 The operation records `work.removed` and atomically removes the work item plus
-its owned execution projections; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the removal receipt is a current row, not an appended event. The durable receipt keeps
+its owned execution projections; the removal receipt is a current row ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The durable receipt keeps
 the exact audit handoff without exposing an actionable WorkItem.
 
 ### D2. Preparation fences execution and requires a complete handoff
@@ -66,7 +63,7 @@ invent a Git note, GitHub adapter, second database, or generic provider layer.
 Operational lists, exact-ID reads, launcher navigation, continuity, work start,
 claims, and overlap computation exclude a removed ID. Audit reads return only
 the explicit historical receipt. Snapshot restore, restart, migration, and
-knowledge rebuild preserve the absence; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery restores verified snapshots and reconciles current rows. A retry with the original identity returns the
+knowledge rebuild preserve the absence; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A retry with the original identity returns the
 same committed receipt and records no second removal.
 
 Renewed work starts with a new Concord identity and contract. It may reuse the
@@ -83,18 +80,17 @@ health. A work item without verified active or waiting evidence reports
 ## Consequences
 
 - Shelving removes execution while preserving the planning handoff and history.
-- Cancellation no longer leaves an actionable cancelled WorkItem.
+- Cancellation removal leaves no actionable cancelled WorkItem.
 - Terminal compaction remains a separate retention operation.
 - Every removal is per-item, operator-directed, fenced, bounded, and replay-safe.
 
 ## Verification
 
-- `internal/store.TestWorkRemovalDeletesExecutionAndReplaysAbsence` verifies
-  projection removal, audit retention, replay absence, and idempotent retry.
+- `internal/store.TestWorkRemovalDeletesExecutionAndRetriesIdempotently` verifies
+  projection removal, audit retention, and idempotent retry.
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
 - `go test ./internal/store -run 'TestWorkRemoval|TestMigrateV80'`
-  verifies removal and migration; the Product-row liveness query retired
-  with the row under CD-0224.
+  verifies removal and migration.
 - `python3 scripts/generate-agent-contracts.py --check` verifies generated
   contract projections after this decision is indexed.

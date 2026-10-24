@@ -14,7 +14,6 @@ from migration_source import migration_sql
 ROOT = Path(__file__).resolve().parents[1]
 DEFINITION_SCHEMA = Path("contracts/workflow-definition.schema.json")
 SURFACE_SCHEMA = Path("contracts/agent-tool-surface-payloads.schema.json")
-SCENARIO_SCHEMA = Path("contracts/workflow-engine-scenarios.schema.json")
 SCHEMA_SOURCE = Path("internal/store/schema.go")
 TRIGGERS = (
     "workflow_contracts_rigor_class_insert",
@@ -68,8 +67,7 @@ def check(root: Path) -> list[str]:
     findings: list[str] = []
     definition = load_json(root, DEFINITION_SCHEMA, findings)
     surface = load_json(root, SURFACE_SCHEMA, findings)
-    scenario = load_json(root, SCENARIO_SCHEMA, findings)
-    if not all(isinstance(value, dict) for value in (definition, surface, scenario)):
+    if not all(isinstance(value, dict) for value in (definition, surface)):
         return findings
 
     maturity = enum_at(
@@ -98,14 +96,6 @@ def check(root: Path) -> list[str]:
     rigor_property = workflow_properties.get("rigor_class") if isinstance(workflow_properties, dict) else None
     if not isinstance(rigor_property, dict) or rigor_property.get("$ref") != "#/$defs/rigor_class":
         findings.append("agent-rigor-class-reference: workflow_contract.rigor_class must reference #/$defs/rigor_class")
-
-    actual_scenario = enum_at(
-        scenario,
-        ["$defs", "eventPayload", "properties", "rigor_class", "enum"],
-        findings,
-    )
-    if sorted(actual_scenario) != expected:
-        findings.append(f"scenario-rigor-class-closure: expected {expected}, got {sorted(actual_scenario)}")
 
     try:
         source = (root / SCHEMA_SOURCE).read_text(encoding="utf-8")

@@ -3,11 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-06
 - **Scope:** Exact existing-record acknowledgment and retained completed-Task recovery
-- **Amends:** CD-0044 D2 and D4; the consumed-window boundary in CD-0059 and CD-0067
 - **Preserves:** Current caller authentication, nonce protection, immutable worker
   outcomes, single-use dispatch authorization, original packet and provenance,
   original model identities, CD-0207 consequential commits, and CD-0038 caller budgets
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** [CD-0044](CD-0044-worker-evidence-caller-authentication.md),
   [CD-0059](CD-0059-worker-dispatch-action.md),
   [CD-0067](CD-0067-dispatch-worker-packet.md),
@@ -115,7 +113,7 @@ Missing or conflicting proof refuses.
 The recorded dispatch model and original terminal model can differ. Each
 original record remains unchanged. Recovery adds no model-routing rule.
 
-Amended 2026-10-09 for CON-891: the recovered report is parsed by the same
+The recovered report is parsed by the same
 shared report-protocol owner as an ordinary completion, including the
 historical grammar an unpinned packet still carries. Retained recovery adds
 no second parser and no looser rules: a recovered result cannot parse by

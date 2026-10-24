@@ -305,7 +305,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, err
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
 		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
 	}
 	guards.admissionState = &admission
@@ -1029,7 +1029,7 @@ func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID s
 	}
 	var questions []string
 	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "rebuild the workflow context projection")
+		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if len(questions) == 0 {
 		return nil

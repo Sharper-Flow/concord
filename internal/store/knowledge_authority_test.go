@@ -616,7 +616,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	}
 	legislatedInRange := map[string]bool{
 		"CD-0190": true, "CD-0191": true, "CD-0193": true, "CD-0194": true, "CD-0200": true,
-		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0206": true, "CD-0208": true,
+		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0208": true,
 	}
 	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
 	for _, record := range manifest.Records {

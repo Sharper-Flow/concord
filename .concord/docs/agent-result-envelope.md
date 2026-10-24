@@ -1,9 +1,7 @@
 # Concord Agent Result, Error, Evidence, and Pagination Envelope (TS7)
 
-> **Status:** **Accepted — binding until superseded; producer-bounded result law amended by issues #43 and #560.**
+> **Status:** **Accepted.**
 > **Accepted by operator:** 2026-08-06.
-> **Amendments approved by operator:** 2026-08-11 under issue #43 and 2026-08-29 under issue #560.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D12:** recovery reconciles current state and names a caller action; no replay exists.
 > **Decision:** TS7; binding input to CD-0005 §7 and TS8–TS9.
 > **Canonical schema:** [`agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json).
 > **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
@@ -19,9 +17,11 @@ universal query envelope and corpus and the accepted TS1 through TS6
 contracts. This record fixes the strict JSON envelope with exactly one
 outcome per call, its universal fields, the durable outcomes, the typed error
 contract, authority and freshness semantics, evidence locators, pagination
-and output bounds, and adapter transport failures. Issues #43 and #560 amend
-the producer-bounded result law.
+and output bounds, and adapter transport failures.
 ## Contract
+
+Recovery reconciles current state and names a caller action; no replay exists
+([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D12).
 
 The binding contract is sections 1 through 9: the four-outcome decision,
 universal fields, the `ok` payload forms, durable `pending` and `partial`
@@ -184,9 +184,7 @@ the budget; invalid cursors restart the query; operation conflicts reconcile.
 An adapter-origin `session_vacate` error with reason `unknown_effect` and
 effect `possible` reports the possible effect with a working recovery, per
 [CD-0190 D3](./decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md#d3-every-refusal-after-the-committed-request-reports-a-possible-effect-with-a-working-recovery).
-[CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs recovery: `session_vacate` reconciles against current stored state, and
-no event replay exists. [CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)
+`session_vacate` reconciles against current stored state ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). [CD-0242 D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)
 requires the refusal to state that action: `retry_same_request`, or
 `contact_operator` when reconciliation cannot run. Core-origin errors and
 other operations keep reconciliation.
@@ -280,8 +278,8 @@ Concord envelope cap matches the pinned host transport limit.
 
 Every delegated or mutation-result producer validates the exact tool/operation
 payload against its closed generated output schema before exchange. It also
-checks the 51,200-byte serialized envelope cap, caller `max_bytes` and
-`max_items` budgets, and the envelope's completeness markers before returning
+checks the 51,200-byte serialized envelope cap, per-operation pagination and
+cardinality bounds, and the envelope's completeness markers before returning
 `ok`. A producer refuses an over-budget result; it does not silently cut an
 item, array, cursor, omission, or evidence reference.
 

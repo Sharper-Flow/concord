@@ -3,10 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Scope:** Who decides that an approved end-state already held before execution
-- **Amends:** [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md) D4
-  (Vacuity bullet), required conformance scenario 3, and the Cost bullet's
-  vacuity clause; [CD-0013](CD-0013-workflow-engine-mechanism.md) outcome-contract
-  acceptance criterion 3
 - **Preserves:** CD-0012 D4's Omission bullet, D3's strengthen-only rule, D7's
   authorship fencing and evaluator distinctness, and D9's premise confirmation;
   [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)

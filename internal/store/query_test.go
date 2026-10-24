@@ -441,7 +441,6 @@ func q4WorkCreatedAt(id string, priority int64, when time.Time) Event {
 	e := operationEvent("q4-create-"+id, "work.created", SubjectWorkItem, id, map[string]any{
 		"work_kind": "task", "title": id, "priority": priority,
 	})
-	e.PayloadVersion = 2
 	e.OccurredAt = when
 	return e
 }

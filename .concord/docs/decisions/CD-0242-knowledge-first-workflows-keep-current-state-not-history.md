@@ -7,13 +7,6 @@
   governance, resumption, recovery, and the cutover from the event-sourced
   engine
 - **Implements:** [Concord (CON) issue 1275](https://linear.app/sharper-flow/issue/CON-1275)
-- **Supersedes:** [CD-0115](CD-0115-a-released-workflow-definition-never-changes-content-in-place.md),
-  [CD-0148](CD-0148-approved-fresh-worker-retries.md),
-  [CD-0164](CD-0164-correction-attempt-counting-population.md),
-  [CD-0225](CD-0225-worker-job-size-overruns-split-without-raising-the-cap.md),
-  [CD-0226](CD-0226-review-findings-carry-fixes-with-cross-family-checks.md),
-  [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md),
-  and [CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md)
 - **Approval:** The operator approved D1–D14, the amendment map, and the
   quoted `goals.md` and `priorities.md` edits as exact text on 2026-10-21 for
   [Concord (CON) issue 1275](https://linear.app/sharper-flow/issue/CON-1275).
@@ -272,84 +265,6 @@ diagnosis beyond the retained receipt, mechanical size ceilings, and a final
 independent reviewer. No loss of Product knowledge, referenced research,
 active code progress, coordination, or fresh-session resumption is accepted.
 
-### Amendment map
-
-This record supersedes these records in full:
-
-| Record | Governing decision |
-|---|---|
-| CD-0115, released definitions never change in place | D14 |
-| CD-0148, approved fresh worker retries | D6 |
-| CD-0164, correction attempt counting | D6 |
-| CD-0225, size overruns split without raising the cap | D6 |
-| CD-0226, review findings carry fixes with cross-family checks | D5 |
-| CD-0237, resize successor lineage | D4, D6 |
-| CD-0238, point-in-time reconstruction outside the core | D2 |
-
-Each listed clause is replaced by one sentence that states the current rule
-and cites the governing decision here. The rest of each record stands.
-
-Any other clause or heading, in any record, that states an event log, fold,
-upcaster, or replay of history; a retained released-definition version or
-in-flight pin; an attempt count, escalation wall, production-line cap, or
-mandatory split; a separate final evaluator or executor distinctness beyond D5;
-or strict quiescence, is replaced by one sentence that states the current rule
-and cites the governing decision here.
-
-| Record | Replaced clauses | Governing decision |
-|---|---|---|
-| CD-0002 | I2, I3, I5, I6; tier table; section 4 log survivor | D1, D2 |
-| Core architecture | invariants 1, 3, 4, 7, 11; section 1 log discipline; section 3 migration row | D2, D6, D14 |
-| CD-0008 | D1 worktree-set bullet; D6 | D2, D5, D13, D14 |
-| CD-0012 | D7, the executing-agent exclusion | D5 |
-| CD-0102 | D7 placement check | D5 |
-| CD-0013 | D1, D2, D3, D5, D10 clause 4, D11, D12, D13, D14 | D2, D3, D5, D7, D14 |
-| CD-0017 | D5 retry limit and approval prerequisite; D6 model distinctness | D5, D6 |
-| CD-0036 | D1 revision identity for staleness; D2; D3 strict quiescence | D7, D10 |
-| CD-0130 | D1 to D3 | D2, D14 |
-| CD-0137 | D1 to D4 | D5, D6, D7 |
-| CD-0173 | D1 | D6 |
-| CD-0178 | D1 worker directory and completion directory check | D5 |
-| CD-0197 | D1 verdict vocabulary; D4; D6 | D5 |
-| CD-0205 | D4; D6 | D6, D14 |
-| CD-0213 | D8 replay readability | D2 |
-| CD-0218 | preamble pins; D2; D4; D5 | D2, D4, D13, D14 |
-| CD-0220 | D3, for the review lane | D5 |
-| CD-0229 | D3 to D6 | D4, D5, D6, D14 |
-| CD-0230 | D4 factual corrections; D5 table gains the rule U preview point | D9, D10 |
-| CD-0235 | D1, D2 | D5 |
-| CD-0239 | D1, D2, D4 | D6 |
-| PM1 query contract | Q7 history | D2 |
-| PM3 domain schema | section 1 log authority; section 3.1; section 3.1b | D2 |
-| PM9 process exhaust | section 1 | D2, D8, D9 |
-| TS7 result envelope | replay-dependent recovery text | D2, D12 |
-| Compaction retention policy | sections 1, 4, 7, 8 | D2 |
-| Workflows and the workflow engine contract | frozen history; retry escalation; rebuild | D2, D4, D6, D14 |
-| Design constraints, product-memory recovery, evidence store, membership, managed resources, installation, tool-surface evolution, floor readiness | append-only and replay statements | D2 |
-
-These stand and are not retired: CD-0028 resource claims, CD-0102 native Task
-dispatch, CD-0130 D5 refusal set, CD-0153 content staleness, CD-0173 D2,
-CD-0178 D3 and CD-0179 D2 to D3 host process identity, CD-0201 one admission
-derivation, CD-0215 and CD-0216 research, compaction retention section 6, and
-PM6 note publication.
-
-`goals.md` changes, quoted exactly:
-
-- Goal B, "Who picks the size": "A defined decision model sets the minimum
-  steps. The agent may add steps, never remove one."
-- Appendix A2 row 5: "Review fixes problems inside the change's scope and
-  verifies its fixes; file follow-up items for the rest | Same | Same; the
-  coordinator runs more review until review reports no high or medium
-  problem | Review fixes; the coordinator ends the loop".
-- Appendix A2 row 8: "Run the decision model again, add the newly required
-  steps, and continue without redoing completed work | Same | Same | Decision
-  model; coordinator".
-
-`priorities.md` changes follow D2 for its append-only and SQLite authority
-lines, D4 for its size lines, and D5 for "a party other than the author
-reviews every change", which gains: "A reviewer's own corrective edits are
-verified, not reviewed again."
-
 ## Verification
 
 - The implementing runtime change binds the executable anchors for D2 to D13.
@@ -359,9 +274,7 @@ verified, not reviewed again."
   snapshot-restore tests. Until that change lands, `python3 scripts/check-knowledge-index.py` is the executable
   anchor for this record's law registration.
 - `python3 scripts/check-knowledge-index.py` composes the record shards and
-  checks the accepted record's `supersedes` relation to each superseded
-  record, each superseded record's `successor` pointer, and each shard's recorded document sha256
-  against the document bytes.
+  checks each shard's recorded document sha256 against the document bytes.
 - `python3 scripts/check-knowledge-closure.py --strict` proves this document
   is registered and leaves no knowledge document unprocessed.
 - `python3 scripts/check-doc-contract.py` checks the required decision

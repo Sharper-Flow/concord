@@ -3,18 +3,14 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
-**Amended:** Concord (CON) issue CON-910 (2026-10-13) re-points the CD-0031
-continuity supply to work-start preparation under the Snowball coordinator's
-operator-delegated approval.
-**Research-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-14 under the operator's delegation.
-**Bounded-context amendment approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current rows; no event log, fold, or replay exists.
-
-> **Subsequent decision:** CD-0031 supplies core-derived continuity to operator sessions through work-start preparation. The absence statement in §Consequences records the state when CD-0016 was accepted.
->
-> **Subsequent decision:** CD-0090 adds one bounded runtime re-pin surface — a per-turn host plugin hook that re-asserts the pinned projection after context boundaries. The "does not add a generic host hook" clause in §Consequences records the state when CD-0016 was accepted; no generic hook exists, and the added surface holds no authority.
 
 ## Decision
+
+CD-0031 supplies core-derived continuity to operator sessions through work-start
+preparation. CD-0090 requires a bounded per-turn host plugin hook that re-asserts
+the pinned projection after context boundaries. This surface holds no authority.
+The store keeps current rows; no event log, fold, or replay exists
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Concord names this capability **context continuity**, not compaction. Product
 and workflow authority is never carried by a model summary. On every call,
@@ -35,7 +31,7 @@ carry authority, approval, law, workflow position, or evidence claims.
 
 ## Durable mechanism
 
-Two current-row tables hold the continuity state ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one transaction; no event log, fold, or replay exists):
+Two current-row tables hold the continuity state (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))):
 
 - `workflow_context_checkpoints`: one immutable bounded working-state record per
   work/version/sequence;
@@ -60,8 +56,7 @@ hypothesis, diagnosis, and strategy 4096 each; unique touched/evidence refs 64
 each; pending questions/decisions 16 each; summary 16 KiB; and history pages
 20. Token counts and model judgement never authorize a boundary.
 
-The canonical read is `concord_work_trace.continuity`, added in surface 2.3.0
-while retaining 2.1/2.2 negotiation and replay. It returns a closed continuity
+The canonical read is `concord_work_trace.continuity`. It returns a closed continuity
 snapshot with the derived pinned projection, latest checkpoint, authenticated
 cursor history, one source watermark, monotonic boundary count, and explicit
 typed restart availability. An oversized projection travels as lossless,
@@ -122,10 +117,7 @@ dispatch. Later revisions never replace selected content. Research body or
 selection-state changes participate in the existing full-view equality and
 dispatch revalidation, not a second context watermark or digest.
 
-Amended 2026-10-13 for pre-dispatch reading resolution and the dispatch
-context bound
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-every declared reading resolves before a worker spawns. A repository-file
+Every declared reading resolves before a worker spawns. A repository-file
 reading resolves in the declared Project's own repository: the pinned commit
 must resolve as one commit object, and the pinned path must resolve as one
 ordinary blob at that commit. The dispatch checkout is never the proof, so a
@@ -142,7 +134,7 @@ a source, fetches from the network, or mutates the declared readings. The
 resolution runs before the dispatch transaction opens, and the admission
 revalidates the sampled source identities inside it. A failure names the
 reading's ordinal and source identity and commits no dispatch effect.
-No replay or rebuild re-resolves a reading ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: neither exists).
+No replay or rebuild re-resolves a reading.
 
 The view bounds above constrain the derived view, not retained terminal
 evidence. The dispatch context is a separate capacity. The canonical JSON object
@@ -156,6 +148,6 @@ fit. The per-entry and view bounds above stay unchanged.
 
 Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a
 mutable daemon or a second agent identity authority. Future issue #57 dispatch
-must inject this canonical projection on every typed-agent call; this decision
-does not claim that current OpenCode calls receive automatic pinned-context
-injection, and does not add a generic host hook or an `agent_definitions` table.
+must inject this canonical projection on every typed-agent call. Work-start
+preparation and the bounded per-turn hook supply continuity to operator sessions;
+no generic host hook or `agent_definitions` table exists.

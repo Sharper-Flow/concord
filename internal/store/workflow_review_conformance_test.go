@@ -47,7 +47,7 @@ func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
 		if mutate != nil {
 			mutate(&review)
 		}
-		state := WorkflowAdmissionState{ReviewDebt: ReviewDebtNone, ActiveContracts: 1, Review: &review}
+		state := WorkflowAdmissionState{ActiveContracts: 1, Review: &review}
 		context, err := workflowDeliveryGateCorrectionContextFolded(ctx, f.store.db, f.workID, definition, "delivery", "workflow_review_conformance_test", state)
 		if err != nil {
 			t.Fatalf("%s: gate correction fold: %v", label, err)

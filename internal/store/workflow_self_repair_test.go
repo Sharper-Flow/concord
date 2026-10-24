@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,14 +67,15 @@ func TestWorkflowSelfRepairStillRequiresCurrentDomainRegistry(t *testing.T) {
 	}
 }
 
-func TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority(t *testing.T) {
+func TestWorkflowSelfRepairRequiresConcordAndRefusesWorkerAuthority(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
 		productKey string
 		operator   bool
+		detail     string
 	}{
-		{name: "foreign Product", productKey: "other", operator: true},
-		{name: "agent classification", productKey: "concord", operator: false},
+		{name: "foreign Product", productKey: "other", operator: true, detail: "self_repair is available only for Concord's own workflow defects"},
+		{name: "worker classification", productKey: "concord", detail: "worker actors cannot classify contract self-repair"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -85,23 +88,26 @@ func TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority(t *testing.T) {
 			}
 			if testCase.operator {
 				actorRef = seedSelfRepairOperator(t, s)
+			} else {
+				dispatch := workerDispatchEvent(workID, "self-repair-worker-dispatch", BuiltinLaneDefinitions()[0], map[string]any{"lane_actor_ref": actorRef})
+				dispatch.Actor = actorRef
+				if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
+					t.Fatal(err)
+				}
 			}
 			supersede := workflowEventWithActor("invalid-self-repair", WorkflowContractSuperseded, workID, actorRef, map[string]any{
 				"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 				"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "invalid classification",
 				"audit_evidence": []string{"obs:typed-refusal"}, "successor_contract": selfRepairSuccessorContract(binding),
 			})
-			supersede.PayloadVersion = 2
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion(workID, version)}); err == nil {
-				t.Fatal("invalid self-repair classification accepted")
-			}
+			supersede = pOverlapContractFacts(t, s, supersede)
+			assertSelfRepairRefusalWithoutEffects(t, s, supersede, version, KindUnauthorized, "workflow_self_repair", testCase.detail)
 		})
 	}
 }
 
 func TestInitialContractSelfRepairAdmissionRunsBeforeAppend(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	const workID = "initial-self-repair-admission"
 	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
 	actor, version := seedProductChangingContract(t, s, workID, binding)
@@ -109,52 +115,61 @@ func TestInitialContractSelfRepairAdmissionRunsBeforeAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := workflowEventWithActor("initial-self-repair-invalid", WorkflowContractApproved, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "record the initial repair classification",
-		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:self-repair", "immutable_subject_ref": "commit:self-repair", "expected_result": "pass"},
-		"required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"rigor_class": "production_safety_critical", "consequence_class": "internal_sqlite",
-		"self_repair": map[string]any{"refusal_kind": string(KindDomainOverlap), "blocked_operation": "workflow_action.\u00a0dispatch_worker", "evidence_refs": []string{"obs:\u00a0legacy"}},
-	})
-	event.PayloadVersion = 4
-	before := countWorkflowSubjectEvents(t, s, workID)
-	err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
-	failure := &Failure{}
-	if !failureAs(err, &failure) || failure.Op != "workflow_self_repair_admission" {
-		t.Fatalf("initial self-repair admission error=%v, want pre-append admission refusal", err)
-	}
-	if after := countWorkflowSubjectEvents(t, s, workID); after != before {
-		t.Fatalf("invalid initial self-repair appended events: before=%d after=%d", before, after)
-	}
+	payload := selfRepairSuccessorContract(binding)
+	payload["work_id"], payload["expected_version"], payload["resulting_version"] = workID, version, version+1
+	event := workflowEventWithActor("initial-self-repair-invalid", WorkflowContractApproved, workID, actorRef, payload)
+	event = pOverlapContractFacts(t, s, event)
+	event = withMalformedSelfRepairReference(t, event)
+	assertSelfRepairRefusalWithoutEffects(t, s, event, version, KindInvalidPayload, "validate_event", "self_repair")
 }
 
 func TestSupersedingContractSelfRepairAdmissionRunsBeforeAppend(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	const workID = "superseding-self-repair-admission"
 	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
 	_, version := seedProductChangingContract(t, s, workID, binding)
 	operator := seedSelfRepairOperator(t, s)
 	successor := selfRepairSuccessorContract(binding)
-	repair := successor["self_repair"].(WorkflowSelfRepair)
-	repair.BlockedOperation = "workflow_action.\u00a0dispatch_worker"
-	repair.EvidenceRefs = []string{"obs:\u00a0legacy"}
-	successor["self_repair"] = repair
 	event := workflowEventWithActor("superseding-self-repair-invalid", WorkflowContractSuperseded, workID, operator, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "preserve legacy self-repair admission",
-		"audit_evidence": []string{"obs:legacy"}, "successor_contract": successor,
+		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "classify workflow self-repair",
+		"audit_evidence": []string{"obs:self-repair"}, "successor_contract": successor,
 	})
-	event.PayloadVersion = 2
-	before := countWorkflowSubjectEvents(t, s, workID)
-	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
-	failure := &Failure{}
-	if !failureAs(err, &failure) || failure.Op != "workflow_self_repair_admission" {
-		t.Fatalf("superseding self-repair admission error=%v, want pre-append admission refusal", err)
+	event = pOverlapContractFacts(t, s, event)
+	event = withMalformedSelfRepairReference(t, event)
+	assertSelfRepairRefusalWithoutEffects(t, s, event, version, KindInvalidPayload, "validate_event", "self_repair")
+}
+
+func withMalformedSelfRepairReference(t *testing.T, event Event) Event {
+	t.Helper()
+	if err := validateRegisteredEvent(event); err != nil {
+		t.Fatalf("valid self-repair fixture does not match the current schema: %v", err)
 	}
-	if after := countWorkflowSubjectEvents(t, s, workID); after != before {
-		t.Fatalf("invalid successor self-repair appended events: before=%d after=%d", before, after)
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	contract := payload
+	if event.Kind == WorkflowContractSuperseded {
+		contract = payload["successor_contract"].(map[string]any)
+	}
+	contract["self_repair"].(map[string]any)["blocked_operation"] = "workflow_action.\u00a0dispatch_worker"
+	event.Payload = mustJSONValue(payload)
+	return event
+}
+
+func assertSelfRepairRefusalWithoutEffects(t *testing.T, s *Store, event Event, version int64, kind FailureKind, op, detail string) {
+	t.Helper()
+	before := fullWorkflowProjectionSnapshot(t, s)
+	eventsBefore, versionBefore := completionFoldBookkeeping(t, s, event.SubjectID)
+	err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(event.SubjectID, version)})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != kind || failure.Op != op || !strings.Contains(err.Error(), detail) {
+		t.Fatalf("self-repair refusal = %v, want %s from %s naming %q", err, kind, op, detail)
+	}
+	assertCompletionFoldRolledBack(t, s, event.SubjectID, eventsBefore, versionBefore)
+	if after := fullWorkflowProjectionSnapshot(t, s); after != before {
+		t.Fatalf("refused self-repair changed projection rows:\nbefore=%s\nafter=%s", before, after)
 	}
 }
 

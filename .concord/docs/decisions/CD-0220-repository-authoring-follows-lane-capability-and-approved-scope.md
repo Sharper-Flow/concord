@@ -5,13 +5,8 @@
 - **Scope:** Authored and generated files under `.concord/`; worker edit authority and its enforcement limits.
 - **Time zone:** Eastern Daylight Time (EDT)
 - **Approval:** Snowball coordinator, operator-delegated, 2026-10-10 01:08 EDT
-- **Amendment approval:** The operator approved the capability-enforcement
-  amendment in-session on 2026-10-17 for [Concord (CON) issue 1059](https://linear.app/sharper-flow/issue/CON-1059/move-lane-capability-enforcement-report-metadata-and-dispatch).
-- **Amended:** 2026-10-17. Snowball coordinator, operator-delegated, approved
-  the review-fix amendment in-session.
 - **Related:** [CD-0006](CD-0006-concord-root-product-policy.md), [CD-0036](CD-0036-breaking-law-cutovers.md), [CD-0072](CD-0072-unguarded-trunk-file-writes.md), [CD-0159](CD-0159-authority-tier-for-product-law.md), and [development authority](../managed-development-authority.md).
 - **Preserves:** Product-law approval, revision identity, cutover, host ownership, and the existing lane capability registry.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5
 
 ## Context
 
@@ -42,9 +37,7 @@ The coordinator resolves missing scope or law conflicts; a worker does not expan
 ### D3. Non-editing lanes report; they do not author repository sources
 
 A lane without `edit_scoped_files` must not create, change, delete, or commit repository sources; for the review lane,
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs instead: review inspects the accumulated solution, may commit
-corrective changes, verifies the corrected candidate, and reports.
+review inspects the accumulated solution, may commit corrective changes, verifies the corrected candidate, and reports ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 This rule includes law, specifications, knowledge metadata, coverage declarations, and configuration under `.concord/`.
 Research and verify return their assigned reports and evidence instead.
 Generated definitions deny native shell and named editor tools for lanes

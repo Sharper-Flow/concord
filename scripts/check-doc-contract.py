@@ -1444,9 +1444,16 @@ def _parent_manifest_activation() -> object:
     parent = git("rev-parse", log.strip() + "~1")
     if parent is None:
         return _NO_HISTORY
+    # The activation object is a head field. Today's record rules do not
+    # govern whether a historical parent recorded it.
     try:
-        document = knowledge_index.compose_manifest_at(ROOT, parent.strip())
-    except (subprocess.CalledProcessError, knowledge_index.ComposeError, json.JSONDecodeError):
+        document = knowledge_index.raw_manifest_at(ROOT, parent.strip())
+    except (
+        subprocess.CalledProcessError,
+        knowledge_index.ComposeError,
+        knowledge_index.DuplicateKeyError,
+        json.JSONDecodeError,
+    ):
         # The parent commit carries no readable manifest: no activation
         # object could have been recorded there.
         return None

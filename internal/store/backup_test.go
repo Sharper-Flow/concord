@@ -323,7 +323,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		"law_revisions":        []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
-	approval.PayloadVersion = 3
+	approval.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approval}, ExpectedVersions: workVersion(workID, 4)}); err != nil {
 		t.Fatalf("law-bearing contract approval refused: %v", err)
 	}
@@ -415,8 +415,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "evidence-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +465,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
-	contextContract.PayloadVersion = 3
+	contextContract.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
 	contextContract = withPinnedDecisionFact(t, contextDefinition.Definition, contextContract)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contextContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): 4}}); err != nil {
 		t.Fatalf("context consumer contract refused: %v", err)
@@ -694,7 +694,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	contextVersion := readWorkVersion(t, restored, contextWork)
 	if err := ApplyOperation(ctx, restored, Operation{Events: []Event{{
 		EventID: "evidence-context-consumer-terminal", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: contextWork,
-		Actor: "operator", OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 1,
+		Actor: "operator", OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.transitioned"),
 		Payload: mustJSONValue(map[string]any{"from": "in_progress", "to": "cancelled", "reason": "consumer terminal", "expected_version": contextVersion, "resulting_version": contextVersion + 1}),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextVersion}}); err != nil {
 		t.Fatal(err)

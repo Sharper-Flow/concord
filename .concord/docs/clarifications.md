@@ -2,15 +2,16 @@
 
 > **Status:** Living doc. Companion to [`README.md`](./README.md) and the others.
 > **Amended:** 2026-10-18.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md):** the rows below state the
-> current rules that decision governs; the store keeps current state and finite
-> verified snapshots, and no event log, fold, or replay exists.
 > **Purpose:** The unresolved decisions and ambiguities that need operator
 > direction before Concord moves from vision to build, plus resolved directions
 > that already have an answer and must be honored by the document set.
 > **Origin:** Session 2026-07-25.
 
 ## How to use this
+
+The store keeps current state and finite verified snapshots; no event log,
+fold, or replay exists under
+[CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 
 Each item carries: the **question**, **why it matters**, **current direction**
 (resolved or lean), and **what it blocks**. Answer the 🔴 blocking ones first —
@@ -78,12 +79,8 @@ re-litigate them silently.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0, `feature-inventory.md`
   §3.10, `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
-- **Clarified by C14/CD-0006:** Product-row fields were accepted for the row
-  surfaces, which retired; substantive decisions happen inside the selected
-  Product/workflow.
-- **Decision (amended 2026-10-13):** CD-0219 retired the interactive
-  launcher TUI, and the session entry route it left is removed with it
-  (CD-0108). The host owns operator session start and resume; Concord owns
+- **Decision:** Substantive decisions happen inside the selected Product/workflow.
+  The host owns operator session start and resume; Concord owns
   managed worktree claims, verified landing, and work-start context.
 
 ### R2. Cross-workflow impact propagation / freshness
@@ -96,7 +93,7 @@ re-litigate them silently.
   breaking change blocks. Version stamps are the deterministic fallback.
 - **Constraint:** no polling, timers, automatic downstream rewrites, or heuristic
   blockers. Heuristics may suggest edges but cannot authorize them.
-- **Amended by CD-0222:** Product-changing contracts declare one home Domain,
+- **Architecture boundary under CD-0222:** Product-changing contracts declare one home Domain,
   all affected Domains, exact law revisions, and authorized writes. Intersecting
   affected Domains require an operator-approved resolution pinned to both
   contract versions before both items hold execution authority.
@@ -111,13 +108,13 @@ re-litigate them silently.
 - **Effect:** recorded in `workflows.md` §2.2 and `self-documentation.md` §1.3.
 
 ### R4. Product → Domain primary navigation
-- **Direction, amended by CD-0222:** Durable Product knowledge is navigated
+- **Direction under CD-0222:** Durable Product knowledge is navigated
   **Product → Domain**. Workflows and changes are architecture-bound history from
   the Domain view, not the
   top-level browse path.
 - **Consumer boundary:** CD-0222 keeps repository navigation and exact
   Domain-detail reads. The graph grants no execution authority or behavioral
-  proof. The launcher display subject is vacated under CD-0219.
+  proof.
 - **Why:** enforces locality of behavior (P04) and makes architecture, law, and
   ownership obvious at a glance. Business grouping lives in Linear under CD-0213.
 - **Effect:** recorded in `product-data-model.md` §6, `self-documentation.md` §1.1,
@@ -148,8 +145,7 @@ re-litigate them silently.
 ### R7. episode is removed; lesson owns the knowledge ladder
 
 - **Decision (2026-09-03):** CD-0106 governs. Concord does
-  not integrate, configure, or promote from episode. The tool count falls by
-  one.
+  not integrate, configure, or promote from episode.
 - **Ladder:** an observation (CD-0030) holds an unproven notice. A
   `lesson` (CD-0026) holds a proven Product-scoped learning, published at work
   completion. A `decision` or `spec` holds accepted law. No new kind, store, or
@@ -158,10 +154,8 @@ re-litigate them silently.
 - **External systems:** identity lives in `managed_resources`, declared by the
   operator. Learned usage is a `lesson` tagged `resource:<resource_id>`. A
   record stores a vendor documentation locator, never vendor content.
-- **Evidence:** the episode store held 7 predecessor-import rows, an empty
-  `global` namespace, and no manual or ingested memory.
 - **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md),
-  which now covers lgrep and vision only.
+  which covers lgrep and vision only.
 
 ---
 
@@ -293,10 +287,8 @@ re-litigate them silently.
   [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 ### C19. Agent context continuity
-- **Question:** What law governs an agent's working context across the point where it
-  exceeds the model's window? Concord has no position. Does Concord specify
-  summarize-in-place, clean restart from a structured handoff, or both with a stated
-  precedence — and what must survive unconditionally?
+- **Contract:** [CD-0016](./decisions/CD-0016-context-continuity.md) governs
+  working context across model-window boundaries.
 - **Why:** every long-running agent session crosses this boundary, and the boundary is
   lossy. Published measurement finds that standing instructions are dropped
   disproportionately relative to hard rules when a session is summarized, that
@@ -309,52 +301,17 @@ re-litigate them silently.
   [`compaction-retention-policy.md`](./compaction-retention-policy.md) and
   [`canonical-git-note-placement.md`](./canonical-git-note-placement.md). This question is
   unrelated to that tier and must be named **context continuity** to avoid collision.
-- **Existing contracts do not cover it.** TS5
-  ([`agent-call-context-contract.md`](./agent-call-context-contract.md)) is the per-call
-  ambient scope envelope, not the model's working window. TS2 §3
-  ([`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md)) bounds tool-schema
-  tokens, not conversation history. CD-0031 and CD-0163 bind the kept session
-  handoff to identity only. A position here needs a new decision record; no
-  existing record can be amended into one.
-- **Why Concord is well placed:** TS5 already states that there is no mutable protocol
-  session and no ambient state held by a daemon. If every call is stateless and all
-  state is durable, the working context is a **derived projection** that can be rebuilt
-  deterministically from the store rather than a conversation that must be compressed.
-  That removes the summarizer from the correctness path entirely. Predecessor harnesses
-  are converging on the same conclusion from the opposite direction, having started with
-  summarization and added restarts afterwards.
-- **Candidate shape (2026-08-10):** three operations at three anchors, not one setting.
-  A small **pinned** set re-emitted from durable state on every call — active obligation
-  level, pending operator decision, and the crucial subset of standing law — which is
-  never carried *through* a summary. A **summarization** step permitted only at a
-  completed unit of work, never mid-derivation, because that is the one moment when the
-  working state has just been made durable and eviction is therefore free. A **clean
-  restart** seeded from the already-approved handoff artifact at a phase boundary, where
-  the prior phase's exploration is genuinely spent. Boundaries crossed are counted and
-  observable, since compounding loss makes that count the best available signal of
-  degraded output.
 - **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
   [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
   [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
   [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
   mechanisms to prevent structurally; they are not work Concord must reproduce.
-- **Long-term gap surfaced by #422 (2026-08-10):** the predecessor's short-term fix bounds the
-  fallback path and adds typed size limits, but the deeper structural gap remains: the
-  predecessor's report persistence is change-keyed (reports are projections stored inside a
-  change's own record), so investigation work not tied to a change has no durable home and
-  takes the fallback every time. A proper solution needs a persistence surface for stateless
-  research output — a project-scoped or session-scoped store that is not a change projection.
-  This is tracked as a separate predecessor follow-up
-  ([Sharper-Flow/Advance](https://github.com/Sharper-Flow/Advance) ADV change
-  `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
-  bounding a delegated result is necessary but not sufficient if the result has nowhere
-  durable to land.
-- **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
+- **Direction:** Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are
   allowed only after a completed durable unit. Clean typed-agent restart is the
   preferred future path but remains unavailable until issue #120. The canonical
-  read is `concord_work_trace.continuity` on surface 2.3.0.
+  read is `concord_work_trace.continuity`.
 
 ---
 

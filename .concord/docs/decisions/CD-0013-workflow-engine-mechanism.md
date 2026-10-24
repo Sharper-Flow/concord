@@ -22,10 +22,7 @@ external conditions bullet and acceptance criterion 26 (no external-condition
 resolver); [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
 amends D4's strength comparison paragraph (the independent verdict is the outcome
 strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
-outcome-contract acceptance criterion 3 (vacuity is judged at review); and
-[CD-0238](CD-0238-point-in-time-reconstruction-runs-outside-the-core.md) amends D13's
-`ReconstructSubjectAt` paragraph and acceptance criterion 36 (point-in-time
-reconstruction runs outside the core).
+outcome-contract acceptance criterion 3 (vacuity is judged at review).
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D7, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
@@ -39,9 +36,7 @@ CD-0006 D3 commits Concord to a full workflow coordination engine with native-ef
 preservation. CD-0008 commits to checkpoint-and-resume, attempt fencing, immutable
 evidence binding, typed external conditions, and schema evolution. CD-0215 commits
 research ownership semantics. CD-0012 commits a three-part outcome contract
-and a strengthening-only delivery comparison; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-governs: Review reports one disposition and Main records its acceptance, with
-no separate final evaluator.
+and a strengthening-only delivery comparison; Review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 The accepted law already defines:
 
@@ -57,10 +52,10 @@ The accepted law already defines:
 The accepted law does **not** yet:
 
 - name a predicate representation that two workflows can compare for strength;
-- name the actor identity that records a review disposition; [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: review reports one disposition and Main records its acceptance;
+- name the actor identity that records a review disposition; review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls))
 - name the durable shape a workflow instance, definition, contract, evidence, and
   checkpoint occupy in SQLite;
-- name how each workflow mutation persists; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current rows, so no event families or replay authority exist;
+- name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`) and how
   they surface as impact notices.
 
@@ -76,15 +71,15 @@ the implementation contract the engine needs.
 
 ### D1. Workflow definitions are code-defined, not stored authority
 
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: workflow definitions are generated from one canonical source, and no released definition version, hand-maintained pin, or catalog list is retained for history.
+Workflow definitions are generated from one canonical source ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D2. Workflow state lives on the work-item subject
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: workflow state lives as current rows on the work item, written in one transaction under an expected version; no event-folded projection or replay exists.
+Workflow state lives as current rows on the work item, written in one transaction under an expected version ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D3. Each mutation writes current rows
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the engine records each mutation as a current row in one transaction; no typed event families, payload versions, or upcasters exist.
+The engine records each mutation as a current row in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D4. Outcome predicates use a closed union, never an expression language
 
@@ -140,7 +135,7 @@ The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN
 
 ### D5. Actor identity is the existing authenticated tuple
 
-Actor identity stays the existing authenticated tuple, and [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: no executing-actor distinctness beyond the sequential loop's rules is required.
+Actor identity stays the existing authenticated tuple.
 
 ### D6. Evidence, approvals, and external conditions reuse existing machinery
 
@@ -168,7 +163,7 @@ Actor identity stays the existing authenticated tuple, and [CD-0242 D5](CD-0242-
 ### D7. Impact propagation uses typed edges and notices
 
 The `modifies`, `depends_on` (hard/soft), and `forward_link` relations become typed
-edges backed by `workflow_impact_edges`; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: relation writes are current rows in one transaction, not folded events. PM4's acyclic-governing-graph invariant applies to
+edges backed by `workflow_impact_edges`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). PM4's acyclic-governing-graph invariant applies to
 `forward_link` and hard `depends_on`, using the same in-transaction recursive cycle
 check the existing relation writes already perform; `modifies` is not a governing
 graph and is not cycle-checked.
@@ -201,7 +196,7 @@ revision through contract supersession reuses the same machinery and records a
 
 ### D8. Composition is forward-link only
 
-Forward-linked successors use the closed `forward_link` relation kind; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the relation is a current row written in one transaction. No parent waiting, no nested child execution. A
+Forward-linked successors use the closed `forward_link` relation kind; the relation is a current row written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No parent waiting, no nested child execution. A
 spike never nests under another spike. An implementation change does not nest
 under a research workflow. The generic one-off type may forward-link to any other
 family.
@@ -228,7 +223,7 @@ A workflow reaches `terminal` only when:
 1. All required evidence is bound and verified.
 2. All declared external conditions are resolved or canceled.
 3. All `modifies` edges match their declared scope and the spec mandate is satisfied.
-4. [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: verdicts are recorded through the loop's review acceptance, with no distinct-actor requirement beyond it.
+4. Verdicts are recorded through the loop's review acceptance, with no distinct-actor requirement beyond it ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 5. The premise is confirmed by an operator-typed actor.
 6. The contract, verdict, evidence, and terminal transition commit in one
    transaction (PM4 invariant 7 extension).
@@ -242,15 +237,16 @@ the envelope schema already requires for it.
 CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error, and the
 closed error enum in `contracts/agent-tool-envelope.schema.json` does not contain one
 today. This decision therefore amends the envelope contract to add exactly one error
-kind, `outcome_mismatch`, paired with recovery `contact_operator`: a weaker or
-incomparable delivery is resolved by the operator either strengthening the delivery
-or superseding the contract, never by agent retry. That amendment is a MAJOR
+kind, `outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
+delivery that answers a criterion the active contract does not approve. A weaker or
+incomparable delivery has no criterion proof and is refused as missing evidence
+(CD-0235 D2). That amendment is a MAJOR
 tool-surface change under TS8; D11 records the process it must follow. No other error
 kind is added and no existing kind changes meaning.
 
 ### D11. Public surface for workflow actions stays reserved
 
-Definitions declaring `approval_policy=consequence_v1` use the following consent contract. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, no released-definition version or pin is retained for history, and the identities active work needs are derived at the integration boundary.
+Definitions declaring `approval_policy=consequence_v1` use the following consent contract. Definitions generate from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 This policy is the workflow-action form of CD-0230 D5 and
 [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
@@ -279,7 +275,7 @@ recovery checks. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Supersession grants no legislative authority or automatic overlap exemption.
 
-[CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) governs: Review inspects the accumulated solution and reports one disposition that Main records; workers gain no completion authority.
+Review inspects the accumulated solution and reports one disposition that Main records; workers gain no completion authority ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 An engineering premise confirmation records the actual coordinator actor after
 investigation and acceptance deliverables pass. A UI/UX change requiring
@@ -310,7 +306,7 @@ supply authority. The six-class inventory and runtime alignment remain
 implementation obligations under CD-0243 D6; an unaligned gate is not a bypass
 route.
 
-New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and no released-definition version or pin is retained for history.
+New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; definitions generate from one canonical source ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 `concord_work_transition.workflow_action` already exists in the agent manifest,
 capability map, consequence class, and envelope schema. Until this engine ships,
@@ -345,15 +341,15 @@ introduced.
 
 ### D12. Staleness is structurally evaluated at consequential boundaries
 
-[CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it) governs: a record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission. No polling, no timer daemon, no heuristic authority (CD-0008 D5).
+A record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)). No polling, no timer daemon, no heuristic authority (CD-0008 D5).
 
 ### D13. Recovery restores a verified snapshot
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects; no replay or rebuild exists.
+Recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### D14. The seven families each bind to a concrete predicate form
 
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: the families' predicate contract is generated from the one canonical source; adding a family or a default predicate form requires an accepted decision.
+The families' predicate contract is generated from the one canonical source; adding a family or a default predicate form requires an accepted decision ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ## Required conformance scenarios
 
@@ -367,7 +363,7 @@ The implementation acceptance suite must exercise:
 2. A change contract with no required end-state is refused at planning.
 3. A change contract whose required end-state already holds before execution is
    refused as vacuous.
-4. A weaker delivery is refused with `outcome_mismatch`.
+4. A weaker delivery is refused at completion.
 5. A stronger delivery is accepted.
 6. An absence end-state is satisfied by removal; relocation is refused.
 7. Candidate-set revision records current rows in one transaction and leaves
@@ -504,11 +500,11 @@ This decision produces:
 - The seven required families become first-class workflow definitions generated
   from Go, exposed through the reserved `workflow_action` operation, and backed by
   the existing `durable_operations` claim/complete fence.
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recovery uses verified snapshots with tested restore; workflow state lives only as current rows.
+- Recovery uses verified snapshots with tested restore; workflow state lives only as current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Cost
 
-- [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: the cutover is one documented migration with a verified snapshot; no projection or event-family scaffolding ships.
+- The cutover is one documented migration with a verified snapshot; no projection or event-family scaffolding ships ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 - The workflow-action dispatcher reuses agent authority; an upgrade to
   `concord_work_transition.workflow_action` is required under TS8 once the engine
   ships.
@@ -562,9 +558,7 @@ predicate IDs, bound evidence, and exact operator approval. It holds
 the current checkpoint, preserves the recorded verdict and results, and returns
 the pinned instance to its declared external-effect step. It does not return to
 `refine`, rewrite the contract, or alter a definition's generated source.
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no attempt count, correction count, or correction limit exists, and
-each correction launch is admitted on its own scope and safety checks.
+Each correction launch is admitted on its own scope and safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 Completion
 stays fail-closed until the latest approved predicates are healthy.
 

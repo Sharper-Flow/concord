@@ -96,5 +96,3 @@ Scenario: work in progress is never interrupted
   `python3 scripts/check-cd-allocation.py`.
 - The predicate values are read from `concord host-leases` and the `current`
   root. The decision changes no code.
-- `.concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md` is
-  unchanged by this decision.

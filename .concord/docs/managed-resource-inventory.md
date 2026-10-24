@@ -4,8 +4,6 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** C15; resource-first canonical identity with Product ownership/
 > consumption links.
-> **Amended by:** CD-0082 removes the unimplemented resource-replacement model.
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** accepted operations write current rows in one transaction; no event append exists.
 > **Binding inputs:** PM2 global authority, PM3 typed-core/extension rule, PM5 stable
 > identity/membership precedent, Product data model §§1–4, 8–9, and 11, native-authority
 > placement, and accepted TS1–TS9 evolution gates.
@@ -145,8 +143,7 @@ Product's current stage, but acceptance materializes it on the resource as a
 current row ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Later Product-stage changes do not silently rewrite the resource's recorded stage.
 
-This deliberately narrows the earlier generic inheritance prose for managed
-resources: shared resources cannot inherit from several Products, and dynamic
+Shared resources cannot inherit from several Products, and dynamic
 inheritance would make old evidence uninterpretable. Owner transfer also does not
 change stage; any stage change is a separate explicit recorded action.
 

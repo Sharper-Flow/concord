@@ -4,13 +4,7 @@
 - **Date:** 2026-09-24
 - **Scope:** Where a managed session for selected work runs; the claimed
   directory and everything that directory governs
-- **Amends:** CD-0093
-- **Amended:** CD-0182 (2026-09-27) added the explicit member-Project
-  selector to the launch landing, and CD-0189 (2026-09-28) configured the
-  launch host command. Concord (CON) issue CON-910 (2026-10-13) removes the launch landing and
-  the selector under the Snowball coordinator's operator-delegated
-  approval. The claimed worktree remains the managed session directory
-  through work start's verified move.
+- **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 - **Related:** CD-0008, CD-0088, CD-0098
 - **Approval:** The operator approved the objective in the Concord (CON)
   work contract CON-448 (v1). The pull request is the public record.
@@ -20,30 +14,25 @@
 
 ## Context
 
-This record landed work-selected launch sessions in the work's active
-worktree, because the canonical path is the repository's main checkout while
+Managed work runs in its claimed worktree, because the canonical path is the repository's main checkout while
 the work lives in the claimed worktree (CD-0008).
 
-The launch landing and its candidate read are removed. The landing this
-record decided is now established by work start itself: `concord_work_start`
+`concord_work_start`
 claims the canonical worktree, moves the calling session into it, and
 refuses success unless the session directory reads back as the claimed
-worktree (CD-0098). There is no launch directory selection and no fallback
-candidate read left to govern.
+worktree (CD-0098).
 
 ## Decision
 
 ### D1. Retired: the launch landing
 
-The launch landing, its two-candidate read, and its usable-directory
-fallback are removed with the launch. A host-started session reaches the
+A host-started session reaches the
 worktree only through `concord_work_start`, which establishes one directory
 through a verified claim and read-back.
 
 ### D2. Retired: the member-Project landing selector
 
-The explicit member-Project landing selector retired with the launch. A
-different Project in the same repository is reached through an explicit
+A different Project in the same repository is reached through an explicit
 `worktree_claim`; a different repository is reached through a host-started
 session there, with the cross-repository claim refused by the store and the
 placement answered by CON-771's typed session placement detail.

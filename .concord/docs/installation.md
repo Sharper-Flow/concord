@@ -1,7 +1,5 @@
 # Installing Concord
 
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** store recovery restores a verified snapshot or reconciles current rows; no event-log rebuild exists.
-
 Concord releases support Linux amd64 only. The published release contains the
 binary, a reproducible bundle with the OpenCode adapter, a SHA-256 checksum
 file, a software bill of materials (SBOM), and the installer itself.

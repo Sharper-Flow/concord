@@ -12,8 +12,6 @@
 > optimal IO/storage/memory model for them.
 > **Primary surface:** Terminal-first tools; an optional admin panel is a
 > projection, not the operating center.
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** doc storage keeps
-> current rows and finite snapshots; no event log or replay exists.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -60,7 +58,7 @@ follows them without restating the ranked list.
 - If a projection is stale, the surface marks it stale rather than guessing.
 - Concord operational memory owns live state, blockers, approvals, versions, and
   active relations. Versioned Product knowledge owns accepted laws, decisions,
-  runbooks, and durable narratives. Browse/search/launcher views are rebuildable
+  runbooks, and durable narratives. Browse/search views are rebuildable
   projections. The same fact never has two authorities (CD-0006 D7).
 
 ---
@@ -108,7 +106,7 @@ Default self-documentation views are minimal by design:
 - Show **what blocks execution right now**.
 - Completed history, archived changes, and historical projections are available
   through explicit drill-down, not cluttering the default Product/Domain view.
-- This applies to the terminal launcher, the optional admin panel, and agent-tool
+- This applies to the optional admin panel and agent-tool
   read surfaces.
 
 ### 2.4 Authority/freshness and related-work impact
@@ -130,8 +128,7 @@ in Linear through the Linear MCP server under CD-0213 and never clears that stat
 1. **Doc-store format** — content-addressed files? a doc DB? (Storage authority
    is settled: current rows and finite snapshots, no event log — CD-0242 D2;
    couples to `design-constraints.md` §4.)
-2. **Browse UX** — terminal launcher tree? tool-based queries? optional admin panel?
-   all three?
+2. **Browse UX** — tool-based queries? optional admin panel? both?
 3. **Versioning granularity** — per-document versions, or per-change snapshots?
 4. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
 5. **Staleness signal source** — computed

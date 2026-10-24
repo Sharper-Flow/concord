@@ -904,7 +904,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 		}
 		if sf.StaleLawRevision != nil {
-			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 		}
 		if sf.DomainOverlap != nil {
 			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
@@ -1399,7 +1399,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
 	if r.Tool != "concord_knowledge" {
-		watermark, err := r.Store.DomainEventWatermark(ctx)
+		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -1788,6 +1788,9 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
 	}
+	if snapshot.ReviewInput != nil {
+		pinned["review_input"] = snapshot.ReviewInput
+	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
 	if len(snapshot.UnresolvedOverlaps) > 0 {
@@ -1976,11 +1979,19 @@ func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store
 // instant per candidate would move the measured size by a few bytes and
 // strand the emit at one byte over the cap.
 func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
-	watermark := int64(0)
-	if strings.HasPrefix(snapshot.Watermark, "seq:") {
-		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
+	watermark := snapshot.SourceVersionWatermark
+	warnings := []string{}
+	if snapshot.ReviewInputWarning != nil {
+		kind := store.KindUnavailable
+		var failure *store.Failure
+		if errors.As(snapshot.ReviewInputWarning, &failure) {
+			kind = failure.Kind
+		}
+		// Stable notice: review_input_candidate_tree:<typed failure kind>.
+		// Raw paths and Git output stay on the non-JSON snapshot error only.
+		warnings = append(warnings, "review_input_candidate_tree:"+string(kind))
 	}
-	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: warnings}
 }
 
 // continuityProjectionHeader is the small closed identity header every page
@@ -2247,8 +2258,8 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 		locator = &v
 	}
 	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
-	// Law status and successor ride beside, and never replace, the PM1 Q10
-	// locator state: state stays canonical/not_compacted/missing/ambiguous.
+	// Law status or a work-note successor never replaces the PM1 Q10 locator
+	// state: canonical/not_compacted/missing/ambiguous.
 	if lawStatus != "" {
 		payload["status"] = lawStatus
 	}

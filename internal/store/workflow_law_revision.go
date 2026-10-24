@@ -13,24 +13,7 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-type workflowReplayContextKey struct{}
-
 type workflowContractSupersessionContextKey struct{}
-
-// A replay folds events serially in one transaction. The running identity
-// count therefore matches the event-log order without a query for each edge.
-type workflowReplayState struct {
-	relationIdentity int64
-}
-
-func workflowReplayContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, workflowReplayContextKey{}, &workflowReplayState{})
-}
-
-func isWorkflowReplay(ctx context.Context) bool {
-	_, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	return ok
-}
 
 func workflowContractSupersessionContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, workflowContractSupersessionContextKey{}, true)
@@ -39,34 +22,6 @@ func workflowContractSupersessionContext(ctx context.Context) context.Context {
 func inWorkflowContractSupersessionContext(ctx context.Context) bool {
 	value, _ := ctx.Value(workflowContractSupersessionContextKey{}).(bool)
 	return value
-}
-
-func advanceWorkflowReplay(ctx context.Context, event Event) {
-	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	if !ok {
-		return
-	}
-	if event.Kind == "work.created" {
-		var payload workCreatedPayload
-		if json.Unmarshal(event.Payload, &payload) == nil && payload.RaisedFromWorkID != "" {
-			state.relationIdentity++
-		}
-		return
-	}
-	for _, kind := range relationIdentityEventKinds {
-		if event.Kind == kind {
-			state.relationIdentity++
-			return
-		}
-	}
-}
-
-func workflowReplayRelationIdentity(ctx context.Context) (int64, bool) {
-	state, ok := ctx.Value(workflowReplayContextKey{}).(*workflowReplayState)
-	if !ok {
-		return 0, false
-	}
-	return state.relationIdentity, true
 }
 
 // WorkflowLawRevision is the immutable law proof captured when a workflow
@@ -85,15 +40,12 @@ type CompatibleLawAmendment struct {
 	CurrentHash string `json:"current_hash"`
 }
 
-// StaleLawRevision is the structured recovery diagnosis for a consumer whose
-// mandated law ID has been superseded. Same-ID content amendments do not
-// produce this value.
+// StaleLawRevision identifies a pinned law deleted from the accepted projection.
+// Same-ID content amendments remain compatible.
 type StaleLawRevision struct {
-	OldLawID                     string   `json:"old_law_id"`
-	OldContentHash               string   `json:"old_content_hash"`
-	AcceptedSuccessorLawID       string   `json:"accepted_successor_law_id"`
-	AcceptedSuccessorContentHash string   `json:"accepted_successor_content_hash"`
-	RecoveryActions              []string `json:"recovery_actions"`
+	OldLawID        string   `json:"old_law_id"`
+	OldContentHash  string   `json:"old_content_hash"`
+	RecoveryActions []string `json:"recovery_actions"`
 }
 
 const staleLawRecoveryActions = "supersede_contract,terminal_work"
@@ -106,7 +58,7 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 		// workflowActionCrossField("supersede_contract"), not digest-covered
 		// definition content: core validation and the generated published
 		// supersede variant derive their oneOf branches from that one
-		// declaration (CON-412, CD-0115 D1).
+		// declaration.
 		Payload: WorkflowPayloadDefinition{Closed: true, Fields: workflowContractRecoveryPayloadFields()},
 	}
 }
@@ -198,10 +150,8 @@ func workflowLawSourceSetForHomeTx(ctx context.Context, q queryer, homeProjectID
 	return sources, nil
 }
 
-// workflowLawSubject is one mandated reference's resolved projection row and
-// the registered source that holds it.
+// workflowLawSubject is one mandated reference's resolved projection row.
 type workflowLawSubject struct {
-	source KnowledgeHome
 	status string
 	hash   string
 }
@@ -224,7 +174,6 @@ func resolveWorkflowLawSubjectTx(ctx context.Context, q queryer, sources []Knowl
 			return workflowLawSubject{}, failure
 		}
 		var subject workflowLawSubject
-		subject.source = KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}
 		scanErr := q.QueryRowContext(ctx, `SELECT status,content_hash FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, homeProjectID, homeLocatorID, lawID).Scan(&subject.status, &subject.hash)
 		if scanErr == sql.ErrNoRows {
 			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
@@ -254,7 +203,7 @@ func resolveWorkflowLawSubjectTx(ctx context.Context, q queryer, sources []Knowl
 			failure.CandidateIDs = []string{source.HomeProjectID + "/" + lawID}
 			return workflowLawSubject{}, failure
 		}
-		found = &workflowLawSubject{source: source, status: status, hash: hash}
+		found = &workflowLawSubject{status: status, hash: hash}
 	}
 	if found == nil {
 		failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
@@ -318,11 +267,10 @@ func validateCurrentWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, work
 	return nil
 }
 
-// validateStaleWorkflowContractRecoverySuccessorTx prevents a recovery from
-// escaping a cutover by dropping the accepted successor law from its mandate.
-// It is deliberately a live-transaction check: event replay validates recorded
-// pin shape without consulting today's Git-derived law projection.
-func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *sql.Tx, workID string, predecessors []int64, successor []WorkflowLawRevision) error {
+// validateClonedWorkflowContractLawRevisionsTx prevents the clone route from
+// retaining a deleted mandated law. Fully supplied successors validate their
+// own mandate and pins through validateCurrentWorkflowLawRevisionsTx.
+func validateClonedWorkflowContractLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string, predecessors []int64) error {
 	homeResolved := false
 	var homeProjectID, homeLocatorID string
 	for _, predecessor := range predecessors {
@@ -335,7 +283,7 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 		}
 		var mandated []string
 		if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "validate_stale_workflow_recovery", "previous workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		var err error
 		mandated, err = currentWorkflowLawMandateFromProjection(ctx, tx, workID, predecessor, mandated)
@@ -359,27 +307,16 @@ func validateStaleWorkflowContractRecoverySuccessorTx(ctx context.Context, tx *s
 		if stale == nil {
 			continue
 		}
-		found := false
-		for _, revision := range successor {
-			if revision.LawID == stale.AcceptedSuccessorLawID && revision.ContentHash == stale.AcceptedSuccessorContentHash {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return newFailure(KindInvalidPayload, "validate_stale_workflow_recovery", "successor contract must pin every accepted successor law revision", false, "include every accepted successor law and current content hash in spec_mandate")
-		}
+		return newFailure(KindInvalidPayload, "validate_stale_workflow_recovery", "cloned contract would retain a deleted mandated law", false, "supply a complete successor contract whose mandate resolves to current accepted law")
 	}
 	return nil
 }
 
 // findStaleWorkflowLawRevision is read-only and accepts either *sql.DB or
 // *sql.Tx. It consults only the current Git-derived law projection and the
-// event-folded contract pins; it never changes either authority. Each
-// mandated reference resolves across the Product's registered source set
-// (CD-0200), and the successor search runs in the source that holds the
-// superseded law, because the supersedes edge projects beside its same-home
-// endpoints.
+// contract pins; it never changes either authority. Each mandated reference
+// resolves across the Product's registered source set (CD-0200). Only a deleted
+// pinned law is stale; an accepted same-ID amendment stays compatible.
 func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID, homeLocatorID, workID string, contractVersion int64, mandated []string) (*StaleLawRevision, error) {
 	if len(mandated) == 0 {
 		return nil, nil
@@ -392,15 +329,6 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 		return nil, err
 	}
 	for _, reference := range mandated {
-		// The pins store the mandate's own reference form, so the pin lookup
-		// keeps the raw reference. Relation rows store bare law IDs, so the
-		// successor edge resolves through the parsed bare ID, and the
-		// successor's locator names its source with the qualified form over a
-		// registered set (CD-0200 D6).
-		_, bareLawID, _, parseErr := parseQualifiedKnowledgeID("check_workflow_law_revision", reference)
-		if parseErr != nil {
-			return nil, parseErr
-		}
 		var pinnedHash string
 		err := q.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, reference).Scan(&pinnedHash)
 		pinned := err == nil
@@ -409,39 +337,15 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 		}
 		subject, err := resolveWorkflowLawSubjectTx(ctx, q, sources, homeProjectID, homeLocatorID, reference)
 		if err != nil {
+			var failure *Failure
+			if pinned && failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
+				return &StaleLawRevision{OldLawID: reference, OldContentHash: pinnedHash, RecoveryActions: strings.Split(staleLawRecoveryActions, ",")}, nil
+			}
 			return nil, err
 		}
-		if subject.status != "superseded" {
-			// A changed hash under the same accepted law ID is a compatible
-			// amendment, regardless of the pinned hash.
-			continue
+		if subject.status != "accepted" {
+			return nil, newFailure(KindProjectionNotFound, "check_workflow_law_revision", "mandated law is not currently accepted", false, "publish the accepted law projection")
 		}
-		var successorID, successorHash string
-		err = q.QueryRowContext(ctx, `SELECT s.law_id,s.content_hash FROM law_relations r JOIN law_subjects s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='supersedes' AND r.target_law_id=? AND s.status='accepted' ORDER BY s.law_id LIMIT 1`, subject.source.HomeProjectID, subject.source.HomeLocatorID, bareLawID).Scan(&successorID, &successorHash)
-		if err == sql.ErrNoRows {
-			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "superseded mandated law has no valid accepted successor in the current projection", false, "publish and rebuild the accepted successor law projection")
-			failure.CandidateIDs = []string{reference}
-			return nil, failure
-		}
-		if err != nil {
-			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read accepted successor law revision", true, "retry once the law projection is readable", err)
-		}
-		if sources != nil && !strings.Contains(successorID, "/") {
-			// A registered source set names the resolved successor through its
-			// source, so the recovery payload pins the same qualified form the
-			// successor contract's mandate carries.
-			successorID = subject.source.HomeProjectID + "/" + successorID
-		}
-		if !pinned {
-			pinnedHash = subject.hash
-		}
-		return &StaleLawRevision{
-			OldLawID:                     reference,
-			OldContentHash:               pinnedHash,
-			AcceptedSuccessorLawID:       successorID,
-			AcceptedSuccessorContentHash: successorHash,
-			RecoveryActions:              strings.Split(staleLawRecoveryActions, ","),
-		}, nil
 	}
 	return nil, nil
 }
@@ -563,7 +467,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 	}
 	var mandated []string
 	if err := json.Unmarshal([]byte(mandateJSON), &mandated); err != nil {
-		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "check_workflow_law_revision", "workflow contract law mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	var mandateErr error
 	mandated, mandateErr = currentWorkflowLawMandateFromProjection(ctx, tx, workID, contractVersion, mandated)
@@ -584,7 +488,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx querye
 	if stale == nil {
 		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
 	}
-	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract consumes a superseded law revision", false, "request_approval")
+	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract pins a deleted law", false, "request_approval")
 	failure.StaleLawRevision = stale
 	return failure
 }

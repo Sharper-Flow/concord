@@ -27,10 +27,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestCompleteStepCorrectionRecoversDuplicateProjection"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestCompleteStepCorrectionSurvivesRebuildFromLog"
     }
   ],
   "id": "CD-0172",

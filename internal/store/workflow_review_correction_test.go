@@ -34,11 +34,10 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 	// The authorization just opened the step's newest action start, so the
 	// latest start epoch is this attempt's recorded authorization epoch.
 	epoch := latestStepStartEpoch(t, s, workID, stepID)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "review-gate-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "review-gate-dispatch-"+attemptID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.Actor = ownerRef
+	dispatch.OccurredAt = time.Unix(at, 0).UTC()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
@@ -206,7 +205,7 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
-func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
+func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-break-fix", "workflow.break_fix")
@@ -254,7 +253,7 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 
 // An unaccepted Review of the earlier candidate cannot authorize a candidate
 // changed by a later accepted implementation, regardless of dispatch order.
-func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
+func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
@@ -278,7 +277,7 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 
 // An accepted Review becomes inapplicable when its candidate changes. A later
 // completed Review with unchanged inputs does not invalidate it by chronology.
-func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T) {
+func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	for _, route := range deliveryEntryRoutes() {
 		t.Run(route.name, func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-review-before-repair", "workflow.break_fix")
@@ -440,7 +439,6 @@ func TestCurrentDeliveryGateReturnsWhenSuccessorStalesAcceptedReview(t *testing.
 			version := readWorkVersion(t, j.s, j.workID)
 			successor["law_revisions"], successor["law_boundary_version"], successor["consequence_class"] = []WorkflowLawRevision{}, 1, "internal_sqlite"
 			event := workflowEventWithActor("p-gate-successor", WorkflowContractSuperseded, j.workID, owner, map[string]any{"work_id": j.workID, "expected_version": version, "resulting_version": version + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "changed criterion", "audit_evidence": []string{"evidence:return-route-artifact"}, "successor_contract": successor})
-			event.PayloadVersion = 1
 			event = withPinnedDecisionFact(t, pinnedWorkflowDefinitionForTest(t, j.s, j.workID), event)
 			if err := applyWorkflowTestOperation(t.Context(), j.s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, j.workID): version}}); err != nil {
 				t.Fatal(err)

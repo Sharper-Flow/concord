@@ -10,16 +10,13 @@ schema is `1.3` and carries explicit authority tiers. The companion
 [`concord-knowledge-index.v1.schema.json`](../../contracts/concord-knowledge-index.v1.schema.json)
 is the closed JSON Schema contract.
 
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** derived law
-> projections are rebuilt from Git in one transaction; no event log, fold, or
-> replay exists.
-
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
-
 ## Contract
+
+Derived law projections are rebuilt from Git in one transaction; no event log,
+fold, or replay exists ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Operator consent follows [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
 
 The manifest has `schema_version`, `supported_kinds`, `indexed_kinds`, optional
 registry metadata, and `records`. Unknown fields are invalid at authoring: the
@@ -54,9 +51,9 @@ implies precedence. The projected pair records the endpoint whose record
 declared it, because only that record can withdraw the conflict. Relations are
 authored only by an operator-approved Git manifest/spec/decision delta.
 
-Amended 2026-10-01 by CD-0200: a relation target outside the declaring
+Under CD-0200, a relation target outside the declaring
 manifest names its source Project through a structured `source_project_id`
-field instead of a packed qualified ID. At the declaring registered source's
+field. At the declaring registered source's
 rebuild, the relation validates over the Product's verified source set, a
 cross-source `conflicts_with` pair blocks the rebuild, and a non-home source
 may not declare precedence toward shared-home law. Only the shared-law home
@@ -132,6 +129,3 @@ audit context only. Same-ID hash amendments remain compatible, while an
 accepted successor with `supersedes` over a `status=superseded` law marks stale
 exactly the contracts that consumed the superseded revision, through typed
 `stale_law_revision` recovery (CD-0242 D7).
-The rebuild path already has typed proof handling for accepted non-work kinds;
-the missing mechanism was canonical manifest ingestion and explicit kind
-coverage, not a work-note-only compaction rule.

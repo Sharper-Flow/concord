@@ -26,7 +26,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	// instance-less work arises: raw events, as predecessor import leaves.
 	missingInstanceID := "work-composition-missing-instance"
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "composition-missing:create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"research","title":"Composition missing instance","priority":0}`)},
+		{EventID: "composition-missing:create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"research","title":"Composition missing instance","priority":0}`)},
 		{EventID: "composition-missing:memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, missingInstanceID): 0}}); err != nil {
 		t.Fatal(err)

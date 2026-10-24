@@ -12,8 +12,6 @@
 - **Preserves:** CD-0082's demand-driven controls; the predecessor snapshot
   contract and the existing import safeguards; the rule that Concord never
   writes predecessor state
-- **Extends:** The predecessor migration runbook's after-import clauses at the
-  freeze and history clauses, for a Product under this mode
 
 ## Context
 

@@ -65,156 +65,186 @@ func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testin
 	}
 }
 
-func TestWorkflowLawRevisionSupersessionRefusesPinnedConsumer(t *testing.T) {
+func TestWorkflowLawRevisionDeletionRefusesPinnedConsumer(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	seedWork(t, s, "law-supersession")
-	insertLawRevisionFixture(t, s, "law-supersession", "spec:old", "sha256:"+strings.Repeat("a", 64))
-	insertSupersededLaw(t, s, "spec:old", "sha256:"+strings.Repeat("a", 64))
-	insertAcceptedLaw(t, s, "spec:new", "sha256:"+strings.Repeat("b", 64))
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:new','supersedes','spec:old','commit'); DELETE FROM fold_guard`); err != nil {
+	seedWork(t, s, "law-deletion")
+	oldHash := "sha256:" + strings.Repeat("a", 64)
+	insertLawRevisionFixture(t, s, "law-deletion", "spec:old", oldHash)
+	insertAcceptedLaw(t, s, "spec:old", oldHash)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects WHERE law_id='spec:old'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-supersession", 1, []string{"spec:old"})
+	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-deletion", 1, []string{"spec:old"})
 	if err != nil {
-		t.Fatalf("supersession check: %v", err)
+		t.Fatalf("deletion check: %v", err)
 	}
-	if got == nil || got.OldLawID != "spec:old" || got.AcceptedSuccessorLawID != "spec:new" || got.AcceptedSuccessorContentHash == "" {
-		t.Fatalf("supersession diagnosis = %+v, want old spec:old and successor spec:new", got)
+	if got == nil || got.OldLawID != "spec:old" || got.OldContentHash != oldHash || strings.Join(got.RecoveryActions, ",") != "supersede_contract,terminal_work" {
+		t.Fatalf("deletion diagnosis = %+v, want deleted spec:old, its pinned hash, and closed recovery actions", got)
 	}
 }
 
-func TestWorkflowLawRevisionSupersessionRefusesLegacyUnpinnedConsumer(t *testing.T) {
+func TestWorkflowLawRevisionDeletionFailsClosedForLegacyUnpinnedConsumer(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-legacy")
 	insertLawRevisionFixture(t, s, "law-legacy", "spec:legacy", "sha256:"+strings.Repeat("a", 64))
+	insertAcceptedLaw(t, s, "spec:legacy", "sha256:"+strings.Repeat("a", 64))
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contract_law_revisions; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	insertSupersededLaw(t, s, "spec:legacy", "sha256:"+strings.Repeat("a", 64))
-	insertAcceptedLaw(t, s, "spec:successor", "sha256:"+strings.Repeat("c", 64))
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','spec:successor','supersedes','spec:legacy','commit'); DELETE FROM fold_guard`); err != nil {
+	if got, err := findStaleWorkflowLawRevision(t.Context(), s.db, "p", "l", "law-legacy", 1, []string{"spec:legacy"}); err != nil || got != nil {
+		t.Fatalf("accepted legacy unpinned law = %+v err=%v, want compatible", got, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects WHERE law_id='spec:legacy'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-legacy", 1, []string{"spec:legacy"})
-	if err != nil || got == nil {
-		t.Fatalf("legacy supersession diagnosis = %+v err=%v", got, err)
+	var failure *Failure
+	if got != nil || !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:legacy" {
+		t.Fatalf("legacy deletion diagnosis = %+v err=%v, want projection_not_found without an invented pin", got, err)
 	}
 }
 
-func TestWorkflowLawRevisionMissingProjectionFailsClosed(t *testing.T) {
+func TestWorkflowLawRevisionMissingPinnedProjectionIsStale(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "law-missing")
 	insertLawRevisionFixture(t, s, "law-missing", "spec:missing", "sha256:"+strings.Repeat("a", 64))
-	_, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:missing" {
-		t.Fatalf("missing law diagnosis = %v, want typed projection_not_found with candidate", err)
-	}
-}
-
-func TestWorkflowLawRevisionSupersededWithoutSuccessorFailsClosed(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "law-no-successor")
-	insertLawRevisionFixture(t, s, "law-no-successor", "spec:orphan", "sha256:"+strings.Repeat("a", 64))
-	insertSupersededLaw(t, s, "spec:orphan", "sha256:"+strings.Repeat("a", 64))
-	_, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-no-successor", 1, []string{"spec:orphan"})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:orphan" {
-		t.Fatalf("orphan supersession diagnosis = %v, want typed projection_not_found with candidate", err)
+	got, err := findStaleWorkflowLawRevision(context.Background(), s.DatabaseForTesting(), "p", "l", "law-missing", 1, []string{"spec:missing"})
+	if err != nil || got == nil || got.OldLawID != "spec:missing" || got.OldContentHash != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("missing pinned law diagnosis = %+v err=%v, want stale deleted law and pinned hash", got, err)
 	}
 }
 
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
-	workID := "law-recontract-route"
-	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
-	actor := workflowActorForRef(t, s, completion.Actor)
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, s)
-	// At the current fixture's completion step, correction also requires the
-	// contradiction recorded after proof (CD-0172 D1).
-	recordCompleteStepContradictionObservation(t, s, workID, actor)
-	binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','product',?,'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`, binding.HomeDomainID); err != nil {
-		t.Fatal(err)
-	}
-	successor := map[string]any{
-		"contract_version": 2, "premise": "continue under successor law",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-		"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
-	}
-	version := readWorkVersion(t, s, workID)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope, err := beginFold(context.Background(), tx)
-	if err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	result, err := applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(successor), Actor: actor,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
-	})
-	_ = scope.close(context.Background())
-	if err != nil {
-		tx.Rollback()
-		t.Fatalf("production stale-contract recovery route: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if result.ResultingVersion == 0 {
-		t.Fatal("successor contract approval did not produce a workflow result")
-	}
-	var pinnedHash string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=2 AND law_id='spec:two'`, workID).Scan(&pinnedHash); err != nil || pinnedHash != "sha256:"+strings.Repeat("b", 64) {
-		t.Fatalf("successor contract pin=%q err=%v", pinnedHash, err)
-	}
-	var activeCount, oldConfirmationCount, successorConfirmationCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil || activeCount != 1 {
-		t.Fatalf("active contract count=%d err=%v, want exactly one", activeCount, err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&oldConfirmationCount); err != nil || oldConfirmationCount != 1 {
-		t.Fatalf("prior premise confirmations=%d err=%v, want one historical confirmation", oldConfirmationCount, err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&successorConfirmationCount); err != nil || successorConfirmationCount != 0 {
-		t.Fatalf("successor premise confirmations=%d err=%v, want zero", successorConfirmationCount, err)
-	}
-	if got := currentStep(t, s, workID); got != "execution" {
-		t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
-	}
-	version = result.ResultingVersion
-	tx, err = s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope2, err := beginFold(context.Background(), tx)
-	if err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	startResult, err := applyWorkflowActionRawTx(context.Background(), tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
-	_ = scope2.close(context.Background())
-	if err != nil {
-		tx.Rollback()
-		t.Fatalf("ordinary post-recovery action: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if startResult.ResultingVersion <= version || currentStep(t, s, workID) != "execution" {
-		t.Fatalf("post-recovery action result=%d step=%q", startResult.ResultingVersion, currentStep(t, s, workID))
+	for _, tc := range []struct {
+		name    string
+		mandate []string
+		refused bool
+	}{
+		{name: "replace", mandate: []string{"spec:two"}},
+		{name: "drop", mandate: []string{}},
+		{name: "retain-deleted", mandate: []string{"spec:one"}, refused: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			workID := "law-recontract-route-" + tc.name
+			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+			actor := workflowActorForRef(t, s, completion.Actor)
+			attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+			cutoverLawProjection(t, s)
+			// At the current fixture's completion step, correction also requires the
+			// contradiction recorded after proof (CD-0172 D1).
+			recordCompleteStepContradictionObservation(t, s, workID, actor)
+			if _, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
+				t.Fatalf("discover production deleted-law recovery: action=%+v err=%v", action, err)
+			}
+			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','product',?,'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`, binding.HomeDomainID); err != nil {
+				t.Fatal(err)
+			}
+			successor := map[string]any{
+				"contract_version": 2, "premise": "continue under successor law",
+				"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
+				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{"complete_step_correction"}, "spec_mandate": []string{"spec:two"}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+				"supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}, "decision_domains": []string{}, "architecture_binding": binding,
+			}
+			successor["spec_mandate"] = tc.mandate
+			version := readWorkVersion(t, s, workID)
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope, err := beginFold(context.Background(), tx)
+			if err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			result, err := applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(successor), Actor: actor,
+				AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-recover", OperationID: "recontract-recover", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-recover", RequestID: "request:recontract-recover", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
+			})
+			_ = scope.close(context.Background())
+			if tc.refused {
+				_ = tx.Rollback()
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, "spec:one") {
+					t.Fatalf("complete successor retaining deleted law = %v, want projection_not_found naming spec:one", err)
+				}
+				if got := readWorkVersion(t, s, workID); got != version {
+					t.Fatalf("refused recovery changed version: %d, want %d", got, version)
+				}
+				var successorCount, activeVersion int
+				if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&successorCount); err != nil || successorCount != 0 {
+					t.Fatalf("refused recovery installed successor: count=%d err=%v", successorCount, err)
+				}
+				if err := s.db.QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil || activeVersion != 1 {
+					t.Fatalf("refused recovery active version=%d err=%v", activeVersion, err)
+				}
+				return
+			}
+			if err != nil {
+				tx.Rollback()
+				t.Fatalf("production stale-contract recovery route: %v", err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if result.ResultingVersion == 0 {
+				t.Fatal("successor contract approval did not produce a workflow result")
+			}
+			pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pins) != len(tc.mandate) {
+				t.Fatalf("successor pins=%+v, want mandate %v", pins, tc.mandate)
+			}
+			if len(pins) == 1 && (pins[0].LawID != "spec:two" || pins[0].ContentHash != "sha256:"+strings.Repeat("b", 64)) {
+				t.Fatalf("successor contract pins=%+v, want current accepted spec:two", pins)
+			}
+			var activeCount, oldConfirmationCount, successorConfirmationCount int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil || activeCount != 1 {
+				t.Fatalf("active contract count=%d err=%v, want exactly one", activeCount, err)
+			}
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&oldConfirmationCount); err != nil || oldConfirmationCount != 1 {
+				t.Fatalf("prior premise confirmations=%d err=%v, want one historical confirmation", oldConfirmationCount, err)
+			}
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&successorConfirmationCount); err != nil || successorConfirmationCount != 0 {
+				t.Fatalf("successor premise confirmations=%d err=%v, want zero", successorConfirmationCount, err)
+			}
+			if got := currentStep(t, s, workID); got != "execution" {
+				t.Fatalf("recontracted workflow step=%q, want unchanged execution step", got)
+			}
+			version = result.ResultingVersion
+			tx, err = s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope2, err := beginFold(context.Background(), tx)
+			if err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			startResult, err := applyWorkflowActionRawTx(context.Background(), tx, scope2, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "start_execution", Payload: mustJSONValue(map[string]any{}), Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "recontract-start", OperationID: "recontract-start", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-start", RequestID: "request:recontract-start", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+			_ = scope2.close(context.Background())
+			if err != nil {
+				tx.Rollback()
+				t.Fatalf("ordinary post-recovery action: %v", err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if startResult.ResultingVersion <= version || currentStep(t, s, workID) != "execution" {
+				t.Fatalf("post-recovery action result=%d step=%q", startResult.ResultingVersion, currentStep(t, s, workID))
+			}
+		})
 	}
 }
 
@@ -245,32 +275,63 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 	}
 }
 
-func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
+func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
+	t.Parallel()
+	const workID = "law-deletion-execution-recovery"
+	s := seedLawRevisionPendingReview(t, workID)
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	if _, _, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); !hasFailureKind(err, KindInvalidOperation) {
+		t.Fatalf("healthy execution exposed stale recovery: %v", err)
+	}
+	var approvedBy string
+	if err := s.db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedBy); err != nil {
+		t.Fatal(err)
+	}
+	actor := workflowActorForRef(t, s, approvedBy)
+	cutoverLawProjection(t, s)
+	if _, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" {
+		t.Fatalf("deleted-law recovery at execution unavailable: action=%+v err=%v", action, err)
+	}
+	successor := pContractSuccessor(t, s, workID, "continue with current accepted law")
+	successor["spec_mandate"] = []string{}
+	successor["law_modifies"] = []string{}
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", mustJSONValue(successor), actor); err != nil {
+		t.Fatalf("deleted-law recovery preflight: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "supersede_contract", mustJSONValue(successor), 0, actor); err != nil {
+		t.Fatalf("deleted-law recovery at execution: %v", err)
+	}
+	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
+		t.Fatalf("recovery active contract=%d count=%d, want 2/1", version, active)
+	}
+	pins, err := readWorkflowLawRevisions(t.Context(), s.db, workID, 2)
+	if err != nil || len(pins) != 0 {
+		t.Fatalf("dropped mandate retained pins: %+v err=%v", pins, err)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("recovery changed execution step: %q", got)
+	}
+}
+
+func TestWorkflowLawRevisionCloneRecoveryRefusesDeletedMandate(t *testing.T) {
 	t.Parallel()
 	workID := "law-recovery-requires-successor-pin"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	cutoverLawProjection(t, s)
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	currentVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := beginFold(context.Background(), tx)
-	if err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: currentVersion, ActionID: "supersede_contract", Payload: mustJSONValue(map[string]any{"contract_version": 2, "premise": "incorrectly omit the accepted successor", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "move to the accepted successor law", "audit_evidence": []string{"evidence:law-cutover"}}), Actor: actor,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "recontract-missing-successor", OperationID: "recontract-missing-successor", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "recontract-missing-successor", RequestID: "request:recontract-missing-successor", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 3, 0, time.UTC),
-	})
-	_ = scope.close(context.Background())
+	err = validateClonedWorkflowContractLawRevisionsTx(t.Context(), tx, workID, []int64{1})
 	_ = tx.Rollback()
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
-		t.Fatalf("recovery without successor pin error=%v, want invalid_payload", err)
+	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
+		t.Fatalf("clone recovery retaining deleted law error=%v, want invalid_payload", err)
+	}
+	if got := readWorkVersion(t, s, workID); got != currentVersion {
+		t.Fatalf("clone validation changed version: %d, want %d", got, currentVersion)
 	}
 }
 
@@ -278,6 +339,7 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 	t.Parallel()
 	workID := "law-terminal-route"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	cutoverLawProjection(t, s)
 	version := readWorkVersion(t, s, workID)
 	var currentLifecycle string
@@ -320,17 +382,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			cutoverErr <- foldErr
 			return
 		}
-		if _, execErr := tx.Exec(`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); execErr != nil {
-			tx.Rollback()
-			cutoverErr <- execErr
-			return
-		}
-		if _, execErr := tx.Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`); execErr != nil {
-			tx.Rollback()
-			cutoverErr <- execErr
-			return
-		}
-		if _, execErr := tx.Exec(`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`); execErr != nil {
+		if _, execErr := tx.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); execErr != nil {
 			tx.Rollback()
 			cutoverErr <- execErr
 			return
@@ -473,15 +525,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`); err != nil {
+		if _, err := tx.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -559,13 +603,10 @@ func cutoverLawProjection(t *testing.T, s *Store) {
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, "spec:one"); err != nil {
+	if _, err := db.Exec(`DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, "spec:one"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, "spec:two"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'supersedes',?,'test')`, "spec:two", "spec:one"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
@@ -573,7 +614,7 @@ func cutoverLawProjection(t *testing.T, s *Store) {
 	}
 }
 
-func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *testing.T) {
+func TestWorkflowLawRevisionPinsFoldWithoutConsultingCurrentLaw(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	workID := "law-pinned-rebuild"
@@ -586,7 +627,6 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 		workflowEventWithActor("law-pinned-definition", WorkflowDefinitionSelected, workID, actor, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": workflowFixtureDigest(t), "work_kind": workflowFixtureWorkKind}),
 	}
 	contract := workflowEventWithActor("law-pinned-contract", WorkflowContractApproved, workID, actor, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "pin the accepted law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-pin", "immutable_subject_ref": "commit:law-pin", "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	contract.PayloadVersion = 2
 	events = append(events, contract)
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -594,12 +634,6 @@ func TestWorkflowLawRevisionPinsFoldAndRebuildWithoutConsultingCurrentLaw(t *tes
 	var hash string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("folded law pin = %q err=%v", hash, err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=?`, workID).Scan(&hash); err != nil || hash != "sha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("rebuilt law pin = %q err=%v", hash, err)
 	}
 }
 
@@ -623,9 +657,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	if err != nil {
 		t.Fatalf("claim before cutover: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test'); DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
+	cutoverLawProjection(t, s)
 
 	if _, err = CompleteStep(context.Background(), s, CompleteRequest{
 		OpID: claim.OpID, AttemptEpoch: claim.AttemptEpoch, ResultKind: ResultCompleted, PrincipalRef: "principal/in-flight", Tool: "workflow-test",
@@ -687,14 +719,6 @@ func insertAcceptedLaw(t *testing.T, s *Store, lawID, hash string) {
 	t.Helper()
 	anchorHomePair(t, s, "p", "l")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','accepted','.concord/docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
-	t.Helper()
-	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'spec','superseded','.concord/docs/law.md',?,?, 'commit'); DELETE FROM fold_guard`, lawID, lawID, hash); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -9,8 +9,6 @@
   user-account boundary without encryption, and selected provider-specific
   provisioning when CD-0085 exposed the conflict
 - **Related:** CD-0085, issue #600
-- **Supersedes:** CD-0085 D2-D3 only where they require provider-independent
-  provisioning. Credential reads remain provider-independent
 - **Preserves:** CD-0085 D1 and D4, the single custody read path, fail-closed
   signing, and the ban on a general plaintext-key fallback
 
@@ -26,10 +24,9 @@ then returns a collection or prompt. It has no input for a noninteractive empty
 password. The runtime evidence in issue #600 confirmed that direct unlock calls
 also did not initialize the D-Bus-activated provider.
 
-CD-0085 correctly keeps credential reads behind the standard Secret Service
-adapter. It overreached when it extended provider independence to setup. A
-provider must create and unlock its own persistent storage before the standard
-read path can use it.
+Custody reads use the standard Secret Service adapter. First-use provisioning
+may need provider-specific creation and unlock controls before the standard
+read path can use the provider's persistent storage.
 
 ## Decision
 

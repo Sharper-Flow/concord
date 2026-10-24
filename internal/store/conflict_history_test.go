@@ -226,9 +226,9 @@ func TestConflictHistoryPagesTheFilteredTrioWithUnchangedCursors(t *testing.T) {
 	}
 }
 
-// The published trio must survive rebuild and reopen against the frozen
+// The published trio must survive reopen against the frozen
 // assessment, not the later one.
-func TestConflictHistorySurvivesRebuildAndReopen(t *testing.T) {
+func TestConflictHistorySurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
 	s, err := Open(ctx, path)
@@ -245,12 +245,9 @@ func TestConflictHistorySurvivesRebuildAndReopen(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("durable-read-later", "durable-read", WorkSizeModelVersion, WorkSizeLarger, later), nil); err != nil {
 		t.Fatalf("record the later assessment: %v", err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	after := conflictHistorySingle(t, s, "durable-read")
 	if !reflect.DeepEqual(before, after) {
-		t.Fatalf("rebuild changed the published payload: %+v, want %+v", after, before)
+		t.Fatalf("later assessment changed the published payload: %+v, want %+v", after, before)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)

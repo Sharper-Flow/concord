@@ -45,7 +45,8 @@ func ValidateWorkerEvidenceReplayWindow(ctx context.Context, transaction *Transa
 		// An in_flight binding closed by abandonment (CON-791) has no worker
 		// dispatch evidence; its authorization window then carries the only
 		// core-recorded digest.
-		if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkerDispatched, attemptID).Scan(&packetDigest); err != nil {
+		packetDigest, err = workerDispatchPacketDigestTx(ctx, tx, workID, attemptID)
+		if err != nil {
 			if err != sql.ErrNoRows {
 				return err
 			}
@@ -95,15 +96,15 @@ func WorkerRecoveryContextTx(ctx context.Context, transaction *Transaction, work
 	if attempt.WorkID != workID || attempt.LifecycleState == "failed" {
 		return result, newFailure(KindInvalidTransition, "worker_recovery", "retained-report recovery requires the matching dispatched or completed attempt", false, "inspect the original attempt outcome")
 	}
-	var payload []byte
-	var recordedActor string
-	if err := tx.QueryRowContext(ctx, `SELECT event_id,actor,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkerDispatched, attemptID).Scan(&result.DispatchEventID, &recordedActor, &payload); err != nil {
+	dispatched, err := readWorkerDispatchFactTx(ctx, tx, workID, attemptID)
+	if err != nil {
 		return result, err
 	}
-	if recordedActor != actor {
+	result.DispatchEventID = dispatched.EventID
+	if dispatched.Actor != actor {
 		return result, newFailure(KindUnauthorizedDispatch, "worker_recovery", "recovery caller differs from the original evidence actor", false, "use the original authorized client and principal")
 	}
-	if err := json.Unmarshal(payload, &result.Dispatch); err != nil {
+	if err := json.Unmarshal(dispatched.Payload, &result.Dispatch); err != nil {
 		return result, err
 	}
 	if result.Dispatch.HostProvenance == nil || result.Dispatch.PacketDigest != window.PacketDigest || result.Dispatch.ReadbackModel == "" {
@@ -121,11 +122,12 @@ func WorkerRecoveryContextTx(ctx context.Context, transaction *Transaction, work
 	}
 	result.PacketSchemaVersion = result.Dispatch.PacketSchemaVersion
 	result.ReportSchemaVersion = result.Dispatch.ReportSchemaVersion
-	if err := tx.QueryRowContext(ctx, `SELECT a.session_ref FROM domain_events d JOIN workflow_actors a ON a.actor_ref=json_extract(d.payload,'$.actor_ref') WHERE d.subject_type=? AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? ORDER BY d.seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowActionCompleted, attemptID).Scan(&result.CoordinatorSession); err != nil {
+	result.CoordinatorSession, err = workerCoordinatorSessionTx(ctx, tx, workID, attemptID)
+	if err != nil {
 		return result, err
 	}
 	if attempt.LifecycleState == "completed" {
-		if err := tx.QueryRowContext(ctx, `SELECT event_id FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkerCompleted, attemptID).Scan(&result.TerminalEventID); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT terminal_event_id FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, attemptID, WorkerCompleted).Scan(&result.TerminalEventID); err != nil {
 			return result, err
 		}
 	}

@@ -11,18 +11,17 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0222, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
+> **Planning and relations:** business grouping lives in Linear, and
 > Concord stores no grouping kind or membership; architecture-overlap resolutions extend the
 > work-pair grammar.
-> **Amended by [CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2:** every
+> **Storage ([CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2):** every
 > transition and relation change is one recorded current-row mutation; no event
 > log or retained event history exists.
-> CD-0142 adds operator-directed removal of nonterminal execution projections
+> CD-0142 governs operator-directed removal of nonterminal execution projections
 > without adding a lifecycle state. The planning record remains.
-> Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
-> upcasters, or compatibility windows.
+> No aliases, upcasters, or compatibility windows are authorized for the pre-go-live forms.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies CD-0142's operator-directed removal clauses. Removal remains
 per-item, scoped, fenced, and subject to the existing planning handoff.
 
@@ -281,10 +280,6 @@ PM4 does not decide:
 - work→git-spec fulfillment links; `implements` is work→work only here, while git
   knowledge remains an `external_ref` until another accepted model provides a typed
   target;
-- compaction-retention-policy's accepted post-prune immutability boundary: before pruning, PM4 reopen rules
-  apply; after `work_projection_pruned`, renewed need creates a new work ID through
-  an `archived_work_linked` record and `archived_work_links` read model. This is not a
-  PM4 live `relations` row and cannot use an archived ID as an FK endpoint;
 - PM10 recovery shape or external-system observation/polling;
 - agent tool names, schemas, or transport.
 

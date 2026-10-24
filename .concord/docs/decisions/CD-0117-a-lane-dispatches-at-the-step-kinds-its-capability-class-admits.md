@@ -8,11 +8,7 @@
 - **Approval:** The operator approved the contract in Concord
   work-96cc2a107e2dc7dc83660d02 on 2026-09-06, after the research lane was
   found unreachable from every pre-contract step (issue #892).
-- **Related:** CD-0013, CD-0059, CD-0115, and issues #892, #893
-- **Extends:** CD-0059 (worker dispatch actions) at the composition rule the
-  action pair was attached by; amends the CD-0059 authoring decision that
-  excluded the research family
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D3, D14
+- **Related:** CD-0013, CD-0059, and issues #892, #893
 
 ## Context
 
@@ -49,9 +45,8 @@ and terminal steps never dispatch.
 `withWorkerActions` composes the action pair onto every non-terminal step
 whose kind the join admits, except approval-gated steps: a step whose only
 advancing exit is an approval-required action keeps that exit alone, so a
-worker acceptance cannot leave it without the operator. The research-family
-exclusion is repealed; a research work item dispatches read-only lanes at
-its read steps like any other family.
+worker acceptance cannot leave it without the operator. A research work item
+dispatches read-only lanes at its read steps like any other family.
 
 ### D3. Dispatch time enforces the lane against the step
 
@@ -70,12 +65,6 @@ classes `contracts/agent-lanes.v1.json` carries: a lane no binding admits,
 or a binding no lane carries, fails generation and CI. The generated
 `internal/store/generated_lane_step_dispatch.go` is the only table the
 composition and the dispatch-time gate read.
-
-### D5. Definitions derive from one source
-
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the join composes the families' one canonical source, and no released
-version or pin is retained for it.
 
 ## Acceptance Criteria
 
@@ -115,6 +104,4 @@ pinned contract, so a contract's outcome predicates are the lane's mandate:
 predicates that name a file invite a file-shaped delivery, which is how
 issue #892's first attempt produced a stub. The coordinator prompt rule that
 names the research-lane trigger is host configuration and lands separately
-(issue #893). [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the registry derives from the one canonical source, so no released
-version list is retained.
+(issue #893).

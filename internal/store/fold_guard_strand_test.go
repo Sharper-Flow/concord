@@ -32,8 +32,8 @@ func TestApplyOperationRefusesACommittedFoldGuardStrand(t *testing.T) {
 	if failure.RetrySafe {
 		t.Fatal("strand reports retry_safe")
 	}
-	if !strings.Contains(failure.RecoveryAction, "recover-fold-guard") {
-		t.Fatalf("recovery action %q does not name the offline recovery route", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "concord restore") || !strings.Contains(failure.RecoveryAction, "new path") {
+		t.Fatalf("recovery action %q does not name verified backup restore into a new path", failure.RecoveryAction)
 	}
 	var count int
 	if err := s.db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&count); err != nil {

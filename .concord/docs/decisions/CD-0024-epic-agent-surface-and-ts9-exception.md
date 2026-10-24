@@ -28,8 +28,8 @@ provenance not covered: hand-writing store state is not a reachable outcome.
 Making the model reachable adds the ninth static agent tool and seven operations.
 TS8 classifies that as a major change. The normal TS9 gate requires paired
 supported-model trials, but this repository has no agent-tool TS9 runner or bounded
-evidence-artifact pipeline; its Promptfoo harness evaluates worker lanes, not
-`concord.ts` selection against PM1/TS1 jobs. Unit tests cannot be represented as
+evidence-artifact pipeline, and no harness evaluates `concord.ts` selection
+against PM1/TS1 jobs. Unit tests cannot be represented as
 model trials.
 
 ## Decision
@@ -62,7 +62,7 @@ normal TS9 runner and evidence artifact must exist and evaluate the 3.0.0 baseli
 **D4. The major boundary fails closed.** A 2.x adapter has a different pinned digest
 and cannot express the ninth tool. Core serves new grants only at 3.0.0; a 2.x range
 fails before a domain call. Upgrade the generated adapter/manifest and request a
-fresh 3.0.0 grant. [CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot) governs: retained state migrates through the one documented cutover with a verified snapshot; no event history is retained or rewritten.
+fresh 3.0.0 grant. Retained state migrates through the one documented cutover with a verified snapshot ([CD-0242 D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 ## Rejected alternatives
 

@@ -213,15 +213,7 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 		}
 		if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
 			reportRow := reports[action.WorkerAttemptID]
-			state.Accepted = &WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRow.ref, ReportDigest: reviewDigest(result.Review), ActorRef: row.actor, Report: *result.Review}
-			state.ContinueConsumed, state.GroupID = false, ""
-			for _, finding := range result.Review.Findings {
-				if finding.Status == "closed" {
-					previous := findings[finding.FindingID]
-					previous.Status, previous.ClosureRefs = "closed", finding.ClosureRefs
-					findings[finding.FindingID] = previous
-				}
-			}
+			applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRow.ref, ReportDigest: reviewDigest(result.Review), ActorRef: row.actor, Report: *result.Review}, findings)
 		}
 	}
 	ids := make([]string, 0, len(findings))
@@ -252,6 +244,49 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, befo
 	}
 	if err := loadWorkflowAssignmentGroups(ctx, q, workID, &state); err != nil {
 		return state, err
+	}
+	return state, nil
+}
+
+func applyWorkflowAcceptedReview(state *WorkflowReviewState, accepted WorkflowAcceptedReview, findings map[string]WorkerReviewFinding) {
+	state.Accepted = &accepted
+	state.ContinueConsumed, state.GroupID = false, ""
+	state.DependenciesCurrent = state.Dependencies != nil && sameReviewDependencies(accepted.Report.Dependencies, *state.Dependencies)
+	for _, finding := range accepted.Report.Findings {
+		if finding.Status == "closed" {
+			previous := findings[finding.FindingID]
+			previous.Status, previous.ClosureRefs = "closed", finding.ClosureRefs
+			findings[finding.FindingID] = previous
+		}
+	}
+}
+
+// Combined delivery judges the same accepted Review, candidate and finding
+// closures the fold will record, without changing the pre-acceptance view.
+// The caller must first admit the exact result through validateReviewAcceptance.
+func projectWorkflowReviewAcceptance(ctx context.Context, q queryer, workID string, state WorkflowReviewState, auth workflowActionCompletedPayload, result WorkerCompletedPayload, actor string) (WorkflowReviewState, error) {
+	candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+	if err != nil {
+		return state, err
+	}
+	if candidate != nil {
+		state.Candidate = candidate
+	}
+	if auth.WorkerCapabilityClass != "review" || result.Review == nil {
+		return state, nil
+	}
+	var reportRef string
+	if err := q.QueryRowContext(ctx, `SELECT terminal_event_id FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, result.AttemptID, WorkerCompleted).Scan(&reportRef); err != nil {
+		return state, err
+	}
+	findings := make(map[string]WorkerReviewFinding, len(state.Findings))
+	for _, finding := range state.Findings {
+		findings[finding.FindingID] = finding
+	}
+	applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRef, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}, findings)
+	state.Findings = slices.Clone(state.Findings)
+	for i, finding := range state.Findings {
+		state.Findings[i] = findings[finding.FindingID]
 	}
 	return state, nil
 }
@@ -348,14 +383,14 @@ func readReviewAttempt(ctx context.Context, q queryer, workID, attempt string) (
 	var auth workflowActionCompletedPayload
 	var result WorkerCompletedPayload
 	var raw []byte
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attempt).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attempt).Scan(&raw)
 	if err != nil {
 		return auth, result, err
 	}
 	if err = json.Unmarshal(raw, &auth); err != nil {
 		return auth, result, err
 	}
-	err = q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkerCompleted, attempt).Scan(&raw)
+	err = q.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`, workID, attempt, WorkerCompleted).Scan(&raw)
 	if err != nil {
 		return auth, result, err
 	}
@@ -512,7 +547,7 @@ func validateReviewFindingBinding(previous, reported WorkerReviewFinding) error 
 
 func readWorkerJobRevisionTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) (*WorkerJobRecordedPayload, error) {
 	var raw []byte
-	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, workID, WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=? AND recorded_payload IS NOT NULL`, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if err != nil {
 		return nil, err
 	}

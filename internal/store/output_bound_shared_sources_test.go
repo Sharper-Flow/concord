@@ -172,7 +172,7 @@ func init() {
 	// every payload field list at 32 entries. The registry admission mirrors
 	// that cap inline (len(fields) > 32 at
 	// internal/store/workflow_registry.go in
-	// validateWorkflowDefinitionWithReference), an inline len() check no
+	// ValidateWorkflowDefinition), an inline len() check no
 	// harness constructor cites; the published declaration below is the
 	// same bound.
 	registerOutputBound("/$defs/next_valid_intent/properties/required_fields/maxItems",

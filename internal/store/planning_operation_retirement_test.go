@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
 )
@@ -76,120 +75,6 @@ func assertOverlapResolutionRefusalWroteNothing(t *testing.T, s *Store, eventID 
 	}
 }
 
-// TestRetiredPlanningEventsReplay proves history stays replayable after the
-// planning-operation retirement: one journal carries the link-written
-// relation.added and relation.removed shapes, work.superseded,
-// work.reopened_from_superseded, and the retired Domain-observation
-// record/dismiss events, and the rebuild folds them to the same projection
-// the retired writers produced, without error and without touching the log.
-func TestRetiredPlanningEventsReplay(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-	for _, id := range []string{"replay-link-a", "replay-link-b", "replay-link-c", "replay-link-d", "replay-successor", "replay-predecessor"} {
-		seedWork(t, s, id)
-	}
-	seedCurrentDomain(t, s, "product", "replay-domain")
-	observed := operationEvent("replay-observation-recorded", "domain.observation_recorded", SubjectProduct, "product", map[string]any{
-		"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
-		"statement": "historical observation recorded by the retired route", "refs": []string{"work:replay-link-a"}, "tags": []string{"historical"},
-	})
-	dismissed := operationEvent("replay-observation-dismissed", "domain.observation_dismissed", SubjectProduct, "product", map[string]any{
-		"observation_id": "dob:9270000000000001", "product_id": "product", "domain_id": "replay-domain",
-	})
-	fullRelation := func(eventID, kindName, from, to string, expected, resulting int64) Event {
-		return operationEvent(eventID, kindName, SubjectWorkItem, from, map[string]any{
-			"from": from, "to": to, "kind": "blocks", "reason": "test",
-			"expected_version": expected, "resulting_version": resulting,
-			"to_expected_version": expected, "to_resulting_version": resulting,
-		})
-	}
-	// The link rows carry both endpoint version pairs — the exact shape the
-	// released planLink and unlinkEffect writers emitted — so the replay
-	// advances both endpoints and the rows record as full corpus witnesses.
-	linkKept := fullRelation("replay-link-kept", "relation.added", "replay-link-a", "replay-link-b", 2, 3)
-	linkAddedThenRemoved := fullRelation("replay-link-removed", "relation.added", "replay-link-c", "replay-link-d", 2, 3)
-	linkUnlinked := fullRelation("replay-link-unlinked", "relation.removed", "replay-link-c", "replay-link-d", 3, 4)
-	journal := []Event{
-		linkKept,
-		linkAddedThenRemoved,
-		linkUnlinked,
-		workSupersededEvent("replay-superseded", "replay-successor", "replay-predecessor", 2, 3),
-		workReopenedFromSupersededEvent("replay-reopened", "replay-predecessor", "replay-successor", 3, 4),
-		observed,
-		dismissed,
-	}
-	db := s.DatabaseForTesting()
-	insertHistoricalEvents(t, db, journal)
-	before := planningEventCount(t, db)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() over retired planning events error = %v", err)
-	}
-	if after := planningEventCount(t, db); after != before {
-		t.Fatalf("replay changed the log: %d events after rebuild, want %d", after, before)
-	}
-	// The retired Domain-observation pair and the full-endpoint link pair
-	// record as corpus witnesses: the passing replay above proves the
-	// candidate folds each row unchanged.
-	recordHistoricalWitness(t, s, observed.EventID, observed.Kind, observed.PayloadVersion, observed.Payload)
-	recordHistoricalWitness(t, s, dismissed.EventID, dismissed.Kind, dismissed.PayloadVersion, dismissed.Payload)
-	recordHistoricalWitness(t, s, linkKept.EventID, linkKept.Kind, linkKept.PayloadVersion, linkKept.Payload)
-	recordHistoricalWitness(t, s, linkUnlinked.EventID, linkUnlinked.Kind, linkUnlinked.PayloadVersion, linkUnlinked.Payload)
-	// The kept link edge survives; the removed edge and the supersession edge
-	// the reopen deleted stay gone.
-	assertTableCount(t, s, "relations", 1)
-	var kept int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE work_id_from='replay-link-a' AND work_id_to='replay-link-b' AND kind='blocks'`).Scan(&kept); err != nil {
-		t.Fatal(err)
-	}
-	if kept != 1 {
-		t.Fatalf("kept link edge count = %d, want 1", kept)
-	}
-	var removed int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE (work_id_from='replay-link-c' AND work_id_to='replay-link-d') OR kind='supersedes'`).Scan(&removed); err != nil {
-		t.Fatal(err)
-	}
-	if removed != 0 {
-		t.Fatalf("removed or reopened-over edges survived = %d, want 0", removed)
-	}
-	// The superseded item is back to needed at v4; the untouched endpoints
-	// hold the versions the journal advanced them to.
-	assertWorkNeededVersion(t, db, "replay-predecessor", 4)
-	assertWorkNeededVersion(t, db, "replay-successor", 2)
-	assertWorkNeededVersion(t, db, "replay-link-a", 3)
-	assertWorkNeededVersion(t, db, "replay-link-b", 3)
-	assertWorkNeededVersion(t, db, "replay-link-c", 4)
-	assertWorkNeededVersion(t, db, "replay-link-d", 4)
-	// The recorded observation is dismissed, still readable for audit, and
-	// holds no open row on the Domain.
-	var state, dismissedAt string
-	if err := db.QueryRowContext(ctx, `SELECT state, coalesce(dismissed_at,'') FROM domain_observations WHERE observation_id='dob:9270000000000001'`).Scan(&state, &dismissedAt); err != nil {
-		t.Fatalf("replayed observation must stay readable: %v", err)
-	}
-	if state != DomainObservationDismissed || dismissedAt == "" {
-		t.Fatalf("replayed observation = (%q, %q), want (dismissed, non-empty)", state, dismissedAt)
-	}
-	var open int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM domain_observations WHERE product_id='product' AND domain_id='replay-domain' AND state=?`, DomainObservationOpen).Scan(&open); err != nil {
-		t.Fatal(err)
-	}
-	if open != 0 {
-		t.Fatalf("open observations after replay = %d, want 0", open)
-	}
-}
-
-func assertWorkNeededVersion(t *testing.T, db *sql.DB, id string, version int64) {
-	t.Helper()
-	var gotLifecycle string
-	var gotVersion int64
-	if err := db.QueryRowContext(context.Background(), `SELECT lifecycle, version FROM work_items WHERE id=?`, id).Scan(&gotLifecycle, &gotVersion); err != nil {
-		t.Fatalf("work item %s must stay readable: %v", id, err)
-	}
-	if gotLifecycle != "needed" || gotVersion != version {
-		t.Fatalf("work item %s = (%q, v%d), want (needed, v%d)", id, gotLifecycle, gotVersion, version)
-	}
-}
-
 // TestOverlapTerminalResolutionRejectsCycle proves the overlap resolution
 // owner refuses a terminal resolution whose own relation would close a cycle,
 // for both terminal kinds, and leaves the projection untouched.
@@ -202,13 +87,7 @@ func TestOverlapTerminalResolutionRejectsCycle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, actor := seedOverlapProjection(t, "cycle-source", "cycle-target", false)
 			seedOverlapGuardRelation(t, s, "cycle-target", "cycle-source", tc.kind)
-			// Historical source-v1 effect control: the cycle guard was first
-			// reached under the v1 rules, whose only approval mandate was the
-			// plan layer's bare reference. The explicit v1 event keeps the
-			// guard assertions against their original source shape; the live
-			// v2 destructive class is covered by the consumed-approval
-			// boundary elsewhere.
-			err := historicalSourceV1OverlapResolution(t, s, "overlap-cycle-"+tc.kind, "cycle-source", "cycle-target", 2, 2, tc.kind, "operator approved terminal resolution", "approval:overlap-cycle", actor)
+			err := resolveApprovedOverlap(t, s, "overlap-cycle-"+tc.kind, "cycle-source", "cycle-target", 2, 2, tc.kind, "operator approved terminal resolution", actor)
 			failure := requireOverlapOwnerRefusal(t, err, KindCycleDetected, "overlap resolution would create a relation cycle")
 			if len(failure.Violations) != 1 || failure.Violations[0] != tc.kind+":cycle-source->cycle-target" {
 				t.Fatalf("cycle violations = %v, want [%s:cycle-source->cycle-target]", failure.Violations, tc.kind)
@@ -244,13 +123,7 @@ func TestOverlapTerminalResolutionRejectsSecondSuccessor(t *testing.T) {
 			s, actor := seedOverlapProjection(t, tc.pairFrom, tc.pairTo, false)
 			seedWork(t, s, tc.extraWork)
 			seedOverlapGuardRelation(t, s, tc.guardFrom, tc.guardTo, tc.kind)
-			// Historical source-v1 effect control: the second-successor
-			// guards were first reached under the v1 rules, whose only
-			// approval mandate was the plan layer's bare reference. The
-			// explicit v1 event keeps the guard assertions against their
-			// original source shape; the live v2 destructive class is covered
-			// by the consumed-approval boundary elsewhere.
-			err := historicalSourceV1OverlapResolution(t, s, "overlap-second-"+tc.kind, tc.pairFrom, tc.pairTo, 2, 2, tc.kind, "operator approved terminal resolution", "approval:overlap-second", actor)
+			err := resolveApprovedOverlap(t, s, "overlap-second-"+tc.kind, tc.pairFrom, tc.pairTo, 2, 2, tc.kind, "operator approved terminal resolution", actor)
 			_ = requireOverlapOwnerRefusal(t, err, tc.wantKind, tc.wantDetail)
 			assertOverlapResolutionRefusalWroteNothing(t, s, "overlap-second-"+tc.kind)
 		})

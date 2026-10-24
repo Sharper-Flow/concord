@@ -118,16 +118,14 @@ migration or manual repair. The data model can grow, shrink, and reshape
 without corrupting in-flight work or historical records.
 
 - Agent-facing writes queue behind one writer and are admitted within the accepted bound: no escaped busy failure, no lost or duplicated effect, no retry storm. Reads are lock-free. See CD-0045.
-- [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: the store keeps current state and finite verified snapshots, not an event log or replay, and each correction writes the corrected current rows.
+- The store keeps current state and finite verified snapshots, and each correction writes the corrected current rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Acknowledged consequential operations — approvals, workflow dispatch
   and terminal transitions, cross-authority step claims, and worker evidence —
   are durable across power loss and OS crash (CD-0050); ordinary writes are
   durable through the last consequential boundary and never corrupt the store.
 - Workflow and schema changes must be safe for in-flight work.
 - **SQLite sole authority** for operational state (CD-0002 I1), subject to CD-0011's accepted
-  falsifiers. [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-  governs each mutation: it writes current rows in one transaction, checked by an expected version
-  and recorded by its idempotency key.
+  falsifiers. It writes current rows in one transaction, checked by an expected version and recorded by its idempotency key ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Quality (goal E)
 
@@ -144,7 +142,7 @@ attributes, not by a fixed gate count.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides the six classes in [CD-0243 D2](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision), including law changes within those classes (U, R3, P12). Seriousness, Domain count, and crucial size do not independently require approval.
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing; [CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum) governs its mandatory stages, and no agent may waive a mandatory stage or an operator approval.
+- Proportional rigor — the decision model (goal B) sets each change's minimum steps, proof, and testing and its mandatory stages, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 **What scales proportional rigor.** One input to the decision model is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
@@ -201,9 +199,7 @@ they become blockers or contradictory Product truth.
 
 Goal C in [`goals.md`](./goals.md) §2 defines a workflow as a combination of
 shared parts.
-[CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)
-governs: families compose shared stages, and the decision model sets each execution's mandatory
-stages. Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
+Families compose shared stages, and the decision model sets each execution's mandatory stages ([CD-0242 D4](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Parts define their steps once, and a definition composes parts (CD-0229 D1, D2).
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and the accepted composition model. Native

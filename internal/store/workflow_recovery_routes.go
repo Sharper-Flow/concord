@@ -12,7 +12,7 @@ import "slices"
 // admitted route back to its producer — cannot be authored again.
 //
 // Released definition versions predate the field and never change content in
-// place (CD-0115 D1), so they declare no table and resolve through the
+// place, so they declare no table and resolve through the
 // quarantined table below, keyed only by (ref, version). No graph walk and no
 // work-kind heuristic ever decides a route: the declared table or the
 // quarantined data are the only sources. A table-less definition the
@@ -78,7 +78,7 @@ func workflowRecoveryRouteActionForTrigger(trigger WorkflowRecoveryTrigger) stri
 
 // workflowRecoveryRoutes is the one reader every recovery decision feeds
 // from: the admission fold, workflowAdmit, the action guards, the folds, the
-// work-pin intents, the CD-0164 correction counting and three-attempt wall,
+// work-pin intents, the correction counting and three-attempt wall,
 // the CD-0172 complete-step return, and the liveness model. A definition that
 // declares a table resolves it; a released version without one resolves the
 // quarantined data for its (ref, version). The returned slice is a defensive

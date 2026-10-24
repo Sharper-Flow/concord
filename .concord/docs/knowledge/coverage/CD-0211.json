@@ -78,18 +78,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestHistoricalKindConversionReplaysThroughRebuild"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestHistoricalWorkCreatedVersionsStayUnclassified"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestRebuildReplaysDefectAdmissionDeterministically"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/agent.TestPublicListFullDetailCarriesDefectIntake"
     },
     {

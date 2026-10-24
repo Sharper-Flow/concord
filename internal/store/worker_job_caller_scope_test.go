@@ -339,36 +339,53 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 		refused(t, f, workID, attempt, KindInvalidOperation, "changed path unrelated/extra.go outside its path_scope")
 	})
 
-	t.Run("historical measured delta stays contained", func(t *testing.T) {
-		workID := "delivered-historical-measured"
+	t.Run("completion without a changed-path observation refuses", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			expression string
+			allowance  bool
+		}{
+			{"absent", `json_remove(terminal_payload,'$.observed_delivery.changed_paths')`, true},
+			{"null", `json_set(terminal_payload,'$.observed_delivery.changed_paths',NULL)`, true},
+			{"absent-without-allowance", `json_remove(terminal_payload,'$.observed_delivery.changed_paths')`, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				workID := "delivered-missing-changed-paths-" + tc.name
+				f := seed(t, workID)
+				defer f.store.Close()
+				job := recordJob(t, f, workID, "job:missing-changed-paths", "owner", tc.allowance)
+				attempt := deliver(t, f, workID, job, []string{"owner/value.go"}, nil)
+				tx, err := f.store.db.Begin()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback()
+				if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.Exec(`UPDATE worker_attempts SET terminal_payload=`+tc.expression+` WHERE work_id=? AND terminal_kind=? AND attempt_id=?`, workID, WorkerCompleted, attempt); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+				refused(t, f, workID, attempt, KindMissingEvidence, "carries no clean delta observed from the dispatched subject commit")
+			})
+		}
+	})
+
+	t.Run("an explicit empty changed-path observation is admissible", func(t *testing.T) {
+		const workID = "delivered-empty-changed-paths"
 		f := seed(t, workID)
 		defer f.store.Close()
-		job := recordJob(t, f, workID, "job:historical-measured", "owner", true)
-		attempt := deliver(t, f, workID, job, []string{"owner/value.go"}, nil)
-		// A completion stored before the changed-path observation carries
-		// its delta as the retired measured paths instead.
-		tx, err := f.store.DatabaseForTesting().Begin()
-		if err != nil {
-			t.Fatal(err)
+		job := recordJob(t, f, workID, "job:empty-changed-paths", "owner", true)
+		attempt := deliver(t, f, workID, job, []string{}, nil)
+		if err := acceptChangeTestAttempt(t, f, workID, attempt); err != nil {
+			t.Fatalf("explicit empty observation refused: %v", err)
 		}
-		defer tx.Rollback()
-		var trigger string
-		if err := tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&trigger); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`DROP TRIGGER domain_events_no_update`); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`UPDATE domain_events SET payload=json_set(json_remove(payload,'$.observed_delivery.changed_paths'),'$.observed_delivery.paths',json('[{"path":"owner/value.go","added":1,"deleted":0},{"path":"unrelated/extra.go","added":1,"deleted":0}]')) WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(trigger); err != nil {
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		refused(t, f, workID, attempt, KindInvalidOperation, "changed path unrelated/extra.go outside its path_scope without an evidenced direct-caller repair")
 	})
 
 	t.Run("allowance without an observed delta refuses", func(t *testing.T) {

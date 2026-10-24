@@ -120,7 +120,7 @@ func ProjectToolingDeclaredText(tooling *ProjectToolingManifest) string {
 // refinement step of workflow.implementation v21+ and workflow.break_fix
 // v19+ (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
 // pin that holds a recorded split, so the automatic integration discharge
-// (CD-0225 D3) can keep only runs of declared tools. Every other action
+// can keep only runs of declared tools. Every other action
 // resolves nothing.
 func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID string) (bool, error) {
 	if s == nil || s.db == nil {

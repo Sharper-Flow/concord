@@ -366,9 +366,8 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 // revalidateKnowledgeCrossSourceRelations refuses a mandated law whose
 // persisted cross-source relation endpoints no longer resolve over the
 // verified current source set (CD-0200 D5): a conflicts_with pair, a target
-// source or endpoint law that left the set or its projection, a cross-source
-// supersedes edge (refused fail closed — the rebuild never persists one), or
-// a non-home source declaring supersedes, refines, or subordinate_to toward
+// source or endpoint law that left the set or its projection, or
+// a non-home source declaring refines or subordinate_to toward
 // shared-home law. The declaring home keeps the only row, so the scan runs
 // over the verified set's partitions and both edge directions refuse. The
 // persisted hierarchical graph over source-qualified nodes must also stay
@@ -442,13 +441,6 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target law is unresolved: "+edge.targetProject+"/"+edge.targetLaw, false, "publish and rebuild the target source before the consequential boundary")
 		} else if err != nil {
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source target law", true, "retry once the knowledge projection is readable", err)
-		}
-		if edge.kind == "supersedes" {
-			// Cross-source supersedes is refused fail closed (CD-0200): the
-			// rebuild refuses the edge, so no such row can legitimately
-			// persist, and this read refuses one that somehow reached the
-			// rows instead of checking an agreement no edge can carry.
-			return newFailure(KindRelationConflict, "check_mandated_laws", "supersede within the declaring source or amend through the shared home: cross-source supersedes edge "+edge.sourceLaw+" toward "+edge.targetProject+"/"+edge.targetLaw, false, "remove the cross-source supersedes edge from the declaring manifest")
 		}
 		declaringKey := edge.declaringHome + "/" + edge.declaringLocator
 		if _, seen := declaredRole[declaringKey]; !seen {

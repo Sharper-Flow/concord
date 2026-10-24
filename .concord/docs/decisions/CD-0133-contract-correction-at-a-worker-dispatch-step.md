@@ -4,10 +4,9 @@
 - **Date:** 2026-09-10
 - **Scope:** Operator-approved contract correction before dispatch, after recorded failure, and after disposed refinement review evidence
 - **Approval:** The operator approved the bounded correction route and its refinement review-evidence extension on 2026-10-06.
-- **Related:** CD-0013, CD-0059, CD-0115, CD-0130
+- **Related:** CD-0013, CD-0059, CD-0130
 - **Refines:** CD-0128
-- **Preserves:** Worker attempt identity and operator authority; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
+- **Preserves:** Worker attempt identity and operator authority.
 
 ## Context
 
@@ -22,8 +21,7 @@ guards.
 
 ## Decision
 
-For `approval_policy=consequence_v1`, authenticated attributed supersession replaces the operator-approval prerequisite below. Exact predecessor/successor versions, complete successor content, audit evidence, outstanding-attempt restrictions, and correction admission remain required. The correction does not manufacture verification or alter historical pins; CD-0013 D11 governs subsequent decision-bearing confirmation.
-
+For `approval_policy=consequence_v1`, authenticated attributed supersession replaces the operator-approval prerequisite below. Exact predecessor/successor versions, complete successor content, audit evidence, outstanding-attempt restrictions, and correction admission remain required. The correction does not manufacture verification; CD-0013 D11 governs subsequent decision-bearing confirmation.
 
 ### D1. Admit correction at a worker-dispatch step
 
@@ -44,7 +42,7 @@ not become permission to replace the contract.
 
 ### D2. The correction adds no action or step
 
-The route uses the existing contract-correction action; [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, and the correction adds no action, step, or worker route to the workflow definition.
+The route uses the existing contract-correction action.
 
 ### D3. Keep post-dispatch refusals actionable
 

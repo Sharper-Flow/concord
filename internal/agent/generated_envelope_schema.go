@@ -2753,15 +2753,6 @@ const GeneratedEnvelopeSchemaDocument = `{
               {
                 "additionalProperties": false,
                 "properties": {
-                  "accepted_successor_content_hash": {
-                    "pattern": "^sha256:[0-9a-f]{64}$",
-                    "type": "string"
-                  },
-                  "accepted_successor_law_id": {
-                    "maxLength": 256,
-                    "minLength": 2,
-                    "type": "string"
-                  },
                   "old_content_hash": {
                     "pattern": "^sha256:[0-9a-f]{64}$",
                     "type": "string"
@@ -2784,8 +2775,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "required": [
                   "old_law_id",
                   "old_content_hash",
-                  "accepted_successor_law_id",
-                  "accepted_successor_content_hash",
                   "recovery_actions"
                 ],
                 "type": "object"
@@ -3139,15 +3128,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         "stale_law_revision": {
           "additionalProperties": false,
           "properties": {
-            "accepted_successor_content_hash": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "type": "string"
-            },
-            "accepted_successor_law_id": {
-              "maxLength": 256,
-              "minLength": 2,
-              "type": "string"
-            },
             "old_content_hash": {
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
@@ -3171,8 +3151,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "type": "object"

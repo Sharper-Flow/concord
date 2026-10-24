@@ -2,29 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
-- **Scope:** Workflow action admission in the store; the post-rejection
-  review debt settlement clause; the workflow liveness checks
-- **Extends:** CD-0172 at D1 and CD-0193 at D2, which require shared
-  predicates
-- **Amends:** CD-0166's settlement clause in one point — a fresh accepted
-  review settles the post-rejection review debt only when its verdict is
-  ship, or absent for the pre-CD-0197 reports
-- **Amended by:** CD-0209 D1, the typed `WorkflowRecoveryRoute` table and
-  the producer rule the route target must carry; CD-0209 D2, the
-  registration gate that refuses an undeclared or non-producer route;
-  CD-0209 D3, the one reader every runtime cross-step correction feeds
-  from; CD-0209 D4, the closed positive production classification;
-  CD-0209 D5, the artifact-staleness derivation and its admission halves;
-  CD-0209 D6, the work-pin sequence that names the next step;
-  CD-0209 D7, the liveness and conformance replay that read the
-  artifact-staleness bit;
-  [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D3, equal answers require equal history and equal host observations
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D14
+- **Scope:** Workflow action admission in the store; the workflow liveness
+  checks
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0164, CD-0166,
+- **Related:** CD-0043, CD-0133, CD-0137, CD-0143, CD-0166,
   CD-0173, CD-0187, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
@@ -38,7 +21,7 @@ recovery action refuses. The item strands.
 
 Admission for each action is computed by hand at four or more sites:
 preflight, the guard table, the work pin intents, the dispatch recording, and
-the correction binding. Conditions such as settled review debt, the same-step
+the correction binding. Conditions such as the accepted Review disposition, the same-step
 wall, and an unsettled attempt are re-derived per site. The copies drift, and
 each drift ships as another guard clause fix.
 
@@ -58,22 +41,19 @@ A pure function `workflowAdmit` decides one
 action's admission over that derived state and returns the decision, the
 ready review, and the typed refusal. Preflight, the guard table, the work
 pin intents, the dispatch recording, and the correction binding call the loader
-and the pure function. They no longer re-derive the derived conditions per
-site.
+and the pure function.
 
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
 invariant). The request payload checks and the attempt identity checks stay
-in the guards. The accept guard binds the request's attempt against the
-ready review the decision names.
+in the guards. Admission binds an accept request's attempt to the Review it
+accepts before it decides.
 
-The derived admission state covers every condition the five sites read when
-this record was accepted: the step and lifecycle, the instance state, the active
+The derived admission state covers every condition the five sites read: the step and lifecycle, the instance state, the active
 contract count, the law and registry pin staleness, the breaking impact
 notices, the design currency, the latest worker attempt and its capability
-class, the latest result disposition, the post-rejection review debt and
-its settling verdict, the recovery routes, the same-step wall and its
-operator approval, the dispatch hold, the evidence-binding recovery, and
+class, the latest result disposition, the accepted Review disposition of the
+current candidate, the recovery routes, the dispatch hold, the evidence-binding recovery, and
 the correction classifications. A duplicated contract projection follows the
 same rule: the count classifies the supersede recovery, and the singular-reader
 derivations degrade instead of refusing the route that recovery owns
@@ -127,18 +107,6 @@ count, limit, or reset exists
 Each family extends the same admission owner; liveness checks count
 only the oracle dimensions their model actually derives.
 
-### D3. The review debt settles only on a settling verdict
-
-A fresh accepted review settles the post-rejection review debt only when its
-typed verdict is ship, or absent for the reports that predate CD-0197. A
-no_ship review binds its findings and leaves the debt outstanding.
-
-The consequence: refine does not advance to delivery behind a no_ship
-review, and an item parked on the delivery gate keeps the evidence-bearing
-corrective return. The gate admits request_correction while the debt stands.
-This amends CD-0166's settlement clause in this one point. Every other
-refusal on every other route keeps its scope (CD-0186).
-
 ### D4. No generated contract changes
 
 Admission code is not generated contract content, so the correction changes
@@ -158,21 +126,13 @@ integration boundary
   actions forever, so the weaker property passes hold loops.
 - Raise the sampler depth and budget. Rejected: still bounded, still slow,
   still inconclusive.
-- Treat a no_ship review as settled debt. Rejected: it advertises delivery
-  for a result the review refused.
-- Add a delivery-gate special case for no_ship. Rejected: one more clause at
-  one site is the pattern this record removes.
-- Require reject_worker_result for a no_ship review. Rejected: it discards
-  valid findings and blames the reviewer.
 
 ## Consequences
 
 Every admission site that derives one of these conditions answers identically
 for the same current state and host observations (CD-0239 D3). A change that strands
 a reachable state fails the
-liveness checks with a witness before merge. A no_ship review can no longer
-carry an unreviewed result to delivery, and a parked gate keeps its typed
-corrective return.
+liveness checks with a witness before merge.
 
 The checks count only exits the derived state proves, so a future strand
 surfaces as a failing check rather than a silent pass. Each later family
@@ -202,25 +162,12 @@ Scenario: The loaded state matches the abstract successor
   When the replay performs each action
   Then the loader derives the state the abstract successor computed
 
-Scenario: A no_ship review keeps the debt outstanding
-  Given a rejected refinement result and a fresh review with a no_ship verdict
-  When the coordinator accepts the no_ship review
-  Then the debt stays outstanding and the pin hides the delivery exits
-
-# [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the released-pin historical acceptance scenario and its parked-gate witness; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
-Scenario: A parked gate keeps the corrective return behind a no_ship review
-  Given an item parked on the delivery gate with the debt outstanding
-  When the operator requests correction with evidence
-  Then the gate admits request_correction and the item returns to repair
 ```
 
 - `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
 - `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
 - `go test ./internal/store/ -run 'TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario through current Main intake and all four Review dispositions.
-- `go test ./internal/store/ -run TestBlockingReviewDispositionAcceptsWithoutAdvancing` proves a blocking disposition binds without advancing and keeps delivery hidden under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
-- [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retires the released-pin acceptance witness; `TestWorkItemUsesCurrentDefinitionWithoutInflightPin` checks that active work resolves the current definition without an in-flight pin.
-- [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) retire the released-pin historical acceptance scenario and its parked-gate witness; `python3 scripts/check-knowledge-index.py` checks this record's registration, not historical acceptance replay.
-- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table and the settlement verdict rule.
+- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0201 identifier allocates once.
 - `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.

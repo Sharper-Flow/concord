@@ -697,21 +697,18 @@ func TestCutoverRefusesNonterminalArchivedPinAtReadiness(t *testing.T) {
 	if eventsAfter != eventsBefore || migrationsAfter != migrationsBefore {
 		t.Fatalf("refused readiness moved rows: events %d->%d, migrations %d->%d; the gate must write nothing", eventsBefore, eventsAfter, migrationsBefore, migrationsAfter)
 	}
-	// The recorded state stays openable for reads and rebuilds; the refusal
+	// The recorded state stays openable for reads; the refusal
 	// gates activation, not the frozen history.
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatalf("open over a nonterminal archived pin: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the nonterminal archived pin: %v", err)
-	}
 }
 
 // TestCutoverAllowsTerminalHistoricalPinsAtReadiness proves the gate keys on
 // the work item's closed lifecycle: an archived pin whose work item reached a
-// terminal lifecycle admits activation, reads, and an idempotent rebuild.
+// terminal lifecycle admits activation and reads.
 func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
@@ -740,30 +737,12 @@ func TestCutoverAllowsTerminalHistoricalPinsAtReadiness(t *testing.T) {
 	if lifecycle != "cancelled" || ref != "workflow.generic_one_off" {
 		t.Fatalf("reopened instance = %s/%s, want the terminal archived pin readable", lifecycle, ref)
 	}
-	if err := RebuildFromLog(ctx, reopened); err != nil {
-		t.Fatalf("rebuild over terminal archived history: %v", err)
-	}
-	first, err := WorkflowProjectionHash(ctx, reopened)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, reopened); err != nil {
-		t.Fatalf("second rebuild over terminal archived history: %v", err)
-	}
-	second, err := WorkflowProjectionHash(ctx, reopened)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("projection hash moved across rebuild: %s != %s", first, second)
-	}
 }
 
 // TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness proves an earlier
 // recorded version of a live family does not block activation: no earlier
 // definition is retained, and active work continues under the family's
-// current definition (CD-0242 D13, D14). The recorded state opens and
-// rebuilds.
+// current definition (CD-0242 D13, D14). The recorded state opens.
 func TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness(t *testing.T) {
 	ctx := context.Background()
 	path := copyTestDatabase(t)
@@ -776,9 +755,6 @@ func TestCutoverAdmitsEarlierLiveFamilyPinAtReadiness(t *testing.T) {
 		t.Fatalf("open over an earlier live-family pin: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the earlier live-family pin: %v", err)
-	}
 }
 
 // TestCutoverBlocksOutsideRepairArchivedPin proves an outside-repair
@@ -861,10 +837,14 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		window, err := findAuthorizedDispatchWindowCore(context.Background(), s.DatabaseForTesting(), workID, attemptID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: "research-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+			Actor: ownerRef, OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest}),
 		}}}); err != nil {
 			t.Fatal(err)
 		}
@@ -918,13 +898,6 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		t.Fatalf("investigate starts after the retry = %+v, want the second dispatch at epoch 2", starts)
 	}
 
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	rebuilt := s2DerivedFailureRecords(t, s, workID, attempt)
-	if len(rebuilt) != 1 || rebuilt[0]["step"] != "investigate" || rebuilt[0]["actor"] != record["actor"] {
-		t.Fatalf("rebuilt failure records = %+v, want the one derived record rebuilt identically", rebuilt)
-	}
 }
 
 // insertCutoverContract copies the seeded instance's own definition pin into
@@ -991,15 +964,12 @@ func TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance(t *testing.
 		t.Fatalf("refused readiness moved rows: events %d->%d, migrations %d->%d; the gate must write nothing", eventsBefore, eventsAfter, migrationsBefore, migrationsAfter)
 	}
 	// The read-only gate answers activation only; the recorded state opens,
-	// reads, and rebuilds.
+	// and reads.
 	s, err = Open(ctx, path)
 	if err != nil {
 		t.Fatalf("open over an active archived contract: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild over the active archived contract: %v", err)
-	}
 }
 
 // TestCutoverAllowsSupersededArchivedContractAtReadiness proves the contract
@@ -1084,9 +1054,6 @@ func TestCutoverRefusesActiveArchivedContractWithoutInstance(t *testing.T) {
 		t.Fatalf("open over a contract-only archived pin: %v", err)
 	}
 	defer func() { _ = opened.Close() }()
-	if err := RebuildFromLog(ctx, opened); err != nil {
-		t.Fatalf("rebuild over the contract-only archived pin: %v", err)
-	}
 }
 
 func seedCutoverDispositionFixture(t *testing.T) *Store {

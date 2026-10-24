@@ -13,10 +13,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0129"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0148"
     }
   ],
   "path": ".concord/docs/decisions/CD-0173-escalation-wall-stays-visible-gate-counts-product.md",
@@ -27,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3fd96f7a0de6e31abb64078a55881d56c59fb2f9fa3966f3dff269fc1d12ff4c",
+  "sha256": "sha256:72e5441f115ce6387c1d733e0b967ca2ae35699d3f8ebac0da70c2275cf19e09",
   "status": "accepted",
   "summary": "Under CD-0242 D6 no convergence basis, escalation wall, or attempt count exists, so no pin advertises an escalated retry. The investigation gate demands the comparison work ref only when the item's Product holds another work item in any lifecycle, counted by the core in the same transaction.",
   "tags": [

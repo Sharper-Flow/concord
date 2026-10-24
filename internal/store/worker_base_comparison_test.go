@@ -23,7 +23,7 @@ func baseComparisonFixture() *WorkerBaseComparison {
 func baseComparisonCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, comparison *WorkerBaseComparison, directory string) Event {
 	evidence := laneCoveringEvidence(lane)
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, BaseComparison: comparison}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // A completion may carry the optional base_comparison object; it folds like
@@ -157,9 +157,7 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 	}
 }
 
-// A completion without the optional object folds exactly as before, and a
-// stored v1 completion upcasts to a payload that carries no comparison — no
-// shape change reaches payloads that predate the field.
+// A current completion may omit the optional comparison object.
 func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -179,17 +177,5 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	}
 	if strings.Contains(string(stored), "base_comparison") {
 		t.Fatalf("payload without a comparison carries the field anyway: %s", stored)
-	}
-	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane), "")
-	upcast, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)
-	}
-	var upcastPayload WorkerCompletedPayload
-	if err := json.Unmarshal(upcast.Payload, &upcastPayload); err != nil {
-		t.Fatal(err)
-	}
-	if upcastPayload.BaseComparison != nil {
-		t.Fatalf("upcast payload carries base_comparison %+v, want none", upcastPayload.BaseComparison)
 	}
 }

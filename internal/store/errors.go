@@ -10,11 +10,10 @@ import (
 // changes.
 type FailureKind string
 
-// FailureStage is the closed phase where replay rejected an event.
+// FailureStage is the closed phase where applying an event failed.
 type FailureStage string
 
 const (
-	StageUpcast FailureStage = "upcast"
 	StageDecode FailureStage = "decode"
 	StageFold   FailureStage = "fold"
 )
@@ -250,7 +249,7 @@ type Failure struct {
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).
 	Violations []string `json:"violations,omitempty"`
-	// StaleLawRevision carries the old and accepted successor law proofs without
+	// StaleLawRevision carries the deleted law ID and its pinned digest without
 	// requiring callers to parse Detail.
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	// DomainOverlap carries both active contract identities and every derived
@@ -269,7 +268,7 @@ type Failure struct {
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
-	// Event attribution is populated for replay/reconstruction failures. It is
+	// Event attribution is populated for mutation failures. It is
 	// deliberately bounded to the event header and fold stage; payload bytes do
 	// not belong in a durable diagnostic envelope.
 	EventID        string       `json:"event_id,omitempty"`

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // seedFederatedSource writes a registered-source manifest (no Domain
@@ -293,7 +292,7 @@ func TestSourceRebuildRefusesRegistryPrecedenceAndConflict(t *testing.T) {
 		}
 	}
 	// Non-home precedence toward shared-home law refuses at rebuild.
-	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "supersedes", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "refines", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
 	commitKnowledgeRepo(t, source.RepoPath, "precedence declaration")
 	assertDetail("precedence", s.RebuildKnowledgeIndex(ctx, source), KindRelationConflict)
 	// Cross-source conflicts_with refuses at rebuild.
@@ -728,51 +727,5 @@ func TestProductKnowledgeSourceTableIsFoldOnly(t *testing.T) {
 		if _, err := db.Exec(statement); err == nil {
 			t.Fatalf("direct mutation outside the event fold succeeded: %s", statement)
 		}
-	}
-}
-
-func TestRegisteredSourceSurvivesReplayFromLog(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	now := time.Now().UTC()
-	homeRepo := t.TempDir()
-	srcRepo := t.TempDir()
-	events := []Event{
-		{EventID: "replay-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Replay","stage_maturity":"production","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "replay-home-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "replay-home", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Home"}`)},
-		{EventID: "replay-src-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "replay-src", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Source"}`)},
-		{EventID: "replay-home-locator", Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "replay-home", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"project_id":"replay-home","locator_id":"replay-home-loc","kind":"canonical_path","value":"` + homeRepo + `","normalized_value":"` + homeRepo + `","expected_version":1,"resulting_version":2}`)},
-		{EventID: "replay-src-locator", Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "replay-src", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"project_id":"replay-src","locator_id":"replay-src-loc","kind":"canonical_path","value":"` + srcRepo + `","normalized_value":"` + srcRepo + `","expected_version":1,"resulting_version":2}`)},
-		{EventID: "replay-home-member", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"product_id":"replay-product","project_id":"replay-home","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "replay-src-member", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"product_id":"replay-product","project_id":"replay-src","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{
-		VersionRef(SubjectProduct, "replay-product"): 0,
-		VersionRef(SubjectProject, "replay-home"):    0,
-		VersionRef(SubjectProject, "replay-src"):     0,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "replay-product", ProjectID: "replay-home", LocatorID: "replay-home-loc", Reason: "replay fixture", ExpectedVersion: 3}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "replay-product", ProjectID: "replay-src", LocatorID: "replay-src-loc", Reason: "replay fixture", ExpectedVersion: 4}); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := rebuildFromLogTx(ctx, tx); err != nil {
-		t.Fatalf("registered source registration breaks the domain-log rebuild: %v", err)
-	}
-	var registered int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM product_knowledge_sources WHERE product_id='replay-product' AND project_id='replay-src' AND locator_id='replay-src-loc'`).Scan(&registered); err != nil {
-		t.Fatal(err)
-	}
-	if registered != 1 {
-		t.Fatalf("source registration rows after replay = %d, want 1", registered)
 	}
 }

@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:51cac36efe2f801b78f5e0b7fae0bdd017fd98fa837b80a03a36ed19720d8119",
+  "sha256": "sha256:7386936426bf5cbfd8322b0168efbcb3822e336b9c6d57b73514864de54beab8",
   "status": "accepted",
   "summary": "The adapter compares its stamped release root with the host's current symlink at every tool call, and any difference is stale. Every result from a stale session carries one bounded notice naming both versions and the restart remedy, the dispatch_worker action refuses before any core call with the stale_context refusal kind so no worker attempt opens on replaced lane text, and the installer's retention output names the holder sessions per retained release. Reads and every other mutation keep working, and CD-0111 D1 and D2 stay in force.",
   "tags": [

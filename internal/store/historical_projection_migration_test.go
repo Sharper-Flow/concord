@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
+func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 	useStampedBuild(t)
-	requireHistoricalResearchLane(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "routing.db")
 	db := openMigratedTo(t, path, 43)
@@ -26,7 +25,7 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 	}
 	prerequisites := []Event{
 		locatorProductEvent("product-w"), locatorProjectEvent("project-w"), locatorMembershipEvent("product-w", "project-w"),
-		{EventID: "routing-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Routing replay","priority":1}`)},
+		{EventID: "routing-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Routing migration","priority":1}`)},
 		{EventID: "routing-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	appendEvent := func(event Event) {
@@ -34,13 +33,23 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			t.Fatal(err)
 		}
-		recordHistoricalWitness(t, s, event.EventID, event.Kind, event.PayloadVersion, event.Payload)
 	}
 	for _, event := range prerequisites {
 		appendEvent(event)
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
-			t.Fatal(err)
-		}
+	}
+	// The old schema's rows are migration inputs, not live event-fold inputs.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
+		VALUES('product-w','product-w','prototype','operator_only',2,'1970-01-01T00:00:01Z','1970-01-01T00:00:01Z');
+		INSERT INTO projects(id,display_name,version,created_at,updated_at)
+		VALUES('project-w','project-w',1,'1970-01-01T00:00:01Z','1970-01-01T00:00:01Z');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES('product-w','project-w','primary');
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json)
+		VALUES('work-w','task','Routing migration','needed',1,2,'1970-01-01T00:00:01Z','1970-01-01T00:00:02Z',
+		'{"title":"Routing migration","value_statement":"","kind":"task","priority":1,"urgency":"standard","tags":[],"component_id":"","workflow_type_ref":"","external_ref":""}');
+		INSERT INTO work_projects(work_id,project_id,role) VALUES('work-w','project-w','primary');
+	`); err != nil {
+		t.Fatal(err)
 	}
 	for i, row := range []struct {
 		attempt, model, role, lifecycle, failure string
@@ -61,8 +70,8 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 			failedAt = at.Format(time.RFC3339Nano)
 		}
 		appendEvent(histDispatchEvent(t, row.attempt+"-dispatch", row.attempt, 2, at, extra))
-		// The released routing fold seeds both model columns from the same
-		// recorded value. Forward migration and replay must preserve its row.
+		// Both model columns hold the recorded routing value. Forward migration
+		// must preserve this row without deriving it from the old event.
 		if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
 			(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,routing_policy_version,routing_policy_digest,resolved_model,resolution_role,fallback_reason,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at)
 			VALUES('work-w',?,'research',1,?,'research',?,?,?,?,? ,?,'1.0','1.0',?,?,?, ?,NULL,?)`,
@@ -70,10 +79,10 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	nativePayload, _ := legacyNativeRunWriterPayload(t, "run-migrated", nil)
+	nativePayload := legacyNativeRunWriterPayload(t, "run-migrated", nil)
 	native := legacyNativeRunEvent("native-migrated", nativePayload)
 	appendEvent(native)
-	var report legacyNativeRunPayload
+	var report map[string]any
 	if err := json.Unmarshal(nativePayload, &report); err != nil {
 		t.Fatal(err)
 	}
@@ -85,13 +94,13 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_native_runs
 		(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		native.SubjectID, report.RunID, report.Phase, report.Status, native.EventID,
-		report.ReportingAuthorityRef, report.ActorRef, report.NativeSubjectRef, report.SubjectDigest,
-		report.EvidenceRef, report.EvidenceDigest, report.AssertedAt, native.OccurredAt.Format(time.RFC3339Nano),
-		report.CaptureMethod, universe, report.FreshnessPolicyRef, report.DivergencePolicyRef); err != nil {
+		native.SubjectID, report["run_id"], report["phase"], report["status"], native.EventID,
+		report["reporting_authority_ref"], report["actor_ref"], report["native_subject_ref"], report["subject_digest"],
+		report["evidence_ref"], report["evidence_digest"], report["asserted_at"], native.OccurredAt.Format(time.RFC3339Nano),
+		report["capture_method"], universe, report["freshness_policy_ref"], report["divergence_policy_ref"]); err != nil {
 		t.Fatal(err)
 	}
-	if err := bumpVersion(ctx, tx, "work_items", native, report.ExpectedVersion, report.ResultingVersion, "work item"); err != nil {
+	if err := bumpVersion(ctx, tx, "work_items", native, int64(report["expected_version"].(float64)), int64(report["resulting_version"].(float64)), "work item"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -139,7 +148,7 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 		t.Fatal(err)
 	}
 	// All surviving columns, including NULL timestamps and empty failure
-	// details, must retain the same bytes through migration and replay.
+	// details, must retain the same bytes through migration.
 	attemptBytes := func(attempt string) string {
 		t.Helper()
 		var row string
@@ -172,16 +181,7 @@ func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 			t.Fatalf("migration changed %s row bytes: %s, want %s", attempt, got, row)
 		}
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	assertUniverse("replay")
-	for attempt, row := range wantBytes {
-		if got := attemptBytes(attempt); got != row {
-			t.Fatalf("replay changed %s row bytes: %s, want %s", attempt, got, row)
-		}
-	}
 	if !reflect.DeepEqual(log, histEventRows(t, s)) {
-		t.Fatal("migration or replay changed the recorded event rows")
+		t.Fatal("migration changed the recorded event rows")
 	}
 }

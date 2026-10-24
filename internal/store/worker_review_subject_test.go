@@ -253,10 +253,9 @@ func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) Worke
 
 // reviewSubjectImplementComplete dispatches one implementation attempt on a
 // fresh ready job revision and records its terminal event, preparing the
-// core delivery observation when the terminal version carries one.
+// core delivery observation through the current producer path.
 func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string) {
 	t.Helper()
-	const observed = true
 	s := f.store
 	lane := laneForID(t)
 	job := reviewSubjectReadyRevision(t, f)
@@ -270,22 +269,17 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
-	version := WorkerEvidenceEventPayloadVersion(WorkerCompleted)
-	if !observed {
-		version = workerCompletedTerminalDeliveryVersion - 1
-	}
+	version := CurrentEventPayloadVersion(WorkerCompleted)
 	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}
 	ctx := context.Background()
-	if observed {
-		prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
-		if prepErr != nil {
-			t.Fatalf("terminal delivery preparation refused: %v", prepErr)
-		}
-		ctx = WithWorkerTerminalPreparation(ctx, prepared)
+	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
+	if prepErr != nil {
+		t.Fatalf("terminal delivery preparation refused: %v", prepErr)
 	}
+	ctx = WithWorkerTerminalPreparation(ctx, prepared)
 	workerTerminalEventThroughSeamCtx(t, ctx, s, completion)
 }
 
@@ -412,7 +406,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-live-noproof-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-live-noproof-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -460,12 +454,10 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 	})
 }
 
-// qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject, the tree is
-// clean, and the changed-path probe answers no names — the clean
-// zero-delta observation. Every other git call — the declared-reading
-// resolution's committed proofs — runs against the real fixture
-// repositories. A preparation over a subject-less view probes nothing.
+// qualifiedSubjectRunner models a clean zero-delta observation at the qualified
+// verify subject. Real repositories resolve their immutable tree through Git;
+// synthetic repositories model the tree OID as the subject OID. Declared-reading
+// proofs still use the real fixture repositories.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -473,6 +465,13 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 		return nil, nil
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
+		if strings.HasSuffix(args[len(args)-1], "^{tree}") {
+			if _, err := os.Stat(dir + "/.git"); err == nil {
+				return ExecGitRunner{}.Run(ctx, dir, args...)
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 		return []byte(r.head), nil
 	}
 	if slices.Contains(args, "--name-only") {
@@ -511,7 +510,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	if subjectErr != nil || subject == "" {
 		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
 	}
-	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}

@@ -4,13 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 )
 
 // knowledgeHomePairTables lists every Git-derived projection keyed on the
 // (home_project_id, home_locator_id) identity pair. Migration 52 binds each
 // one's pair to project_locators through triggers; this list is the Go-side
-// mirror for locator-removal refusal and rebuild orphan detection. A test
+// mirror for locator-removal refusal. A test
 // pins the list to the trigger set, so the two cannot drift apart.
 var knowledgeHomePairTables = []string{
 	"archived_work",
@@ -49,40 +48,4 @@ func locatorReferencedByKnowledge(ctx context.Context, q queryer, projectID, loc
 		}
 	}
 	return false, nil
-}
-
-// countOrphanedKnowledgeHomePairs counts Git-derived knowledge rows whose
-// identity pair names no Project locator. RebuildFromLog runs it after replay:
-// the log cannot restore a locator that was never event-derived, so a row the
-// binding would refuse to insert must not silently survive the rebuild either.
-func countOrphanedKnowledgeHomePairs(ctx context.Context, q queryer) (int64, error) {
-	parts := make([]string, 0, len(knowledgeHomePairTables))
-	for _, table := range knowledgeHomePairTables {
-		parts = append(parts, fmt.Sprintf(`(SELECT count(*) FROM %s k WHERE NOT EXISTS (SELECT 1 FROM project_locators pl WHERE pl.project_id = k.home_project_id AND pl.locator_id = k.home_locator_id))`, table)) //nolint:gosec // table comes only from the closed knowledgeHomePairTables list above and no values are interpolated.
-	}
-	var orphans int64
-	if err := q.QueryRowContext(ctx, "SELECT "+strings.Join(parts, " + ")).Scan(&orphans); err != nil {
-		return 0, wrapFailure(KindUnavailable, "rebuild_from_log", "cannot audit knowledge home pairs", true,
-			"retry once the database is readable", err)
-	}
-	return orphans, nil
-}
-
-// dropTriggerReturningDDL removes a trigger and returns the DDL text SQLite
-// stored for it, so the caller can re-create the identical trigger without a
-// second copy of its definition. An absent trigger returns "".
-func dropTriggerReturningDDL(ctx context.Context, tx *sql.Tx, name string) (string, error) {
-	var ddl sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?`, name).Scan(&ddl)
-	if err == sql.ErrNoRows {
-		return "", nil
-	} else if err != nil {
-		return "", wrapFailure(KindUnavailable, "rebuild_from_log", "cannot read the knowledge locator guard", true,
-			"retry once the database is readable", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+name); err != nil {
-		return "", wrapFailure(KindUnavailable, "rebuild_from_log", "cannot drop the knowledge locator guard", true,
-			"retry once the database is writable", err)
-	}
-	return ddl.String, nil
 }

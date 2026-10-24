@@ -15,12 +15,9 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-func TestWorkflowCorrectionFoldAcceptsLegacySchemaNBSPReference(t *testing.T) {
+func TestWorkflowCorrectionAdmissionRejectsNBSPReference(t *testing.T) {
 	t.Parallel()
 	const legacyReference = "evidence:\u00a0legacy"
-	if fault := workflowCorrectionSchemaValuesFaultForReplay(nil, []string{legacyReference}, nil); fault != "" {
-		t.Fatalf("fold rejected a correction reference admitted by the previous schema: %s", fault)
-	}
 	if fault := workflowCorrectionSchemaValuesFaultForAdmission(nil, []string{legacyReference}, nil); fault == "" {
 		t.Fatal("new correction admission accepted a non-breaking-space reference")
 	}
@@ -573,10 +570,8 @@ func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, Work
 func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
-	dispatch := Event{EventID: "issue1013-worker-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
-		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
-	})}
+	dispatch := workerDispatchEvent(workID, "issue1013-worker-dispatch-"+workID+"-"+attemptID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(20, 0).UTC()
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatalf("record worker dispatch %s: %v", attemptID, err)
 	}
@@ -958,11 +953,8 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {
 		t.Fatalf("step after the successor premise = %q, want complete", step)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild after the successor verdict: %v", err)
-	}
 	if step, state, ref, version, digest := completeStepInstancePin(t, s, workID); step != "complete" || state != "running" || ref != definitionRef || version != definitionVersion || digest != definitionDigest {
-		t.Fatalf("rebuilt instance = %s/%s %s@%d (%s), want the corrected completion step under its original pin", step, state, ref, version, digest)
+		t.Fatalf("instance = %s/%s %s@%d (%s), want the corrected completion step under its original pin", step, state, ref, version, digest)
 	}
 }
 
@@ -1519,9 +1511,8 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 	return BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
 }
 
-// staleLawSuccessorPayload mandates the accepted successor law: the composed
-// successor derives its law revision pins from the mandate's current state, so
-// the stale-law recovery finds the accepted successor pinned (CD-0222 D5).
+// staleLawSuccessorPayload mandates a current accepted law. The composed
+// successor derives current pins without a relation to the deleted law.
 func staleLawSuccessorPayload(workID string) json.RawMessage {
 	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","decision_domains":[],"architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)
@@ -1529,7 +1520,7 @@ func staleLawSuccessorPayload(workID string) json.RawMessage {
 
 // TestCompleteStepCorrectionStaleLawStaysBehindTheGate proves the stale-law
 // recovery route does not bypass the complete-step admission. With the active
-// contract's mandated law superseded but no durable contradiction record,
+// contract's pinned law deleted but no durable contradiction record,
 // discovery and preflight refuse; the route opens only when the contradiction
 // observation postdates the verdict (CD-0172 D1).
 func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
@@ -1537,11 +1528,12 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	const workID = "complete-correction-stale-law-gate"
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		DELETE FROM law_domain_homes WHERE law_id='spec:one';
+		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
@@ -1587,33 +1579,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkVersion(t, s, workID)
-	legacyApproval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "legacy duplicate approval",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
-			VerificationObligations: []WorkflowVerificationObligation{},
-		},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractDecisionDomainsPayloadVersion, legacyApproval); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
+	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	seedWorkflowLawProjection(t, s)
 	var activeCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
@@ -1625,7 +1591,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	// The seeded proof records and satisfies one worker job in the primary
 	// Project, so the delivery facet folds a recorded, satisfied job.
-	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project"}
+	model := admissionModelState{step: "complete", contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project"}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
@@ -1753,113 +1719,49 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 	}
 }
 
-// TestCompleteStepCorrectionSurvivesRebuildFromLog proves the fold's return
-// and its shared admission are replay-stable: rebuilding the log refolds the
-// route supersession to the same instance state, active contract, and verdict
-// cut (CD-0172 D1, D3).
-func TestCompleteStepCorrectionSurvivesRebuildFromLog(t *testing.T) {
+func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 	t.Parallel()
-	const workID = "complete-correction-replay"
+	const workID = "complete-correction-fresh-verdicts"
 	ctx := context.Background()
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
-	step, state, definitionRef, definitionVersion, definitionDigest := completeStepInstancePin(t, s, workID)
+	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
 	if step != "repair" || state != "running" {
-		t.Fatalf("instance before rebuild: step=%q state=%q, want repair/running", step, state)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from log: %v", err)
-	}
-	stepAfter, stateAfter, refAfter, versionAfter, digestAfter := completeStepInstancePin(t, s, workID)
-	if stepAfter != step || stateAfter != state || refAfter != definitionRef || versionAfter != definitionVersion || digestAfter != definitionDigest {
-		t.Fatalf("replay moved the correction return: %s/%s %s@%d (%s) -> %s/%s %s@%d (%s)", step, state, definitionRef, definitionVersion, definitionDigest, stepAfter, stateAfter, refAfter, versionAfter, digestAfter)
+		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
 	}
 	var activeVersion int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
 		t.Fatal(err)
 	}
 	if activeVersion != 2 {
-		t.Fatalf("active contract version after rebuild = %d, want 2", activeVersion)
+		t.Fatalf("active contract version after correction = %d, want 2", activeVersion)
 	}
 	satisfied, err := latestWorkflowVerdicts(ctx, s.db, workID, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(satisfied) != 0 {
-		t.Fatalf("replayed successor inherited pre-correction verdicts: %#v", satisfied)
-	}
-}
-
-// A supersession without the reserved return convention preserves the complete
-// step when its typed contract facts are rebuilt.
-func TestCompleteStepSupersessionWithoutReturnConventionPreservesStep(t *testing.T) {
-	t.Parallel()
-	const workID = "complete-correction-historical-replay"
-	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	historical, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"previous_contract_version": 1, "new_contract_version": 2,
-		"supersede_reason": "stale-law recovery recorded before the reserved convention existed",
-		"audit_evidence":   []string{"evidence:historical-stale-law"},
-		"successor_contract": map[string]any{
-			"contract_version": 2, "premise": "the delivered subject the durable evidence names",
-			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-			"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-			"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
-			"architecture_binding": WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
-				VerificationObligations: []WorkflowVerificationObligation{},
-			},
-		},
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-historical-supersession", WorkflowContractSuperseded, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractSupersededDecisionDomainsPayloadVersion, historical); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild with the historical supersession: %v", err)
-	}
-	step, _, _, _, _ := completeStepInstancePin(t, s, workID)
-	if step != "complete" {
-		t.Fatalf("historical supersession moved the instance to %q, want complete", step)
-	}
-	var activeVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeVersion); err != nil {
-		t.Fatal(err)
-	}
-	if activeVersion != 2 {
-		t.Fatalf("active contract version after the historical rebuild = %d, want 2", activeVersion)
+		t.Fatalf("successor inherited pre-correction verdicts: %#v", satisfied)
 	}
 }
 
 // seedOffShapeCompletedInstance parks a completed workflow instance on a
 // verified break-fix step whose pinned shape does not carry the complete-step
-// correction route, and supersedes the active contract's mandated law so the
+// correction route, and deletes the active contract's pinned law so the
 // stale-law recovery is the admission under test.
 func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+	attachWorkflowLawPin(t, fixture.store, workID, "sha256:"+strings.Repeat("a", 64))
 	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+		DELETE FROM law_domain_homes WHERE law_id='spec:one';
+		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID, workID); err != nil {
 		t.Fatal(err)
@@ -1977,7 +1879,7 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		}
 	})
 
-	t.Run("live fold refuses and replay preserves", func(t *testing.T) {
+	t.Run("live fold refuses", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-offshape-fold"
 		fixture := seedOffShapeCompletedInstance(t, workID)
@@ -1991,9 +1893,6 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != sharedDetail {
 			t.Fatalf("live fold of the off-shape completed supersession = %v, want the shape refusal", err)
-		}
-		if err := foldCompleteStepContractCorrectionTx(workflowReplayContext(context.Background()), tx, Event{SubjectID: workID}, successor); err != nil {
-			t.Fatalf("replay of the historical off-shape supersession = %v, want replay preservation", err)
 		}
 	})
 }
@@ -2011,33 +1910,7 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkVersion(t, s, workID)
-	legacyApproval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "legacy duplicate approval",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"architecture_binding": WorkflowArchitectureBinding{
-			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
-			VerificationObligations: []WorkflowVerificationObligation{},
-		},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "decision_domains": []string{},
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"complete-correction-duplicate-offshape-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", workflowContractDecisionDomainsPayloadVersion, legacyApproval); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
+	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	var activeCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
 		t.Fatal(err)
@@ -2058,7 +1931,7 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 }
 
 // foldCompleteStepContractCorrectionTx resolves the builtin registry for
-// direct callers. The core keeps the route marker, historical replay, and
+// direct callers. The core keeps the route marker and
 // admission checks together before it returns the pinned instance to its
 // external-effect step, and the scoped supersession fold carries the
 // transaction's registry to the same core. The caller holds the fold

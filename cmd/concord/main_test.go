@@ -374,7 +374,7 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 		verbs = append(verbs, verb)
 		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
 	}
-	for _, want := range []string{"continuity-block", "repair", "recover-fold-guard"} {
+	for _, want := range []string{"continuity-block", "repair"} {
 		if !slices.Contains(verbs, want) {
 			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
 		}

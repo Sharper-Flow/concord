@@ -124,7 +124,6 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		}
 	}
 	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractPayload)
-	contract.PayloadVersion = 3
 	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
 	for _, kind := range boundKinds {
 		evidenceRef := "evidence:return-route-" + kind
@@ -449,7 +448,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, f workflowReturnRouteFixture, id 
 	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, id, WorkflowActionCompleted).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
-	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
+	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 	if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), tx, dispatch, f.owner.PrincipalRef, f.owner.ClientRef)
 		if err != nil {

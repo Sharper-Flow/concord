@@ -436,7 +436,7 @@ func TestStaleLawRevisionRequiresSHA256Proofs(t *testing.T) {
 	base := NewBase("stale-law", "concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{
 		Kind: "stale_law_revision", RecoveryAction: RecoveryAction{Kind: "request_approval"}, EffectState: EffectNone,
-		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), AcceptedSuccessorLawID: "spec:new", AcceptedSuccessorContentHash: "sha256:" + strings.Repeat("b", 64), RecoveryActions: []string{"supersede_contract"}},
+		StaleLawRevision: &StaleLawRevision{OldLawID: "spec:old", OldContentHash: "sha256:" + strings.Repeat("a", 64), RecoveryActions: []string{"supersede_contract"}},
 	})
 	if _, err := valid.Encode(); err != nil {
 		t.Fatalf("valid stale law revision rejected: %v", err)

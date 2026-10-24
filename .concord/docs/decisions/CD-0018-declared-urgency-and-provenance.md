@@ -6,15 +6,6 @@
 **Type:** Architecture decision (spike outcome).
 **Spike:** [`../research/R7-expedited-parallel-work.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R7-expedited-parallel-work.md).
 **Issue:** [#70](https://github.com/Sharper-Flow/concord/issues/70).
-**Amended by:** CD-0222 leaves assignment/lease exclusions intact but replaces
-D4's unstructured parallel-safety judgement with Domain-overlap detection and
-operator-approved, version-pinned resolution. Concord (CON) issue CON-910 (2026-10-13)
-drops the retired launcher query from the ranking claims under the Snowball
-coordinator's operator-delegated approval.
-**Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — capture writes current rows; no event exists.
-**Amends:** CD-0005 (adds `urgency` to the capture/revise/read surface and one
-`relation_kind` member — both TS8 MAJOR); C14 §5 and C17 §5 (records an explicit,
-declared urgency, restated not to introduce owners or assignments).
 **Preserves:** C17 §5.1 (no computed importance score — ranking uses stored declared
 fields), C17 §5.2 (no activity-derived priority), C17 §5.4 (no third blocked state),
 C18 (the operator surface stays read-only), CD-0013/CD-0017 D4 (worker
@@ -81,8 +72,7 @@ even though Kanban's WIP-override mechanism does not (Concord has no WIP limit).
 Every ready, list, and blocked query prepends `urgency` to its existing
 `ORDER BY`. An `expedite` item outranks every `standard` item regardless of
 `priority`; within each band, the existing `priority ASC, created_at DESC, id ASC`
-ordering is preserved unchanged. The product-row focus query prepended urgency to its
-attention-kind-then-priority ranking and retired with the Product-row read (CD-0224).
+ordering applies.
 
 This preserves C17 §5.1: ranking still uses stored declared fields. The urgency band
 is a declared value, not a computed score; the sort orders on it the same way it
@@ -102,8 +92,7 @@ other relation.
 guard (unlike `parent`), no composite-operation path (unlike `supersedes`), and no
 exemption from the relation cycle check (unlike `implements`). It is created only by capture's
 `raised_from_work_id` input: capture inserts the relation row in the same transaction, and
-no operation removes it ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: each mutation writes current rows in one
-transaction; no event exists). It records provenance
+no operation removes it (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))). It records provenance
 only; it asserts no dependency, no hierarchy, and no replacement.
 
 One symmetric kind is sufficient for the motivating pairings — an ops task beside a
@@ -114,16 +103,14 @@ a later MINOR addition to the same closed set.
 
 ### D4. No assignment, claim, or parallel-safety mechanism
 
-Consistent with #70's pre-spike decision and with the operating envelope's rejection
-of team-server ambition, this decision adds no owner, assignee, claim, lease,
-executor, or per-work-item concurrency fence. The work_items table gains no identity
-column. Parallel-safety — whether two items touch the same subsystem — remains
-operator judgement. Recording urgency and provenance is neither an assignment nor a
+The operating envelope excludes team-server ambition. Urgency and provenance
+provide no owner, assignee, claim, lease, executor, or per-work-item concurrency
+fence. The work_items table has no identity column for them.
+Recording urgency and provenance is neither an assignment nor a
 multi-human coordination surface; the operating envelope's "many concurrent
 OpenCode TUIs" clause is the side of that line this decision lives on.
 
-CD-0222 later makes that judgement structural without adding assignment or a
-lease: Product-changing contracts declare affected Domains, and overlapping work
+Under CD-0222, Product-changing contracts declare affected Domains, and overlapping work
 requires a resolution pinned to both contract versions and judged content.
 Under CD-0013 D11, routine compatibility, blocking, and dependency answers need no
 operator approval; merger and supersession still require it.
@@ -241,6 +228,6 @@ happen to be in the same area — the edge records provenance, not topic similar
 
 ## Supersession
 
-CD-0018 does not supersede CD-0005, CD-0013, CD-0016, or CD-0017. It amends CD-0005's
-surface by adding `urgency` and one `relation_kind` member under the accepted TS8
-MAJOR path.
+CD-0005's capture/revise/read surface carries `urgency` and the `raised_from`
+relation. Capture writes current rows; no event exists
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

@@ -66,7 +66,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	job := authorizedWorkerJob(t, s, attemptID)
-	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
@@ -229,8 +229,8 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
 
-	// A rejected review, then an accepted implement repair: the refinement
-	// history carries the post-rejection review debt.
+	// A rejected review, then an accepted implement repair that changes the
+	// candidate the earlier Review covered.
 	dispatch("refine", "attempt:work-1:gate-review", "review")
 	refineEpoch := attemptEpoch(t, s, "attempt:work-1:gate-review")
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/gate-reviewer", SessionRef: "session/work-1-gate-reviewer", ActorClass: store.ActorAgent}
@@ -340,7 +340,7 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	if payload.EvidenceOrigin == store.WorkerEvidenceReported && len(payload.Evidence) == 0 {
 		payload.Evidence = agentEvidenceForLane(t, s, workID, attemptID)
 	}
-	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
+	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
 	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: eventID})
 	if err != nil {
 		t.Fatalf("terminal delivery preparation for %s: %v", attemptID, err)

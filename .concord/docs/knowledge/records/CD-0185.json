@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a7a22fece243bab78e7acfdbb1e7574b7c3a6bd7ee1b9d369b469269a03ff89f",
+  "sha256": "sha256:0bbf7beb718fa98e620adb27d6ef9c08f06eab0610b9d224df73ed92cec97829",
   "status": "accepted",
   "summary": "A worktree_audit_reclaim pass compacts its result to fit the result envelope before it reports success: every committed and refused attempt stays reported with its outcome, version, and refusal kind, the free-text attempt detail drops last and only under an omission notice, report-only rows the inline result does not carry page through the worktree_audit read's signed cursor with an explicit count, a replay under the same idempotency key returns the same bounded result, and the limit stays the only bound on reclaim attempts. Amends CD-0179 D5 at its report bound.",
   "tags": [

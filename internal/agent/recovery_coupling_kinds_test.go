@@ -46,11 +46,9 @@ func coupledDomainOverlap() *DomainOverlap {
 func coupledStaleLawRevision() *StaleLawRevision {
 	hash := "sha256:" + strings.Repeat("a", 64)
 	return &StaleLawRevision{
-		OldLawID:                     "law-old",
-		OldContentHash:               hash,
-		AcceptedSuccessorLawID:       "law-new",
-		AcceptedSuccessorContentHash: hash,
-		RecoveryActions:              []string{"supersede_contract"},
+		OldLawID:        "law-old",
+		OldContentHash:  hash,
+		RecoveryActions: []string{"supersede_contract"},
 	}
 }
 
@@ -83,14 +81,12 @@ func storeStaleLawFailure(proposed string) *store.Failure {
 	return &store.Failure{
 		Kind:           store.KindStaleLawRevision,
 		Op:             "check_workflow_law_revision",
-		Detail:         "workflow contract consumes a superseded law revision",
+		Detail:         "workflow contract pins a deleted law",
 		RecoveryAction: proposed,
 		StaleLawRevision: &store.StaleLawRevision{
-			OldLawID:                     "law-old",
-			OldContentHash:               hash,
-			AcceptedSuccessorLawID:       "law-new",
-			AcceptedSuccessorContentHash: hash,
-			RecoveryActions:              []string{"supersede_contract"},
+			OldLawID:        "law-old",
+			OldContentHash:  hash,
+			RecoveryActions: []string{"supersede_contract"},
 		},
 	}
 }

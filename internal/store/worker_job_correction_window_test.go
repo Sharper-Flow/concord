@@ -111,8 +111,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	prefixAfterFirstFailure := maxEventSeq(t, s, workID)
 
 	// A later revision of the same job identity satisfies the corrective
-	// job, so the acceptance opens a fresh window exactly as CD-0164 D2
-	// requires a satisfying acceptance to.
+	// job, so the satisfying acceptance opens a fresh window.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
@@ -294,8 +293,9 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 
 	// A duplicate terminal report derives nothing: the retry attempt's
 	// terminal fact is already recorded, and neither the records nor the anchor move.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", detailRetry, preferredModelForLane(lane))); err == nil {
-		t.Fatal("a duplicate terminal worker.failed report for the failed retry attempt was admitted")
+	duplicate := s2WorkerFailedAttributedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", preferredModelForLane(lane), WorkerFailureWorkerError, detailRetry, time.Unix(30, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, duplicate); !hasFailureKind(err, KindProjectionConflict) {
+		t.Fatalf("duplicate terminal worker.failed report error = %v, want %s", err, KindProjectionConflict)
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, attempt3); len(got) != 1 {
 		t.Fatalf("derived records after the duplicate terminal report = %+v, want the one original", got)
@@ -307,22 +307,6 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 		t.Fatalf("correction after the duplicate terminal report = %#v, want the unchanged window on %s", pin.Correction, attempt3)
 	}
 
-	// The rebuild folds the stored derivation to the same records and source.
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	for _, attempt := range []string{attempt1, attempt3} {
-		if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 || !strings.HasSuffix(got[0]["event_id"].(string), ":workflow-failure") {
-			t.Fatalf("rebuilt records for %s = %+v, want the one derived record rebuilt identically", attempt, got)
-		}
-	}
-	if boundary := jobWindowAcceptanceBoundary(t, s, workID); boundary != 0 {
-		t.Fatalf("rebuild closed the unresolved obligation at %d", boundary)
-	}
-	pin = issue1013Pin(t, s, workID)
-	if pin.Correction == nil || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
-		t.Fatalf("rebuilt correction = %#v, want the same failed source on %s", pin.Correction, attempt3)
-	}
 }
 
 // jobWindowAcceptanceBoundary reads the satisfied-obligation cutoff. A supplied
@@ -466,7 +450,7 @@ func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID str
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
-	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
 		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
@@ -909,14 +893,11 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 				t.Fatalf("plain accept of an unbound attempt at refine error = %v, want the delivery-assertion refusal", err)
 			}
 
-			oAcceptOracleFixtureReview(t, oracleRepairFixtureFrom(t, workID, f.fixture), workID, "continue")
-			final := &WorkerJobBinding{JobID: "job:refine-final", Revision: 1}
-			finalAttempt := "attempt:" + workID + ":final"
-			dispatchJobBoundAttempt(t, s, workID, "refine", finalAttempt, nil, owner, 0, "refine-final", final)
-			if err := completeJobBoundAttemptForTest(s, workID, finalAttempt, lane, final); err != nil {
-				t.Fatal(err)
-			}
-			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": epoch(), "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
+			oracleFixture := oracleRepairFixtureFrom(t, workID, f.fixture)
+			oAcceptOracleFixtureReview(t, oracleFixture, workID, "continue")
+			finalAttempt := oCompleteOracleFixtureReview(t, oracleFixture, workID, "ready_for_final_proof")
+			finalEpoch := epoch()
+			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": finalEpoch, "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err == nil {
 				t.Fatal("delivery-asserting accept admitted without the green refine run")
 			}

@@ -81,8 +81,12 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID          string   `json:"work_id"`
-	ProductIdentity []string `json:"product_identity"`
+	// ReviewInputWarning reports optional Git enrichment failure outside the
+	// projection bytes so session recovery does not depend on repository access.
+	ReviewInputWarning error              `json:"-"`
+	ReviewInput        *WorkerReviewInput `json:"review_input,omitempty"`
+	WorkID             string             `json:"work_id"`
+	ProductIdentity    []string           `json:"product_identity"`
 	// WorkflowInstance states workflow-instance presence as typed
 	// information: WorkflowInstancePresent for the pinned default every
 	// captured item carries, WorkflowInstanceAbsent for an imported or
@@ -103,6 +107,7 @@ type ContinuitySnapshot struct {
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
 	Watermark                string                            `json:"watermark"`
+	SourceVersionWatermark   int64                             `json:"-"`
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
@@ -204,6 +209,10 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
+	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 	if req.Owner != nil {
 		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
 			return out, err
@@ -324,6 +333,28 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, viewErr
 	}
 	out.WorkContext, out.WorkContextUnavailable = view, unavailable
+	// Candidate identity is sampled with the dependencies, then its immutable
+	// tree resolves after the read snapshot closes. Dispatch revalidates it
+	// against the sealed native observation; this read grants no authority.
+	var receipt *WorktreeVerifyResult
+	if out.WorkPin != nil && out.WorkPin.Review != nil && out.WorkPin.Review.Dependencies != nil {
+		receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, req.Work)
+		if err != nil {
+			return out, err
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		return out, err
+	}
+	if receipt != nil {
+		commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
+		tree, treeErr := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
+		if treeErr != nil {
+			out.ReviewInputWarning = treeErr
+		} else {
+			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
+		}
+	}
 	return out, nil
 }
 
@@ -361,7 +392,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
@@ -391,17 +422,17 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return revisionErr
 		}
 		contract.LawRevisions = revisions
-		// Resolve the contract's binding law and Domains inside the same
-		// read transaction, so the pinned projection carries readable law
-		// references rather than bare IDs. A contract with no bound law
-		// leaves the field absent.
-		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
-		if lawErr != nil {
-			return lawErr
-		}
-		out.LawContext = lawContext
 		if err := continuityResolveLawMandateTx(ctx, tx, work, out, &contract); err != nil {
 			return err
+		}
+		// A stale contract remains inspectable, but cannot supply readable
+		// current-law context for a law that no longer exists (CD-0036 D3/D6).
+		if out.StaleLawRevision == nil {
+			lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+			if lawErr != nil {
+				return lawErr
+			}
+			out.LawContext = lawContext
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 		registered, verifyErr := verifyReadWorkflowDefinitionForRegistry(definition, registry)
@@ -465,7 +496,7 @@ func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, opera
 	var touched, evidence, questions, decisions string
 	if err := q.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
 		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
-			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return &checkpoint, nil
 	} else if err != sql.ErrNoRows {
@@ -561,7 +592,7 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 		}
 		out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, job)
 	}
-	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
+	// The awaiting confirming-review jobs (CD-0205 D4):
 	// every open accepted exact repairing revision whose one confirming
 	// review is still unconsumed.
 	// They are never ready jobs — the one review dispatch each admits reads
@@ -590,7 +621,7 @@ func continuityReadProposalTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {

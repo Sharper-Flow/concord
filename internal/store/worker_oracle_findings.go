@@ -651,7 +651,7 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 			var report WorkerCompletedPayload
 			if json.Unmarshal([]byte(payload), &report) != nil {
 				rows.Close()
-				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "rebuild the worker events from the authoritative log")
+				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 			}
 			for _, entry := range report.Evidence {
 				if entry.OracleReceipt != nil {
@@ -1242,7 +1242,7 @@ func oracleClosureIndependentProducerTx(ctx context.Context, q queryer, workID s
 		return false, nil
 	}
 	var client, agent, session, principal, worker string
-	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN domain_events d ON d.subject_id=l.work_id AND d.subject_type='work_item' AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=? WHERE l.work_id=? AND l.lease_id=?`, WorkerDispatched, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
+	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.dispatch_payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN worker_attempts d ON d.work_id=l.work_id AND d.attempt_id=? AND d.dispatch_payload IS NOT NULL WHERE l.work_id=? AND l.lease_id=?`, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

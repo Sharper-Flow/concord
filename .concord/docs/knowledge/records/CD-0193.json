@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b293c97cb2594d8f345aaa6b9d11580a5239f5b498a735257164e5b9493e254f",
+  "sha256": "sha256:cfc59e2db4ff0b50e0334c0b1ba9e5b1adba03c6bf015cb21e51b42c0401875a",
   "status": "accepted",
   "summary": "A failed worker attempt at a human_checkpoint step has a declared recovery: the engine admits record_worker_failure there as a hold-mode recovery that changes no definition, and the recorded failure dispositions the attempt, so the operator's own gate opens, and the record then admits the CD-0143 D1 corrective return at the checkpoint. The checkpoint hold keys on attempts a worker actually dispatched, not on unused windows.",
   "tags": [

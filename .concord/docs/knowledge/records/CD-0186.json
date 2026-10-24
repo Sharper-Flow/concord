@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:30863b88891665bf11bc060fe9b1bf5f0e18446d2094f1023c0e2694a184bce7",
+  "sha256": "sha256:3819b1a67958f5e598de611a771097e9366eccaf6ba297ff984ad88d47bfbe9c",
   "status": "accepted",
   "summary": "CD-0172 D1's last sentence limits the complete-step correction route it admits on break-fix and implementation workflows; it does not refuse the stale-law or stale Domain registry re-pin that ordinary stale recovery (CD-0222 D7) admits at the complete step of a workflow kind with no correction route, for example workflow.ops_runbook. That admission predates CD-0172 and stays unchanged. Amends CD-0172 D1 at that sentence only.",
   "tags": [

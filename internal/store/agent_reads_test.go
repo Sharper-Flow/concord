@@ -40,8 +40,9 @@ func TestAgentReadWatermarksAreScoped(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	ctx := context.Background()
-	if got, err := s.DomainEventWatermark(ctx); err != nil || got != 0 {
-		t.Fatalf("empty domain-event watermark=%d err=%v", got, err)
+	want := revisionValue(t, s.db)
+	if got, err := s.Revision(ctx); err != nil || got != want || got <= 0 {
+		t.Fatalf("store revision=%d err=%v, want %d", got, err, want)
 	}
 
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);

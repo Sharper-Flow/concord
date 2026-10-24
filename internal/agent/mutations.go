@@ -1259,7 +1259,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// CD-0198 D4: the combined accept_worker_result at the delivery-admitting
 	// refinement step runs the same admission, so it resolves the same
 	// default-ref manifest for that accept exactly as record_delivery does.
-	// CD-0225 D3: bind_evidence on a size-capable pin that holds a split
+	// bind_evidence on a size-capable pin that holds a split
 	// resolves the same manifest, so the automatic integration discharge
 	// keeps only runs of declared tools.
 	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" || in.ActionID == "bind_evidence" {
@@ -2015,7 +2015,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 	}
 	var response Envelope
 	durable := false
-	err = r.executeAdmittedMutation(&ctx, &durable, func(tx *store.Transaction) error {
+	mutation := func(tx *store.Transaction) error {
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -2147,7 +2147,12 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		authorizedSnapshot["durable_commit"] = durable
 		authorizedScope, _ := json.Marshal(authorizedSnapshot)
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
-	})
+	}
+	if in.DryRun {
+		err = r.Store.ReadTransaction(ctx, mutation)
+	} else {
+		err = r.executeAdmittedMutation(&ctx, &durable, mutation)
+	}
 	if err != nil {
 		if response.Outcome == OutcomeError {
 			return response, nil

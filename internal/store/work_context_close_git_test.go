@@ -105,7 +105,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	findings := []WorkerContextFinding{{Kind: "observation", Statement: marker + "-worker", SubjectRef: ".concord/docs/spec.md", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompletedContextFindingsEvent(workID, "close-git-worker-completed", "close-git-attempt", preferredModelForLane(lane), lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompletedContextFindingsEvent(workID, "close-git-worker-completed", "close-git-attempt", preferredModelForLane(lane), lane, findings, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, s, workID))}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,7 +162,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 		}
 	}
 	reviewEvent := Event{EventID: "close-git-review-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
 		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: reviewAttempt, ReadbackModel: preferredModelForLane(reviewLane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			WorkerDirectory: claimed.Entry.Path, EvidenceOrigin: WorkerEvidenceReported, Evidence: reviewEvidence, WorkerJob: &job, Review: report})}
 	prepared, err := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: reviewAttempt, EventID: reviewEvent.EventID})

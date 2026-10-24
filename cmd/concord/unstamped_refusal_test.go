@@ -117,12 +117,6 @@ func TestReleaseManagedStoreRefusesABinaryTheInstallerDidNotPlace(t *testing.T) 
 			var out, errOut bytes.Buffer
 			return backupBeforeRepair(&out, &errOut, root, "v-test"), errOut.String()
 		}},
-		{"recover-fold-guard explicit path", func(t *testing.T, _, path string) (int, string) {
-			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "elsewhere.db"))
-			var out, errOut bytes.Buffer
-			input := fmt.Sprintf(`{"path":%q}`, path)
-			return runWithInput([]string{"recover-fold-guard"}, strings.NewReader(input), &out, &errOut), errOut.String()
-		}},
 	}
 	for _, stamp := range []string{version.Development, "v9.9.9"} {
 		for _, tc := range routes {

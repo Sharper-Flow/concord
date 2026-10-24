@@ -59,14 +59,8 @@ type Event struct {
 	Actor string
 	// OccurredAt is normalized to Coordinated Universal Time on write.
 	OccurredAt time.Time
-	// PayloadVersion selects the payload shape, and later selects the upcasters
-	// a rebuild runs.
+	// PayloadVersion must match the kind's current payload schema.
 	PayloadVersion int
-	// replaySourcePayloadVersion records the stored version when an upcaster
-	// changes the in-memory event. Folds use it only for versioned replay rules.
-	replaySourcePayloadVersion int
-	recordedPayloadShape       recordedPayloadShape
-	legacyVerdictPredicate     bool
 	// Payload is a JSON object.
 	Payload []byte
 }
@@ -124,20 +118,15 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err != nil {
 		return 0, err
 	}
-	switch prepared.registration.Authority {
-	case EventAppendAuthorityRetired:
-		return 0, retiredEventAppendRefused(e.Kind)
-	case EventAppendAuthorityWorkflow:
-		if !allowCompletion {
-			return 0, workflowDispatcherRequired(e.Kind)
-		}
+	if prepared.registration.Authority == EventAppendAuthorityWorkflow && !allowCompletion {
+		return 0, workflowDispatcherRequired(e.Kind)
 	}
 	// The retirement can also be a property of the payload or the subject
-	// rather than of the event kind: a generic work.created whose upcast
+	// rather than of the event kind: a generic work.created whose
 	// payload classifies as initiative, or any new event on an existing
 	// initiative work item, refuses here before the log row exists (CD-0213
 	// D4).
-	if err := refuseRetiredPlanningAppend(ctx, tx, e, prepared); err != nil {
+	if err := refuseRetiredPlanningAppend(ctx, tx, e); err != nil {
 		return 0, err
 	}
 	if err := validateLiveProjectLocator(e); err != nil {

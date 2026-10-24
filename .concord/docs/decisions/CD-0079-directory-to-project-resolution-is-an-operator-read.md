@@ -12,7 +12,6 @@
 - **Preserves:** CD-0021's rejection of a second write authority, CD-0005's
   separation of the agent tool surface from CLI inventory, the grant and
   capability machinery on the agent surface
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the verb writes no rows; no event-log table exists.
 
 ## Context
 
@@ -67,8 +66,7 @@ duplicate database access or double-hop through this verb anyway.
 ### D2. The verb does not authenticate its caller
 
 No operator verb authenticates the operator. `worktree-locate` and
-`predecessor-inventory` are already unauthenticated reads, and the launcher
-renders portfolio state through the store with no grant at all. Concord's trust
+`predecessor-inventory` are unauthenticated reads. Concord's trust
 boundary for the operator surface is filesystem access to the authority
 database.
 
@@ -96,7 +94,7 @@ answer already receives it as `ambient_project_id` in its envelope.
 
 The verb writes nothing and opens no second authorization path into work
 creation, so CD-0021's rejection of an operator authoring surface is untouched
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: reads write no rows).
+(reads write no rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
 
 ## Consequences
 
@@ -113,12 +111,10 @@ creation, so CD-0021's rejection of an operator authoring surface is untouched
 ## Rejected alternatives
 
 **Gate the verb behind an interactive-terminal check.** Rejected because
-host-script integration is the whole purpose. The launcher requires an
-interactive terminal because a human reads it. This verb exists for a program.
+host-script integration is the whole purpose. This verb exists for a program.
 
-**Gate the verb behind a durable identity-assertion event, as `concord session`
-does.** Rejected because `session` mints identity for a session that will act.
-This verb answers a question and returns. Recording an event for every host
+**Gate the verb behind a durable identity-assertion event.** Rejected because
+this verb answers a question and returns. Recording an event for every host
 refresh would make a read into a write.
 
 **Return the Project without the Product hop.** Rejected because the host's
@@ -141,7 +137,7 @@ because it produces a durable grant record as a side effect of asking.
   that no payload is written on refusal.
 - `TestProjectResolveWritesNothing` proves D3's read-only claim by comparing
   durable store counts before and after the call
-  ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: no event-log table exists).
+.
 - `TestProjectResolveRequiresDirectory` proves the verb refuses an absent or
   empty directory.
 - `TestRunHelpListsExactCommandFormsAndStdinShapes` and

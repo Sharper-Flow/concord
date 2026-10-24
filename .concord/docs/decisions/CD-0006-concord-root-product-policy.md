@@ -5,14 +5,6 @@
 **Decision owner:** Operator
 **Scope:** Concord purpose, workflow constitution, governance, operator boundary,
 knowledge authority, audience policy, release evidence, and Advance migration.
-**Amended by:** CD-0222 adds Domain-bound Product law, architecture-overlap
-resolution, and the revised priority order to D5/D10/R3.
-**Amended:** 2026-10-17. Coordinator approval under the operator's delegation
-for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-D1 and D2 follow goals.md and CD-0082 D1; the full-successor requirement is removed.
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D5 and D10: law mandates and enactment require approval only under its six classes.
 
 ## Context
 
@@ -27,6 +19,11 @@ This record captures the accepted policy. Three bounded research questions remai
 explicitly deferred; they do not weaken the accepted constraints.
 
 ## Decisions
+
+CD-0222 governs Domain-bound Product law, architecture-overlap resolution, and
+the priority order in D5/D10/R3. D1 and D2 follow goals.md and CD-0082 D1.
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
+governs D5 and D10: law mandates and enactment require approval only under its six classes.
 
 ### D1. Product direction follows the goals
 
@@ -57,8 +54,7 @@ Workflow composition is accepted in §Resolved research R1.
 
 ### D4. Proportional rigor uses independent obligation bands
 
-Replace the earlier `exposure` reachability axis with user-declared **audience
-commitment**:
+Rigor uses user-declared **audience commitment**:
 
 - `operator_only` — no stability commitment outside the operator;
 - `limited` — known testers/early adopters may rely on it;
@@ -183,11 +179,11 @@ Research: [`research/R3-impact-propagation.md`](https://github.com/Sharper-Flow/
 
 ### Positive
 
-- Full workflow ownership no longer conflicts with native execution ownership.
+- Workflow ownership and native execution ownership have separate boundaries.
 - Product rigor reflects declared responsibility rather than repository visibility.
 - Human legislative authority and operator interaction are explicit.
 - Single-operator scope avoids speculative team-server architecture.
-- Release evidence no longer depends on post-release calls before release exists.
+- Release evidence does not depend on post-release calls before release exists.
 
 ### Cost
 
@@ -197,10 +193,5 @@ Research: [`research/R3-impact-propagation.md`](https://github.com/Sharper-Flow/
   solve live cross-human coordination.
 
 ## Supersession and amendments
-
-This decision narrows/supersedes conflicting root-policy prose in priorities,
-clarifications, workflows, rollout, stage, self-documentation, and TS9 measurement
-documents. It does not alter PM/CD-0005 implementation mechanics except where those
-documents explicitly carried the superseded Product policy.
 
 R1–R3 are accepted. Any future amendment follows the standard operator-decision process.

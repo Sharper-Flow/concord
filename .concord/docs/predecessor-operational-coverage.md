@@ -5,7 +5,7 @@
 > [`priorities.md`](./priorities.md) (canonical floor definition) and
 > [`floor-readiness.md`](./floor-readiness.md) (authorizing readiness record).
 > **Issue:** [#78](https://github.com/Sharper-Flow/concord/issues/78).
-> **Amended by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5:** review records the
+> **Review authority ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5):** review records the
 > verdict and Implement cannot accept its own result; no separate final evaluator
 > or other executing-actor distinctness exists.
 > **Predecessor:** the public [Advance](https://github.com/Sharper-Flow/Advance)
@@ -18,10 +18,10 @@ replacement-readiness claim by checking that Concord covers predecessor surfaces
 coverage is unassessable without a list of what it *is*. This document is that
 list, and the coverage judgement against it.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## What this document is
 
@@ -131,15 +131,15 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Drive a unit of implementation work through a staged lifecycle with required evidence at each stage | Covered | `implementation` workflow definition, `internal/store/workflow_registry.go` |
 | Bind completion to recorded proof rather than assertion | Covered | `bind_evidence`, `RequiredEvidenceKinds`, `internal/store/workflow_completion.go` |
 | Require an evaluator distinct from the author on high-risk work | Covered | Review records the verdict and the engine refuses a verdict recorded by the executing Implement actor ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)), enforced in `internal/store/workflow_completion.go` |
-| Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 6 in `internal/store/workflow_completion.go` refuses a weaker or incomparable recorded verdict (WF04, WF50) |
+| Reject a delivered end-state weaker than the approved one | Covered | CD-0012; completion clause 4 in `internal/store/workflow_completion.go` refuses a criterion with no passing proof, which a weaker or incomparable delivery cannot obtain (CD-0235 D2; WF04, WF50) |
 | Absorb a mid-execution discovery without discarding completed work or silently substituting scope | Covered | `link_successor` forward composition, `internal/store/workflow_dispatch.go` |
 | Resume interrupted work without losing workflow position or repeating external effects | Covered | Attempt epochs, claim/checkpoint/complete fencing in `internal/store/fence.go` |
 | Survive a working-window boundary without dropping law, approvals, or position | Covered | CD-0016; `checkpoint_context` and `cross_context_boundary` in `internal/store/workflow_continuity.go` |
 | Restart cleanly into a typed agent after a boundary rather than summarizing | Excluded | CD-0027: pinned continuity is re-derived per call (CD-0016), so a post-boundary session receives exact pinned state rather than a summary; restart would only preserve in-flight working memory, which the host owns. |
 | Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go`. [CD-0044](./decisions/CD-0044-worker-evidence-caller-authentication.md) authenticates the caller of those verbs with a signed assertion bound to the exact attempt, so recorded evidence names a verified client rather than an unchecked actor string. |
-| Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `.concord/scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
-| Measure lane prompt behaviour with an evaluation harness | Covered | `adapter/opencode/evals/promptfooconfig.yaml` exercises every registered lane through the host-selected model; under CD-0058 the harness no longer pins a preferred model and the in-repo drift validator is retired, so harness drift against the lane registry is no longer a Concord machine check. |
+| Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Not covered | `WF48-lane-pipeline-typed-evidence` proves the owner accepts a registered Implement lane's typed result and the worker cannot accept its own; `adapter/opencode/dispatch_route_end_to_end.case.ts` drives implement, verify, and review on one workflow. No current control dispatches the Research lane on that workflow. |
+| Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no live-model prompt-evaluation harness. End-to-end tests take the simplest direct route, and lane contracts are enforced by the deterministic registry, packet, report, and dispatch checks. |
 | Isolate each unit of work in its own git worktree | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; a second active worktree for the same set is refused. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`, with the locator inputs (branch, base SHA, path) derived by the `concord worktree-locate` read verb — the named owner of the locator policy (issue #316) — so a caller reaches the claim with authority-derived intent instead of per-session conventions; `cmd/concord/worktree_locate_test.go` proves the located intent is accepted on the first attempt. Refusing mutating grants bound to the main checkout stands beside it in `internal/agent/authority.go`. |
 | Refuse raw file writes (edit, write, delete) to the trunk checkout through host tooling | Excluded | CD-0072: the predecessor enforced this half in an editor-host hook that intercepted write, edit, and destructive shell calls before execution, and no Concord surface can hold that control — `capability-placement.md` §1 does not list an interception point inside another tool's write path among Concord's surfaces, and a host script cannot intercept a call another tool makes. The operator accepted losing the enforcement on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not equivalent to the predecessor's combined guarantee. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
@@ -215,30 +215,16 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 52 |
-| Not covered | 0 |
-| Excluded with reason | 23 |
+| Covered | 50 |
+| Not covered | 1 |
+| Excluded with reason | 24 |
 
 **Total enumerated outcomes: 75.**
 
-No enumerated outcome remains not covered: the floor bar (covered with evidence or
-excluded with an accepted reason) is met. The clustering list is retained below
-for history.
-
-The not-covered entries clustered as follows while the floor was open:
-
-2. **Session visibility** — resolved: blocked-session routing surfaces per session under issue #72.
-   clean typed restart by issue #120 (§2, §3).
-   unreachable; issue #131 owns its deliberate floor exclusion (§4).
-   spec/implementation drift audit; issue #129 owns the durable learning path
-   (§1, §4, §6).
-4. **Shared-resource coordination** — a durable cross-repository claim is tracked
-   by issue #88 (§5).
-
-The operator-surface and isolation groups are gone: CD-0021 resolved the former as
-deliberate exclusions; the latter is covered. CD-0213 excludes
-Concord Initiative authoring and membership from runtime coverage; Linear MCP
-owns those planning outcomes.
+One enumerated outcome is not covered: no current control dispatches the Research
+lane in an end-to-end workflow. Every other outcome is covered with evidence or
+excluded with an accepted reason. CD-0213 excludes Concord Initiative authoring and
+membership from runtime coverage; Linear MCP owns those planning outcomes.
 
 ## Predecessor surfaces consumed as evidence
 

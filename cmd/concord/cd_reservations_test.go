@@ -31,7 +31,7 @@ func seedReservationAuthority(t *testing.T, s *store.Store, repo string) {
 		}
 	}
 	must(store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "cd-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-other", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Other Reservation Work","priority":1}`)},
+		{EventID: "cd-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-other", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Other Reservation Work","priority":1}`)},
 		{EventID: "cd-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-other", Actor: "operator", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-wl","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-other"): 0}}))
 	actorRef := store.DeriveWorkflowActorRef("principal/reservations", "client/reservations", "agent/reservations", "session/reservations")

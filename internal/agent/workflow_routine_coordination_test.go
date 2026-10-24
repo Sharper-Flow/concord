@@ -4,15 +4,6 @@ package agent
 // through the consumed one-use operator approval the real host mints. Every
 // assertion here runs through Dispatch: the challenge the Service mints, the
 // host assertion over the exact request, the consumption, and the effect.
-//
-// The fixture prefix is event-owned where the rebuild refolds: Product,
-// Project, locator, and both work items come from event seeds; the workflow
-// actors, definition pins, contracts, Domain writes, and execution starts
-// come from the public InitializeWorkflowTx and ApplyWorkflowActionTx owners.
-// The registry, knowledge home, and Domain rows are direct-authority state
-// the rebuild snapshots and restores, and the locator they reference is
-// event-owned, so the restored home pair resolves and the full projection
-// hash is rebuild-stable after the mutable approval rows are purged.
 
 import (
 	"context"
@@ -30,7 +21,6 @@ import (
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest/neighbor"
-	"github.com/sharper-flow/concord/internal/store/storetest/projection"
 )
 
 // TestSQLiteNeighborProcess is the re-exec entry the neighbor fixture's Start
@@ -61,7 +51,7 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, ed25519.P
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
 	events := []store.Event{
-		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1}`)},
+		{EventID: "routine-coordination-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Routine coordination peer","priority":1,"defect_intake":{"failure_shape":"routine-coordination-peer","reproduction":"Exercise coordination with a distinct peer work item.","searched":"The fixture contains no earlier defect with this failure shape.","related_defect_ids":[]}}`)},
 		{EventID: "routine-coordination-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -306,9 +296,7 @@ func routineOverlapApprovedDispatch(t *testing.T, s *store.Store, service *Servi
 // a host assertion over the exact request, and one consumed one-use approval
 // row. The terminal and survivor lifecycles, the one-step endpoint version
 // bumps, the single consumed row, and the spent-row refusal are the settled
-// effect; the full production projection hash must survive a rebuild from the
-// log alone after the mutable approval rows are purged, because the fold
-// carries its binding durably.
+// effect.
 func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct{ kind, terminalID, survivorID string }{
@@ -317,7 +305,6 @@ func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t
 	} {
 		t.Run(testCase.kind, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
 			s, service, privateKey, env := routineCoordinationFixture(t)
 			binding := routineOverlapExactBinding(t, s, testCase.kind)
 			input := routineOverlapResolveInput(t, binding, "routine-destructive-"+testCase.kind)
@@ -414,26 +401,6 @@ func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t
 				t.Fatalf("the refused reuse left %d resolutions, want the settled one", got)
 			}
 
-			// The fold carries its approval binding durably, so the mutable
-			// approval rows cannot be its replay authority: purge them before
-			// the full-projection rebuild witness on the event-owned fixture.
-			if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-				t.Fatal(err)
-			}
-			before, err := projection.Hash(ctx, s.DatabaseForTesting())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := store.RebuildFromLog(ctx, s); err != nil {
-				t.Fatalf("rebuild refused the event-owned destructive %s: %v", testCase.kind, err)
-			}
-			after, err := projection.Hash(ctx, s.DatabaseForTesting())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if before != after {
-				t.Fatalf("destructive %s rebuild drift: before=%s after=%s", testCase.kind, before, after)
-			}
 		})
 	}
 }
@@ -964,7 +931,7 @@ func seedRoutineCoordinationPrimaryProjectFixture(t *testing.T, s *store.Store, 
 		t.Fatal(err)
 	}
 	events := []store.Event{
-		{EventID: "cross-product-primary-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-primary", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Primary Project"}`)},
+		{EventID: "cross-product-primary-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-primary", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Primary Project"}`)},
 		{EventID: "cross-product-primary-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: addedPayload},
 		memberships("work-1", workVersions["work-1"]),
 		memberships("work-2", workVersions["work-2"]),
@@ -1047,31 +1014,6 @@ func routineOverlapConsumedApprovalWitness(t *testing.T, s *store.Store, label s
 	}
 }
 
-// routineOverlapRebuildWitness purges the mutable approval rows and proves
-// the recorded resolution refolds a full rebuild from the log alone, so the
-// fold carries its binding durably.
-func routineOverlapRebuildWitness(t *testing.T, s *store.Store, label string) {
-	t.Helper()
-	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-		t.Fatal(err)
-	}
-	before, err := projection.Hash(ctx, s.DatabaseForTesting())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild refused the %s: %v", label, err)
-	}
-	after, err := projection.Hash(ctx, s.DatabaseForTesting())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("%s rebuild drift: before=%s after=%s", label, before, after)
-	}
-}
-
 // TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval:
 // compatible_with is a routine kind, yet the generic scope derivation reports
 // the request cross-Product because the shared Project's second membership
@@ -1080,8 +1022,7 @@ func routineOverlapRebuildWitness(t *testing.T, s *store.Store, label string) {
 // retry consumes exactly one one-use approval and settles. The routine event
 // carries no approval binding of any kind, the attribution is the
 // authenticated caller, both endpoints advance one version, the commit is
-// durable with the derived cross-Product set bound, and the binding-free
-// event refolds a full rebuild after the mutable approval rows are purged.
+// durable with the derived cross-Product set bound.
 func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
 	s, service, grant, privateKey, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
@@ -1175,7 +1116,6 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if got := workVersion(t, s, "work-2"); got != binding.toVersion+1 {
 		t.Fatalf("cached cross-Product compatible_with replay left work-2 at v%d, want the settled %d", got, binding.toVersion+1)
 	}
-	routineOverlapRebuildWitness(t, s, "cross-Product compatible_with resolution")
 }
 
 // TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope:
@@ -1216,8 +1156,7 @@ func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *t
 // entirely. The destructive resolution still settles through the genuine
 // challenge and the host-approved retry: exactly one consumed one-use
 // approval, the exact binding preserved in the recorded row and event, the
-// terminal and survivor lifecycles, and a rebuild that refolds the
-// omitted-Product binding from the log alone.
+// terminal and survivor lifecycles.
 func TestRoutineCoordinationDestructiveKindWithEmptySelectedProductSettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
 	s, service, privateKey, baseEnv := routineCoordinationFixture(t)
@@ -1262,7 +1201,6 @@ func TestRoutineCoordinationDestructiveKindWithEmptySelectedProductSettlesThroug
 	if recordedRef == "" || recordedRef != eventRef || recordedRef == challengeRef {
 		t.Fatalf("the empty-selection resolution persisted approval projection=%q event=%q challenge=%q", recordedRef, eventRef, challengeRef)
 	}
-	routineOverlapRebuildWitness(t, s, "empty-selection destructive resolution")
 }
 
 // TestRoutineCoordinationDestructiveKindWithAnotherSelectedProductSettlesThroughAConsumedHostApproval:
@@ -1272,8 +1210,7 @@ func TestRoutineCoordinationDestructiveKindWithEmptySelectedProductSettlesThroug
 // selected scope and the derived Product set cross it under the cross_scope
 // grant. The genuine challenge and the host-approved retry settle with
 // exactly one consumed one-use approval, the recorded binding carries the
-// selected Product and no host scope field beyond the bounded keys, and the
-// binding refolds a full rebuild.
+// selected Product and no host scope field beyond the bounded keys.
 func TestRoutineCoordinationDestructiveKindWithAnotherSelectedProductSettlesThroughAConsumedHostApproval(t *testing.T) {
 	t.Parallel()
 	s, service, _, privateKey, env := crossProductRoutineCoordinationFixture(t, []Capability{"work_relate", "cross_scope"})
@@ -1319,5 +1256,4 @@ func TestRoutineCoordinationDestructiveKindWithAnotherSelectedProductSettlesThro
 	if recordedScope != string(expectedScope) {
 		t.Fatalf("recorded approval scope %s, want the exact bounded scope %s with no new host scope fields", recordedScope, expectedScope)
 	}
-	routineOverlapRebuildWitness(t, s, "selected-other destructive resolution")
 }

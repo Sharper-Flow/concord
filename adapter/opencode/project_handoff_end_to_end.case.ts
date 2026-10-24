@@ -413,6 +413,11 @@ routeDeclaration("host-started session receives real core context without out-of
           const sequence = JSON.parse(row)
           return sequence.name === "domain_events" ? JSON.stringify({ ...sequence, seq: event.seq }) : row
         }).sort()
+        expect(before.store_revision).toHaveLength(1)
+        before.store_revision = before.store_revision.map((row) => {
+          const revision = JSON.parse(row)
+          return JSON.stringify({ ...revision, revision: revision.revision + 1 })
+        })
         expect(after).toEqual(before)
       } else {
         expect(after, `${argv[1]} must not write outside the typed landing`).toEqual(before)

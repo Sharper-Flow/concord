@@ -138,16 +138,4 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	}
 	oneOpenRepairA("behind the refused second acceptance")
 
-	// Rebuild parity: the refused acceptance left no event, so the log folds
-	// the same single open repair from scratch.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	if after := readWorkVersion(t, s, workID); after != version {
-		t.Fatalf("rebuilt work version = %d, want %d", after, version)
-	}
-	if state, ref := jobRow(*revB); state != "recorded" || ref != "" {
-		t.Fatalf("the rebuilt refused repairing revision = %s via %q, want recorded with no disposition", state, ref)
-	}
-	oneOpenRepairA("behind the rebuild")
 }

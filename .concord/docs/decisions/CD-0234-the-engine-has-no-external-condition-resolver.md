@@ -3,16 +3,12 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Scope:** Live evaluation of typed external conditions in the workflow engine
-- **Amends:** [CD-0013](CD-0013-workflow-engine-mechanism.md) D6 (external
-  conditions bullet) and acceptance criterion 26;
-  [CD-0008](CD-0008-concord-mechanism-hardening.md) D5 (evaluation bullet)
 - **Preserves:** CD-0008 D5's closed condition fields, `blocks` participation,
   no-polling rule, and resolution evidence rules; CD-0013 D10 item 2 and
   criteria 27-28; recorded conditions stay readable as current rows
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1081](https://linear.app/sharper-flow/issue/CON-1081).
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 
 ## Context
 
@@ -51,9 +47,7 @@ wait authority exists.
 
 ## Consequences
 
-The pooled resolver and cancellation functions, the resolver parameters of the
-action boundary, and the corpus actions that drive them are deleted. The
-workflow-engine contract §10 states that no resolver exists. CD-0008 D5's
+The workflow-engine contract §10 states that no resolver exists. CD-0008 D5's
 timer, failure, and heuristic bullets bind a future resolver only.
 
 ## Verification

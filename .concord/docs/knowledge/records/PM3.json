@@ -23,7 +23,6 @@
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "internal/store/lifecycle_relations_test.go",
-    "internal/store/rebuild_msg_test.go",
     "internal/store/store_test.go",
     "internal/store/schema_test.go"
   ],
@@ -38,7 +37,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8fcbf6d5df2bfef1398d49c1c693457e8769bac9bf5a673f7bd666717f6e1afc",
+  "sha256": "sha256:f09d7dda7576f1174e1c02b59e908b42dbe30b515226f5babf5511072cf81c72",
   "status": "accepted",
   "summary": "Defines the typed Product-memory schema boundary: current state and finite verified snapshots per CD-0242 D2, explicit typed current-state tables, and JSON only for rare versioned extension metadata.",
   "tags": [

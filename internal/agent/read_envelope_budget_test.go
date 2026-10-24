@@ -275,7 +275,7 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 				engine("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": checkpoint, "summary": strings.Repeat("s", summarySize)})
 			}
 			r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-			before, err := s.DomainEventWatermark(ctx)
+			before, err := s.Revision(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,7 +338,7 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 					t.Fatalf("history is not bounded and resumable: %+v", boundaries)
 				}
 			}
-			after, err := s.DomainEventWatermark(ctx)
+			after, err := s.Revision(ctx)
 			if err != nil || before != after {
 				t.Fatalf("read changed durable evidence: %d -> %d, %v", before, after, err)
 			}

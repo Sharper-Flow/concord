@@ -3,13 +3,11 @@
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Scope:** A bounded direct-caller repair inside an editing job's existing parent authority.
-- **Amends:** [CD-0205](CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md) D1-D2 and [CD-0220](CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) D2, by admitting the conditional caller scope recorded below.
 - **Preserves:** [CD-0012](CD-0012-bind-stated-goals-to-delivered-outcomes.md), [CD-0017](CD-0017-typed-workers-and-model-routing.md) D4, [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D5-D7, and contract supersession's existing authority.
 - **Dependency:** The direct-caller allowance below is admitted with its
   dispatched job; [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
   D6 governs: no size cap, size measurement, or mandatory split exists.
 - **Approval:** The operator accepted this record as written on 2026-10-15. Implementation requires a separate assignment.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D6, D7, D14
 
 ## Context
 
@@ -33,7 +31,7 @@ The job digest and dispatch packet bind this allowance before execution.
 Read-only jobs receive no allowance and gain no edit capability.
 
 The allowance is part of approved job scope, not a worker-authored scope amendment.
-This rule narrowly amends CD-0220 D2's path interpretation while preserving its prohibition on expanding parent authority.
+The allowance preserves CD-0220 D2's prohibition on expanding parent authority.
 The worker may use the allowance without another coordinator turn when all its conditions hold.
 Another job of the same work item that names the caller path in its scope or reserved work is not a reason to defer the necessary caller repair.
 At dispatch, the packet binds the recorded paths of other unresolved cumulative corrections as exclusions from the allowance, without changing the recorded job digest.
@@ -63,9 +61,7 @@ Neither an unrecorded repair nor a worker's statement alone supplies acceptance 
 
 ### D3. Caller repair stays inside the allowance and its authority
 
-[CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
-governs: no production-line cap, size measurement, or mandatory split exists;
-the caller repair joins the job's recorded scope.
+The caller repair joins the job's recorded scope ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
 Tests retain their normal classification and verification obligations. They are not permission to hide production code in test paths.
 A caller path outside the allowance's recorded mechanisms returns to the coordinator before edits.
 The coordinator owns that return with the ordinary acceptance, not a new scope approval or job revision.
@@ -82,7 +78,7 @@ Ordinary changes within the allowance need no new whole-contract approval.
 Changes outside it require the existing scope or contract-revision route and its actual approval when required.
 A recorded job without the allowance cannot acquire it from a worker report; the coordinator records a newly authorized job revision before dispatch ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
 The predecessor's unresolved obligations remain under CD-0205 D4.
-A caller allowance or new revision alone cannot discharge them; [CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget) governs: no attempt refund or retry permission exists.
+A caller allowance or new revision alone cannot discharge them.
 
 ### D4. Change scope and report owners, not contract-recovery semantics
 
@@ -96,8 +92,6 @@ Shared delivery admission still requires integration evidence for the combined r
 
 `internal/store/workflow_admission.go` and `internal/store/workflow.go` retain their contract-recovery semantics.
 Their predecessor self-repair checks neither prove a direct call nor authorize an extra source path.
-[CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)
-governs: the allowance is carried explicitly by the one canonical source.
 Generated derivation invents no allowance, caller proof, or accepted repair ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Alternatives considered
@@ -114,12 +108,12 @@ Generated derivation invents no allowance, caller proof, or accepted repair ([CD
 The combined change preserves the actual caller request rather than only the owner's isolated tests.
 Workers can resolve a contained direct-caller break without waiting for a routine scope amendment.
 The coordinator still owns wider scope, law conflicts, shared ownership, and integration order.
-This proposal creates no runtime behavior until the operator accepts it and a separately authorized implementation passes verification.
+Runtime implementation requires separate authority and verification.
 
 ## Verification
 
-- `python3 scripts/check-doc-contract.py` checks the registered outline and prose. Draft review must call its `check_record` function with proposed-record metadata before registration.
-- `python3 scripts/check-knowledge-closure.py` reports an unregistered draft as unprocessed. Acceptance must register the approved revision and pass strict closure without asserting implementation coverage.
+- `python3 scripts/check-doc-contract.py` checks the registered outline and prose.
+- `python3 scripts/check-knowledge-closure.py` checks strict registration closure for the approved revision without asserting implementation coverage.
 - `go test ./internal/store` must cover allowance containment, immutable digests, exact report bindings, missing allowances, non-editing lanes, transitive callers, and historical absence.
 - `go test ./internal/agent ./internal/store` must prove baseline success, owner-only caller failure, and combined success with real authority. Negative cases must reject synthesized actors, approvals, and weakened owner validation.
 - `go test ./internal/store` must preserve allowance accounting, integration evidence, Domain/law boundaries, and refusal of caller paths owned by another work item (CD-0242 D6).

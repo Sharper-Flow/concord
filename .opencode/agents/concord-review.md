@@ -106,13 +106,19 @@ with a `domain_id` from the packet's Domains. The view carries at most
 
 ## Dispatch subject
 
-`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
-OID identity this attempt reviews; never author or replace it. The host checks
-the dispatched worktree's HEAD and tree cleanliness before review tool access
-and fresh report settlement. A mismatch or unavailable observation refuses
-access or records a failed attempt, never a completed review. If a tool reports
-a subject refusal, return one report with `status` `failed` and its diagnostic.
-Do not run shell commands or review a different commit.
+Copy `inputs.review_input.input_candidate` and `inputs.review_input.dependencies`
+exactly into the report: these identify the candidate and criterion/architecture
+revisions judged. Never invent missing identities or digests. If required input
+is unavailable, return `status` `failed` with the exact missing input.
+
+The input commit must equal `inputs.work_context.subject_commit`. Do not review
+a different input commit. The host checks the dispatched worktree's clean subject
+before access and report settlement. A subject refusal requires a failed report.
+When no edit was made, output_candidate equals input_candidate. After scoped
+corrective edits, commit them, keep the worktree clean, and name the actual
+`git rev-parse HEAD` and `git rev-parse HEAD^{tree}` as the output candidate.
+Shell commands for these scoped edits, checks and commit/tree observations are
+allowed by the host permissions; never switch to an unrelated candidate.
 
 ## Coordinator checkpoint
 
@@ -162,8 +168,7 @@ A caller-capable packet expands no capability: this lane reports no
 evidence a completed report carries, and distinguish missing evidence from a
 proven defect.
 
-A packet without these members is historical or carries no caller scope: report
-without the absent fields and never invent them.
+Without caller scope, omit the caller-repair fields and never invent them.
 
 ## Objective and binding
 
@@ -190,6 +195,25 @@ the parent workflow keeps every other required result explicit.
 
 ## Review method
 
+Implementation review checks the accumulated solution for superseded mechanisms and
+their dependent tests, coverage, schemas, configuration and instructions. Those are
+removed together under the governing retirement clause. Every retained mechanism must
+serve a named current requirement; its existence or passing tests are not sufficient
+justification. Completion cannot pass with unexplained legacy residue.
+
+Every code-changing workflow includes a slop scan in its implementation-group reviews.
+The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions,
+contradictory guidance and missing cleanup across the accumulated change and affected
+dependencies. Use applicable deterministic checks plus semantic inspection; scanner
+warnings alone are not verdicts. Resolve in-scope blocking findings before progression.
+Reuse applicable evidence, but check subsequent changes before delivery. Small changes
+use their existing review; this adds no separate review stage or repository-wide cleanup
+campaign.
+
+Report the scan through existing `findings`, `assessments` and `remaining_obligations`,
+not a checklist flag. Bind findings and applicable checks to the corrected `output_candidate`,
+including this review's scoped edits. Do not add a reviewer or install a scanner.
+
 For a changed contract, event, or value, trace the producing code through the
 relevant consumer or dispatch path. Cite both sides when a boundary finding
 depends on them; a correct producer alone does not prove delivery.
@@ -200,7 +224,7 @@ suggestions using the existing finding detail. For an oracle-governed finding,
 use `review_finding.oracle.classification` and keep the detail consistent with
 it; do not invent report fields. Missing required evidence remains a gap, not a
 reason to invent a defect. Do not turn style preferences into defects or a
-`no_ship` verdict, and do not broaden the review into an unrelated audit.
+blocking disposition, and do not broaden the review into an unrelated audit.
 
 ## Concord context boundary
 
@@ -219,14 +243,13 @@ shell tool ends a command at its `timeout` parameter, about 120 seconds by
 default. Give a command that can take minutes an explicit `timeout` in
 milliseconds: full Go package suites (`go test ./...`) can exceed 400 seconds.
 
-When `inputs.report_protocol` is present, return exactly one Markdown fence
-whose info string is `concord-worker-result-v1`.
+Return exactly one Markdown fence whose info string is
+`concord-worker-result-v1`.
 Open it with exactly three backticks and that info string on one line. Put one
 strict JSON report object inside it and close it with three backticks on their
 own line. Return the entire frame as one final text part. Do not repeat the frame,
 quote a frame example, use duplicate JSON keys, or put report content after it.
-For a historical packet without `inputs.report_protocol`, return one plain JSON
-report object as your final text part. Never return multiple report candidates.
+Never return multiple report candidates.
 The adapter supplies report identity from the dispatch packet and host readback.
 Set `status` to one of `completed`, `failed`.
 
@@ -259,11 +282,11 @@ Report contract constraints:
 - review_finding.oracle: optional object; type=object, additionalProperties=false, required=["classification"]. Tie a finding on an oracle-capable job to the oracle: `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
 - review.resolved_findings: optional array; type=array, minItems=0, maxItems=32, x-maxArrayBytes=8192. Claim the closure of a previously open ranked finding with its `finding_id` and the independent current-subject `evidence_refs` its control requires. A claim is a claim: omission, relabeling, or a confidence change never closes a finding. An array past the byte bound is refused whole: drop or split claims yourself, never truncate one to fit.
 - resolved_finding shape: type=object, additionalProperties=false, required=["finding_id", "evidence_refs"]; finding_id pattern="^finding:[0-9]+:[0-9]+$".
-- review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
+- review disposition and progression: `continue` permits the next ordinary group; `ready_for_final_proof` requests exit from execution; `correction_required` and `revision_required` are blocking but valid reports. An open in-scope blocking finding prevents progression, not recording the report. Severity alone and an empty findings list do not determine the disposition.
 
 ## Required report blocks
 
-This lane's completed report must carry the typed `review` block: an explicit `ship` or `no_ship` verdict and every finding with its severity and confidence. For this lane the typed block discharges the `severity` evidence obligation, so a completed report carries no free-text `severity` entry beside the block: such an entry is refused. The remaining obligations stay as stated. The verdict is report content only: it maps to no workflow field and records no transition, and the coordinator records the workflow verdict through the core.
+This lane's completed report must carry the typed `review` block: an explicit disposition, input_candidate, output_candidate, dependencies, assessments, findings, and remaining_obligations. Every finding carries its severity and confidence. For this lane the typed block discharges the `severity` evidence obligation, so a completed report carries no free-text `severity` entry beside the block: such an entry is refused. The remaining obligations stay as stated. The disposition is attributed report content, not a workflow transition. Main accepts the exact report through the core.
 
 A successful report must carry at least one entry for every obligation below that the typed block does not discharge, and may name no other obligation.
 

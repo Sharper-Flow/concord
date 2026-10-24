@@ -3,9 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Scope:** Checks-mode completeness in `concord ci-wait` for the PR selector
-- **Amends:** [CD-0161](CD-0161-the-ci-wait-checks-verdict-blocks-only-on-a-dirty-merge-state.md) D1;
-  [CD-0168](CD-0168-the-ci-wait-pr-population-follows-the-rollup-page-boundary.md) D1;
-  [CD-0160](CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md) D4
 - **Preserves:** The `DIRTY` rule, the rollup page boundary, merge mode, head
   supersession, merged and closed precedence, bounded slices, carried
   deadlines, and the closed report statuses
@@ -37,7 +34,7 @@ repos/octocat/Hello-World/branches/master` answers `"protected": false` with
 
 ### D1. Required contexts join the checks population as pending
 
-This amends CD-0161 D1, CD-0168 D1, and CD-0160 D4. After merged and closed
+After merged and closed
 classification, checks mode reads the required contexts of the pull request's
 base branch. The set is the union of both sources:
 

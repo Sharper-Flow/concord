@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f9a6d3a1308b84ec55e4fdeda031135f7bfd669ca3e91c9b5ffbac3136fd626d",
+  "sha256": "sha256:a42a5ce6f6bbf50c01e2f55013d52091c4b6a69f3ab7e89b2b916e1ef87c1970",
   "status": "accepted",
   "summary": "Messages are durable rows addressed to work items: direct or Product-broadcast, pull-at-next-call delivery with a continuity pending pointer, withdrawable-with-visibility, structurally authority-free.",
   "tags": [

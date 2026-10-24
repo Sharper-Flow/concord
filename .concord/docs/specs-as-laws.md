@@ -9,10 +9,10 @@
 > concurrent work.
 > **Origin:** User direction, 2026-07-25.
 
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## TL;DR
 

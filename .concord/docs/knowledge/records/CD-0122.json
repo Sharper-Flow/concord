@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9d5231f7cedcffb6dd8b622b1206706da609ea7dd362d2cb9456200f085e67a5",
+  "sha256": "sha256:389474ca2e96bcd964104235cc878435ecf7a2a0af20e6bdba8c2d874dba45d4",
   "status": "accepted",
   "summary": "Limits Concord workflow authority to explicitly managed participation, permits outside project work and authorized defect repair, and preserves repository evidence and host-owned roles.",
   "tags": [

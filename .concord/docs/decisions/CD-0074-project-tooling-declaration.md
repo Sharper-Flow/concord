@@ -13,7 +13,6 @@
   [`../predecessor-operational-coverage.md`](../predecessor-operational-coverage.md)
 - **Preserves:** CD-0043 D1's host-owned methodology boundary; CD-0040 D6's
   probe-family limit; the closed lane registry and packet/report schemas
-- **Supersedes:** nothing
 
 ## Context
 
@@ -33,9 +32,9 @@ beforehand (issue #510).
 ### D1. One hand-authored manifest per project holds the intent
 
 `.concord/tooling.v1.json` declares, per tool: an `id`, a `purpose`, the
-`invocation` an agent runs, a required cost `tier`, an independent required
-`cadence`, optional `cost_hint`, optional `config_path`, optional
-`automation_path`, and optional `notes`. These fields are hand-authored because
+`invocation` an agent runs, a required cost `tier`, optional `cost_hint`,
+optional `config_path`, optional `automation_path`, and optional `notes`.
+These fields are hand-authored because
 they have no upstream source to drift from. The
 invocation and the sanctioned entry point are exactly the facts a filesystem
 read cannot produce: both `go test ./...` and `bin/oc-test` work in this
@@ -45,7 +44,7 @@ repository, and only intent says which one is sanctioned.
 
 `scripts/check-project-tooling.py` validates the manifest on every CI run,
 wired through `scripts/check-json.py`. It rejects unknown fields, bad tiers,
-bad cadences, duplicate ids, duplicate JSON keys, unsafe paths, text made only
+duplicate ids, duplicate JSON keys, unsafe paths, text made only
 from JSON whitespace, and multiline invocations. Text bounds count raw string
 length, matching JSON Schema. It proves that `config_path` and
 `automation_path` resolve to
@@ -79,22 +78,20 @@ probe family with security semantics this record does not open. Host
 availability, if ever needed, arrives as an attributed report from an
 authenticated trusted client under CD-0040 D6's existing channel.
 
-### D5. Cadence is declared intent
+### D5. Cost and automation pointers do not select tools
 
-The required `cadence` is `routine` or `on_demand`, independent of the required
-`tier` (`fast`, `standard`, or `slow`). `routine` means the project includes the
-tool in its normal verification cadence. It does not claim that automation runs
-the tool. Infrequent tools remain visible as `on_demand`. An optional bounded
-`cost_hint` adds an estimate or limit without changing either classification.
+The required `tier` (`fast`, `standard`, or `slow`) describes cost, not when
+an agent should select a tool. An optional bounded `cost_hint` adds an estimate
+or limit without changing the cost classification.
 An optional `automation_path` is an informational repository-relative pointer.
 The checker proves only safe file resolution. It does not parse the file, infer
-cadence, or use CI text as authority.
+tool-selection policy, or use CI text as authority.
 
 ## Consequences
 
 - Every Concord-managed project may carry the manifest; this repository
   dogfoods it with six entries, including `bin/oc-test` as the sanctioned local
-  `on_demand` entry.
+  entry.
 - The schema documents shape; the checker enforces shape plus resolution,
   because safe filesystem resolution is inexpressible in JSON Schema.
 - Adding a tool is a reviewed edit plus a passing check. Removing a tool's
@@ -134,7 +131,7 @@ be structurally validated, drifts silently, and is already pointer-only by
   passes.
 - `scripts/test-project-tooling.py` covers the failure modes (missing
   manifest, manifest and referenced-path symlink escapes, unknown fields, bad
-  tiers and cadences, unhashable scalar values, duplicate ids, unsafe paths,
+  tiers, unhashable scalar values, duplicate ids, unsafe paths,
   duplicate keys, schema-free adoption, JSON-whitespace-only text, raw-length
   boundaries, schema/checker lexical agreement, and multiline invocations) and
   runs in CI.

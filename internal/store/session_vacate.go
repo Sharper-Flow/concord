@@ -85,23 +85,11 @@ func firstSessionRef(refs []string) string {
 	return refs[0]
 }
 
-// upcastSessionVacatedV1 carries a version 1 event to the version 2 shape.
-// The v1 payload already names every field v2 records, so only the version
-// moves. The fold reads the stored version back through
-// replaySourcePayloadVersion, so a recorded v1 event still performs the
-// release it performed when the writer that recorded it folded it at commit
-// time.
-func upcastSessionVacatedV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 // validateSessionVacatedPayload enforces the append-time shape. A version 2
 // relocation request names no landing: the landing is the vacate-landing
-// verb's evidence, never the requester's claim. Recorded v1 events keep the
-// shape they were written with.
+// verb's evidence, never the requester's claim.
 func validateSessionVacatedPayload(event Event, p sessionVacatedPayload) error {
-	if event.replaySourcePayloadVersion == 0 && p.LandedDirectory != "" {
+	if p.LandedDirectory != "" {
 		return newFailure(KindInvalidPayload, "validate_event", "a session vacate request records no landing", false, "record the verified landing through the adapter-only vacate-landing verb")
 	}
 	return nil
@@ -140,15 +128,6 @@ func foldSessionVacated(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if p.WorkID == "" || p.WorkID != event.SubjectID || p.ProjectID == "" || p.SessionRef == "" || p.SourceDirectory == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "session vacated payload is missing required fields", false, "supply work, project, session, and source directory")
-	}
-	// A version 1 event recorded the release in the same event the vacate
-	// committed, so replay still performs it. A version 2 event records only
-	// the relocation request: the release waits for the verified landing the
-	// vacate-landing verb records, so a refused host move, a destination
-	// mismatch, or an unreadable landing leaves every occupancy row standing.
-	// A version 1 request leaves no request standing.
-	if event.replaySourcePayloadVersion == 1 {
-		return releaseSessionWorktreeOccupancyTx(ctx, tx, event, "fold_event", p.WorkID, p.ProjectID, p.SourceDirectory, p.SessionRef)
 	}
 	return writeSessionVacateRequestTx(ctx, tx, event, p)
 }
@@ -223,9 +202,7 @@ func (s *Store) RecordSessionVacateLanding(ctx context.Context, req SessionVacat
 
 func recordSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, req SessionVacateLandingRequest) (SessionVacateLandingResult, error) {
 	out := SessionVacateLandingResult{WorkID: req.WorkID, SessionRef: req.SessionRef, LandedDirectory: filepath.Clean(req.LandedDirectory), HostPID: req.HostPID}
-	// The kernel is the authority for the host process start time. Reading
-	// here keeps hostlease imports out of every caller and lets the fold
-	// replay the recorded value without touching /proc.
+	// The kernel is the authority for the host process start time.
 	pidStart, err := hostlease.ProcessStart(req.HostPID)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "vacate-landing", "cannot read the host process start time", true, "retry once the host process is observable", err)
@@ -327,7 +304,7 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 		return target, newFailure(KindInvalidOperation, "session_vacate", "the vacate replay requires the resolved Project, session, and directory", false, "run the operation from a linked worktree or the verified destination")
 	}
 	cleaned := filepath.Clean(directory)
-	request, err := scanSessionVacateRequest(tx.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE session_ref=? AND project_id=? AND (destination_directory=? OR source_directory=?) ORDER BY request_ordinal DESC LIMIT 1`, sessionRef, projectID, cleaned, cleaned))
+	request, err := scanSessionVacateRequest(tx.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE session_ref=? AND project_id=? AND (destination_directory=? OR source_directory=?) ORDER BY request_seq DESC LIMIT 1`, sessionRef, projectID, cleaned, cleaned))
 	if err == sql.ErrNoRows {
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no committed session vacate names this directory as its registered main checkout or source worktree", false, "run session_vacate from a linked worktree")
 	}
@@ -375,7 +352,7 @@ func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Trans
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
 	}
 	cleaned := filepath.Clean(sourceDirectory)
-	request, err := scanSessionVacateRequest(tx.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE session_ref=? AND project_id=? AND source_directory=? ORDER BY request_ordinal DESC LIMIT 1`, sessionRef, projectID, cleaned))
+	request, err := scanSessionVacateRequest(tx.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE session_ref=? AND project_id=? AND source_directory=? ORDER BY request_seq DESC LIMIT 1`, sessionRef, projectID, cleaned))
 	if err == sql.ErrNoRows {
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
 	}
@@ -384,7 +361,7 @@ func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Trans
 	}
 	p := request.Payload
 	if p.DestinationDirectory == "" {
-		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload is missing required fields", false, "repair the recorded event")
+		return target, newFailure(KindInvalidPayload, "session_vacate", "the committed vacate request names no registered main checkout", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if request.Landed {
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
@@ -450,7 +427,7 @@ func sessionVacateReplayOccupiedFailure(ctx context.Context, transaction *Transa
 // write caller passes its transaction so the read observes that caller's
 // uncommitted state.
 func latestSessionVacateRequestTx(ctx context.Context, q queryer, workID, sessionRef string) (sessionVacateRequest, error) {
-	request, err := scanSessionVacateRequest(q.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE work_id=? AND session_ref=? ORDER BY request_ordinal DESC LIMIT 1`, workID, sessionRef))
+	request, err := scanSessionVacateRequest(q.QueryRowContext(ctx, `SELECT `+sessionVacateRequestColumns+` FROM session_vacate_requests WHERE work_id=? AND session_ref=? ORDER BY request_seq DESC LIMIT 1`, workID, sessionRef))
 	if err == sql.ErrNoRows {
 		return request, newFailure(KindProjectionNotFound, "vacate-landing", "no committed session vacate names this work item and session", false, "run session_vacate from the linked worktree before recording its landing")
 	}
@@ -472,8 +449,8 @@ func countSessionVacateLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessi
 	return count, nil
 }
 
-// foldSessionVacateLanded re-applies the verified release during rebuild: the
-// host readback named the registered main checkout the committed request
+// foldSessionVacateLanded applies the verified release: the host readback
+// named the registered main checkout the committed request
 // names, so every occupancy row the session still holds, in any work item,
 // is stale and releases (CD-0179). The registered main checkout holds no
 // worktree row of its own, so nothing is recorded where the session landed.

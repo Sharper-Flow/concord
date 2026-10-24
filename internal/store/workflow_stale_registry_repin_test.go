@@ -96,18 +96,14 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	// through its authorization window, so the window opens before the
 	// generic dispatch records the worker's own evidence.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "repair", ownerRef)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + identity, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+identity, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.Actor = ownerRef
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + identity, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+identity, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID, latestStepStartEpoch(t, s, workID, "repair")
@@ -320,13 +316,13 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
 		t.Fatalf("selected research receipt: %+v err=%v", view, err)
 	}
-	// The rescan: the contract's mandated law is superseded by an accepted
-	// successor, so the pinned revision reads stale.
+	// The rescan deletes the pinned law, so the contract reads stale.
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	execStaleRegistryInFold(t, s,
 		`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`,
-		`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
+		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
+		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
-		`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`,
 		`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
 	)
 
@@ -342,8 +338,8 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 
 	err = runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(1, view.ResearchFindings[0].ViewID), 0, reviewer)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract consumes a superseded law revision" {
-		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the superseded revision", err)
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract pins a deleted law" {
+		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the deleted revision", err)
 	}
 	if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, view.ResearchFindings[0].ViewID), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
 		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
@@ -369,7 +365,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:two"}, "law_modifies": []string{},
 		"rigor_class":      "prototype_internal",
-		"supersede_reason": "the approved contract consumes a superseded law revision",
+		"supersede_reason": "the approved contract pins a deleted law",
 		"audit_evidence":   []string{"evidence:law-rescan"},
 	})
 	if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, owner); err != nil {
@@ -530,18 +526,13 @@ func seedStaleRegistryCompleteStepAttempt(t *testing.T, s *Store, workID string)
 	t.Helper()
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	dispatch := workerDispatchEvent(workID, "repin-dispatch-"+workID, lane, map[string]any{"attempt_id": attemptID})
+	dispatch.OccurredAt = time.Unix(30, 0).UTC()
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "repin-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)}),
-	}}}); err != nil {
+	completion := workerCompleteEventForLane(workID, "repin-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC(), workerFixtureDirectory(t, s, workID))
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID

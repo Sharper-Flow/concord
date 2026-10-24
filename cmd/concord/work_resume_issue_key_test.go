@@ -133,10 +133,10 @@ func TestWorkResumeIssueKeyRefusalsHaveNoEffects(t *testing.T) {
 			case "foreign-product":
 				input["product_id"], want = "product-other", "requested Product scope"
 			case "foreign-project":
-				if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: append(
-					productProjectMembershipEvents("foreign", "product-other", "project-other", "other"),
-					store.Event{EventID: "move-work", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: link.WorkID, Actor: "operator", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-other","role":"primary"}],"expected_version":2,"resulting_version":3}`)},
-				)}); err != nil {
+				seedProductProject(t, s, "product-other", "project-other", "other")
+				if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
+					{EventID: "move-work", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: link.WorkID, Actor: "operator", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-other","role":"primary"}],"expected_version":2,"resulting_version":3}`)},
+				}}); err != nil {
 					t.Fatal(err)
 				}
 				want = "does not hold Project"

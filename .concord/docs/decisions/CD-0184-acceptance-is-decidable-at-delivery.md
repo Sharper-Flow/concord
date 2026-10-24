@@ -8,17 +8,6 @@
 - **Related:** CD-0012, CD-0013, CD-0018
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-8392894d5f50a158bf6910c1`.
-- **Amended:** 2026-10-18.
-- **Revision choice:** Compatible amendment under
-  [CD-0036](CD-0036-breaking-law-cutovers.md) D2; this record keeps its ID.
-- **Amendment reason:** The published tool surface declares no condition
-  action under
-  [CD-0234](CD-0234-the-engine-has-no-external-condition-resolver.md) D1-D2.
-  Schema teaching must name only published predicate fields. The D3 example
-  uses a retained verification route because
-  [CD-0218](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
-  D1 retires ops_runbook from new execution. The example changes no acceptance
-  requirement.
 - **P12:** One affected Domain: workflow-engine. No user-visible behavior is
   removed or reversed. No security or data-safety rule changes. No UI/UX
   changes.
@@ -71,7 +60,7 @@ subject is a production system.
 ### D4. The authoring schema teaches the rule
 
 The generated schema that agents read when they write contracts states the
-rule at the field. The `outcome_predicates` array shared by `approve_contract`
+rule at the field and names only published predicate fields. The `outcome_predicates` array shared by `approve_contract`
 and `supersede_contract` carries the rule in its description.
 `advertisedAdmissionTeachingGaps` reports a gap when the published schema
 drops the rule, so generation and its tests fail on drift.

@@ -17,7 +17,7 @@ const singleDomainRootID = pm1fixture.SingleDomainRootID
 
 // domainEvidenceFixture seeds a store carrying the real single-Domain registry
 // shape: one root Domain projected from a committed knowledge manifest, one
-// accepted decision and one superseded decision homed to it, two nonterminal
+// accepted decision homed to it, two nonterminal
 // contracts bound to it, and typed local attachments. The registry, Domains and
 // law rows come from the live knowledge projection rather than direct inserts,
 // so the reads under test observe the same rows a real index rebuild produces.
@@ -116,7 +116,7 @@ func TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage(t *testin
 }
 
 // Elements 2, 5 and 6: current law, its Git evidence, and decision records.
-// Superseded law is absent, so "current" is a real filter rather than a label.
+// Only law present in the current accepted projection is returned.
 func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T) {
 	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
@@ -134,7 +134,7 @@ func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T)
 		t.Fatalf("detail identity is not the seeded home Domain: %#v", payload.Domain)
 	}
 	if len(payload.CurrentLaw) != 1 {
-		t.Fatalf("current law = %d records, want the one accepted decision (superseded law must be absent): %#v", len(payload.CurrentLaw), payload.CurrentLaw)
+		t.Fatalf("current law = %d records, want the one accepted decision: %#v", len(payload.CurrentLaw), payload.CurrentLaw)
 	}
 	law := payload.CurrentLaw[0]
 	if law.LawID != "CD-0041" {

@@ -312,7 +312,7 @@ func TestIdempotencyAuthorityLifetimeReplay(t *testing.T) {
 	}
 }
 
-func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
+func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r, grant, raw, first := committedWorkflowReplay(t)
@@ -323,10 +323,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	}
 	indexBefore := workflowReplayIndex(t, r.Store)
 	var watermark int64
-	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RebuildFromLog(ctx, r.Store); err != nil {
+	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
 	backup := filepath.Join(t.TempDir(), "backup.db")
@@ -339,7 +336,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	if restoreReport.SourceSnapshot.EventWatermark != watermark || restoreReport.RestoredDatabase.EventWatermark != watermark || restoreReport.RestoredDatabase.SchemaVersion != store.CurrentSchemaVersion() {
-		t.Fatalf("restore inventories do not preserve the replay watermark: %+v", restoreReport)
+		t.Fatalf("restore inventories do not preserve the store revision: %+v", restoreReport)
 	}
 	restored, err := store.Open(ctx, restoredPath)
 	if err != nil {
@@ -352,7 +349,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	service.ProjectHostMatcher = r.Authority.ProjectHostMatcher
 	r.Store, r.Authority = restored, service
 	if workflowReplayIndex(t, restored) != indexBefore {
-		t.Fatal("rebuild, backup or restore changed replay index")
+		t.Fatal("backup or restore changed idempotency index")
 	}
 	ownerAfter, err := store.Step(ctx, restored, ownerID)
 	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {

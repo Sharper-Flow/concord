@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
+      "value": "internal/store.TestProductKnowledgeHomeDesignationPersists"
     }
   ],
   "id": "PM6",

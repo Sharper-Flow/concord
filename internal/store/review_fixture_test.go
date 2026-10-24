@@ -19,7 +19,7 @@ func acceptCurrentReviewForTest(t *testing.T, f workContextFixture, repo, dispos
 	}
 }
 
-func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string) (string, int64) {
+func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disposition string, mutations ...func(*WorkerReviewBlock)) (string, int64) {
 	t.Helper()
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	job := reviewSubjectReadyRevision(t, f)
@@ -30,6 +30,9 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 	j.laneDispatch(t, attempt, "review", &job)
 	window := reviewSubjectWindow(t, f.store, f.workID, attempt)
 	report := currentReviewBlockForTest(t, f.store, f.workID, attempt, disposition)
+	for _, mutate := range mutations {
+		mutate(report)
+	}
 	lane := reviewGateLane(t, "review")
 	evidence := []WorkerReportEvidence{}
 	for _, obligation := range lane.EvidenceObligations {
@@ -37,7 +40,7 @@ func completeCurrentReviewForTest(t *testing.T, f workContextFixture, repo, disp
 			evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "Reviewed the fixture's current candidate."})
 		}
 	}
-	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted),
+	event := Event{EventID: attempt + ":completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted),
 		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: repo, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, WorkerJob: &job, Review: report})}
 	prepared, err := PrepareWorkerTerminalDelivery(t.Context(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attempt, EventID: event.EventID})
 	if err != nil {

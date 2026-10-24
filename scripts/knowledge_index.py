@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -67,18 +66,10 @@ def _coverage_generator() -> ModuleType:
     return sys.modules.get("generate_law_coverage") or _load_module("generate_law_coverage", "generate-law-coverage.py")
 
 
-def compose_manifest_bytes(root: Path = ROOT, record_path_re: re.Pattern[str] | None = None) -> bytes:
-    """The manifest the shards under root compose, as canonical bytes.
-
-    record_path_re selects the record path rule of a layout tier; None keeps
-    the current authored rule.
-    """
+def compose_manifest_bytes(root: Path = ROOT) -> bytes:
+    """The manifest the shards under root compose, as canonical bytes."""
     findings: list[str] = []
-    generator = _manifest_generator()
-    if record_path_re is None:
-        derived = generator.derive_aggregate(root, findings)
-    else:
-        derived = generator.derive_aggregate(root, findings, record_path_re=record_path_re)
+    derived = _manifest_generator().derive_aggregate(root, findings)
     if derived is None:
         raise ComposeError(findings or ["knowledge shards did not compose"])
     return derived
@@ -109,19 +100,6 @@ def ref_has_path(root: Path, ref: str, path: str) -> bool:
     return out.returncode == 0
 
 
-def compose_manifest_at(root: Path, ref: str) -> dict:
-    """The manifest at a git ref: composed from its shards in the newest
-    layout the ref carries, or read from the aggregate file when the ref
-    predates the shards. Each tier composes under the record path rule that
-    tier's layout carries (CD-0194 D5)."""
-    if ref_has_path(root, ref, HEAD_PATH):
-        return _compose_manifest_from_ref_tree(root, ref, KNOWLEDGE_ROOT, None)
-    if ref_has_path(root, ref, PRE_MIGRATION_HEAD_PATH):
-        pre_migration = _manifest_generator().PRE_MIGRATION_RECORD_PATH_RE
-        return _compose_manifest_from_ref_tree(root, ref, PRE_MIGRATION_KNOWLEDGE_ROOT, pre_migration)
-    return json.loads(_git(root, "show", f"{ref}:{LEGACY_MANIFEST_PATH}"))
-
-
 def _extract_ref_knowledge_tree(root: Path, ref: str, knowledge_root: str) -> tuple[Path, tempfile.TemporaryDirectory]:
     """Extract one ref's knowledge shard tree into a scratch directory laid
     out at the current shard paths, so the extractors read every layout tier
@@ -137,12 +115,6 @@ def _extract_ref_knowledge_tree(root: Path, ref: str, knowledge_root: str) -> tu
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(held / knowledge_root), str(target))
     return held, scratch
-
-
-def _compose_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str, record_path_re: re.Pattern[str] | None) -> dict:
-    held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
-    with scratch:
-        return json.loads(compose_manifest_bytes(held, record_path_re))
 
 
 def manifest_paths_at(root: Path, ref: str) -> list[str]:

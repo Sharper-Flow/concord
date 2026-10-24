@@ -1,20 +1,15 @@
 # CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted
-- **Amended:** 2026-10-18.
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1, accepted under operator delegation on 2026-10-09;
   calendar expiration was rejected.
 - **Preserves:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) Initiative
   context, [CD-0022](CD-0022-active-research-finding-scope.md) applicability,
   PM10 recovery, and separate durable promotion.
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2
 - **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0217](CD-0217-publication-and-retention-boundaries.md),
   [compaction-retention-policy](../compaction-retention-policy.md)
-
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Retention eligibility and other non-consent checks remain required.
 
 ## Context
 
@@ -23,13 +18,11 @@ Owner completion ends content authoring, not the usefulness of an exact research
 Publication must not destroy content that another work item still uses.
 An optional pin protects stored content without creating a workflow blocker.
 
-CD-0222 remains the authority for Initiative identity, narrative, entries, architecture, and migration.
-This replacement does not restore Epic identity or alter unrelated Initiative obligations.
+CD-0222 governs Initiative identity, narrative, entries, architecture, and migration.
 
 ## Decision
 
 Physical pack deletion through `research_retire` follows CD-0013 D11 and requires operator approval only when a [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) class applies. Such an approval is exact and one-use, bound to the explicit candidate set, versions, Product scope, and operation. Dry-run and eligibility checks require no deletion consent and confer no authority to delete. Active-consumer protection, eligibility fences, atomicity, and replay identity remain required. CD-0243 D5 governs recovery and permanent loss.
-
 
 ### D1. Initiative remains secondary business context
 
@@ -124,8 +117,7 @@ Deletion creates no permanent tombstone or deleted-ID registry.
 - PM10 backup and restore preserve these tables while they exist.
 - Ordinary backup aging remains separate; retirement is not secure erasure of backup copies.
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
-governs: the store's current rows own work identity, lifecycle, membership, relations, gates, and archive linkage.
+The store's current rows own work identity, lifecycle, membership, relations, gates, and archive linkage ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 No second database, corpus event log, or work-context projection replaces direct research authority.
 
 ### D5. Three ownership contexts

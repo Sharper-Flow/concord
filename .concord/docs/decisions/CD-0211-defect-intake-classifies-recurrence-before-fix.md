@@ -4,32 +4,25 @@
 - **Date:** 2026-10-08
 - **Scope:** Public defect capture, its Product-scoped sibling classification,
   the research prerequisite for recurrence, and the exploration utility body
-- **Amends:** CD-0149 D2 at its exploration return prose: the generated explore
-  body returns a facts-only packet, per D5 below
 - **Preserves:** CD-0122 D2, CD-0156 D5 relation authority,
   CD-0198 D2 diagnosis consolidation, operator approval, independent verdicts,
-  and evidence provenance; [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded rows read back unchanged
-- **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D14
+  and evidence provenance; recorded rows read back unchanged ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Planning record:** Concord (CON) issue [CON-797](https://linear.app/sharper-flow/issue/CON-797/defect-intake-skips-root-cause-analysis-so-a-systemic-workflow-fault),
   `work-b0b08d6e28a8db2bad386ee6`
 - **Approval:** The operator approved this record's obligations on 2026-10-08,
   relayed by the Snowball coordinator under operator delegation. The approval
   records the executable contract of `work-b0b08d6e28a8db2bad386ee6` at
   contract version 1. It invents no earlier workflow history.
-- **Provenance:** The Decision section below is the verbatim D1 through D6 text
-  of proposal CD-0210 at [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
+- **Approval source:** [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
   commit `521af7ea0c03146a23e72365bb294d692795985b` (Git blob
-  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`). Only the registration identity
-  CD-0211 and this accepted approval and provenance metadata changed.
+  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`).
 
 ## Context
 
 ### Registration and provenance
 
-This record is accepted Product law under `.concord/docs/decisions/`. The
-outside-repair draft that proposed it stayed outside the accepted knowledge
-roots until this registration. CD allocation ran again at registration, and
-the accepted record takes CD-0211.
+This record is accepted Product law under `.concord/docs/decisions/` with
+identity CD-0211.
 
 The knowledge record, coverage record, and accepted CD-0149 amendment pointer
 for this law are registered with authority `legislated`, legislated by
@@ -218,17 +211,16 @@ with source `path:line`, relevant counts with their populations, historical
 commit identifiers, and explicit unknowns. It prohibits inferred root causes,
 diagnoses, and repair recommendations. The parent coordinator owns diagnosis.
 
-This amends CD-0149 D2's return prose on approval. It creates no report schema,
+It creates no report schema,
 lane evidence, new tool permission, or workflow authority. Generator tests
 prove the body contract; they do not prove that a model obeys prose.
 
 ### D6. Historical records and workflow law remain intact
 
-[CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) governs: recorded captures read back as recorded, with no payload version, upcast, or prefix replay, and no existing bug is reclassified retroactively. [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source) governs: definitions generate from one canonical source, so the prerequisite changes no workflow digest or graph.
+Recorded captures read back as recorded, and no existing bug is reclassified retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-CD-0198 D2 remains authoritative for future diagnosis consolidation. This
-capture prerequisite does not add another break-fix diagnosis action or
-restore the separate steps that CD-0198 merges. A periodic review service,
+Capture classification precedes readiness; diagnosis uses `record_diagnosis`
+under CD-0198 D2. This capture prerequisite adds no diagnosis action. A periodic review service,
 lookup utility narrowing, and recovery admission changes remain out of scope.
 
 ## Alternatives considered
@@ -243,7 +235,7 @@ lookup utility narrowing, and recovery admission changes remain out of scope.
 - **Automatically turn a bug into research.** Rejected because that changes
   the caller's intent and creates a second shaping authority.
 - **Add another root-cause step to break-fix.** Rejected because it repeats
-  the outstanding CD-0198 consolidation and runs after ordinary capture.
+  CD-0198 D2's diagnosis action and runs after ordinary capture.
 - **Register the draft as accepted law before approval.** Rejected because the
   operator had not approved the proposed obligations at proposal time.
 

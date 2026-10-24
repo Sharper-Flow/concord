@@ -354,6 +354,12 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "canonical_note_result": {
       "additionalProperties": false,
+      "not": {
+        "required": [
+          "status",
+          "successor_id"
+        ]
+      },
       "properties": {
         "candidates": {
           "items": {
@@ -381,13 +387,13 @@ const GeneratedPayloadSchemaDocument = `{
         "status": {
           "enum": [
             "accepted",
-            "superseded",
             "published"
           ],
           "type": "string"
         },
         "successor_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/id",
+          "description": "A work-note successor, never a law replacement."
         }
       },
       "required": [
@@ -1360,6 +1366,9 @@ const GeneratedPayloadSchemaDocument = `{
                 "$ref": "#/$defs/worker_packet5_worker_job"
               },
               "type": "array"
+            },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input"
             },
             "spec_mandate": {
               "items": {
@@ -2732,6 +2741,48 @@ const GeneratedPayloadSchemaDocument = `{
         "items": {
           "items": {
             "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "successor_id"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "properties": {
+                    "kind": {
+                      "const": "note"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "constitution",
+                        "decision",
+                        "specification"
+                      ],
+                      "type": "string"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  }
+                }
+              }
+            ],
             "properties": {
               "commit_oid": {
                 "$ref": "#/$defs/id"
@@ -2767,13 +2818,13 @@ const GeneratedPayloadSchemaDocument = `{
               "status": {
                 "enum": [
                   "accepted",
-                  "superseded",
                   "published"
                 ],
                 "type": "string"
               },
               "successor_id": {
-                "$ref": "#/$defs/id"
+                "$ref": "#/$defs/id",
+                "description": "A work-note successor, never a law replacement."
               }
             },
             "required": [
@@ -3197,7 +3248,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "resolved_findings": {
-          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any verdict. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
           "items": {
             "$ref": "#/$defs/lane_report_resolved_finding"
           },
@@ -10661,8 +10712,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -25929,6 +25979,10 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
               "type": "string"
             },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input",
+              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
+            },
             "task": {
               "maxLength": 4096,
               "minLength": 1,
@@ -26388,6 +26442,10 @@ const GeneratedPayloadSchemaDocument = `{
               "const": "concord-worker-result-v1",
               "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
               "type": "string"
+            },
+            "review_input": {
+              "$ref": "#/$defs/worker_packet_review_input",
+              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
             },
             "task": {
               "maxLength": 4096,
@@ -26930,6 +26988,121 @@ const GeneratedPayloadSchemaDocument = `{
       "maxItems": 8,
       "minItems": 1,
       "type": "array"
+    },
+    "worker_packet_review_candidate": {
+      "additionalProperties": false,
+      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
+      "properties": {
+        "commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        },
+        "tree": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "commit",
+        "tree"
+      ],
+      "type": "object"
+    },
+    "worker_packet_review_dependencies": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "architecture_digest"
+            ]
+          },
+          "properties": {
+            "architecture_not_applicable": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "architecture_not_applicable": {
+              "const": false
+            }
+          },
+          "required": [
+            "architecture_digest"
+          ]
+        }
+      ],
+      "properties": {
+        "architecture_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "architecture_not_applicable": {
+          "type": "boolean"
+        },
+        "criteria": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "content_digest": {
+                "maxLength": 71,
+                "minLength": 71,
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "predicate_id": {
+                "maxLength": 128,
+                "minLength": 11,
+                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "predicate_id",
+              "content_digest"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "criteria",
+        "architecture_not_applicable"
+      ],
+      "type": "object"
+    },
+    "worker_packet_review_input": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "$ref": "#/$defs/worker_packet_review_dependencies"
+        },
+        "input_candidate": {
+          "$ref": "#/$defs/worker_packet_review_candidate"
+        }
+      },
+      "required": [
+        "input_candidate",
+        "dependencies"
+      ],
+      "type": "object"
     },
     "worker_packet_work_record": {
       "additionalProperties": false,
@@ -28297,8 +28470,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "status": {
           "enum": [
-            "accepted",
-            "superseded"
+            "accepted"
           ],
           "type": "string"
         },
@@ -28738,12 +28910,6 @@ const GeneratedPayloadSchemaDocument = `{
         "stale_law_revision": {
           "additionalProperties": false,
           "properties": {
-            "accepted_successor_content_hash": {
-              "$ref": "#/$defs/digest"
-            },
-            "accepted_successor_law_id": {
-              "$ref": "#/$defs/law_id"
-            },
             "old_content_hash": {
               "$ref": "#/$defs/digest"
             },
@@ -28761,8 +28927,6 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "old_law_id",
             "old_content_hash",
-            "accepted_successor_law_id",
-            "accepted_successor_content_hash",
             "recovery_actions"
           ],
           "type": [

@@ -1851,14 +1851,25 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
       recovery_action: { kind: "request_approval" }, effect_state: "none",
       stale_law_revision: {
         old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-        accepted_successor_law_id: "law-current", accepted_successor_content_hash: `sha256:${"b".repeat(64)}`,
-        recovery_actions: ["revise_contract"],
+        recovery_actions: ["supersede_contract", "terminal_work"],
       },
     },
   })
   expect(validateGeneratedEnvelope(staleLaw)).toBe(true)
   const stale: any = await runTransition(runnerWithContext(staleLaw))
   expect(stale.error.kind).toBe("stale_law_revision")
+  expect(stale.error.stale_law_revision).toEqual({
+    old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
+    recovery_actions: ["supersede_contract", "terminal_work"],
+  })
+  const withRevision = (revision: unknown) => ({ ...staleLaw, error: { ...staleLaw.error, stale_law_revision: revision } })
+  for (const extra of [
+    { accepted_successor_law_id: "law-current" },
+    { accepted_successor_content_hash: `sha256:${"b".repeat(64)}` },
+  ]) {
+    expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, ...extra }))).toBe(false)
+  }
+  expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, old_content_hash: "sha256:not-a-proof" }))).toBe(false)
 })
 
 test("cross-repository placement passes the generated adapter boundary", async () => {

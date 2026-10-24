@@ -25,7 +25,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 
 	secondWork := []store.Event{
-		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Second Worktree","priority":1}`)},
+		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Second Worktree","priority":1}`)},
 		{EventID: "wt-dispatch-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -118,7 +118,7 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 
 	secondWork := []store.Event{
-		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
+		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
 		{EventID: "wt-cached-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -474,7 +474,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// One work item holds membership in two Projects: after both relocations
 	// the same work item is claimed in the second Project.
 	secondProject := []store.Event{
-		{EventID: "vacate-reoccupy-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Reoccupy Project"}`)},
+		{EventID: "vacate-reoccupy-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Reoccupy Project"}`)},
 		{EventID: "vacate-reoccupy-project-2-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-2","role":"secondary","reason":"vacate reoccupy fixture","expected_version":2,"resulting_version":3}`)},
 		{EventID: "vacate-reoccupy-work-1-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
 	}

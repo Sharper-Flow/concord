@@ -26,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e75ad9dfa904a8b0c227502d671c450afc95c65d88728862ed84594e3311110d",
+  "sha256": "sha256:667a5b669efa0c9a96e2c3a97628aa94574fcac6f6c9f26a0c6da5efaa14ebc4",
   "status": "accepted",
   "summary": "A law record homed to the Product root declares product_wide_rationale: a stated, bounded reason why no child Domain owns it. Child-homed law must not carry the field. No legacy-manifest upcast exists; CD-0076 removes it and its undecided marker. law_domain_homes gains the column under migration 45 so the claim survives the PM1.Q10 projection proof. Manifest version 1.2 tightens in place because CD-0042 D1 keeps Concord pre-go-live with no compatibility cohort.",
   "tags": [

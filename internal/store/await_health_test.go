@@ -19,7 +19,7 @@ func awaitFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "await-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Await","priority":1}`)},
+		{EventID: "await-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Await","priority":1}`)},
 		{EventID: "await-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr-await","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}}); err != nil {
 		t.Fatal(err)

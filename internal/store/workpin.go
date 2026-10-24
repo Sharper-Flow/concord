@@ -500,16 +500,13 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
 	var attempt WorkPinAttempt
 	var epoch sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind=? AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND json_extract(e.payload,'$.worker_attempt_id')=a.attempt_id ORDER BY e.seq DESC LIMIT 1),(SELECT json_extract(e.payload,'$.attempt_epoch') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=a.work_id AND e.kind=? AND json_extract(e.payload,'$.step_id')=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id) ORDER BY e.seq DESC LIMIT 1),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkflowActionCompleted, WorkflowActionStarted, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lifecycle_state,COALESCE((SELECT json_extract(e.payload,'$.attempt_epoch') FROM worker_authorizations e WHERE e.work_id=a.work_id AND e.attempt_id=a.attempt_id),(SELECT attempt_epoch FROM workflow_step_epochs e WHERE e.work_id=a.work_id AND e.step_id=(SELECT current_step FROM workflow_instances WHERE work_id=a.work_id)),0) FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, workID).Scan(&attempt.ID, &attempt.Lane, &attempt.State, &epoch); err == nil {
 		if !epoch.Valid || epoch.Int64 < 1 {
-			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "rebuild the worker and workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "work_pin", "worker attempt has no valid workflow epoch", false, "reconcile the retained worker authorization and workflow step epoch before retrying")
 		}
 		attempt.Epoch = epoch.Int64
-		// A failed terminal exposes its attribution through the one
-		// event-based reader, inside this same transaction: the queryer is
-		// the caller's tx, so the pin and the dedicated attribution read
-		// answer identically for the same log state and no second table or
-		// read path exists.
+		// The pin and the dedicated attribution reader use the same retained
+		// terminal fact inside this transaction.
 		if attempt.State == "failed" {
 			record, readErr := WorkerFailureAttributionForAttemptTx(ctx, tx, workID, attempt.ID)
 			if readErr != nil {
@@ -713,7 +710,7 @@ func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([
 
 func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {
 	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandate), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 	contract.RouteConventions = nonNilStrings(contract.RouteConventions)

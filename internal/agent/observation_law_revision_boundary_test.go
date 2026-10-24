@@ -17,16 +17,14 @@ import (
 const (
 	observationBoundaryWork      = "work-holder"
 	observationBoundaryOldLaw    = "spec:one"
-	observationBoundaryNewLaw    = "spec:two"
 	observationBoundaryOldHash   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	observationBoundaryNewHash   = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	observationBoundaryLocatorID = "law-locator"
 )
 
 // seedObservationLawBoundary gives work-holder an active workflow contract that
 // mandates and pins one law, and returns the fixture with that law still
 // accepted. Callers that want the stale condition call
-// supersedeObservationBoundaryLaw afterwards.
+// deleteObservationBoundaryLaw afterwards.
 func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -47,7 +45,7 @@ func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority
 		"expected_version": projectVersion, "resulting_version": projectVersion + 1,
 	})
 	if err := store.ApplyOperation(ctx, s, store.Operation{
-		Events:           []store.Event{{EventID: "obs-law-locator", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: locatorPayload}},
+		Events:           []store.Event{{EventID: "obs-law-locator", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.locator_added"), Payload: locatorPayload}},
 		ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-1"): projectVersion},
 	}); err != nil {
 		t.Fatal(err)
@@ -73,41 +71,30 @@ func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority
 	return s, service, grant, scopeVersion
 }
 
-// supersedeObservationBoundaryLaw performs the Git-side law cutover the
-// contract pin has not followed: the mandated law becomes superseded and an
-// accepted successor takes its place.
-func supersedeObservationBoundaryLaw(t *testing.T, s *store.Store) {
+// deleteObservationBoundaryLaw removes the mandated law without a replacement
+// (CD-0036 D2). The contract still pins its deleted revision.
+func deleteObservationBoundaryLaw(t *testing.T, s *store.Store) {
 	t.Helper()
 	execProjection(t, s,
-		[]string{`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`,
-			`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law',?,'test')`,
-			`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project-1',?,?,'supersedes',?,'test')`},
+		[]string{`DELETE FROM law_subjects WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`},
 		[][]any{
 			{observationBoundaryLocatorID, observationBoundaryOldLaw},
-			{observationBoundaryLocatorID, observationBoundaryNewLaw, observationBoundaryNewHash},
-			{observationBoundaryLocatorID, observationBoundaryNewLaw, observationBoundaryOldLaw},
 		})
 	assertObservationBoundaryCutover(t, s)
 }
 
 // assertObservationBoundaryCutover proves the fixture actually created the
-// stale condition: the contract still pins a law the current Git-derived
-// projection reports as superseded, and that law has one accepted successor.
+// stale condition: the contract still pins a law absent from current law.
 func assertObservationBoundaryCutover(t *testing.T, s *store.Store) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	var pinned, status, successor string
+	var pinned string
 	if err := db.QueryRow(`SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=1 AND law_id=?`, observationBoundaryWork, observationBoundaryOldLaw).Scan(&pinned); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT status FROM law_subjects WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`, observationBoundaryLocatorID, observationBoundaryOldLaw).Scan(&status); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT source_law_id FROM law_relations WHERE home_project_id='project-1' AND home_locator_id=? AND kind='supersedes' AND target_law_id=?`, observationBoundaryLocatorID, observationBoundaryOldLaw).Scan(&successor); err != nil {
-		t.Fatal(err)
-	}
-	if pinned != observationBoundaryOldHash || status != "superseded" || successor != observationBoundaryNewLaw {
-		t.Fatalf("cutover not established: pinned=%q status=%q successor=%q", pinned, status, successor)
+	remaining := scalarRow(t, s, `SELECT count(*) FROM law_subjects WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`, observationBoundaryLocatorID, observationBoundaryOldLaw)
+	if pinned != observationBoundaryOldHash || remaining != 0 {
+		t.Fatalf("deletion not established: pinned=%q remaining=%d", pinned, remaining)
 	}
 }
 
@@ -216,7 +203,7 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
-	supersedeObservationBoundaryLaw(t, s)
+	deleteObservationBoundaryLaw(t, s)
 
 	eventsBefore := scalarRow(t, s, `SELECT count(*) FROM domain_events`)
 	versionBefore := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
@@ -236,9 +223,6 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	}
 	if stale.OldLawID != observationBoundaryOldLaw || stale.OldContentHash != observationBoundaryOldHash {
 		t.Fatalf("refusal old law=%q hash=%q, want %q %q", stale.OldLawID, stale.OldContentHash, observationBoundaryOldLaw, observationBoundaryOldHash)
-	}
-	if stale.AcceptedSuccessorLawID != observationBoundaryNewLaw || stale.AcceptedSuccessorContentHash != observationBoundaryNewHash {
-		t.Fatalf("refusal successor law=%q hash=%q, want %q %q", stale.AcceptedSuccessorLawID, stale.AcceptedSuccessorContentHash, observationBoundaryNewLaw, observationBoundaryNewHash)
 	}
 	if strings.Join(stale.RecoveryActions, ",") != "supersede_contract,terminal_work" {
 		t.Fatalf("refusal recovery choices=%v, want [supersede_contract terminal_work]", stale.RecoveryActions)
@@ -297,6 +281,26 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 	}
 }
 
+// CD-0036 D4: recording what happened does not accept an attributed result.
+func TestStaleLawBoundaryAllowsRawObservation(t *testing.T) {
+	t.Parallel()
+	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
+	deleteObservationBoundaryLaw(t, s)
+	response := dispatchObservation(t, s, service, grant, scopeVersion, map[string]any{
+		"work_id": observationBoundaryWork, "idempotency_key": "obs-stale-raw",
+		"statement": "The worker finished after the mandated law was deleted.",
+	})
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("raw observation refused after law deletion: %+v", response.Error)
+	}
+	if got := scalarRow(t, s, `SELECT count(*) FROM work_observations WHERE work_id=?`, observationBoundaryWork); got != 1 {
+		t.Fatalf("raw observation recorded %d observations, want 1", got)
+	}
+	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 0 {
+		t.Fatalf("raw observation accepted %d external results, want 0", got)
+	}
+}
+
 // TestStaleLawBoundaryLeavesRecoveryReachable proves the exemption the new
 // check inherits is the right one. supersede_contract and terminal_work are the
 // only recovery choices the stale-law refusal offers; guarding the operations
@@ -304,7 +308,7 @@ func TestExternalObservationBoundaryAcceptsCurrentLawRevision(t *testing.T) {
 func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
-	supersedeObservationBoundaryLaw(t, s)
+	deleteObservationBoundaryLaw(t, s)
 
 	version := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
 	// The evidence is supplied so the request passes the earlier lifecycle
@@ -312,7 +316,7 @@ func TestStaleLawBoundaryLeavesRecoveryReachable(t *testing.T) {
 	// approval challenge inside the owning transaction.
 	input, _ := json.Marshal(map[string]any{
 		"work_id": observationBoundaryWork, "expected_version": version, "target": "cancelled",
-		"reason": "abandon the work rather than follow the accepted successor law", "idempotency_key": "obs-stale-recovery",
+		"reason": "abandon the work after its mandated law was deleted", "idempotency_key": "obs-stale-recovery",
 		"evidence": []map[string]any{{"kind": "verification", "authority": "native_run", "locator_kind": "run_ref", "locator": "stale-law-recovery"}},
 	})
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, mutationEnvelope(grant, scopeVersion))

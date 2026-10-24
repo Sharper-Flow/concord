@@ -1775,6 +1775,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	} else if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET latest_non_dispatch_start_seq=? WHERE work_id=?`, event.Seq, event.SubjectID); err != nil {
 		return workflowProjectionError(err, "cannot record the worker result interval boundary")
 	}
+	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
+		return err
+	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
 
@@ -2580,6 +2583,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
 		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
 	}
+	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
+		return err
+	}
 	switch p.ActionID {
 	case "dispatch_worker", "record_worker_failure", "reject_worker_result", "request_correction":
 		if err := advanceWorkflowCorrectionFactsTx(ctx, tx, event); err != nil {
@@ -2844,23 +2850,29 @@ func advancingWorkflowActions(definition WorkflowDefinition) []string {
 // dispatch start, a callable start on a released pin, and every later
 // checkpoint answer to the checkpoint-writer rule; the started fold
 // authenticated the actor for the derivation pair alone.
-func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, beforeSeq int64, actorRef, checkpointEventID string) (bool, error) {
+func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, _ int64, actorRef, checkpointEventID string) (bool, error) {
 	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[actionID] != stepID {
 		return false, nil
 	}
-	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
-	if err != nil || !found || startEpoch != epoch {
-		return false, err
-	}
-	var startedEventID, startedAction, startedActor string
-	if err := tx.QueryRowContext(ctx, `SELECT event_id,COALESCE(json_extract(payload,'$.action_id'),''),COALESCE(json_extract(payload,'$.actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, startSeq).Scan(&startedEventID, &startedAction, &startedActor); err != nil {
-		return false, workflowProjectionError(err, "cannot read the derived step start")
-	}
-	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
-	if operationID == checkpointEventID || startedEventID != operationID+":started" || startedAction != actionID {
+	start, err := readWorkflowActionStartTx(ctx, tx, workID, stepID, false)
+	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	return startedActor == actorRef, nil
+	if err != nil {
+		return false, workflowProjectionError(err, "cannot read the derived step start")
+	}
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal(start.Payload, &payload); err != nil {
+		return false, err
+	}
+	if payload.AttemptEpoch != epoch {
+		return false, nil
+	}
+	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
+	if operationID == checkpointEventID || start.EventID != operationID+":started" || payload.ActionID != actionID {
+		return false, nil
+	}
+	return payload.ActorRef == actorRef, nil
 }
 
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
@@ -3378,7 +3390,10 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 		state = "running"
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, event.SubjectID)
-	return err
+	if err != nil {
+		return err
+	}
+	return advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef)
 }
 
 // producerBindingMismatch explains why a named producer operation cannot back

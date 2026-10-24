@@ -6802,6 +6802,50 @@ UPDATE workflow_step_epochs AS s SET (latest_dispatch_start_seq,latest_dispatch_
  SELECT seq,event_id,payload FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id AND json_extract(e.payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1)
  WHERE EXISTS(SELECT 1 FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=s.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id')=s.step_id AND json_extract(e.payload,'$.action_id')='dispatch_worker');
 DELETE FROM fold_guard;
+CREATE TABLE workflow_worker_actors (
+ actor_ref TEXT PRIMARY KEY REFERENCES workflow_actors(actor_ref) ON DELETE CASCADE,
+ first_dispatch_seq INTEGER NOT NULL
+);
+INSERT INTO workflow_worker_actors SELECT a.actor_ref,MIN(e.seq) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=json_extract(e.payload,'$.lane_actor_ref') WHERE e.kind='worker.dispatched' GROUP BY a.actor_ref;
+CREATE TRIGGER workflow_worker_actors_guard_insert BEFORE INSERT ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_worker_actors_immutable_update BEFORE UPDATE ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is immutable'); END;
+CREATE TRIGGER workflow_worker_actors_guard_delete BEFORE DELETE ON workflow_worker_actors BEGIN SELECT RAISE(ABORT, 'workflow_worker_actors is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_action_obligations (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ step_id TEXT,
+ attempt_epoch INTEGER,
+ state TEXT NOT NULL CHECK(state IN ('started','failed')),
+ actor_ref TEXT NOT NULL,
+ effect_seq INTEGER NOT NULL,
+ payload TEXT NOT NULL CHECK(json_valid(payload)),
+ PRIMARY KEY(work_id,effect_seq)
+);
+INSERT INTO workflow_action_obligations
+ SELECT e.subject_id,json_extract(e.payload,'$.step_id'),json_extract(e.payload,'$.attempt_epoch'),
+ CASE e.kind WHEN 'workflow.action_started' THEN 'started' ELSE 'failed' END,COALESCE(json_extract(e.payload,'$.actor_ref'),''),e.seq,e.payload
+ FROM domain_events e WHERE e.subject_type='work_item' AND e.kind IN ('workflow.action_started','workflow.action_failed')
+ AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ AND NOT EXISTS(SELECT 1 FROM domain_events c WHERE c.subject_id=e.subject_id AND c.seq>e.seq
+  AND json_extract(c.payload,'$.step_id')=json_extract(e.payload,'$.step_id') AND json_extract(c.payload,'$.attempt_epoch')=json_extract(e.payload,'$.attempt_epoch')
+  AND (c.kind='workflow.action_completed' OR (e.kind='workflow.action_started' AND c.kind='workflow.action_failed')))
+ AND (e.kind='workflow.action_started' OR NOT EXISTS(SELECT 1 FROM domain_events n WHERE n.subject_type=e.subject_type AND n.subject_id=e.subject_id AND n.kind=e.kind AND n.seq>e.seq
+  AND json_extract(n.payload,'$.step_id')=json_extract(e.payload,'$.step_id') AND json_extract(n.payload,'$.attempt_epoch')=json_extract(e.payload,'$.attempt_epoch')
+ ));
+CREATE TRIGGER workflow_action_obligations_guard_insert BEFORE INSERT ON workflow_action_obligations BEGIN SELECT RAISE(ABORT, 'workflow_action_obligations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_action_obligations_guard_update BEFORE UPDATE ON workflow_action_obligations BEGIN SELECT RAISE(ABORT, 'workflow_action_obligations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_action_obligations_guard_delete BEFORE DELETE ON workflow_action_obligations BEGIN SELECT RAISE(ABORT, 'workflow_action_obligations is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_step_completions (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ step_id TEXT NOT NULL,
+ completion_seq INTEGER NOT NULL,
+ PRIMARY KEY(work_id,step_id)
+);
+INSERT INTO workflow_step_completions SELECT e.subject_id,json_extract(e.payload,'$.step_id'),MAX(e.seq) FROM domain_events e
+ WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed' AND json_extract(e.payload,'$.step_id') IS NOT NULL AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
+ GROUP BY e.subject_id,json_extract(e.payload,'$.step_id');
+CREATE TRIGGER workflow_step_completions_guard_insert BEFORE INSERT ON workflow_step_completions BEGIN SELECT RAISE(ABORT, 'workflow_step_completions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_completions_guard_update BEFORE UPDATE ON workflow_step_completions BEGIN SELECT RAISE(ABORT, 'workflow_step_completions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_step_completions_guard_delete BEFORE DELETE ON workflow_step_completions BEGIN SELECT RAISE(ABORT, 'workflow_step_completions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TABLE workflow_correction_state (
  work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
  state TEXT NOT NULL CHECK(json_valid(state))
@@ -6855,6 +6899,7 @@ CREATE TABLE workflow_phase_exits (
 INSERT INTO workflow_phase_exits
  SELECT e.subject_id,json_extract(e.payload,'$.action_id'),MAX(e.seq) FROM domain_events e
  WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed'
+ AND json_extract(e.payload,'$.action_id') IS NOT NULL
  AND EXISTS(SELECT 1 FROM work_items WHERE id=e.subject_id)
   AND (COALESCE(json_extract(e.payload,'$.action_id'),'')<>'accept_worker_result' OR (COALESCE(json_extract(e.payload,'$.review_advance_held'),0)=0 AND (json_extract(e.payload,'$.worker_job') IS NULL OR COALESCE(json_extract(e.payload,'$.delivery_state'),'')<>'')))
  GROUP BY e.subject_id,json_extract(e.payload,'$.action_id');

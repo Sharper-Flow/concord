@@ -1845,7 +1845,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.StepID != currentStep || step == nil || p.StepKind != string(step.Kind) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the pinned current workflow step kind", false, "checkpoint the pinned current workflow step and kind")
 	}
-	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep, event.Seq)
+	expectedEpoch, err := workflowCheckpointAttemptEpoch(ctx, tx, entry.Definition, step, event.SubjectID, currentStep)
 	if err != nil {
 		return err
 	}
@@ -2908,12 +2908,8 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 // action opens no fenced attempt. Its checkpoint epoch follows the prior
 // checkpoint on that step, so a return can produce another typed artifact
 // without reusing the checkpoint's durable identity (CD-0112 D3).
-//
-// beforeSeq bounds the start search at the caller's own sequence position: the
-// fold passes its event's seq and reads only the starts that preceded
-// the checkpoint instead of the whole log.
-func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string, beforeSeq int64) (int64, error) {
-	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
+func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
+	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -2924,14 +2920,13 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
 	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1
-		FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND (?=0 OR seq<?)
-		AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCheckpointed, beforeSeq, beforeSeq, stepID).Scan(&epoch)
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),0)+1
+		FROM workflow_checkpoints WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch)
 	if err != nil {
 		return 0, workflowProjectionError(err, "cannot inspect prior workflow checkpoint epochs")
 	}
-	// Review dispatches can start on an unfenced confirmation step. Preserve
-	// their historical epochs without reusing a prior checkpoint identity.
+	// Review dispatches can start on an unfenced confirmation step. A later
+	// checkpoint must not reuse a prior checkpoint identity.
 	return max(epoch, latestEpoch), nil
 }
 

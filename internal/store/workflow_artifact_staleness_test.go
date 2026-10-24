@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The artifact-staleness fold and its admission halves (CD-0201 D5/D6),
@@ -75,6 +76,24 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	}
 	event := Event{Seq: nextSeq, EventID: workID + ":" + kind + ":" + fmt.Sprint(nextSeq), Kind: kind, SubjectID: workID, Actor: actorRef, PayloadVersion: 1, Payload: json.RawMessage(payload)}
 	switch kind {
+	case WorkflowActionStarted:
+		var start workflowActionStartedPayload
+		if err := json.Unmarshal(event.Payload, &start); err != nil {
+			t.Fatal(err)
+		}
+		if start.AttemptEpoch > 0 {
+			if _, err := tx.Exec(`INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload`, workID, start.StepID, start.AttemptEpoch, nextSeq, event.EventID, payload); err != nil {
+				t.Fatal(err)
+			}
+		}
+	case WorkflowActionCheckpointed:
+		var checkpoint workflowActionCheckpointedPayload
+		if err := json.Unmarshal(event.Payload, &checkpoint); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,'internal_sqlite',?,'checkpoint-inputs','[]','',?,?,?,'2026-01-02T00:00:00Z')`, workID, event.EventID, checkpoint.StepID, checkpoint.AttemptEpoch, event.EventID, actorRef, event.EventID); err != nil {
+			t.Fatal(err)
+		}
 	case WorkflowVerdictRecorded:
 		var verdict workflowVerdictRecordedPayload
 		if err := json.Unmarshal(event.Payload, &verdict); err != nil {
@@ -155,47 +174,45 @@ func stalenessVerdictPayload(kind string) string {
 	return string(encoded)
 }
 
-func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
+func TestUnfencedCheckpointEpochCurrentFactsWithoutLog(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "unfenced-checkpoint-prefix"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "")
+	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
+		{EventID: "another-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Other checkpoint work","priority":1}`)},
+		{EventID: "another-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "another-work"): 0}}); err != nil {
+		t.Fatal(err)
+	}
 	step := workflowStep(definition, "acceptance")
-	assertEpoch := func(beforeSeq, want int64) {
+	assertEpoch := func(want int64) {
 		t.Helper()
-		got, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, step, workID, step.ID, beforeSeq)
+		got, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, step, workID, step.ID)
 		if err != nil || got != want {
-			t.Fatalf("checkpoint epoch before %d = %d, %v; want %d", beforeSeq, got, err, want)
+			t.Fatalf("current checkpoint epoch = %d, %v; want %d", got, err, want)
 		}
 	}
-	assertEpoch(0, 1)
+	assertEpoch(1)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":1}`)
-	var firstSeq int64
-	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&firstSeq); err != nil {
-		t.Fatal(err)
-	}
-	assertEpoch(firstSeq, 1)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":1}`)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"review","attempt_epoch":41}`)
 	stalenessEvent(t, s, "another-work", WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":51}`)
-	assertEpoch(0, 2)
+	assertEpoch(2)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":2}`)
-	var secondSeq int64
-	if err := s.db.QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&secondSeq); err != nil {
+	assertEpoch(3)
+	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":61}`)
+	assertEpoch(61)
+	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
+	assertEpoch(62)
+	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO retired_domain_events`); err != nil {
 		t.Fatal(err)
 	}
-	assertEpoch(firstSeq, 1)
-	assertEpoch(secondSeq, 2)
-	assertEpoch(0, 3)
-	stalenessEvent(t, s, workID, WorkflowActionStarted, `{"step_id":"acceptance","action_id":"dispatch_worker","attempt_epoch":61}`)
-	assertEpoch(secondSeq, 2)
-	assertEpoch(0, 61)
-	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
-	assertEpoch(0, 62)
-	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution", 0); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	assertEpoch(62)
+	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution"); !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("fenced checkpoint without a start = %v, want invalid_transition", err)
 	}
 }

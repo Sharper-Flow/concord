@@ -108,14 +108,14 @@ func workflowArtifactProductionFrontier(ctx context.Context, q queryer, workID s
 	for _, class := range workflowProducingCapabilityClasses {
 		args = append(args, class)
 	}
-	query := `SELECT COALESCE(MAX(e.seq),0) FROM worker_attempt_dispositions e
+	query := `SELECT COALESCE(MAX(e.first_acceptance_seq),0) FROM worker_attempt_dispositions e
  JOIN worker_attempts a ON a.work_id=e.work_id AND a.attempt_id=e.attempt_id
  JOIN worker_authorizations d ON d.work_id=e.work_id AND d.attempt_id=e.attempt_id
- WHERE e.work_id=? AND e.action_id='accept_worker_result' AND json_extract(e.payload,'$.step_id')=? AND e.seq>?
- AND d.seq>? AND d.seq<e.seq AND json_extract(d.payload,'$.step_id')=?
- AND a.dispatch_seq>? AND a.dispatch_seq<e.seq AND json_extract(a.dispatch_payload,'$.capability_class') IN (` + capabilityPlaceholders + `)`
+ WHERE e.work_id=? AND e.action_id='accept_worker_result' AND json_extract(e.first_acceptance_payload,'$.step_id')=? AND e.first_acceptance_seq>?
+ AND d.seq>? AND d.seq<e.first_acceptance_seq AND json_extract(d.payload,'$.step_id')=?
+ AND a.dispatch_seq>? AND a.dispatch_seq<e.first_acceptance_seq AND json_extract(a.dispatch_payload,'$.capability_class') IN (` + capabilityPlaceholders + `)`
 	if throughSeq > 0 {
-		query += ` AND e.seq<=?`
+		query += ` AND e.first_acceptance_seq<=?`
 		args = append(args, throughSeq)
 	}
 	var seq int64

@@ -139,7 +139,7 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Cancel work safely, with approval and recorded evidence | Covered | Terminal lifecycle transitions require approval and evidence, `internal/agent/mutations.go` |
 | Delegate a bounded execution attempt to a typed worker, verify which model actually ran, and record that evidence durably | Covered | CD-0017; `internal/store/worker_lanes.go`, `adapter/opencode/dispatch.ts`, and the `worker-dispatch` / `worker-complete` / `worker-fail` evidence verbs in `cmd/concord/main.go`. [CD-0044](./decisions/CD-0044-worker-evidence-caller-authentication.md) authenticates the caller of those verbs with a signed assertion bound to the exact attempt, so recorded evidence names a verified client rather than an unchecked actor string. |
 | Drive research, implementation, and review lanes through one end-to-end workflow with typed evidence | Covered | `WF48-lane-pipeline-typed-evidence` in `.concord/scenarios/workflow-engine.v1.json` dispatches three registered lanes on one workflow and accepts a completed attempt from a distinct owner. |
-| Measure lane prompt behaviour with an evaluation harness | Covered | `adapter/opencode/evals/promptfooconfig.yaml` exercises every registered lane through the host-selected model; under CD-0058 the harness no longer pins a preferred model and the in-repo drift validator is retired, so harness drift against the lane registry is no longer a Concord machine check. |
+| Measure lane prompt behaviour with an evaluation harness | Excluded | Concord keeps no live-model prompt-evaluation harness. End-to-end tests take the simplest direct route, and lane contracts are enforced by the deterministic registry, packet, report, and dispatch checks. |
 | Isolate each unit of work in its own git worktree | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; a second active worktree for the same set is refused. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`, with the locator inputs (branch, base SHA, path) derived by the `concord worktree-locate` read verb — the named owner of the locator policy (issue #316) — so a caller reaches the claim with authority-derived intent instead of per-session conventions; `cmd/concord/worktree_locate_test.go` proves the located intent is accepted on the first attempt. Refusing mutating grants bound to the main checkout stands beside it in `internal/agent/authority.go`. |
 | Refuse raw file writes (edit, write, delete) to the trunk checkout through host tooling | Excluded | CD-0072: the predecessor enforced this half in an editor-host hook that intercepted write, edit, and destructive shell calls before execution, and no Concord surface can hold that control — `capability-placement.md` §1 does not list an interception point inside another tool's write path among Concord's surfaces, and a host script cannot intercept a call another tool makes. The operator accepted losing the enforcement on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not equivalent to the predecessor's combined guarantee. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
@@ -215,9 +215,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 52 |
+| Covered | 51 |
 | Not covered | 0 |
-| Excluded with reason | 23 |
+| Excluded with reason | 24 |
 
 **Total enumerated outcomes: 75.**
 

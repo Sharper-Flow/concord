@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -94,54 +93,6 @@ func TestReviewContinuityPreservesRecoveryOnCandidateTreeFailure(t *testing.T) {
 			t.Fatal("unreachable candidate must not expose review input")
 		}
 	})
-}
-
-func TestReviewEvalDependencyDigestsMatchStore(t *testing.T) {
-	for _, name := range []string{"bounded-review", "refuses-self-acceptance", "seeded-scope-violation", "seeded-evidence-gap", "seeded-validator-weakening"} {
-		t.Run(name, func(t *testing.T) {
-			raw, err := os.ReadFile("../../adapter/opencode/evals/packets/review-" + name + ".json")
-			if err != nil {
-				t.Fatal(err)
-			}
-			var packet struct {
-				Inputs struct {
-					ReviewInput *WorkerReviewInput `json:"review_input"`
-					Predicates  []struct {
-						ID      string          `json:"predicate_id"`
-						Kind    string          `json:"outcome_kind"`
-						Payload json.RawMessage `json:"outcome_payload"`
-					} `json:"outcome_predicates"`
-					Design *WorkflowDesignRecord `json:"design_record"`
-				} `json:"inputs"`
-			}
-			if err := json.Unmarshal(raw, &packet); err != nil {
-				t.Fatal(err)
-			}
-			if packet.Inputs.ReviewInput == nil {
-				t.Fatal("review packet lacks review_input")
-			}
-			deps := packet.Inputs.ReviewInput.Dependencies
-			if len(deps.Criteria) != len(packet.Inputs.Predicates) {
-				t.Fatal("criterion population differs")
-			}
-			for i, p := range packet.Inputs.Predicates {
-				if deps.Criteria[i].PredicateID != p.ID || deps.Criteria[i].ContentDigest != workflowCriterionDigest(p.Kind, p.Payload) {
-					t.Fatalf("criterion digest differs: %+v", deps.Criteria[i])
-				}
-			}
-			if packet.Inputs.Design == nil {
-				if !deps.ArchitectureNotApplicable || deps.ArchitectureDigest != "" {
-					t.Fatal("absent design must be not applicable")
-				}
-			} else {
-				d := packet.Inputs.Design
-				want := reviewDigest(map[string]any{"approach": d.Approach, "decisions": d.Decisions, "touched_refs": d.TouchedRefs})
-				if deps.ArchitectureNotApplicable || deps.ArchitectureDigest != want {
-					t.Fatal("design digest differs")
-				}
-			}
-		})
-	}
 }
 
 func TestReviewPacketClaimsRemainBoundAtAcceptance(t *testing.T) {

@@ -104,14 +104,6 @@ each terminal result is one recorded current fact, and a terminal result is immu
 
 Main's dispatch of Review carries the loop's distinctness ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
-### D7. Behavioral evaluation boundary
-
-Lane prompt behavior is evaluated with a prompt-evaluation harness (promptfoo or
-equivalent) once lane prompts exist. Deterministic authority — registry validation,
-packet/report schemas, dispatch fencing, and evidence recording —
-remains in Go tests. Behavioral evals never complete gates and never substitute for
-schema or state checks.
-
 ## Invariants
 
 1. Every orchestration dispatch structurally references one registered lane

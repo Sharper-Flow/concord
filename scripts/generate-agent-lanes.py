@@ -26,7 +26,6 @@ PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 # The closed named primary set (CD-0154): Concord and an optional release train
 # engineer. Primaries are never lanes or utilities.
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
-EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 AGENT_DIR = ROOT / ".opencode/agents"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
 # name it by this lead sentence, so the rule has one statement.
@@ -1459,15 +1458,6 @@ def docs_projection(manifest: dict, manifest_digest: str) -> str:
     return "\n".join(lines)
 
 
-def eval_packet_projection(path: Path, lane_digests: dict[str, str]) -> str:
-    packet = json.loads(path.read_text(encoding="utf-8"))
-    lane_id = packet.get("lane_id")
-    if lane_id not in lane_digests:
-        raise ValueError(f"eval packet {path.relative_to(ROOT)} references unknown lane {lane_id!r}")
-    packet["lane_digest"] = lane_digests[lane_id]
-    return json.dumps(packet, ensure_ascii=False, indent=2) + "\n"
-
-
 def refresh_knowledge_index() -> None:
     # check-knowledge-index.py resolves every path from its own __file__, so
     # the child needs no working directory from its caller.
@@ -1506,9 +1496,6 @@ def main() -> int:
             for profile in primary_profiles["profiles"]
         })
         expected[ROOT / "adapter/opencode/generated-primary-profiles.ts"] = primary_ts_projection(primary_profiles, manifest)
-        lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
-        if EVAL_PACKETS.is_dir():
-            expected.update({path: eval_packet_projection(path, lane_digests) for path in sorted(EVAL_PACKETS.glob("*.json"))})
         # The generator owns the agent directory: a definition no manifest
         # entry projects is a removed lane, utility, or profile left behind.
         for path in sorted(AGENT_DIR.iterdir()) if AGENT_DIR.is_dir() else ():

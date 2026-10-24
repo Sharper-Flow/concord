@@ -204,9 +204,62 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             self.assertIn("proven defects, missing required evidence, and optional suggestions", text)
             self.assertIn("existing finding detail", text)
             self.assertIn("use `review_finding.oracle.classification` and keep the detail consistent with it", text)
-            self.assertIn("Do not turn style preferences into defects or a `no_ship` verdict", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
             self.assertIn("do not broaden the review into an unrelated audit", text)
         self.assertEqual(carrying, {"review"})
+
+    def test_group_review_delivers_recurring_scan_without_a_new_report_contract(self):
+        approved = (
+            "Every code-changing workflow includes a slop scan in its implementation-group reviews. "
+            "The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions, "
+            "contradictory guidance and missing cleanup across the accumulated change and affected dependencies. "
+            "Use applicable deterministic checks plus semantic inspection; scanner warnings alone are not verdicts. "
+            "Resolve in-scope blocking findings before progression. Reuse applicable evidence, but check "
+            "subsequent changes before delivery. Small changes use their existing review; this adds no "
+            "separate review stage or repository-wide cleanup campaign."
+        )
+        retirement = (
+            "Implementation review checks the accumulated solution for superseded mechanisms and their "
+            "dependent tests, coverage, schemas, configuration and instructions. Those are removed together "
+            "under the governing retirement clause. Every retained mechanism must serve a named current "
+            "requirement; its existence or passing tests are not sufficient justification. Completion cannot "
+            "pass with unexplained legacy residue."
+        )
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if approved not in text and retirement not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn(approved, text)
+            self.assertIn(retirement, text)
+            self.assertIn("existing `findings`, `assessments` and `remaining_obligations`", text)
+            self.assertIn("Bind findings and applicable checks to the corrected `output_candidate`", text)
+            self.assertIn("Do not add a reviewer or install a scanner", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
+        self.assertEqual(carrying, {"review"})
+        block = REPORT_SCHEMA["$defs"]["review_block"]
+        self.assertNotIn("slop_scan", block["properties"])
+        self.assertEqual(set(block["properties"]["disposition"]["enum"]), {
+            "continue", "correction_required", "revision_required", "ready_for_final_proof",
+        })
+
+    def test_review_teaching_agrees_with_report_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        schema = json.loads((generator.ROOT / "contracts/agent-lane-report.schema.json").read_text())
+        block = schema["$defs"]["review_block"]
+        for field in block["required"]:
+            self.assertIn(field, text)
+        for disposition in block["properties"]["disposition"]["enum"]:
+            self.assertIn(f"`{disposition}`", text)
+        self.assertNotIn("`ship`", text)
+        self.assertNotIn("`no_ship`", text)
+        self.assertNotIn("Do not run shell commands", text)
+        self.assertIn("inputs.review_input.input_candidate", text)
+        self.assertIn("inputs.review_input.dependencies", text)
 
 
 class LaneDigestRetentionTests(unittest.TestCase):

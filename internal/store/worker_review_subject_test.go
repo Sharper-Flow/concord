@@ -460,12 +460,10 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 	})
 }
 
-// qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject, the tree is
-// clean, and the changed-path probe answers no names — the clean
-// zero-delta observation. Every other git call — the declared-reading
-// resolution's committed proofs — runs against the real fixture
-// repositories. A preparation over a subject-less view probes nothing.
+// qualifiedSubjectRunner models a clean zero-delta observation at the qualified
+// verify subject. Real repositories resolve their immutable tree through Git;
+// synthetic repositories model the tree OID as the subject OID. Declared-reading
+// proofs still use the real fixture repositories.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -473,6 +471,13 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 		return nil, nil
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
+		if strings.HasSuffix(args[len(args)-1], "^{tree}") {
+			if _, err := os.Stat(dir + "/.git"); err == nil {
+				return ExecGitRunner{}.Run(ctx, dir, args...)
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 		return []byte(r.head), nil
 	}
 	if slices.Contains(args, "--name-only") {

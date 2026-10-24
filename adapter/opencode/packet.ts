@@ -470,6 +470,10 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // packet schema owns the bounds.
   const lawContextValue = isRecord(pinned.law_context) ? (pinned.law_context as unknown as AgentLanePacketLawContext) : undefined
   const designValue = isRecord(pinned.design_record) ? (pinned.design_record as unknown as AgentLanePacketDesignRecord) : undefined
+  const reviewInput = lane.capability_class === "review" && isRecord(pinned.review_input) ? pinned.review_input as unknown as NonNullable<AgentLanePacket["inputs"]["review_input"]> : undefined
+  if (lane.capability_class === "review" && workerJob && !reviewInput) {
+    return failure("packet_refused", `work ${request.workId} has no dispatch-owned review input candidate and dependencies`)
+  }
   const proposalValue = isRecord(pinned.proposal_record) ? (pinned.proposal_record as unknown as AgentLanePacketProposalRecord) : undefined
   const workRecord: AgentLanePacketWorkRecord = {
     ...(valueStatement.length > 0 ? { value_statement: valueStatement } : {}),
@@ -516,7 +520,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, report_protocol: agentLanePacketSchema.properties.inputs.properties.report_protocol.const, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(lawContextValue ? { law_context: lawContextValue } : {}), ...(designValue ? { design_record: designValue } : {}), ...(proposalValue ? { proposal_record: proposalValue } : {}), ...(Object.keys(workRecord).length > 0 ? { work_record: workRecord } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(reviewInput ? { review_input: reviewInput } : {}), report_protocol: agentLanePacketSchema.properties.inputs.properties.report_protocol.const, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(lawContextValue ? { law_context: lawContextValue } : {}), ...(designValue ? { design_record: designValue } : {}), ...(proposalValue ? { proposal_record: proposalValue } : {}), ...(Object.keys(workRecord).length > 0 ? { work_record: workRecord } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

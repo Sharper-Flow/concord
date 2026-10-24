@@ -121,6 +121,10 @@ function validateSchema(schema, value, root, path = "", failures = []) {
       if (!validateSchema(branch, value, root, path, failures)) return false;
     }
   }
+  if (Array.isArray(schema.oneOf)) {
+    const matches = schema.oneOf.filter((branch) => validateSchema(branch, value, root, path)).length;
+    if (matches !== 1) return fail(`must match exactly one schema branch (matched ${matches})`);
+  }
   if (schema.if !== undefined) {
     const condition = validateSchema(schema.if, value, root, path);
     const branch = condition ? schema.then : schema.else;
@@ -416,9 +420,27 @@ export default function (output, context) {
     return { pass: false, score: 0, reason: "worker delegated through a task tool-use event" };
   }
 
+  if (packet?.lane_id === "review" && report.status === "completed") {
+    const input = packet.inputs?.review_input;
+    if (input || packet.schema_version === "2.0") {
+      if (!input || canonicalJson(report.review?.input_candidate) !== canonicalJson(input.input_candidate)
+        || canonicalJson(report.review?.dependencies) !== canonicalJson(input.dependencies)) {
+        return { pass: false, score: 0, reason: "Review candidate or dependencies differ from packet review_input, or required input is missing" };
+      }
+      if (packet.attempt_id?.startsWith("attempt:eval-review-") && input) {
+        if (canonicalJson(report.review.output_candidate) !== canonicalJson(input.input_candidate)
+          || report.review.assessments.some((entry) => entry.receipt_refs.length > 0)
+          || report.review.findings.some((entry) => entry.closure_refs.length > 0)
+          || (report.review.resolved_findings ?? []).length > 0) {
+          return { pass: false, score: 0, reason: "Static review fixture supplies no edits or producer receipts; do not invent output identity or verification" };
+        }
+      }
+    }
+  }
+
   if (isRecord(packet) && typeof packet.attempt_id === "string") {
     const seeded = SEEDED_DEFECT_MARKERS.get(packet.attempt_id);
-    if (seeded) {
+    if (seeded && report.status === "completed") {
       const findings = [
         ...(Array.isArray(report.evidence) ? report.evidence : []),
         ...(report.review && Array.isArray(report.review.findings) ? report.review.findings : []),

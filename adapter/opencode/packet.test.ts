@@ -5,6 +5,7 @@ import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated
 import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkerJob, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { fakeTool } from "./plugin-tool.fixture"
+import { reviewBlockFixture } from "./review-test-fixture"
 
 // The builder reaches core through the adapter transport in concord.ts, which
 // imports the host plugin surface. With the shared stub the
@@ -140,6 +141,17 @@ test("new packets pin the worker report protocol and the current card-free revis
   expect(result.packet).toBeDefined()
   expect(result.packet?.schema_version).toBe("2.0")
   expect(result.packet?.inputs.report_protocol).toBe("concord-worker-result-v1")
+})
+
+test("review input is copied verbatim from continuity only onto the review lane", async () => {
+  const descriptor = { input_candidate: { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }, dependencies: { criteria: [{ predicate_id: "predicate:primary", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true } }
+  const continuity = continuityEnvelope() as any
+  continuity.result.pinned.review_input = descriptor
+  for (const laneId of ["review", "implement"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect((built.packet!.inputs as any).review_input).toEqual(laneId === "review" ? descriptor : undefined)
+  }
 })
 
 test("binding preserves recorded work and contract versions beyond signed int32", async () => {
@@ -1357,10 +1369,20 @@ const READY_JOB = {
 
 const jobContinuity = (stepActions: string[], ready: unknown[]) => {
   const envelope = continuityEnvelope() as any
+  const review = reviewBlockFixture()
+  envelope.result.pinned.review_input = { input_candidate: review.input_candidate, dependencies: review.dependencies }
   envelope.result.pinned.step_actions = stepActions
   if (ready.length > 0) envelope.result.pinned.ready_worker_jobs = ready
   return envelope
 }
+
+test("a bound review cannot dispatch without its current input descriptor", async () => {
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB])
+  delete continuity.result.pinned.review_input
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId: "review" })
+  expect(built.failure?.kind).toBe("packet_refused")
+  expect(built.failure?.message).toContain("review input candidate and dependencies")
+})
 
 test("a job-executing lane binds the one ready worker-job revision verbatim", async () => {
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) })
@@ -1557,9 +1579,9 @@ test("TestReviewSubjectLaneMismatch", async () => {
   const agent = await Bun.file(new URL(`../../.opencode/agents/concord-review.md`, import.meta.url)).text()
   expect(agent).toContain("`inputs.work_context.subject_commit`")
   expect(agent).toContain("The host checks")
-  expect(agent).toContain("before review tool access")
-  expect(agent).toContain("and fresh report settlement")
-  expect(agent).toContain("Do not run shell commands")
+  expect(agent).toContain("before access and report settlement")
+  expect(agent).not.toContain("Do not run shell commands")
+  expect(agent).toContain("git rev-parse HEAD^{tree}")
   expect(agent).toContain("`failed`")
 })
 

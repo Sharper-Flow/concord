@@ -706,41 +706,6 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	}
 }
 
-// diagnosisS1LanePacket builds the closed lane packet the dispatch_worker
-// fold expects for one named lane, so a test can dispatch the lane class the
-// step's kind admits instead of the implementation lane.
-func diagnosisS1LanePacket(t *testing.T, s *Store, workID, stepID, attemptID, laneID string) map[string]any {
-	t.Helper()
-	var lane LaneDefinition
-	for _, candidate := range BuiltinLaneDefinitions() {
-		if candidate.ID == laneID {
-			lane = candidate
-		}
-	}
-	if lane.ID == "" {
-		t.Fatalf("lane %s is not a builtin lane", laneID)
-	}
-	task, binding := recordedPacketInputs(t, s, workID, laneID)
-	inputs := map[string]any{
-		"task":        task,
-		"binding":     binding,
-		"constraints": []string{"do-not-modify-product-truth"},
-	}
-	for member, value := range recordedPacketRecords(t, s, workID) {
-		inputs[member] = value
-	}
-	return map[string]any{
-		"schema_version": "1.0",
-		"attempt_id":     attemptID,
-		"lane_id":        lane.ID,
-		"lane_version":   lane.Version,
-		"lane_digest":    lane.Digest,
-		"work_id":        workID,
-		"step_id":        stepID,
-		"inputs":         inputs,
-	}
-}
-
 // diagnosisS1DispatchAttempt dispatches one live lane attempt at stepID
 // through the registered dispatch_worker action — a selected ready
 // worker-job revision when the pin runs the job lifecycle, and the open
@@ -781,8 +746,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 	} else {
 		job = nil
 	}
-	packet := diagnosisS1LanePacket(t, s, workID, stepID, attemptID, laneID)
-	packet["schema_version"] = WorkerPacketSchemaVersion
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, stepID, attemptID)
 	if err != nil {
 		t.Fatalf("read the open correction for %s: %v", attemptID, err)

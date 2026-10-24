@@ -7,6 +7,46 @@
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {
+    "review_input": {
+      "input_candidate": {
+        "project_id": "project:eval-fixture",
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "dependencies": {
+        "criteria": [
+          {
+            "predicate_id": "predicate:fixture-review",
+            "content_digest": "sha256:0fed1c040e6f0c81d58d5c0658acf9b7042a32530b2985684ac6fc21a268b7a3"
+          }
+        ],
+        "architecture_not_applicable": true
+      }
+    },
+    "outcome_predicates": [
+      {
+        "predicate_id": "predicate:fixture-review",
+        "ordinal": 0,
+        "outcome_kind": "exists",
+        "outcome_payload": {
+          "kind": "exists",
+          "subjects": [
+            "fixture-review"
+          ],
+          "surface": "eval-fixture"
+        }
+      }
+    ],
+    "work_context": {
+      "subject_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "required_reading": [],
+      "findings": [],
+      "domain_groups": [],
+      "source_event_frontier": 0
+    },
+    "work_record": {
+      "task": "Synthetic static review exercise. Candidate OIDs identify only the inline diff in context, not the host checkout. No edit is requested: output_candidate equals input_candidate. No design applies. No checks or producer receipts ran; use empty receipt_refs and never claim live proof. The fixture-review criterion denotes the supplied review material. Judge whether the candidate preserves the stated validator requirement."
+    },
     "task": "Review the diff on this attempt against its stated contract and report findings with severity.",
     "binding": {
       "objective_source": "contract_premise",

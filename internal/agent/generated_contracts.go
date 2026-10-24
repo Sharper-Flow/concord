@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:278dafd7334a44c118f76cdf0d49cbdf3fc8585b7c3f9785960c0c9cb98e7945"
+const ManifestDigest = "sha256:c2c4d903dca7ed5a63ef0d4d809ceb29b91d8cca6f6b44513ed02da379563f9d"
 
 type OperationKind string
 
@@ -377,6 +377,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_packet5_worker_job":                                      {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "acceptance_oracle", "checks_repair", "direct_caller_allowance", "caller_exclusions"}},
 	"worker_packet_binding":                                          {Required: []string{"objective_source", "work_version", "contract_version", "assigned_result"}, Properties: []string{"objective_source", "work_version", "contract_version", "assigned_result"}},
 	"worker_packet_checks_repair_job":                                {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "acceptance_oracle", "checks_repair"}},
+	"worker_packet_review_candidate":                                 {Required: []string{"project_id", "commit", "tree"}, Properties: []string{"project_id", "commit", "tree"}},
+	"worker_packet_review_dependencies":                              {Required: []string{"criteria", "architecture_not_applicable"}, Properties: []string{"criteria", "architecture_digest", "architecture_not_applicable"}},
+	"worker_packet_review_input":                                     {Required: []string{"input_candidate", "dependencies"}, Properties: []string{"input_candidate", "dependencies"}},
 	"worker_packet_work_record":                                      {Required: []string{}, Properties: []string{"value_statement", "task", "narrative"}},
 	"worker_packet_worker_job":                                       {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "acceptance_oracle"}},
 	"worker_recovery_context":                                        {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "packet_schema_version", "report_schema_version", "dispatch"}, Properties: []string{"packet_digest", "packet_schema_version", "report_schema_version", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},

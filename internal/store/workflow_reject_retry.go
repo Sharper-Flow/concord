@@ -297,6 +297,13 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 		binding["contract_version"] = contractVersionValue
 	}
 	inputs := map[string]any{"task": task, "binding": binding, "report_protocol": reportProtocol}
+	reviewInput, err := currentWorkerReviewInput(ctx, tx, workID, lane, definition)
+	if err != nil {
+		return nil, err
+	}
+	if reviewInput != nil {
+		inputs["review_input"] = reviewInput
+	}
 	if err := retryPacketWorkerJobTx(ctx, tx, definition, workID, currentStep, lane, rejectedAttempt, inputs); err != nil {
 		return nil, err
 	}

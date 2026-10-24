@@ -398,26 +398,25 @@ function routeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecord
 }
 
 async function routeReviewBlock(packet: JSONRecord, worktree: string, disposition: string, invoke: any, context: any, findings: JSONRecord[] = [], receiptRefs: string[] = []): Promise<JSONRecord> {
-  const response = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: packet.work_id } }, context)
-  expect(response.outcome, JSON.stringify(response)).toBe("ok")
-  const dependencies = response.result.pinned.work_pin.review.dependencies
-  expect(dependencies).toBeDefined()
+  const reviewInput = packet.inputs.review_input
+  expect(reviewInput).toBeDefined()
+  const dependencies = reviewInput.dependencies
   const reported = new Set(findings.map((finding) => finding.finding_id))
-  for (const finding of response.result.pinned.work_pin.review.findings ?? []) {
+  const hasEarlierRanked = packet.inputs.work_context?.findings?.some((finding: JSONRecord) => finding.source_kind === "review_finding")
+  const previous = hasEarlierRanked ? (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: packet.work_id } }, context)).result.pinned.work_pin.review.findings : []
+  for (const finding of previous) {
     if (finding.status !== "open" || reported.has(finding.finding_id)) continue
     const closure = receiptRefs.length > 0 && disposition === "ready_for_final_proof"
     const earlier = packet.inputs.work_context?.findings?.find((entry: JSONRecord) => entry.oracle?.owner_id === finding.oracle?.owner_id && entry.oracle?.failure_family === finding.oracle?.failure_family)
     findings.push({ ...finding, status: closure ? "closed" : "open", ...(closure ? { closure_refs: receiptRefs } : {}),
       ...(closure && finding.oracle && earlier ? { oracle: { ...finding.oracle, continues_finding_id: earlier.finding_id } } : {}) })
   }
-  const input = packet.inputs.work_context.subject_commit
-  const inputTree = await runProcess(["git", "rev-parse", `${input}^{tree}`], "", worktree)
+  expect(reviewInput.input_candidate.commit).toBe(packet.inputs.work_context.subject_commit)
   const output = await runProcess(["git", "rev-parse", "HEAD", "HEAD^{tree}"], "", worktree)
-  expect(inputTree.exitCode, inputTree.stderr).toBe(0)
   expect(output.exitCode, output.stderr).toBe(0)
   const [commit, tree] = output.stdout.trim().split("\n")
   return {
-    disposition, input_candidate: { project_id: PROJECT_ID, commit: input, tree: inputTree.stdout.trim() },
+    disposition, input_candidate: reviewInput.input_candidate,
     output_candidate: { project_id: PROJECT_ID, commit, tree }, dependencies,
     assessments: receiptRefs.length ? packet.inputs.outcome_predicates.map((predicate: JSONRecord) => ({ predicate_id: predicate.predicate_id, assessment: "supported", receipt_refs: receiptRefs })) : [],
     findings: findings.map((finding) => ({ closure_refs: [], ...finding })), remaining_obligations: [],
@@ -668,7 +667,8 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         expect(execution.oracle.qualification).toBe("pass")
         const open = evaluator.packet.inputs.work_context?.findings.filter((finding: JSONRecord) => finding.status === "open") ?? []
         if (pass === 0 && laneID === "review" && !noShip) expect(open.length).toBeGreaterThan(0)
-        const review = laneID === "review" ? await routeReviewBlock(evaluator.packet, worktree, noShip ? "correction_required" : "ready_for_final_proof", invoke, b,
+        const packetOnlyInvoke = noShip ? async () => { throw new Error("A first Review must construct its report from the production packet alone") } : invoke
+        const review = laneID === "review" ? await routeReviewBlock(evaluator.packet, worktree, noShip ? "correction_required" : "ready_for_final_proof", packetOnlyInvoke, b,
           noShip ? [{ finding_id: "finding:g01-marker", in_scope: true, blocking: true, status: "open", evidence_refs: [execution.operation_ref], severity: "P1", confidence: "high", detail: "The synthetic marker needs repair.", oracle: { classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-route-readiness", predicate_ids: [predicate.predicate_id], control_ids: [boundControl.control_id], case_ids: boundControl.case_ids, evidence_refs: [execution.operation_ref] } }] : [], [execution.operation_ref]) : undefined
         if (review && !noShip) review.resolved_findings = open.map((finding: JSONRecord) => ({ finding_id: finding.finding_id, evidence_refs: [execution.operation_ref] }))
         const evaluation = routeWorkerReport(agentLanes.find((item) => item.id === laneID)!, evaluator.packet, subject, laneID === "review" ? review : undefined)

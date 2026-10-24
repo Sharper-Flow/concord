@@ -81,8 +81,12 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID          string   `json:"work_id"`
-	ProductIdentity []string `json:"product_identity"`
+	// ReviewInputWarning reports optional Git enrichment failure outside the
+	// projection bytes so session recovery does not depend on repository access.
+	ReviewInputWarning error              `json:"-"`
+	ReviewInput        *WorkerReviewInput `json:"review_input,omitempty"`
+	WorkID             string             `json:"work_id"`
+	ProductIdentity    []string           `json:"product_identity"`
 	// WorkflowInstance states workflow-instance presence as typed
 	// information: WorkflowInstancePresent for the pinned default every
 	// captured item carries, WorkflowInstanceAbsent for an imported or
@@ -329,6 +333,28 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, viewErr
 	}
 	out.WorkContext, out.WorkContextUnavailable = view, unavailable
+	// Candidate identity is sampled with the dependencies, then its immutable
+	// tree resolves after the read snapshot closes. Dispatch revalidates it
+	// against the sealed native observation; this read grants no authority.
+	var receipt *WorktreeVerifyResult
+	if out.WorkPin != nil && out.WorkPin.Review != nil && out.WorkPin.Review.Dependencies != nil {
+		receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, req.Work)
+		if err != nil {
+			return out, err
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		return out, err
+	}
+	if receipt != nil {
+		commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
+		tree, treeErr := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
+		if treeErr != nil {
+			out.ReviewInputWarning = treeErr
+		} else {
+			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
+		}
+	}
 	return out, nil
 }
 

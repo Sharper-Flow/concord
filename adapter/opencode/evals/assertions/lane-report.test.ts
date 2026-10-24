@@ -1,9 +1,10 @@
 import { test, expect } from "bun:test"
-import { agentLanePacketSchema } from "../../generated-agent-lanes.js"
+import { agentLanePacketSchema, agentLaneReportSchema } from "../../generated-agent-lanes.js"
 import assertLaneReport from "./lane-report.js"
 import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
 import { reviewBlockFixture, reviewFindingFixture } from "../../review-test-fixture"
 import { childRunStream } from "../native-lane.mjs"
+import { validateAgentLanePacket, validateAgentLaneReport } from "../../dispatch"
 
 // Unit coverage for the lane behavioural evals' shared assertion. The
 // assertion is the behavioural gate for eval runs (CD-0017 D7) and mirrors
@@ -35,7 +36,7 @@ const reviewPacket = (overrides: Record<string, unknown> = {}): Record<string, u
   lane_digest: REVIEW_DIGEST,
   work_id: "work-eval",
   step_id: "review",
-  inputs: { task: "review the bounded change against its contract" },
+  inputs: { task: "review the bounded change against its contract", review_input: { input_candidate: reviewBlockFixture().input_candidate, dependencies: reviewBlockFixture().dependencies } },
   ...overrides,
 })
 
@@ -76,6 +77,61 @@ const blockless = (): Record<string, unknown> =>
 test("a completed review-lane report with a valid typed review block passes", () => {
   expect(run(report())).toMatchObject({ pass: true, score: 1 })
 })
+
+for (const [notApplicable, digest, accepted] of [[true, false, true], [false, true, true], [false, false, false], [true, true, false]]) {
+  test(`architecture oneOf parity: not applicable ${notApplicable}, digest ${digest}`, () => {
+    const dependencies = { ...reviewBlock().dependencies, architecture_not_applicable: notApplicable, ...(digest ? { architecture_digest: "sha256:" + "d".repeat(64) } : {}) }
+    const candidate = report({ review: reviewBlock({ dependencies }) })
+    expect(validateAgentLaneReport(candidate)).toBe(accepted)
+    expect(run(candidate, reviewPacket({ inputs: { task: "schema parity" } })).pass).toBe(accepted)
+  })
+}
+
+test("packet and report share the exact Review candidate and dependency shapes", () => {
+  expect(agentLanePacketSchema.$defs.review_candidate).toEqual(agentLaneReportSchema.$defs.review_candidate)
+  expect(agentLanePacketSchema.$defs.review_dependencies).toEqual(agentLaneReportSchema.$defs.review_dependencies)
+})
+
+test("eval review claims must match dispatch-owned candidate and dependencies", () => {
+  const review = reviewBlock()
+  const packet = reviewPacket({ inputs: { task: "review", review_input: { input_candidate: review.input_candidate, dependencies: review.dependencies } } })
+  expect(run(report({ review }), packet).pass).toBe(true)
+  for (const changed of [
+    { ...review, input_candidate: { ...review.input_candidate, tree: "f".repeat(40) } },
+    { ...review, dependencies: { ...review.dependencies, criteria: [{ predicate_id: "predicate:other", content_digest: "sha256:" + "f".repeat(64) }] } },
+  ]) expect(run(report({ review: changed }), packet).pass).toBe(false)
+})
+
+for (const name of ["bounded-review", "refuses-self-acceptance", "seeded-scope-violation", "seeded-evidence-gap", "seeded-validator-weakening"]) {
+  test(`shipped review packet ${name} supports truthful packet-only reporting`, async () => {
+    const packet = await Bun.file(new URL(`../packets/review-${name}.json`, import.meta.url)).json()
+    const errors: string[] = []
+    expect(validateAgentLanePacket(packet, errors), errors.join("; ")).toBe(true)
+    const input = packet.inputs.review_input
+    expect(packet.inputs.work_context.subject_commit).toBe(input.input_candidate.commit)
+    const review = { ...reviewBlock(), ...input, output_candidate: input.input_candidate, assessments: [], findings: [], remaining_obligations: [] }
+    const evidence = [
+      { obligation: "contract_findings", detail: "check-json.py is outside scope; verification was not run; returning 0 would weaken the validator." },
+      { obligation: "verification_commands", detail: "No commands ran; this is a synthetic static review." },
+    ]
+    expect(run(report({ review, evidence }), packet).pass).toBe(true)
+    for (const candidate of ["input_candidate", "output_candidate"]) {
+      for (const field of ["project_id", "commit", "tree"]) {
+        const changed = { ...review, [candidate]: { ...review[candidate as "input_candidate"], [field]: field === "project_id" ? "other-project" : "f".repeat(40) } }
+        expect(run(report({ review: changed, evidence }), packet).pass).toBe(false)
+      }
+    }
+    const invented = { ...review, assessments: [{ predicate_id: input.dependencies.criteria[0].predicate_id, assessment: "supported", receipt_refs: ["worktree_verify:invented"] }] }
+    expect(run(report({ review: invented, evidence }), packet).pass).toBe(false)
+    for (const dependencies of [
+      { ...input.dependencies, criteria: [{ ...input.dependencies.criteria[0], content_digest: "sha256:" + "f".repeat(64) }] },
+      { ...input.dependencies, architecture_not_applicable: false, architecture_digest: "sha256:" + "f".repeat(64) },
+    ]) expect(run(report({ review: { ...review, dependencies }, evidence }), packet).pass).toBe(false)
+    const missing = structuredClone(packet)
+    delete missing.inputs.review_input
+    expect(run(report({ status: "failed", review: undefined, evidence: [{ obligation: "failure_classification", detail: "Required review_input is missing; no identity can be invented." }] }), missing).pass).toBe(true)
+  })
+}
 
 const hostMetadata = { readback_model: "fixture/actual-model", readback_agent: "concord-review", session_id: "child" }
 

@@ -33,6 +33,15 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	if view != nil {
 		inputs["work_context"] = view
 	}
+	if testLaneCapabilityClass(laneID) == "review" {
+		snapshot, err := ReadWorkflowContinuity(t.Context(), s, ContinuityRequest{Work: workID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reviewInput := reviewInputForPacketFixture(t, s, snapshot); reviewInput != nil {
+			inputs["review_input"] = reviewInput
+		}
+	}
 	packet := map[string]any{
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,

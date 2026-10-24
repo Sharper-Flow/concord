@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -52,7 +53,73 @@ func bindPacketToRecordedState(t *testing.T, s *Store, packet map[string]any) ma
 	for member, value := range recordedPacketRecords(t, s, packet["work_id"].(string)) {
 		inputs[member] = value
 	}
+	if testLaneCapabilityClass(packet["lane_id"].(string)) == "review" {
+		snapshot, err := ReadWorkflowContinuity(t.Context(), s, ContinuityRequest{Work: packet["work_id"].(string)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reviewInput := reviewInputForPacketFixture(t, s, snapshot); reviewInput != nil {
+			inputs["review_input"] = reviewInput
+		}
+	}
 	return packet
+}
+
+// Synthetic Git fixtures derive the expected input with their declared subject
+// runner. Real repositories carry the continuity descriptor unchanged.
+func reviewInputForPacketFixture(t *testing.T, s *Store, snapshot ContinuitySnapshot) *WorkerReviewInput {
+	t.Helper()
+	if snapshot.ReviewInputWarning == nil {
+		return snapshot.ReviewInput
+	}
+	definition := mustBuiltinDefinition(t, snapshot.WorkPin.WorkflowType).Definition
+	if !workflowDefinitionProducesDelivery(definition) {
+		return nil
+	}
+	receipt, err := readCurrentOracleSubjectReceipt(t.Context(), s.db, snapshot.WorkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt == nil {
+		t.Fatal("synthetic Review fixture has no qualified subject")
+	}
+	prepared, err := PrepareWorkerDispatchFreshness(t.Context(), s, PrepareWorkerDispatchRequest{
+		WorkID: snapshot.WorkID, SessionWorktree: receipt.Path,
+		Runner: qualifiedSubjectRunner{head: strings.TrimPrefix(receipt.SubjectRef, "commit:")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := currentWorkerReviewInput(WithWorkerDispatchPreparation(t.Context(), prepared), s.db, snapshot.WorkID, LaneDefinition{CapabilityClass: "review"}, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+func TestBindPacketToRecordedStateCopiesReviewInputOnlyForReviewLane(t *testing.T) {
+	f := seedWorkContextFixture(t, "packet-binding-review-input")
+	t.Cleanup(func() { _ = f.store.Close() })
+	reviewSubjectClaim(t, f.store, f.workID)
+	snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: f.workID})
+	if err != nil || snapshot.ReviewInput == nil {
+		t.Fatalf("current Review input = %+v, err = %v", snapshot.ReviewInput, err)
+	}
+	for _, lane := range []string{"review", "implement"} {
+		t.Run(lane, func(t *testing.T) {
+			packet := bindPacketToRecordedState(t, f.store, map[string]any{
+				"work_id": f.workID, "lane_id": lane, "inputs": map[string]any{},
+			})
+			got, present := packet["inputs"].(map[string]any)["review_input"]
+			if lane == "review" {
+				if !reflect.DeepEqual(got, snapshot.ReviewInput) {
+					t.Fatalf("Review input = %+v, want current continuity descriptor %+v", got, snapshot.ReviewInput)
+				}
+			} else if present {
+				t.Fatalf("non-Review packet carries Review input: %+v", got)
+			}
+		})
+	}
 }
 
 // recordedPacketRecords returns the recorded-state members a truthful lane

@@ -1735,6 +1735,7 @@ WORKER_PACKET_INPUT_ALIASES = {
     "binding": "worker_packet_binding",
     "correction": "workflow_correction_context",
     "worker_job": "worker_packet_worker_job",
+    "review_input": "worker_packet_review_input",
     "law_context": "workflow_law_context",
     "design_record": "workflow_design_record",
     "proposal_record": "workflow_proposal_record",
@@ -1783,6 +1784,27 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
         fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
     doc_defs = payload.get("$defs", {})
+    # Review provenance has one schema owner; its payload aliases project the
+    # canonical packet definitions rather than maintaining another shape.
+    review_aliases = {
+        "lane_review_input": "worker_packet_review_input",
+        "review_candidate": "worker_packet_review_candidate",
+        "review_dependencies": "worker_packet_review_dependencies",
+    }
+    refs = {f"#/$defs/{source}": f"#/$defs/{alias}" for source, alias in review_aliases.items()}
+
+    def review_alias(node):
+        if isinstance(node, dict):
+            result = {key: review_alias(value) for key, value in node.items()}
+            if "$ref" in result:
+                result["$ref"] = refs.get(result["$ref"], result["$ref"])
+            return result
+        if isinstance(node, list):
+            return [review_alias(value) for value in node]
+        return node
+
+    for source, alias in review_aliases.items():
+        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
     packet = doc_defs.get("worker_packet")
     if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
         fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
@@ -1806,6 +1828,9 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     if required:
         projected["required"] = required
     packet["properties"]["inputs"] = projected
+    # The current definition dispatches packet5. Its Review provenance member
+    # comes from the same canonical input, not a separately authored schema.
+    doc_defs["worker_packet5"]["properties"]["inputs"]["properties"]["review_input"] = copy.deepcopy(properties["review_input"])
 
 
 def project_review_report_types(payload: dict, lane_report: dict) -> None:

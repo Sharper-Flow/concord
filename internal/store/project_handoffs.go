@@ -1166,16 +1166,9 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 	// epoch has no later completed or failed event is still open, whoever
 	// else acted on the work since.
 	var open int
-	err = q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
-		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
-		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND (?='' OR a.session_ref=?)
-		  AND NOT EXISTS (
-		    SELECT 1 FROM domain_events c
-		    WHERE c.subject_id=f.subject_id AND c.kind IN ('workflow.action_completed','workflow.action_failed')
-		      AND c.seq>f.seq
-		      AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
-		      AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
-		  )`, workID, sessionRef, sessionRef).Scan(&open)
+	err = q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
+		LEFT JOIN workflow_actors a ON a.actor_ref=f.actor_ref
+		WHERE f.state='started' AND f.work_id=? AND (?='' OR a.session_ref=?)`, workID, sessionRef, sessionRef).Scan(&open)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's nonterminal workflow actions", true, "retry once the database is readable", err)
 	}

@@ -646,15 +646,9 @@ func continuityReadFailureTx(ctx context.Context, tx *sql.Tx, work string, out *
 	}
 	var failure ContextFailure
 	if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
-FROM domain_events f
-WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
-  AND NOT EXISTS (
-    SELECT 1 FROM domain_events c
-    WHERE c.subject_type=f.subject_type AND c.subject_id=f.subject_id AND c.kind=? AND c.seq>f.seq
-      AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
-      AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
-  )
-ORDER BY f.seq DESC LIMIT 1`, work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
+FROM workflow_action_obligations f
+WHERE f.work_id=? AND f.state='failed'
+ORDER BY f.effect_seq DESC LIMIT 1`, work).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
 		out.UnresolvedFailure = &failure
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)

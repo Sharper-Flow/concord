@@ -1,5 +1,5 @@
 {
   "id": "CD-0242",
-  "reason": "This law records the knowledge-first state model and the cutover from the event-sourced engine. The implementing runtime change has not landed, so no executable coverage of its stage admission, execution loop, recovery, or migration mechanisms has been assessed.",
-  "state": "unmeasured"
+  "issue": "CON-1343",
+  "state": "outstanding"
 }

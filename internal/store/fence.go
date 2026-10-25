@@ -43,13 +43,13 @@ const (
 // RequestID is transport-attempt identity; IdempotencyKey is logical retry
 // identity and must be reused by callers retrying the same intent.
 type ClaimRequest struct {
-	OpID                  string    `json:"op_id"`
-	WorkID                string    `json:"work_id"`
-	WorkflowTypeRef       string    `json:"workflow_type_ref"`
+	OpID            string `json:"op_id"`
+	WorkID          string `json:"work_id"`
+	WorkflowTypeRef string `json:"workflow_type_ref"`
 	// WorkflowTypeDigest binds a claim on a workflow.* step to the exact
 	// definition content it was claimed under; an auxiliary claim (any
 	// other ref) carries none.
-	WorkflowTypeDigest string `json:"workflow_type_digest,omitempty"`
+	WorkflowTypeDigest    string    `json:"workflow_type_digest,omitempty"`
 	StepID                string    `json:"step_id"`
 	StepKind              StepKind  `json:"step_kind"`
 	AcceptedInputsDigest  string    `json:"accepted_inputs_digest"`

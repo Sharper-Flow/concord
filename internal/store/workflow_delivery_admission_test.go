@@ -36,7 +36,12 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			if stage == "before-start" {
 				step = "execution"
 			}
-			c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
+			var c acceptDeliveryCandidate
+			if stage == "missing-epoch-proof" {
+				c = acceptDeliveryUnprovedCandidateAt(t, workID, "workflow.implementation", false)
+			} else {
+				c = acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
+			}
 			if stage == "before-start" {
 				parkWorkflowInstanceAt(t, c.f.store, workID, "refine")
 			}
@@ -46,13 +51,20 @@ func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
 			fixture := struct{ store *Store }{c.f.store}
 			pin := issue1013Pin(t, fixture.store, workID)
 			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
-			conformanceCheckpoint(t, fixture.store, BuiltinWorkflowRegistry(), workID, definition, admissionModelState{
+			model := admissionModelState{
 				step: pin.Step, contracts: 1,
 				review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
 				jobs:   "satisfied", jobsScope: "project", integration: stage != "missing-epoch-proof",
 				dispatched: stage != "before-start", engineering: true,
 				started: stage != "before-start", proof: stage == "green-proof",
-			}, stage)
+			}
+			want := admissionConformanceViewOf(admissionWorkflowState(definition, model))
+			// The unproved corrective candidate also invalidates the old
+			// candidate's criterion association, without changing the Review.
+			want.AcceptanceDeliverablesMissing = stage == "missing-epoch-proof"
+			if got := admissionConformanceViewOf(state); got != want {
+				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
+			}
 			decision := workflowAdmit(definition, state, "record_delivery")
 			preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
@@ -166,7 +178,8 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := workflowAdmit(entry.Definition, state, "record_delivery")
-	if !state.Delivery.ProofReady || len(runs) != 1 || !decision.Admitted {
+	// The bound run, claim observation and early producer run cover the candidate.
+	if !state.Delivery.ProofReady || len(runs) != 3 || !decision.Admitted {
 		t.Fatalf("proof snapshot: state=%+v, runs=%+v, decision=%+v", state.Delivery, runs, decision)
 	}
 	for _, cached := range []bool{false, true} {
@@ -189,5 +202,15 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 		if g.admissionState.Delivery != state.Delivery {
 			t.Fatalf("cached=%v: tooling check changed the abstract proof classification", cached)
 		}
+	}
+}
+
+func TestDeliveryProofKeepsDuplicateContractRecoveryReachable(t *testing.T) {
+	const workID = "delivery-proof-duplicate-contract"
+	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
+	duplicateActiveWorkflowContract(context.Background(), t, c.f.store, workID)
+	_, action, err := WorkflowActionDefinitionFor(context.Background(), c.f.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+	if err != nil || action.ID != "supersede_contract" {
+		t.Fatalf("supersede_contract discovery at refine with duplicate contracts = %+v, %v", action, err)
 	}
 }

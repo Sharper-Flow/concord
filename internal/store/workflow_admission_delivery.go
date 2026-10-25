@@ -98,7 +98,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 
 func workflowVerificationProof(runs []workflowVerificationRun, tooling *ProjectToolingManifest) (bool, string, error) {
 	if len(runs) == 0 {
-		return false, "no verification evidence is bound in the current refine epoch", nil
+		return false, "no passing producer verification covers the current integrated candidate", nil
 	}
 	first := ""
 	for _, run := range runs {
@@ -264,7 +264,7 @@ func workflowCandidateVerificationRefs(ctx context.Context, q queryer, workID, a
 }
 
 func workflowVerificationCandidate(ctx context.Context, q queryer, workID, acceptingAttempt string) (*WorkerReviewCandidate, error) {
-	review, err := loadWorkflowReviewState(ctx, q, workID)
+	review, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}

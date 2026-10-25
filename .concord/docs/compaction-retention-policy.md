@@ -137,17 +137,19 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 
 ### 7. Retained and removed data
 
-| Data | Treatment | Authority |
-|---|---|---|
-| canonical Git note | retain | distilled knowledge |
-| canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 |
-| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2 |
-| defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 |
-| historical index and scope edges | retain or rebuild | verified Git-derived projections |
-| research packs and dependent content | retain until explicit eligible retirement | direct tables |
-| WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention |
-| reports and process exhaust | producer-owned | PM9; no separate receipt store |
-| backups and restore copies | PM10 recovery policy | recovery snapshots |
+| Data | Treatment | Authority | Consumer | Applicability check | Safe removal condition |
+|---|---|---|---|---|---|
+| canonical Git note | retain | distilled knowledge | knowledge search and `resolve_note`; historical index rebuild; the typed-absence outcome locator | the note commit verifies from Git | none in Concord; Git owns the note |
+| canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 | terminal cleanup | Git proof verified before cleanup; version, lifecycle, and home re-read in the cleanup transaction | removed with its terminal execution |
+| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2 | live executions that reference it; unsettled effects, claims, leases, workers, messages, conditions, findings, and owned research | the cleanup blocker list in `internal/store/terminal_cleanup.go` | terminal, its published note matches the lifecycle, and no blocker holds |
+| defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 | recurrence admission of later defect captures | same-shape lookup at capture | work or Product removal |
+| historical index and scope edges | retain or rebuild | verified Git-derived projections | historical queries | rebuilt against the current Git head watermark | replaced by the rebuild; never a source of truth |
+| research packs and dependent content | retain until explicit eligible retirement | direct tables | active pins and the owning execution | pin and owner checks in `research_retire` | explicit `research_retire` with no active pin |
+| WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention | none in Concord | none | the producer's own policy |
+| reports and process exhaust | producer-owned | PM9; no separate receipt store | none in Concord | none | the producer's own policy |
+| backups and restore copies | PM10 recovery policy | recovery snapshots | restore and unfinished recovery | verification and the recovery exclusion in snapshot retention | beyond the documented count or age bound, never the newest verified snapshot or one a recovery needs |
+
+No other category is retained. Replaced history has no table and no flag that keeps it.
 
 Research retirement is not secure erasure of backups.
 Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specification adds no reclamation policy.

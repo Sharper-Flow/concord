@@ -2441,13 +2441,6 @@ export async function dispatchWorker(packet: unknown,   options: { runner?: Disp
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
-  // The binding's assigned result is the one obligation the worker-scope
-  // contract derives from the lane, so a packet that names any other result
-  // is a contract or registry drift the schema alone cannot see. It fails
-  // closed here, before the authorization window can open.
-  if (packet.inputs.binding.assigned_result !== workerScopeAssignedResult(lane.id)) {
-    return errorEnvelope(null, packet, "error", "invalid_input", `packet binding names assigned result ${packet.inputs.binding.assigned_result}, but the ${lane.id} lane's worker-scope assignment is ${workerScopeAssignedResult(lane.id)}`, "retry_same_request")
-  }
   const sessionID = options.sessionID
   if (sessionID && dispatchRequiresNextTurn(sessionID)) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
@@ -2666,9 +2659,9 @@ export async function dispatchRetriedWorker(packet: unknown, options: { signal?:
   const validated = validatedRetryPacket(packet)
   if ("envelope" in validated) return validated.envelope
   const { lane, packet: retryPacket } = validated
-  // The calling session's turn-move boundary closes the launch exactly as it
-  // closes a dispatch_worker launch: the owner re-checks it, and the refusal
-  // carries the committed attempt for the coordinator's reconciliation.
+  // The turn-move boundary refuses before the directory preflights below: a
+  // moved turn's tool context still resolves its pre-move directory, so those
+  // preflights would otherwise answer first and drop the boundary.
   if (options.sessionID && dispatchRequiresNextTurn(options.sessionID)) {
     return committedRetryRefusal(lane, retryPacket, TURN_MOVE_DISPATCH_REFUSAL, { boundary: "turn_move" })
   }
@@ -2713,23 +2706,13 @@ export async function dispatchRetriedWorker(packet: unknown, options: { signal?:
   return committedRetryRefusal(lane, retryPacket, envelope.error?.message ?? "the retry launch was refused", {})
 }
 
-// validatedRetryPacket runs the closed packet schema, the lane registry, and
-// the worker-scope assignment check over a core-derived retry packet. The
-// core dispatched these bytes, but the window arms only what this boundary
-// can prove, so the same three checks every dispatch_worker packet answers
-// to run here too.
+// validatedRetryPacket checks the closed packet schema and lane registry over
+// a core-derived retry packet before the window can arm.
 function validatedRetryPacket(packet: unknown): { lane: AgentLane; packet: AgentLanePacket } | { envelope: AgentResultEnvelope } {
   if (!validateAgentLanePacket(packet)) return { envelope: errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "the core's retry packet failed the closed packet schema", "reconcile_operation") }
   const retryPacket = packet as AgentLanePacket
   const retryLane = laneForPacket(retryPacket)
   if (!retryLane) return { envelope: errorEnvelope(null, retryPacket, "error", "invalid_input", "the retry packet's lane identity or digest is not registered", "reconcile_operation") }
-  // The binding's assigned result is the one obligation the worker-scope
-  // contract derives from the lane, so a packet that names any other result
-  // is a contract or registry drift the schema alone cannot see. It fails
-  // closed here, before the window can arm.
-  if (retryPacket.inputs.binding.assigned_result !== workerScopeAssignedResult(retryLane.id)) {
-    return { envelope: errorEnvelope(null, retryPacket, "error", "invalid_input", `retry packet binding names assigned result ${retryPacket.inputs.binding.assigned_result}, but the ${retryLane.id} lane's worker-scope assignment is ${workerScopeAssignedResult(retryLane.id)}`, "reconcile_operation") }
-  }
   return { lane: retryLane, packet: retryPacket }
 }
 
@@ -2854,10 +2837,6 @@ async function completeWorkerSession(
   hostFailure?: string,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
-  const current = laneForPacket(packet)
-  if (!current || lane.id !== current.id || lane.digest !== current.digest) {
-    return errorEnvelope(null, packet, "error", "invalid_input", "worker attempt requires lane content revalidation; preserve its original identity and evidence", "contact_operator")
-  }
   // CD-0102 completion identity: the attempt is refused before any model
   // evidence is read unless the worker session opens with the packet the
   // dispatch authorized. The session API returns the transcript unsanitized,

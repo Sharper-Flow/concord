@@ -182,6 +182,10 @@ func TestWorkContextCloseGit(t *testing.T) {
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowPremiseConfirmed, map[string]any{
 		"contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
 	})
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", ownerRef); err != nil {
+		t.Fatal(err)
+	}
+	bindCompletionClosure(t, s, workID, owner)
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",

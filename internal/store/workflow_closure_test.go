@@ -274,7 +274,7 @@ func TestReviewedClosureCloseStepDeclaresBinding(t *testing.T) {
 	}
 }
 
-func TestReviewedClosureCloseBindingRejectsUnreviewedSubject(t *testing.T) {
+func TestReviewedClosureOrdinaryRecoverySubjectIsNotJudgement(t *testing.T) {
 	for _, tc := range []struct{ name, kind, hash string }{
 		{"verification", "verification", closureTestHash},
 		{"locator", "review", "receipt:unreviewed"},
@@ -282,13 +282,12 @@ func TestReviewedClosureCloseBindingRejectsUnreviewedSubject(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "closure-invalid-" + tc.name
-			f := closureBindingFixture(t, workID, "release")
-			before := readWorkVersion(t, f.store, workID)
-			err := closureBind(t, f, workID, tc.kind, tc.hash)
-			assertFailureKind(t, err, KindInvalidPayload)
-			if readWorkVersion(t, f.store, workID) != before {
-				t.Fatal("invalid closure binding changed the work")
+			f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "release", []string{tc.kind}, nil)
+			if err := closureBind(t, f, workID, tc.kind, tc.hash); err != nil {
+				t.Fatalf("ordinary recovery binding refused: %v", err)
 			}
+			requireClosureHash(t, f.store, workID, "")
+			assertFailureKind(t, requireReviewedClosureQ(t.Context(), f.store.db, workID), KindMissingEvidence)
 		})
 	}
 }
@@ -376,8 +375,8 @@ func TestReviewedClosureRealBindingAndQ7(t *testing.T) {
 			if !exit || !binding {
 				t.Fatalf("Q7 closure exit=%v binding=%v entries=%+v", exit, binding, out.Entries)
 			}
-			// An ordinary invalid bind must not erase the previous judgement.
-			assertFailureKind(t, closureBind(t, f, workID, "verification", "receipt:unrelated"), KindInvalidPayload)
+			// Recovery without an outstanding requirement must not erase the judgement.
+			assertFailureKind(t, closureBind(t, f, workID, "approval", "receipt:unrelated"), KindIllegalLifecycleTransition)
 			requireClosureHash(t, f.store, workID, closureTestHash)
 		})
 	}
@@ -418,6 +417,8 @@ func TestReviewedClosureRevalidatesRecordedProvenance(t *testing.T) {
 		{"producer_unsettled", `UPDATE durable_operations SET completed_at=NULL WHERE work_id=? AND step_id='release'`},
 		{"producer_evidence", `UPDATE durable_operations SET evidence_refs='["receipt:other"]' WHERE work_id=? AND step_id='release'`},
 		{"binding_payload", `UPDATE workflow_evidence_bindings SET payload=json_set(payload,'$.observed_at','2026-10-01T00:00:00Z') WHERE work_id=?`},
+		{"binding_kind", `UPDATE workflow_evidence_bindings SET payload=json_set(payload,'$.evidence_kind','verification') WHERE work_id=?`},
+		{"binding_hash", `UPDATE workflow_evidence_bindings SET payload=json_set(payload,'$.immutable_subject_ref','receipt:ordinary') WHERE work_id=?`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "closure-provenance-" + tc.name
@@ -473,6 +474,64 @@ func TestReviewedClosureBoundOrdinaryComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, s.CheckReviewedClosureContentHash(t.Context(), workID, "sha256:"+strings.Repeat("b", 64)), KindOutcomeMismatch)
+}
+
+func TestReviewedClosureRecoveryRequiresFinalRebind(t *testing.T) {
+	const workID = "closure-recovery-rebind"
+	s, _ := seedCompletionGateCase(t, workID, completionGateCase{
+		requiredEvidence: []string{"verification", "review"},
+		includeVerdict:   true, includePremise: true, verdictKind: "ok", omitClosure: true,
+	})
+	f := workflowReturnRouteFixture{store: s, owner: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}}
+	if err := closureBind(t, f, workID, "review", closureTestHash); err != nil {
+		t.Fatal(err)
+	}
+	requireClosureHash(t, s, workID, closureTestHash)
+	// Reaffirming the same reviewed bytes is not ordinary tuple recovery.
+	if err := closureBind(t, f, workID, "review", closureTestHash); err != nil {
+		t.Fatalf("repeat reviewed closure: %v", err)
+	}
+	ordinary := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`)
+	if err := issue1013Preflight(t, s, workID, "bind_evidence", ordinary, f.owner); err != nil {
+		t.Fatalf("preflight late ordinary mandate binding: %v", err)
+	}
+	if err := closureBind(t, f, workID, "artifact", "spec:one"); err != nil {
+		t.Fatalf("late ordinary mandate binding: %v", err)
+	}
+	requireClosureHash(t, s, workID, "")
+	snapshot := func() string {
+		t.Helper()
+		var state string
+		if err := s.db.QueryRow(`SELECT json_array(w.lifecycle,w.version,i.instance_state,i.completed_at,
+ (SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),
+ (SELECT count(*) FROM domain_events WHERE subject_id=w.id),
+ (SELECT count(*) FROM durable_operations WHERE work_id=w.id),
+ (SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=w.id),
+ (SELECT json_group_array(json_array(action_id,exit_seq,record_version)) FROM workflow_phase_exits WHERE work_id=w.id))
+ FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	before := snapshot()
+	assertFailureKind(t, runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)), KindMissingEvidence)
+	if after := snapshot(); after != before {
+		t.Fatalf("refused completion changed execution:\nbefore %s\nafter  %s", before, after)
+	}
+	finalHash := "sha256:" + strings.Repeat("b", 64)
+	if err := closureBind(t, f, workID, "durable_note", finalHash); err != nil {
+		t.Fatalf("rebind closure after ordinary recovery: %v", err)
+	}
+	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
+		t.Fatal(err)
+	}
+	requireClosureHash(t, s, workID, finalHash)
+	// Cleanup and publication share this terminal proof selector.
+	requireTerminalHash(t, s, workID, finalHash)
+	if err := s.CheckReviewedClosureContentHash(t.Context(), workID, finalHash); err != nil {
+		t.Fatal(err)
+	}
+	assertFailureKind(t, s.CheckReviewedClosureContentHash(t.Context(), workID, closureTestHash), KindOutcomeMismatch)
 }
 
 func TestReviewedClosureDirectCompleteRequiresJudgement(t *testing.T) {

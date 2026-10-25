@@ -684,6 +684,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "complete" {
 		t.Fatalf("step after the corrected premise = %q, want complete", step)
 	}
+	bindCompletionClosure(t, s, workID, fixture.owner)
 	// The completing coordinator is neither the step's fenced executor nor
 	// the verdict actor (CD-0013 D5).
 	completer := diagnosisS1Actor(workID, "completer")

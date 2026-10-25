@@ -409,7 +409,9 @@ func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep stri
 }
 
 func workflowEvidenceRecoveryBindingStep(definition WorkflowDefinition, currentStep string) string {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+	// Close declares the final reviewed judgement beside ordinary recovery;
+	// it does not reopen unrestricted binding from the earlier evidence step.
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") && !stepDeclaresAction(definition, currentStep, "complete") {
 		return ""
 	}
 	for _, step := range definition.StepGraph.Steps {
@@ -502,6 +504,9 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") && stepDeclaresAction(definition, currentStep, "complete") && reviewedClosureSubject(kind, reference) {
+		return false, nil
+	}
 	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr

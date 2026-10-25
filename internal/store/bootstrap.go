@@ -200,10 +200,8 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
 	}
-	_, products, scopeErr := s.ScopeVersion(ctx, projectID)
-	if scopeErr != nil || len(products) != 1 || products[0] != productID {
-		return entry, newFailure(KindUnknownScope, "work_resume", "claimed Project is not in the requested Product scope", false, "resume from the Project's own Product")
-	}
+	// Removed execution authorizes Product and Project membership from its
+	// frozen outcome scope before any locator is exposed.
 	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, workID, productID, projectID, "work_resume"); err != nil {
 		return entry, err
 	}
@@ -233,6 +231,10 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	}
 	if !member {
 		return entry, newFailure(KindUnknownScope, "work_resume", "work item "+workID+" does not hold Project "+projectID, false, "resume from a Project the work item belongs to")
+	}
+	_, products, err := s.ScopeVersion(ctx, projectID)
+	if err != nil || len(products) != 1 || products[0] != productID {
+		return entry, newFailure(KindUnknownScope, "work_resume", "claimed Project is not in the requested Product scope", false, "resume from the Project's own Product")
 	}
 	return activeWorktreeEntryForProject(ctx, s.db, "work_resume", workID, projectID)
 }

@@ -124,6 +124,7 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete successor: %v", err)

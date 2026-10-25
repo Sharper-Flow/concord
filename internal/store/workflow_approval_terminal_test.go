@@ -551,6 +551,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// The executing coordinator completes through the real public complete
 		// store action; the registered terminal fold and the lifecycle fold
 		// close both projections under the same actor.
+		bindCompletionClosure(t, s, workID, owner)
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for engineering work: %v", err)
 		}
@@ -784,6 +785,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 
 		// Real completion reaches the same two terminal projections under the
 		// executing coordinator.
+		bindCompletionClosure(t, s, workID, owner)
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for decision work: %v", err)
 		}

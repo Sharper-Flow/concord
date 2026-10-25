@@ -7638,10 +7638,9 @@ CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflo
 `,
 	},
 	{
-		Version:        153,
-		Name:           "terminal_execution_cleanup",
-		Breaking:       true,
-		FoldMaintained: "origin",
+		Version:  153,
+		Name:     "terminal_execution_cleanup",
+		Breaking: true,
 		SQL: `
 DROP TABLE archived_work_components;
 DROP TABLE compaction_publications;

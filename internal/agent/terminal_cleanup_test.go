@@ -143,7 +143,7 @@ func TestTerminalCleanupAfterCompactionSettlement(t *testing.T) {
 					t.Fatalf("late %s lost canonical absence: %+v", operation, late)
 				}
 			}
-			locator, commit, ok := archivedWorkLocator(t, s, "work-cancelled")
+			locator, commit, ok := archivedWorkLocator(t, s)
 			if !ok {
 				t.Fatal("settled publication lost its canonical locator")
 			}

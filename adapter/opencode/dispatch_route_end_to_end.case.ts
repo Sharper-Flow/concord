@@ -734,6 +734,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     seedInvestigationArtifact(dbPath, workID)
     const confirmation = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "g01-confirm" } }, b)
     expect(confirmation.outcome, JSON.stringify(confirmation)).toBe("ok")
+    await action(b, "bind_evidence", "g01-reviewed-closure", { evidence_kind: "review", immutable_subject_ref: "sha256:" + "a".repeat(64) })
     const completeVersion = version()
     await action(b, "complete", "g01-complete", { impact_verdict: "non-breaking" })
     const finalEvents = events()
@@ -1093,6 +1094,8 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(confirmIntent, JSON.stringify(pinIntents)).toBeDefined()
     expect((confirmIntent as JSONRecord).required_fields).toEqual(["selected_choice"])
     response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verdictVersion, action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "e2e-confirm" } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-reviewed-closure", { evidence_kind: "review", immutable_subject_ref: "sha256:" + "b".repeat(64) })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const completeVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(completeVersion, "complete", "e2e-complete", { impact_verdict: "non-breaking" })

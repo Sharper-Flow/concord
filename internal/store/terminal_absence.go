@@ -75,9 +75,7 @@ func publishedWorkAbsenceForScopeQ(ctx context.Context, q queryer, workID, produ
 		return nil
 	}
 	if count > 1 {
-		failure := newFailure(KindAmbiguousScope, op, "published work has multiple canonical outcome identities", false, "resolve the canonical outcome identity before reading removed execution")
-		failure.CandidateIDs = candidates
-		return failure
+		return newAmbiguousScopeFailure(op, "published work has multiple canonical outcome identities", "resolve the canonical outcome identity before reading removed execution", candidates)
 	}
 	absence := "execution state is not retained; canonical outcome: " + locator
 	return newFailure(KindProjectionNotFound, op, "work "+workID+" "+absence, false, "read the published outcome instead; "+absence)

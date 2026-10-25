@@ -276,9 +276,11 @@ func TestRoutineEvaluation(t *testing.T) {
 	t.Run("new policy keeps verdict gates for coordinator completion", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-new-completion-gates"
-		s, _ := seedDeliveredItemAtAcceptance(t, workID)
+		f := qBuildAcceptance(t, workID, "", false)
+		s := f.store
 		_, _, coordinator := seedRoutineActors(t, s, workID)
 		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
+		bindCompletionClosure(t, s, workID, coordinator)
 		version := readWorkVersion(t, s, workID)
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
@@ -289,7 +291,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: workflowFixtureDefinition(t, 2).Definition}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation"), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict is missing") {
 			t.Fatalf("completion without a verdict returned %v, want the missing-verdict clause refusal", err)

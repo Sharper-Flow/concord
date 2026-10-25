@@ -10,27 +10,6 @@ func reviewedClosureSubject(kind, hash string) bool {
 	return (kind == string(EvidenceReview) || kind == string(EvidenceDurableNote)) && validSHA256Prefixed(hash)
 }
 
-// A close-step binding is Main's judgement of these exact receipt bytes. The
-// receipt body owns the judgement's content, including no-knowledge-change.
-func validateReviewedClosureBindings(ctx context.Context, q queryer, workID, actor string, events []Event) error {
-	if err := workflowRequireMain(ctx, q, workID, actor); err != nil {
-		return err
-	}
-	if _, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action"); err != nil {
-		return err
-	}
-	for _, event := range events {
-		var binding workflowEvidenceBoundPayload
-		if err := json.Unmarshal(event.Payload, &binding); err != nil {
-			return err
-		}
-		if !reviewedClosureSubject(binding.EvidenceKind, binding.ImmutableSubjectRef) {
-			return newFailure(KindInvalidPayload, "workflow_action", "reviewed closure requires review or durable_note evidence bound to a SHA256 content hash", false, "bind the reviewed receipt's exact sha256 content hash on the close step")
-		}
-	}
-	return nil
-}
-
 // reviewedClosureContentHashQ reads the current close-step judgement, not an
 // arbitrary review binding. The phase exit and its immediately preceding
 // binding must belong to the same settled action, actor, and active contract.
@@ -90,8 +69,13 @@ func reviewedClosureContentHashQ(ctx context.Context, q queryer, workID string) 
 		return "", workflowProjectionError(err, "cannot read reviewed closure binding")
 	}
 	var binding workflowEvidenceBoundPayload
-	if err := json.Unmarshal(raw, &binding); err != nil || nativeDigest(raw) != payloadDigest || !reviewedClosureSubject(binding.EvidenceKind, binding.ImmutableSubjectRef) {
-		return "", newFailure(KindInvariantViolation, "reviewed_closure", "reviewed closure binding has an invalid evidence kind or content hash", false, "bind the reviewed receipt's exact sha256 content hash on the close step")
+	if err := json.Unmarshal(raw, &binding); err != nil || nativeDigest(raw) != payloadDigest {
+		return "", newFailure(KindInvariantViolation, "reviewed_closure", "reviewed closure binding has an invalid payload or effect digest", false, "restore the closure binding and its exact producer provenance")
+	}
+	// Ordinary late recovery is still evidence, but it is not a closure
+	// judgement. Completion requires a reviewed hash as the final bind.
+	if !reviewedClosureSubject(binding.EvidenceKind, binding.ImmutableSubjectRef) {
+		return "", nil
 	}
 	return binding.ImmutableSubjectRef, nil
 }

@@ -977,7 +977,7 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		EvidenceRefs []string `json:"evidence_refs"`
 	}
 	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
-		return err
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot decode lifecycle transition metadata", false, "supply typed transition metadata", err)
 	}
 	if metadata.EvidenceRefs == nil {
 		metadata.EvidenceRefs = []string{}
@@ -1136,7 +1136,7 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 		Reason           string `json:"reason"`
 	}
 	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
-		return err
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot decode relation metadata", false, "supply typed relation metadata", err)
 	}
 	if metadata.ResultingVersion == 0 && event.Kind == "work.created" {
 		metadata.ResultingVersion = 1

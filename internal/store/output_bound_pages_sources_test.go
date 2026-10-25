@@ -1227,6 +1227,9 @@ func init() {
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/immutable_subject_ref/maxLength", goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_id/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerID", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_run_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerRunRef", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_watermark/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerWatermark", 1, boundBytes))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/created_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "insertRelation", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 

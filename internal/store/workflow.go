@@ -1809,7 +1809,12 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 		return err
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET
+	transition_from=lifecycle,transition_reason=COALESCE(json_extract(?,'$.reason'),''),transition_actor=?,
+	transition_evidence_refs=COALESCE(json_extract(?,'$.evidence_refs'),'[]'),transition_seq=?,
+	transition_version=COALESCE(json_extract(?,'$.resulting_version'),version),
+	lifecycle='in_progress',updated_at=? WHERE id=? AND lifecycle='needed'`,
+		string(event.Payload), event.Actor, string(event.Payload), event.Seq, string(event.Payload), now, event.SubjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot start the work item lifecycle", true,
 			"retry once the database is writable", err)

@@ -42,6 +42,13 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 	if err := applyWorkEvent(t, s, event, workVersion("q7-prior", version)); err != nil {
 		t.Fatal(err)
 	}
+	peer, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-next", RecordKinds: []string{"relation"}})
+	if err != nil || len(peer.Entries) != 1 {
+		t.Fatalf("successor relation: %+v, %v", peer.Entries, err)
+	}
+	if entry := peer.Entries[0]; entry.Version != version+1 || entry.VersionWorkID != "q7-prior" || entry.WorkIDFrom != "q7-next" {
+		t.Fatalf("relation version must name its writing work, not its source endpoint: %+v", entry)
+	}
 	for _, direction := range []string{"oldest_first", "newest_first"} {
 		first, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Limit: 1})
 		if err != nil || first.NextCursor == nil {

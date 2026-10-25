@@ -308,6 +308,10 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if event.Kind == "work.created" {
+			seedPreQ7WorkCreated(t, tx, event)
+			continue
+		}
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			t.Fatal(err)
 		}

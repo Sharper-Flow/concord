@@ -7227,8 +7227,8 @@ ALTER TABLE work_items ADD COLUMN transition_evidence_refs TEXT NOT NULL DEFAULT
 ALTER TABLE work_items ADD COLUMN transition_seq INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE work_items ADD COLUMN transition_version INTEGER NOT NULL DEFAULT 1;
 CREATE TEMP TABLE q7_transitions AS
-WITH effects AS (
- SELECT seq,subject_id AS work_id,actor,payload,
+WITH explicit_effects AS (
+ SELECT seq,subject_id AS work_id,actor,payload,kind,
  CASE kind WHEN 'work.created' THEN 'needed' WHEN 'work.transitioned' THEN json_extract(payload,'$.to')
  WHEN 'workflow.outside_repair_reconciled' THEN 'completed' WHEN 'work.superseded' THEN 'superseded'
  ELSE 'needed' END AS lifecycle
@@ -7236,13 +7236,25 @@ WITH effects AS (
  ('work.created','work.transitioned','work.reopened','work.superseded','work.reopened_from_superseded','workflow.outside_repair_reconciled')
  UNION ALL
  SELECT seq,CASE json_extract(payload,'$.resolution_kind') WHEN 'supersedes' THEN json_extract(payload,'$.to_work_id') ELSE subject_id END,
- actor,payload,'superseded' FROM domain_events WHERE subject_type='work_item' AND kind='workflow.overlap_resolved'
+ actor,payload,kind,'superseded' FROM domain_events WHERE subject_type='work_item' AND kind='workflow.overlap_resolved'
  AND json_extract(payload,'$.resolution_kind') IN ('supersedes','merged_into')
+), needed_intervals AS (
+ SELECT *,LEAD(seq,1,9223372036854775807) OVER(PARTITION BY work_id ORDER BY seq) AS next_seq FROM explicit_effects
+), workflow_starts AS (
+ SELECT e.seq,e.subject_id AS work_id,e.actor,e.payload,e.kind,'in_progress' AS lifecycle,
+ ROW_NUMBER() OVER(PARTITION BY w.work_id,w.seq ORDER BY e.seq) AS first_start
+ FROM needed_intervals w JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=w.work_id AND e.seq>w.seq AND e.seq<w.next_seq
+ WHERE w.lifecycle='needed' AND e.kind IN ('workflow.contract_superseded','workflow.action_started','workflow.action_checkpointed',
+ 'workflow.context_checkpointed','workflow.context_boundary_crossed','workflow.action_completed','workflow.work_context_recorded')
+), effects AS (
+ SELECT * FROM explicit_effects
+ UNION ALL
+ SELECT seq,work_id,actor,payload,kind,lifecycle FROM workflow_starts WHERE first_start=1
 ), transitions AS (
  SELECT *,LAG(lifecycle) OVER (PARTITION BY work_id ORDER BY seq) AS previous_lifecycle,
  ROW_NUMBER() OVER (PARTITION BY work_id ORDER BY seq DESC) AS latest FROM effects
 )
-SELECT work_id,seq,actor,COALESCE(json_extract(payload,'$.from'),previous_lifecycle) AS prior,
+SELECT work_id,seq,actor,CASE WHEN kind='work.created' THEN NULL ELSE COALESCE(json_extract(payload,'$.from'),previous_lifecycle) END AS prior,
  COALESCE(json_extract(payload,'$.reason'),'') AS reason,COALESCE(json_extract(payload,'$.evidence_refs'),'[]') AS evidence_refs,
  CASE WHEN json_extract(payload,'$.resolution_kind')='supersedes' THEN json_extract(payload,'$.to_resulting_version')
  ELSE COALESCE(json_extract(payload,'$.resulting_version'),1) END AS version

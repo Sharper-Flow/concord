@@ -5134,9 +5134,9 @@
               "binding_id": {"$ref": "#/$defs/id"},
               "evidence_kind": {"$ref": "#/$defs/evidence_kind"},
               "immutable_subject_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
-              "producer_id": {"$ref": "#/$defs/id"},
-              "producer_run_ref": {"$ref": "#/$defs/id"},
-              "producer_watermark": {"$ref": "#/$defs/id"},
+              "producer_id": {"type": "string", "minLength": 1, "maxLength": 128},
+              "producer_run_ref": {"type": "string", "minLength": 1, "maxLength": 128},
+              "producer_watermark": {"type": "string", "minLength": 1, "maxLength": 128},
               "observed_at": {"type": "string", "minLength": 1}
             },
             "oneOf": [

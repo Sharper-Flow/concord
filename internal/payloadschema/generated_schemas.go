@@ -13530,13 +13530,19 @@ const GeneratedPayloadSchemaDocument = `{
                 "type": "object"
               },
               "producer_id": {
-                "$ref": "#/$defs/id"
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
               },
               "producer_run_ref": {
-                "$ref": "#/$defs/id"
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
               },
               "producer_watermark": {
-                "$ref": "#/$defs/id"
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
               },
               "reason": {
                 "minLength": 1,

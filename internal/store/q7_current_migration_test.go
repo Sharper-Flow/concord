@@ -2,9 +2,25 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 )
+
+// Historical migration fixtures seed the pre-150 row shape, not current writers.
+func seedPreQ7WorkCreated(t *testing.T, tx *sql.Tx, event Event) {
+	t.Helper()
+	var payload workCreatedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	stamp := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(t.Context(), `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,'needed',?,1,?,?)`, event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+}
 
 const q7CurrentMetadataFixtureReversal = `
 ALTER TABLE workflow_phase_exits DROP COLUMN record_version;
@@ -88,6 +104,21 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	repopulateQ7CurrentMetadata(t, s)
+	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Result, want.Result) {
+		t.Fatalf("migration150 diverged from current writers:\ngot %+v\nwant %+v", got.Entries, want.Entries)
+	}
+	if gotRows := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(gotRows, wantRows) {
+		t.Fatalf("migration150 metadata:\ngot %v\nwant %v", gotRows, wantRows)
+	}
+}
+
+func repopulateQ7CurrentMetadata(t *testing.T, s *Store) {
+	t.Helper()
 	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -106,15 +137,39 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
-	if err != nil {
+}
+
+func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
+	t.Parallel()
+	s, work := seedQ7CurrentRows(t)
+	read := func() HistoryEntry {
+		t.Helper()
+		page, err := s.QueryQ7(t.Context(), Q7Request{Work: work, RecordKinds: []string{"lifecycle"}})
+		if err != nil || len(page.Entries) != 1 {
+			t.Fatalf("lifecycle page: %+v, %v", page.Entries, err)
+		}
+		return page.Entries[0]
+	}
+	started := read()
+	if started.Lifecycle != "in_progress" || started.From == nil || *started.From != "needed" || started.Version <= 1 {
+		t.Fatalf("first workflow action lost lifecycle metadata: %+v", started)
+	}
+	repopulateQ7CurrentMetadata(t, s)
+	if got := read(); !reflect.DeepEqual(got, started) {
+		t.Fatalf("start backfill: got %+v, want %+v", got, started)
+	}
+	seedWork(t, s, "q7-workflow-successor")
+	v := readWorkVersion(t, s, work)
+	if err := applyWorkEvent(t, s, workSupersededEvent("q7-active-supersession", "q7-workflow-successor", work, v, v+1), workVersion(work, v)); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got.Result, want.Result) {
-		t.Fatalf("migration150 diverged from current writers:\ngot %+v\nwant %+v", got.Entries, want.Entries)
+	want := read()
+	if want.From == nil || *want.From != "in_progress" {
+		t.Fatalf("supersession lost prior lifecycle: %+v", want)
 	}
-	if gotRows := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(gotRows, wantRows) {
-		t.Fatalf("migration150 metadata:\ngot %v\nwant %v", gotRows, wantRows)
+	repopulateQ7CurrentMetadata(t, s)
+	if got := read(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("supersession backfill: got %+v, want %+v", got, want)
 	}
 }
 
@@ -131,5 +186,36 @@ func TestQ7RemovedRelationDoesNotBecomeHistory(t *testing.T) {
 	}
 	if out.Entries == nil || len(out.Entries) != 0 || out.NextCursor != nil {
 		t.Fatalf("removed relation survived through its receipt: %+v", out)
+	}
+}
+
+func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	const work = "q7-created-from"
+	seedWork(t, s, "q7-creation-peer")
+	event := workCreatedEvent(work, "q7-created-from-event")
+	var fields map[string]any
+	if err := json.Unmarshal(event.Payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["from"] = "unrelated-source"
+	event.Payload, _ = json.Marshal(fields)
+	if err := ApplyOperation(t.Context(), s, Operation{
+		Events: []Event{event, operationEvent("q7-created-membership", "work_project.added", SubjectWorkItem, work, map[string]any{
+			"work_id": work, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
+		})},
+		ExpectedVersions: workVersion(work, 0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want, err := s.QueryQ7(t.Context(), Q7Request{Work: work})
+	if err != nil || len(want.Entries) != 1 || want.Entries[0].From != nil {
+		t.Fatalf("creation metadata: %+v, %v", want.Entries, err)
+	}
+	repopulateQ7CurrentMetadata(t, s)
+	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work})
+	if err != nil || !reflect.DeepEqual(got.Result, want.Result) {
+		t.Fatalf("creation metadata backfill: %+v, %v", got.Entries, err)
 	}
 }

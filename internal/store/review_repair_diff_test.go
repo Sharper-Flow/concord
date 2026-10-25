@@ -75,7 +75,7 @@ func TestReviewRepairDispatchDoesNotResetAccumulatedDiffBase(t *testing.T) {
 		if id == "review" {
 			subject = strings.Repeat("b", 40)
 		}
-		foundationAuthorizationForTest(t, db, int64(2+i*2), int64(i+1), id, id, subject, "claim")
+		foundationDispatchForTest(t, db, int64(2+i*2), int64(i+1), id, id, subject, "claim")
 	}
 	base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 5)
 	if err != nil || base != foundation {

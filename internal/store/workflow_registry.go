@@ -1258,13 +1258,10 @@ const workflowPremiseFallback = "workflow premise"
 func actionPremiseField() WorkflowPayloadField {
 	// The enforcing floor is workflowString's workflowStringMinBytes bytes
 	// (UTF-8 bytes, not runes — see validateWorkflowPayloadValue, which now
-	// counts bytes like every fold guard). The declared minimum is raised to
-	// that floor through promoted definition versions
-	// (withCurrentPremiseFloor, CON-412): this builder keeps returning the
-	// released declared minimum because every frozen historical version is
-	// digest-pinned to it, and the contract-payload
-	// workflowString guard refused a one-byte premise everywhere even before
-	// the promotion.
+	// counts bytes like every fold guard). The current action catalog raises
+	// approve_contract's declared minimum to that floor (premiseFloor), and
+	// the contract-payload workflowString guard refuses a shorter premise
+	// wherever this base field applies.
 	return WorkflowPayloadField{Name: "premise", ValueType: PayloadString, Required: true, NonBlank: true, Forbidden: []string{workflowPremiseFallback}, MinLength: workflowInt(1), MaxLength: workflowInt(WorkflowPremiseMaxLength)}
 }
 

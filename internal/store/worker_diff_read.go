@@ -50,16 +50,17 @@ func workerDiffRefusal(detail string) error {
 // firstWorkerEditingSubject never skips an editing authorization with a
 // missing subject. The newest contract with an eligible editing authorization
 // owns the foundation. A correction-only contract and a repairing Review do
-// not reset the accumulated solution's base.
+// not reset the accumulated solution's base. Each earlier authorization is
+// classified by the capability class its attempt recorded at dispatch, not by
+// current lane content, and an unclassifiable row refuses.
 func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,COALESCE(json_extract(r.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(r.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
+	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,a.attempt_id IS NOT NULL,COALESCE(a.capability_class,''),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
 	type editingDispatch struct {
 		contract      int64
-		id, digest    string
 		subject, tree string
 		editing       bool
 	}
@@ -67,16 +68,19 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 	var newestContract int64
 	for rows.Next() {
 		var d editingDispatch
-		if err := rows.Scan(&d.contract, &d.id, &d.digest, &d.subject, &d.tree); err != nil {
+		var attempted bool
+		var class string
+		if err := rows.Scan(&d.contract, &attempted, &class, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
-		lane, err := LookupLane(d.id, d.digest)
-		if err != nil {
-			return "", err
+		if !attempted {
+			return "", workerDiffRefusal("earlier authorization has no recorded worker attempt")
 		}
-		// Review's B→C repair belongs to the accumulated solution. It does
-		// not open a new foundation for that solution's review diff.
-		d.editing = workerLaneEdits(lane.ID, d.digest) && !slices.Contains(lane.Capabilities, "inspect_diff")
+		editing, known := laneFoundationClasses[class]
+		if !known {
+			return "", workerDiffRefusal("earlier worker attempt records no known capability class")
+		}
+		d.editing = editing
 		if d.editing {
 			if d.contract < 1 {
 				return "", workerDiffRefusal("review contract has no recorded approval history")

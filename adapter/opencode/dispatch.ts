@@ -149,9 +149,8 @@ export interface AgentLanePacketWorkerJob {
   unresolved_refs: string[]
   reserved_integration: string
   // The owner-level acceptance oracle of this immutable revision,
-  // carried verbatim from the recorded job. Optional and omitted on every
-  // revision a pre-oracle definition recorded; required by oracle-capable
-  // definition versions. The same copy reaches every admitted lane.
+  // carried verbatim from the recorded job. Present exactly when the
+  // recorded job carries one. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
   direct_caller_allowance?: {
     project_id: string

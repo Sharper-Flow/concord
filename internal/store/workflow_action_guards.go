@@ -927,10 +927,9 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 }
 
 // workflowAcceptDeliveryAdmissionActive reports whether the pinned definition
-// and step admit the combined accept-and-delivery route (CD-0198 D4):
-// workflow.implementation v21+ and workflow.break_fix v19+ at their
-// refinement step. Earlier definition versions keep the behavior and digest
-// they shipped with, and the CD-0166 delivery gate stays record_delivery-only.
+// and step admit the combined accept-and-delivery route (CD-0198 D4): a
+// definition declaring the accept-delivery capability, at its refinement step.
+// The CD-0166 delivery gate stays record_delivery-only.
 func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, currentStep string) bool {
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false
@@ -1008,17 +1007,15 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	}
 	if artifact != "" || state != "" {
 		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step of workflow.implementation v21+ and workflow.break_fix v19+",
+			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step",
 			false, "drop the delivery fields here, or assert the delivery through record_delivery")
 	}
 	return nil
 }
 
 // workflowRefineProofGateActive reports whether the refine-exit proof guard
-// governs record_delivery on this step. The guard is active only for
-// workflow.implementation v18+ and workflow.break_fix v16+ at their
-// refinement step; earlier definition versions keep the behavior and digest
-// they shipped with.
+// governs record_delivery on this step. The guard is active only at the
+// refinement step of a definition declaring the refine-proof capability.
 func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep string) bool {
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false

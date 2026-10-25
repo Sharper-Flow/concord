@@ -21,9 +21,8 @@ import (
 // The two coordinator correction actions publish the classic and the
 // failure-attribution contract as one variant pair : the
 // attribution variants are the authoring halves the promoted heads resolve,
-// and the store validates each call against the exact definition version the
-// work item pins, so publication offering the pair changes no released pin's
-// answer.
+// and the store validates each call against the current definition of the
+// family the work item pins.
 func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinition {
 	recovery := BuiltinWorkflowRecoveryActionDefinitions()
 	canonical := make([]WorkflowActionDefinition, 0, len(recovery)+2)
@@ -36,9 +35,8 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 	// The two coordinator correction actions publish the classic and the
 	// failure-attribution contract as one variant pair: the attribution
 	// variant is the authoring half the promoted heads resolve, and the
-	// store validates each call against the exact definition version the
-	// work item pins, so publication offering the pair changes no released
-	// pin's answer. The widest current contract carries the open-findings
+	// store validates each call against the current definition of the
+	// family the work item pins. The widest current contract carries the open-findings
 	// member the owner-oracle families declare beside the attribution
 	// field, so the pair dedupes into one published variant.
 	for _, actionID := range []string{"reject_worker_result", "request_correction"} {

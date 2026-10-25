@@ -116,7 +116,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 						tree = ""
 					}
 				}
-				foundationAuthorizationForTest(t, db, int64(seq), 1, fmt.Sprintf("attempt:%d", seq), "implement", subject, tree)
+				foundationDispatchForTest(t, db, int64(seq), 1, fmt.Sprintf("attempt:%d", seq), "implement", subject, tree)
 			}
 			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 4)
 			if !hasFailureKind(err, KindUnauthorizedDispatch) || base != "" {

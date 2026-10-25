@@ -90,6 +90,19 @@ func ValidLaneReportBlock(value string) bool {
 	return laneReportBlockVocabulary[value]
 }
 
+// laneFoundationClasses is the closed capability-class vocabulary a recorded
+// attempt carries, mapped to whether a dispatch of that class opens a Review
+// diff foundation. A foundation class edits scoped files without inspecting
+// the diff; Review's repair class edits but belongs to the solution under
+// review. Classifying a recorded class grants no current lane authority.
+var laneFoundationClasses = map[string]bool{
+	"design":         true,
+	"implementation": true,
+	"research":       false,
+	"review":         false,
+	"verification":   false,
+}
+
 // NewBuiltinLaneRegistry validates and loads only generated definitions.
 func NewBuiltinLaneRegistry() LaneRegistry {
 	entries := make(map[string]LaneDefinition, len(generatedLaneDefinitions))

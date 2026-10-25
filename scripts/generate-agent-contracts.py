@@ -171,9 +171,8 @@ def require_delivery_rule_teaching(defs: dict) -> None:
 
     The rule's live owner is the outcome_predicates array shared by
     approve_contract and supersede_contract. The wait-rule teaching retired
-    with add_condition (CD-0218 D1): the wait variant's absence is derived
-    from the retired published actions, so a projected def for it is a stale
-    copy the projection must refuse, never a silently skipped check.
+    with add_condition (CD-0218 D1), so a projected def for its variants is
+    a stale copy the projection must refuse, never a silently skipped check.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None

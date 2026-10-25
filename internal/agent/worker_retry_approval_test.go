@@ -14,6 +14,7 @@ import (
 func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	version, failedID, worktree := seedFailedWorkerRetryMutation(t, s, service, grant)
+	attemptsBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`)
 	grant.Worktree = worktree
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil || pin.Correction == nil {
@@ -32,8 +33,8 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 	if refused.Error == nil || !strings.Contains(refused.Error.Message, "fresh attempt identity") {
 		t.Fatalf("reused failed identity = %+v, want fresh-identity refusal", refused.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
-		t.Fatalf("reused identity created %d attempts, want 1", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != attemptsBefore {
+		t.Fatalf("reused identity left %d attempts, want %d", got, attemptsBefore)
 	}
 	input["idempotency_key"] = "retry-fresh-identity"
 	input["fields"] = map[string]any{"attempt_id": "attempt:work-1:fresh", "worker_packet": retryMutationPacket(t, s, "attempt:work-1:fresh", pin.Correction)}
@@ -46,8 +47,8 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
 		t.Fatalf("retry replay = %+v", replayed)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 2 {
-		t.Fatalf("fresh retry and replay created %d attempts, want 2", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != attemptsBefore+1 {
+		t.Fatalf("fresh retry and replay left %d attempts, want %d", got, attemptsBefore+1)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("retry minted %d approval challenges", got)
@@ -60,7 +61,7 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 
 func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	if unconsuming.Error == nil || !strings.Contains(unconsuming.Error.Message, "does not consume the current correction context") {
 		t.Fatalf("unconsuming packet=%+v", unconsuming.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='implementation'`); got != 1 {
 		t.Fatalf("refused retry created %d attempts, want 1", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND action_id='record_worker_failure'`); got != 1 {
@@ -125,13 +126,17 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	}
 }
 
-func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
+func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, service *Service, grant Authority) string {
 	t.Helper()
 	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
+	grant.Worktree = seedWorkerRetryMutationFixtureAt(t, s, grant, registered)
+	env := mutationEnvelope(grant, mustScopeVersion(t, s))
+	recordReadyRetryJob(t, s, service, env, "job:retry-architecture-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+	return grant.Worktree
 }
 
 func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) string {
@@ -161,6 +166,7 @@ func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Author
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:retry-objective", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:retry-objective", "immutable_subject_ref": "commit:retry-objective", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "retry-fixture")
+	runVerificationStoreAction(t, s, "record_design", workflowDesignFieldsFixture("retry-fixture"), owner, "retry-fixture-design")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:retry", "retry", strings.Repeat("a", 40), path, "repo:retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -204,7 +210,7 @@ func agentWorkerFailedAttributedEvent(eventID string, payload store.WorkerFailed
 
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
-	path := seedWorkerRetryMutationFixture(t, s, grant)
+	path := seedWorkerRetryMutationFixture(t, s, service, grant)
 	grant.Worktree = path
 	attemptID := "attempt:work-1:failed"
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")

@@ -47,7 +47,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		contractFields["law_change_removes_user_visible_behavior"] = false
 		contractFields["law_change_touches_security_or_data_safety"] = false
 	}
-	contract, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
+	contract, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}

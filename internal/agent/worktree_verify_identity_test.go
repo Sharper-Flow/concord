@@ -56,6 +56,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:verify-identity", "immutable_subject_ref": "commit:verify-identity", "expected_result": "pass"}}}
 			fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 			verifyIdentityAction(t, s, "approve_contract", fields, grantActor, now)
+			verifyIdentityAction(t, s, "record_design", workflowDesignFieldsFixture("verify-identity"), grantActor, now)
 			// The producer pass opens with its fenced start, and its declared
 			// delivery enters refine, so the refinement step opens with no
 			// start of its own and the verdict route reads the execution

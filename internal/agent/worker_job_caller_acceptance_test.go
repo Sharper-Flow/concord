@@ -81,6 +81,8 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scope)
+			recordReadyRetryJob(t, s, service, env, "job:caller-architecture-review")
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			invoke := func(action, key string, fields map[string]any, caller CallEnvelope) Envelope {
 				t.Helper()
 				caller.RequestID = "request:" + key
@@ -201,7 +203,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 					t.Fatalf("contained caller acceptance: %+v", out.Error)
 				}
 				var revisions int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_job_revisions WHERE work_id='work-1'`).Scan(&revisions); err != nil || revisions != 1 {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_job_revisions WHERE work_id='work-1' AND job_id='job:caller'`).Scan(&revisions); err != nil || revisions != 1 {
 					t.Fatalf("above-cap acceptance needed another assignment: revisions=%d err=%v", revisions, err)
 				}
 			} else {

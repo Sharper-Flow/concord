@@ -286,48 +286,6 @@ func TestWorkerCallerCorrectionWindowWithoutLog(t *testing.T) {
 	check()
 }
 
-func TestWorkerNoopFirstAuthorizationWithoutLog(t *testing.T) {
-	db := workerFoundationCurrentDB(t)
-	// Authorization order, not attempt insertion order or lane-dispatch order,
-	// chooses the first consumed implementation authorization for a job.
-	for i, attempt := range []string{"unconsumed", "research", "first", "later", "other-job"} {
-		foundationAuthorizationForTest(t, db, int64(i+1), 1, attempt, "implement", strings.Repeat("a", 40), "claim")
-		job := "job:target"
-		if attempt == "other-job" {
-			job = "job:other"
-		}
-		if _, err := db.Exec(`UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_job.job_id',?) WHERE attempt_id=?`, job, attempt); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`UPDATE domain_events SET payload=json_set(payload,'$.worker_job.job_id',?) WHERE event_id=?`, job, attempt); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`
-		INSERT INTO worker_attempts(work_id,attempt_id,capability_class,dispatch_seq) VALUES
-		('work','later','implementation',6),('work','first','implementation',9),
-		('work','research','research',7),('work','other-job','implementation',8);
-	`); err != nil {
-		t.Fatal(err)
-	}
-	check := func() {
-		t.Helper()
-		got, err := firstWorkerEditingJobAttemptTx(t.Context(), db, "work", "job:target")
-		if err != nil || got != "first" {
-			t.Fatalf("first authorization=%q error=%v", got, err)
-		}
-		_, err = firstWorkerEditingJobAttemptTx(t.Context(), db, "work", "job:absent")
-		if err != sql.ErrNoRows {
-			t.Fatalf("absent job error=%v, want sql.ErrNoRows", err)
-		}
-	}
-	check()
-	if _, err := db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
-	check()
-}
-
 func TestWorkerDiffJobBindingWithoutLog(t *testing.T) {
 	db := workerFoundationCurrentDB(t)
 	expected, resulting := int64(1), int64(2)

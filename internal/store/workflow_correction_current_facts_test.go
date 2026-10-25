@@ -54,11 +54,11 @@ func TestWorkflowCorrectionDuplicateRepairRecordingPreservesBackfill(t *testing.
 	s := fixture.store
 	defer s.Close()
 	ctx := t.Context()
-	reviewSubjectClaim(t, s, workID)
+	native := newChecksRepairNativeFixture(t, s, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/repair-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	record := func(checks string, revisions []int64) *WorkerJobBinding {
 		t.Helper()
-		if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, checksRepairRepairFields(checks, revisions)); err != nil {
+		if err := native.record(t, fixture.owner, checksRepairRepairFields(checks, revisions)); err != nil {
 			t.Fatal(err)
 		}
 		views, err := readWorkerJobRevisions(ctx, s.db, workID)
@@ -76,7 +76,7 @@ func TestWorkflowCorrectionDuplicateRepairRecordingPreservesBackfill(t *testing.
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", "attempt:duplicate-repair", pin.Correction, worker, pin.Version, "duplicate-repair", repair)
-	completeChecksRepairAttemptObserved(t, s, workID, "attempt:duplicate-repair", "duplicate-repair-completed")
+	completeChecksRepairAttemptObserved(t, s, workID, "attempt:duplicate-repair", "duplicate-repair-completed", native.execute(t, "attempt:duplicate-repair"))
 	acceptChecksRepairAttempt(t, s, workID, "attempt:duplicate-repair", reviewGateAcceptor(workID))
 	if err := dispatchConfirmingReview(t, s, workID, "attempt:duplicate-confirm", repair, fixture.owner); err != nil {
 		t.Fatal(err)

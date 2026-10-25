@@ -10123,7 +10123,7 @@
         },
         "branch": {
           "type": "string",
-          "maxLength": 128
+          "maxLength": 256
         },
         "path": {
           "type": "string",
@@ -10173,7 +10173,7 @@
             "branch": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 256
             },
             "path": {
               "type": "string",
@@ -10220,7 +10220,7 @@
             },
             "branch": {
               "type": "string",
-              "maxLength": 128
+              "maxLength": 256
             },
             "path": {
               "type": "string",
@@ -10271,7 +10271,7 @@
         "branch": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 256
         },
         "path": {
           "type": "string",

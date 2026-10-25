@@ -1003,7 +1003,7 @@ func removeClaimCreation(ctx context.Context, runner GitRunner, created Worktree
 func worktreeAddFailure(ctx context.Context, runner GitRunner, repoRoot, path, branch string, newBranch bool, addErr error) error {
 	cause := wrapFailure(KindGitUnreachable, "worktree_claim", "native worktree creation failed; the claim stays pending for reconciliation", true, "retry the same operation with the same op id", addErr)
 	ctx = context.WithoutCancel(ctx)
-	if _, statErr := os.Lstat(path); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(path); statErr == nil || !errors.Is(statErr, os.ErrNotExist) { //nolint:gosec // G703: path is the pinned store-derived claim location used for git worktree add, never a caller-supplied filesystem path.
 		cause.EffectPossible = true
 		return cause
 	}

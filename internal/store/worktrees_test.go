@@ -630,7 +630,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	auditWork(t, s, git, "retired-audit", false)
 	auditWork(t, s, git, "actionable-audit", false)
 	modelHistoricalInitiative(t, s, "retired-audit")
-	before := planningEventCount(t, s.db)
+	before := countRows(t, s, "effect_receipts")
 	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
 		t.Fatal(err)
@@ -650,7 +650,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	if !actionableFound || !historicalClaimFound {
 		t.Fatalf("audit lost actionable work or historical claim visibility: %+v", audit.Drift)
 	}
-	if after := planningEventCount(t, s.db); after != before {
+	if after := countRows(t, s, "effect_receipts"); after != before {
 		t.Fatalf("audit appended events: before=%d after=%d", before, after)
 	}
 }

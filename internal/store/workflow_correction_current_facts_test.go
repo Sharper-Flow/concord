@@ -35,7 +35,7 @@ func TestWorkflowCorrectionCurrentFactsWithoutLog(t *testing.T) {
 	if err != nil || want == nil {
 		t.Fatalf("dispatch correction fixture: %+v, %v", want, err)
 	}
-	repopulateWorkflowCurrentFactsForTest(t, f.s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, f.s)
 	got, err := workflowCorrectionContextForDispatch(ctx, f.s.db, f.workID, "investigate", "")
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("migration must preserve correction identity and directions: got %+v, want %+v, err %v", got, want, err)
@@ -106,14 +106,14 @@ func TestWorkflowCorrectionDuplicateRepairRecordingPreservesBackfill(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := readWorkflowCorrectionStateForMigration(ctx, s.db, workID, int64(1)<<62, "migrate")
-	if err != nil {
-		t.Fatal(err)
+	// A duplicate recording resets the repair's acceptance and confirming
+	// attempt in both producers. The prefix owns the complete independent walk.
+	assertDuplicateRepairCorpus142(t)
+	wantRepair := &workflowChecksRepairState{binding: *repair, namedKeys: []string{workerJobKey(first.JobID, first.Revision)}, contractVersion: 1}
+	if !reflect.DeepEqual(h.checksRepairs[key], wantRepair) {
+		t.Fatalf("duplicate repair current authority = %+v, want %+v", h.checksRepairs[key], wantRepair)
 	}
-	if !reflect.DeepEqual(h.checksRepairs[key], legacy.checksRepairs[key]) {
-		t.Fatalf("duplicate repair recording must retain legacy authority semantics: current %+v, migration %+v", h.checksRepairs[key], legacy.checksRepairs[key])
-	}
-	repopulateWorkflowCurrentFactsForTest(t, s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	after, err := readWorkflowCorrectionFacts(ctx, s.db, workID, "workflow_action")
 	if err != nil || !reflect.DeepEqual(h.checksRepairs[key], after.checksRepairs[key]) {
 		t.Fatalf("duplicate repair recording backfill changed authority: before %+v, after %+v, err %v", h.checksRepairs[key], after, err)

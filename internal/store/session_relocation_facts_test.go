@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -227,58 +228,125 @@ func TestSessionRelocationBackfillMatchesTheFolds(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
 	req.SessionRef = "ses-x"
-	if _, err := s.ClaimWorktree(ctx, req); err != nil {
+	claim, err := s.ClaimWorktree(ctx, req)
+	if err != nil {
 		t.Fatal(err)
 	}
 	source := claimPath(s)
-	if _, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: source, HostPID: os.Getpid(), Now: time.Unix(45, 0).UTC()}); err != nil {
+	claimLanding, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: source, HostPID: os.Getpid(), Now: time.Unix(45, 0).UTC()})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{vacateRequestEvent("backfill-request-1", source)}}); err != nil {
+	corpus := []Event{{EventID: "work-w:session-claim-landed:ses-x:1", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-x", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: claim.Entry.ClaimOpID, SessionRef: "ses-x", SourceDirectories: claimLanding.ReleasedSources, LandedDirectory: source, HostPID: os.Getpid(), HostPIDStart: claimLanding.HostPIDStart})}}
+	first := vacateRequestEvent("backfill-request-1", source)
+	corpus = append(corpus, first)
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{first}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC()}); err != nil {
+	landing, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC()})
+	if err != nil {
 		t.Fatal(err)
 	}
-	insertHistoricalEvent(t, s, Event{
-		EventID: "backfill-v1", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "ses-old", OccurredAt: time.Unix(61, 0).UTC(), PayloadVersion: 1,
-		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + source + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
-	})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		vacateRequestEvent("backfill-request-2", source),
-	}}); err != nil {
+	landingEvent := func(work string, result SessionVacateLandingResult, at int64) Event {
+		return Event{EventID: work + ":session-vacate-landed:ses-x:1", Kind: "work.session_vacate_landed", SubjectType: SubjectWorkItem, SubjectID: work, Actor: "ses-x", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 1,
+			Payload: mustJSONValue(sessionVacateLandedPayload{WorkID: work, ProjectID: "project-w", SessionRef: "ses-x", SourceDirectories: result.ReleasedSources, DestinationDirectory: "/data/repo-main", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), HostPIDStart: result.HostPIDStart})}
+	}
+	corpus = append(corpus, landingEvent("work-w", landing, 60))
+	second := vacateRequestEvent("backfill-request-2", source)
+	corpus = append(corpus, second)
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{second}}); err != nil {
 		t.Fatal(err)
 	}
 	other := vacateRequestEvent("backfill-other-work", source)
 	other.SubjectID = "work-relocation-other"
 	other.Payload = mustJSONValue(sessionVacatedPayload{WorkID: other.SubjectID, ProjectID: "project-w", SessionRef: "ses-x", SourceDirectory: source, DestinationDirectory: "/data/repo-main"})
+	corpus = append(corpus, other)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{other}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: other.SubjectID, SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(62, 0).UTC()}); err != nil {
+	otherLanding, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{WorkID: other.SubjectID, SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(62, 0).UTC()})
+	if err != nil {
 		t.Fatal(err)
 	}
-	insertHistoricalEvent(t, s, Event{
-		EventID: "backfill-unbound-claim", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "ses-old", OccurredAt: time.Unix(63, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", SessionRef: "ses-old", LandedDirectory: source}),
-	})
+	corpus = append(corpus, landingEvent(other.SubjectID, otherLanding, 62))
 	folded := relocationFactRows(t, s)
 	if len(folded) != 3 || !strings.HasSuffix(folded[0], "|1") || !strings.HasSuffix(folded[1], "|0") {
 		t.Fatalf("folded rows=%v, want the landed cross-work request, pending second request, and one claim landing", folded)
 	}
+	// CD-0242 D2 removes the current-store replay construction. Migration141
+	// still consumes a complete, explicit relocation population at prefix140.
+	path := filepath.Join(t.TempDir(), "relocation-140.db")
+	db := openMigratedTo(t, path, 140)
+	var currentPopulation int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind IN ('work.session_vacated','work.session_vacate_landed','work.session_claim_landed')`).Scan(&currentPopulation); err != nil || currentPopulation != len(corpus) {
+		t.Fatalf("current relocation population=%d,%v; corpus=%d", currentPopulation, err, len(corpus))
+	}
+	for _, event := range corpus {
+		var seq int64
+		var digest string
+		if err := s.db.QueryRow(`SELECT effect_seq,payload_digest FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&seq, &digest); err != nil {
+			t.Fatal(err)
+		}
+		if digest != historicalFixturePayloadDigest(t, string(event.Payload)) {
+			t.Fatalf("explicit relocation source %s differs from live route", event.EventID)
+		}
+		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	excluded := []Event{
+		{EventID: "backfill-v1", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-old", OccurredAt: time.Unix(61, 0).UTC(), PayloadVersion: 1,
+			Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + source + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`)},
+		{EventID: "backfill-unbound-claim", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-old", OccurredAt: time.Unix(63, 0).UTC(), PayloadVersion: 1,
+			Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", SessionRef: "ses-old", LandedDirectory: source})},
+	}
+	insertHistoricalEvents(t, db, excluded)
+	before := histEventRows(t, &Store{db: db})
+	for _, row := range before {
+		t.Logf("migration141 source seq=%d id=%s kind=%s actor=%s time=%s digest=%s", row.Seq, row.EventID, row.Kind, row.Actor, row.OccurredAt, historicalFixturePayloadDigest(t, row.Payload))
+	}
+	if len(before) != len(corpus)+2 {
+		t.Fatalf("historical relocation population=%d, want %d", len(before), len(corpus)+2)
+	}
+	advanceHistoricalPrefix(t, db, 141)
+	upgraded := &Store{db: db, path: path}
+	if got := relocationFactRows(t, upgraded); !reflect.DeepEqual(got, folded) {
+		t.Fatalf("migration141 latest-request/landing selection: got %v, want %v", got, folded)
+	}
 	var sequencesMatch bool
-	if err := s.DatabaseForTesting().QueryRow(`SELECT NOT EXISTS(SELECT 1 FROM session_vacate_requests r WHERE r.request_seq<>(SELECT max(seq) FROM domain_events e WHERE e.kind='work.session_vacated' AND e.payload_version=2 AND e.subject_id=r.work_id AND json_extract(e.payload,'$.session_ref')=r.session_ref AND json_extract(e.payload,'$.project_id')=r.project_id AND json_extract(e.payload,'$.source_directory')=r.source_directory))`).Scan(&sequencesMatch); err != nil || !sequencesMatch {
+	if err := db.QueryRow(`SELECT NOT EXISTS(SELECT 1 FROM session_vacate_requests r WHERE r.request_seq<>(SELECT max(seq) FROM domain_events e WHERE e.kind='work.session_vacated' AND e.payload_version=2 AND e.subject_id=r.work_id AND json_extract(e.payload,'$.session_ref')=r.session_ref AND json_extract(e.payload,'$.project_id')=r.project_id AND json_extract(e.payload,'$.source_directory')=r.source_directory))`).Scan(&sequencesMatch); err != nil || !sequencesMatch {
 		t.Fatalf("request sequences match their writing effects=%v err=%v", sequencesMatch, err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DELETE FROM schema_migrations WHERE version=141`); err != nil {
+	if got := histEventRows(t, upgraded); !reflect.DeepEqual(got, before) {
+		t.Fatal("relocation migration changed original bytes, actor, identity, sequence or time")
+	}
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, s.DatabaseForTesting()); err != nil {
-		t.Fatal(err)
-	}
-	if backfilled := relocationFactRows(t, s); strings.Join(backfilled, "\n") != strings.Join(folded, "\n") {
+	assertHistoricalReceipts(t, db, before)
+	assertEventLogAbsent(t, upgraded)
+	if backfilled := relocationFactRows(t, upgraded); strings.Join(backfilled, "\n") != strings.Join(folded, "\n") {
 		t.Fatalf("backfill rows:\n%s\nfolded rows:\n%s", strings.Join(backfilled, "\n"), strings.Join(folded, "\n"))
 	}
+	for _, row := range before {
+		if row.Kind == "work.session_vacated" && row.Version == 2 {
+			var p sessionVacatedPayload
+			if err := json.Unmarshal([]byte(row.Payload), &p); err != nil {
+				t.Fatal(err)
+			}
+			if row.EventID != second.EventID && row.SubjectID == "work-w" {
+				continue
+			}
+			var seq int64
+			if err := db.QueryRow(`SELECT request_seq FROM session_vacate_requests WHERE work_id=? AND session_ref=? AND project_id=? AND source_directory=?`, row.SubjectID, p.SessionRef, p.ProjectID, p.SourceDirectory).Scan(&seq); err != nil || seq != row.Seq {
+				t.Fatalf("%s request sequence=%d,%v; want %d", row.EventID, seq, err, row.Seq)
+			}
+		}
+	}
+	queries := []string{
+		`SELECT json_array(work_id,session_ref,project_id,source_directory,destination_directory,landed) FROM session_vacate_requests ORDER BY work_id,session_ref,project_id,source_directory`,
+		`SELECT json_array(work_id,session_ref,project_id,claim_op_id) FROM session_claim_landings ORDER BY work_id,session_ref,project_id,claim_op_id`,
+	}
+	assertCorpusSelectionRed(t, historicalFactCorpus{events: append(corpus, excluded...), parents: func(*testing.T, *Store, string) {}}, 141, "SELECT max(o.seq)", "SELECT min(o.seq)", queries, workerFactsQueryRows(t, s, queries))
 }

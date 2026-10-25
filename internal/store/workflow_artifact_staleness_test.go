@@ -52,18 +52,10 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 
 // stalenessEvent supplies trusted current descriptors without authorizing an
 // action. The live-writer tests separately exercise admission and persistence.
-func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
+func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event {
 	t.Helper()
-	var nextSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0)+1 FROM domain_events`).Scan(&nextSeq); err != nil {
-		t.Fatal(err)
-	}
 	actorRef, err := WorkflowActorRef(stepFixtureActor())
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`,
-		workID+":"+kind+":"+fmt.Sprint(nextSeq), kind, string(SubjectWorkItem), workID, actorRef, "2026-01-02T00:00:00Z", payload); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.db.BeginTx(t.Context(), nil)
@@ -74,7 +66,16 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	event := Event{Seq: nextSeq, EventID: workID + ":" + kind + ":" + fmt.Sprint(nextSeq), Kind: kind, SubjectID: workID, Actor: actorRef, PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	var lastSeq int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts`).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{EventID: workID + ":" + kind + ":after:" + fmt.Sprint(lastSeq), Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	nextSeq, err := appendPreparedEvent(t.Context(), tx, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Seq = nextSeq
 	switch kind {
 	case WorkflowActionStarted:
 		var start workflowActionStartedPayload
@@ -141,6 +142,7 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	return event
 }
 
 func stalenessActionPayload(step, action string) string {
@@ -208,8 +210,9 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	assertEpoch(61)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
 	assertEpoch(62)
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO retired_domain_events`); err != nil {
-		t.Fatal(err)
+	var logs int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logs); err != nil || logs != 0 {
+		t.Fatalf("event log tables=%d, want zero: %v", logs, err)
 	}
 	assertEpoch(62)
 	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution"); !hasFailureKind(err, KindIllegalLifecycleTransition) {

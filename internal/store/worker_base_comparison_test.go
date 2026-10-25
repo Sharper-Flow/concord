@@ -50,7 +50,7 @@ func TestWorkerCompletionCarriesBaseComparisonDurably(t *testing.T) {
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "base-comparison-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "base-comparison-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -94,7 +94,7 @@ func TestWorkerCompletionAdmitsBaseComparisonSchemaBounds(t *testing.T) {
 				t.Fatalf("completion at the schema bound was refused: %v", err)
 			}
 			var stored []byte
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "base-comparison-bound-complete").Scan(&stored); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "base-comparison-bound-complete", WorkerCompleted).Scan(&stored); err != nil {
 				t.Fatal(err)
 			}
 			var durable WorkerCompletedPayload
@@ -173,7 +173,7 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 		t.Fatalf("completion without base_comparison was refused: %v", err)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "no-comparison-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "no-comparison-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(stored), "base_comparison") {

@@ -84,7 +84,7 @@ func TestWorktreeSettlementSequenceUsesCurrentCounts(t *testing.T) {
 	}
 	queries := []string{`SELECT json_array(claim_incarnation,settlement_count) FROM worktree_ref_outcomes ORDER BY set_id,project_id,claim_op_id,claim_incarnation,branch`}
 	want := workerFactsQueryRows(t, s, queries)
-	repopulateSessionWindowCurrentFactsForTest(t, s)
+	assertSessionWindowCorpus144(t)
 	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("settlement backfill=%v, want folded counts %v", got, want)
 	}

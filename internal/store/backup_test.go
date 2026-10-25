@@ -769,15 +769,46 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	defer s.Close()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}}); err != nil {
-		t.Fatal(err)
-	}
 	// This payload is deliberately not a valid mutation. Current-state recovery
 	// must not run it or use it to replace the materialized Product rows.
 	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, invalid.EventID, invalid.Kind, string(invalid.SubjectType), invalid.SubjectID, invalid.Actor, invalid.OccurredAt.Format(time.RFC3339Nano), invalid.PayloadVersion, string(invalid.Payload)); err != nil {
+	path := filepath.Join(t.TempDir(), "historical-backup.db")
+	db := openMigratedTo(t, path, 144)
+	valid := []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}
+	insertHistoricalEvents(t, db, append(valid, invalid))
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for i, event := range valid {
+		event.Seq = int64(i + 1)
+		if err := applyEffect(ctx, tx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	wantDigest, err := effectPayloadDigest(invalid.Payload)
+	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -804,11 +835,11 @@ func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	for _, db := range []*sql.DB{s.db, restored} {
 		var stored string
 		var storedVersion int
-		if err := db.QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+		if err := db.QueryRow(`SELECT payload_digest,payload_version FROM effect_receipts WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
 			t.Fatal(err)
 		}
-		if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
-			t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+		if stored != wantDigest || storedVersion != invalid.PayloadVersion {
+			t.Fatalf("recorded receipt changed: %q v%d, want %q v%d", stored, storedVersion, wantDigest, invalid.PayloadVersion)
 		}
 	}
 }

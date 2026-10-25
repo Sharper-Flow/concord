@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateWorkerDispatchWorktreeCanonicalizesSymlinks(t *testing.T) {
@@ -309,19 +310,22 @@ SELECT set_id,'project-2','claim-2',branch,base_sha,?,'repo-2',state,verified_at
 	if !withAuthorization {
 		actions = nil
 	}
+	var startEvent Event
 	for _, action := range actions {
 		raw, err := json.Marshal(action.payload)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-completion','actor:test','2026-09-05T00:00:00Z',?,?)`, action.id, action.kind, eventKindRegistry[action.kind].CurrentVersion, raw); err != nil {
+		event := Event{EventID: action.id, Kind: action.kind, SubjectType: SubjectWorkItem, SubjectID: "work-completion", Actor: "actor:test", OccurredAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), PayloadVersion: eventKindRegistry[action.kind].CurrentVersion, Payload: raw}
+		event.Seq, err = appendPreparedEvent(t.Context(), tx, event)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	if withAuthorization {
-		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,'attempt-completion',completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id='completion-window-started' WHERE completion.event_id='completion-window-finished'`); err != nil {
+		if action.kind == WorkflowActionStarted {
+			startEvent = event
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,'attempt-completion',?,?,?,?,?)`, event.SubjectID, event.Seq, string(event.Payload), event.EventID, startEvent.Seq, string(startEvent.Payload)); err != nil {
 			t.Fatal(err)
 		}
 	}

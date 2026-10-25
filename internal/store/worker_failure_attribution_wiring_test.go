@@ -632,8 +632,14 @@ func verifyStoredCorrectionAttribution(t *testing.T, s *Store, workID, actionID 
 	t.Helper()
 	var seq int64
 	var attempt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id=? ORDER BY seq DESC LIMIT 1`, workID, actionID).Scan(&seq, &attempt); err != nil {
-		t.Fatal(err)
+	if actionID == "request_correction" {
+		if err := s.db.QueryRow(`SELECT exit_seq FROM workflow_phase_exits WHERE work_id=? AND action_id=?`, workID, actionID).Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := s.db.QueryRow(`SELECT seq,attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id=? ORDER BY seq DESC LIMIT 1`, workID, actionID).Scan(&seq, &attempt); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return verifyCoordinatorFailureAttributionTx(context.Background(), s.DatabaseForTesting(), workID, actionID, attempt, block, seq)
 }

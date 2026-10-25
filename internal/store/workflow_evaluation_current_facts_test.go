@@ -24,7 +24,7 @@ func TestWorkflowEvaluationAuthorityCurrentFactsWithoutLog(t *testing.T) {
 	}
 	queries := []string{`SELECT json_array(actor_ref,first_dispatch_seq) FROM workflow_worker_actors ORDER BY actor_ref`}
 	want := workerFactsQueryRows(t, f.s, queries)
-	repopulateWorkflowCurrentFactsForTest(t, f.s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, f.s)
 	if got := workerFactsQueryRows(t, f.s, queries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("worker-role backfill changed identity: got %v, want %v", got, want)
 	}

@@ -46,12 +46,16 @@ func TestWorkflowSuccessorUsesDefinitionFamilyForComposition(t *testing.T) {
 	if result.ResultingVersion != version+2 {
 		t.Fatalf("link resulting version = %d, want %d", result.ResultingVersion, version+2)
 	}
-	var eventKind, payloadKind, payloadDefinition string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind,json_extract(payload,'$.successor_kind'),json_extract(payload,'$.definition_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, sourceID, WorkflowSuccessorLinked).Scan(&eventKind, &payloadKind, &payloadDefinition); err != nil {
+	var eventKind, digest string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, sourceID, WorkflowSuccessorLinked).Scan(&eventKind, &digest); err != nil {
 		t.Fatal(err)
 	}
-	if eventKind != WorkflowSuccessorLinked || payloadKind != "task" || payloadDefinition != "workflow.break_fix" {
-		t.Fatalf("link event = (%q, %q, %q), want successor_kind task and workflow.break_fix", eventKind, payloadKind, payloadDefinition)
+	want, err := effectPayloadDigest(mustJSONValue(map[string]any{
+		"work_id": sourceID, "expected_version": version, "resulting_version": version + 1,
+		"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": "task", "definition_ref": "workflow.break_fix",
+	}))
+	if err != nil || eventKind != WorkflowSuccessorLinked || digest != want {
+		t.Fatalf("link receipt kind=%q digest=%q, want the exact task/break-fix successor payload %q: %v", eventKind, digest, want, err)
 	}
 }
 

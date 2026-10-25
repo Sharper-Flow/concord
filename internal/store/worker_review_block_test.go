@@ -272,7 +272,7 @@ func TestStaleReviewLaneDigestRefusesWithoutChangingEvidence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, current, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_digest=? WHERE attempt_id=?; DELETE FROM fold_guard`, legacyDigest, attemptID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET lane_digest=? WHERE attempt_id=?; DELETE FROM write_guard`, legacyDigest, attemptID); err != nil {
 		t.Fatal(err)
 	}
 	before := workerProjectionSnapshot(t, s)

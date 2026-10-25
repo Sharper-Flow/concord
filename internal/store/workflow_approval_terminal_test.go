@@ -303,18 +303,18 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
 	version := readWorkVersion(t, s, workID)
+	contractEvent := resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
+		"contract_version": 1, "premise": "deliver the checked change",
+		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("approval-absent-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
 			workflowActionCompletedFixture("approval-absent-discovery-"+workID, workID, ownerRef, version+1, "discovery", "record_discovery"),
 			workflowActionCompletedFixture("approval-absent-design-"+workID, workID, ownerRef, version+2, "design", "record_design"),
-			resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
-				"contract_version": 1, "premise": "deliver the checked change",
-				"outcome_kind":      "check",
-				"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-				"required_evidence": []string{"verification"}, "route_conventions": []string{},
-				"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			}),
+			contractEvent,
 			workflowActionCompletedFixture("approval-absent-planning-"+workID, workID, ownerRef, version+4, "planning", "approve_contract"),
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
@@ -329,12 +329,13 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&premise, &domainsAbsent); err != nil {
 		t.Fatal(err)
 	}
-	var contractPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractPayload); err != nil {
+	var contractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&contractDigest); err != nil {
 		t.Fatalf("read the absent contract event: %v", err)
 	}
-	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
-		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
+	wantDigest, err := effectPayloadDigest(contractEvent.Payload)
+	if err != nil || domainsAbsent != 1 || strings.Contains(string(contractEvent.Payload), "decision_domains") || contractDigest != wantDigest {
+		t.Fatalf("the legacy contract NULL=%d digest=%q, want the exact absent-fact payload %q: %v", domainsAbsent, contractDigest, wantDigest, err)
 	}
 	// The higher version arrives after the legacy history, as an upgrade
 	// does: the legacy definition was current when the item selected it.
@@ -376,12 +377,12 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if active != 1 {
 		t.Fatalf("the carry forward left %d active contracts, want the absent-fact contract kept authoritative", active)
 	}
-	var carriedPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&carriedPayload); err != nil {
+	var carriedContractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&carriedContractDigest); err != nil {
 		t.Fatalf("reread the absent contract event: %v", err)
 	}
-	if string(carriedPayload) != string(contractPayload) {
-		t.Fatalf("the carry forward rewrote the absent contract event to %s, want %s preserved", carriedPayload, contractPayload)
+	if carriedContractDigest != contractDigest {
+		t.Fatalf("the carry forward rewrote the absent contract digest to %q, want %q preserved", carriedContractDigest, contractDigest)
 	}
 	if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
 		t.Fatalf("the carry forward moved the execution actor to %q, want the owner %s", executionActor, ownerRef)

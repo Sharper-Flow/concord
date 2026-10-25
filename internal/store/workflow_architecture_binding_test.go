@@ -555,17 +555,23 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 			DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
-		var contractRaw []byte
-		if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractRaw); err != nil {
+		contract, err := readWorkflowContractVersion(ctx, s.db, workID, 1)
+		if err != nil {
 			t.Fatal(err)
 		}
+		current := pContractSuccessor(t, s, workID, contract.Premise)
+		delete(current, "supersede_reason")
+		delete(current, "audit_evidence")
 		var successor map[string]any
-		if err := json.Unmarshal(contractRaw, &successor); err != nil {
+		if err := json.Unmarshal(mustJSONValue(current), &successor); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"work_id", "expected_version", "resulting_version"} {
-			delete(successor, key)
+		var consequence string
+		var lawBoundary int
+		if err := s.db.QueryRow(`SELECT consequence_class,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&consequence, &lawBoundary); err != nil {
+			t.Fatal(err)
 		}
+		successor["consequence_class"], successor["law_boundary_version"] = consequence, lawBoundary
 		var lawHash string
 		if err := s.db.QueryRow(`SELECT content_hash FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`).Scan(&lawHash); err != nil {
 			t.Fatal(err)

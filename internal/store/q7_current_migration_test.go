@@ -23,22 +23,6 @@ func seedPreQ7WorkCreated(t *testing.T, tx *sql.Tx, event Event) {
 	}
 }
 
-const q7CurrentMetadataFixtureReversal = `
-ALTER TABLE workflow_phase_exits DROP COLUMN record_version;
-ALTER TABLE workflow_phase_exits DROP COLUMN contract_version;
-ALTER TABLE workflow_phase_exits DROP COLUMN step_id;
-ALTER TABLE workflow_phase_exits DROP COLUMN actor;
-ALTER TABLE relations DROP COLUMN record_version;
-ALTER TABLE relations DROP COLUMN reason;
-DROP INDEX effect_receipts_relation_seq;
-ALTER TABLE work_items DROP COLUMN transition_version;
-ALTER TABLE work_items DROP COLUMN transition_seq;
-ALTER TABLE work_items DROP COLUMN transition_evidence_refs;
-ALTER TABLE work_items DROP COLUMN transition_actor;
-ALTER TABLE work_items DROP COLUMN transition_reason;
-ALTER TABLE work_items DROP COLUMN transition_from;
-`
-
 func seedQ7CurrentRows(t *testing.T) (*Store, string) {
 	t.Helper()
 	const work = "q7-all-current-rows"
@@ -107,7 +91,7 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
@@ -117,28 +101,6 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	}
 	if gotRows := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(gotRows, wantRows) {
 		t.Fatalf("migration150 metadata:\ngot %v\nwant %v", gotRows, wantRows)
-	}
-}
-
-func repopulateQ7CurrentMetadata(t *testing.T, s *Store) {
-	t.Helper()
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(q7CurrentMetadataFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 150 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -157,7 +119,7 @@ func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	if started.Lifecycle != "in_progress" || started.From == nil || *started.From != "needed" || started.Version <= 1 {
 		t.Fatalf("first workflow action lost lifecycle metadata: %+v", started)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	if got := read(); !reflect.DeepEqual(got, started) {
 		t.Fatalf("start backfill: got %+v, want %+v", got, started)
 	}
@@ -170,7 +132,7 @@ func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	if want.From == nil || *want.From != "in_progress" {
 		t.Fatalf("supersession lost prior lifecycle: %+v", want)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	if got := read(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("supersession backfill: got %+v, want %+v", got, want)
 	}

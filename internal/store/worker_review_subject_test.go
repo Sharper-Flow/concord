@@ -137,20 +137,17 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	result, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
-		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw))
+	event := Event{EventID: workID + ":review-accept:" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: operatorRef, OccurredAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), PayloadVersion: 2, Payload: raw}
+	seq, err := appendPreparedEvent(t.Context(), tx, event)
 	if err != nil {
 		t.Fatalf("record acceptance of %s: %v", attemptID, err)
 	}
-	seq, err := result.LastInsertId()
-	if err != nil {
-		t.Fatal(err)
-	}
+	event.Seq = seq
 	var action workflowActionCompletedPayload
 	if err := json.Unmarshal(raw, &action); err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, Event{SubjectID: workID, Seq: seq, Actor: operatorRef}, action); err != nil {
+	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, event, action); err != nil {
 		t.Fatalf("record current Review acceptance of %s: %v", attemptID, err)
 	}
 	if err := leaveWrite(context.Background(), tx); err != nil {

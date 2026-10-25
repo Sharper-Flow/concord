@@ -91,16 +91,23 @@ func TestWorkflowVerdictWriterSnapshotsPriorCorrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := `{"action_id":"request_correction","step_id":"acceptance"}`
-	result, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('prior-correction','workflow.action_completed','work_item',?,?,'2026-01-01T00:00:00Z',1,?)`, work, actor, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prior, err := result.LastInsertId()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM write_guard`, work, prior); err != nil {
+	// Model the retained correction descriptor, reserving its coordinate without
+	// inventing an immutable effect receipt for an unexecuted current action.
+	var prior int64
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		scope, err := beginWrite(t.Context(), tx.tx)
+		if err != nil {
+			return err
+		}
+		prior, err = allocateStoreSequence(t.Context(), tx.tx, "effect")
+		if err != nil {
+			return err
+		}
+		if _, err := tx.tx.Exec(`INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq,actor,step_id) VALUES(?,'request_correction',?,?,'acceptance')`, work, prior, actor); err != nil {
+			return err
+		}
+		return scope.close(t.Context())
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, work, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {
@@ -114,7 +121,7 @@ func TestWorkflowVerdictWriterSnapshotsPriorCorrection(t *testing.T) {
 	if got, err := read(); err != nil || got != prior {
 		t.Fatalf("verdict correction snapshot = %v,%v; want %d", got, err, prior)
 	}
-	repopulateWorkflowCurrentFactsForTest(t, s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	if got, err := read(); err != nil || got != prior {
 		t.Fatalf("backfilled correction snapshot = %v,%v; want %d", got, err, prior)
 	}
@@ -141,7 +148,7 @@ func TestWorkflowArtifactProductionCurrentFactsWithoutLog(t *testing.T) {
 	if got, err := read(0); err != nil || got != assertion {
 		t.Fatalf("production fixture = %v,%v; want %d", got, err, assertion)
 	}
-	repopulateWorkflowCurrentFactsForTest(t, s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	if got, err := read(verdict); err != nil || got != assertion {
 		t.Fatalf("backfill lost the verdict production snapshot: %v,%v; want %d", got, err, assertion)
 	}

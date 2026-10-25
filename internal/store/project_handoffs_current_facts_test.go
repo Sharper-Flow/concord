@@ -129,31 +129,9 @@ func TestProjectHandoffRecordedSeqMigrationBackfillsRecordingOrder(t *testing.T)
 	if olderSeq <= 0 || newerSeq <= olderSeq {
 		t.Fatalf("recorded_seq older=%d newer=%d, want the recording event order", olderSeq, newerSeq)
 	}
-	repopulateSessionWindowCurrentFactsForTest(t, f.store)
+	assertSessionWindowCorpus144(t)
 	if got := workerFactsQueryRows(t, f.store, []string{query}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("backfill recorded_seq=%v, want the folded %v", got, want)
-	}
-}
-
-func repopulateSessionWindowCurrentFactsForTest(t *testing.T, s *Store) {
-	t.Helper()
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DROP TABLE session_relocation_counts; DROP INDEX project_handoffs_recorded_seq; ALTER TABLE project_handoffs DROP COLUMN recorded_seq; ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 144 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 }
 

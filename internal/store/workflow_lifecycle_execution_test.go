@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -160,10 +162,10 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{restart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	executionStart := func(label string) string {
+	executionStart := func(db *sql.DB, label string) string {
 		t.Helper()
 		var value sql.NullString
-		if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&value); err != nil {
+		if err := db.QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&value); err != nil {
 			t.Fatal(err)
 		}
 		if !value.Valid || value.String == "" {
@@ -171,40 +173,79 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		}
 		return value.String
 	}
-	folded := executionStart("the fold")
+	folded := executionStart(s.db, "the fold")
 	if want := restart.OccurredAt.Add(time.Hour).UTC().Format(time.RFC3339Nano); folded != want {
 		t.Fatalf("fold kept %q, want the first start in log order %q", folded, want)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO write_guard(active) VALUES (1); UPDATE workflow_instances SET execution_started_at=NULL WHERE work_id=?; DELETE FROM write_guard;`, workID); err != nil {
+	// CD-0242 D2 retires replay construction, not the one-time backfill.
+	// Only parent data crosses into the genuine 106 schema. The source starts
+	// are authored independently of execution_started_at and epoch payload rows.
+	path := filepath.Join(t.TempDir(), "execution-start-106.db")
+	db := openMigratedTo(t, path, 106)
+	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
+		"products":           {"planning_mode": "'local_only'"},
+		"workflow_instances": {"definition_version": "2"},
+	}, "fold_guard")
+	start := func(id, action, identity string, expected, epoch int64) Event {
+		return workflowEventWithActor(id, WorkflowActionStarted, workID, workerRef, map[string]any{
+			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
+			"step_id": "execution", "action_id": action, "attempt_epoch": epoch,
+			"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": identity,
+			"actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0]),
+		})
+	}
+	corpus := []Event{
+		start("start-"+workID, "start_execution", "start:"+workID, 8, 1),
+		start("fixture-dispatch-start-dispatch-"+workID, "dispatch_worker", "dispatch:dispatch-"+workID, version-2, 2),
+		restart,
+	}
+	var currentStarts int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&currentStarts); err != nil || currentStarts != len(corpus) {
+		t.Fatalf("current start population=%d,%v; corpus=%d", currentStarts, err, len(corpus))
+	}
+	for _, event := range corpus {
+		var seq int64
+		var digest string
+		if err := s.db.QueryRow(`SELECT effect_seq,payload_digest FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&seq, &digest); err != nil {
+			t.Fatal(err)
+		}
+		if digest != historicalFixturePayloadDigest(t, string(event.Payload)) {
+			t.Fatalf("explicit source %s differs from fresh-route payload", event.EventID)
+		}
+		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := histEventRows(t, &Store{db: db})
+	for _, row := range before {
+		t.Logf("migration107 source seq=%d id=%s kind=%s actor=%s time=%s digest=%s", row.Seq, row.EventID, row.Kind, row.Actor, row.OccurredAt, historicalFixturePayloadDigest(t, row.Payload))
+	}
+	advanceHistoricalPrefix(t, db, 107)
+	if backfilled := executionStart(db, "migration107"); backfilled != folded {
+		t.Fatalf("migration107 first-sequence selection = %q, want fresh-route first start %q", backfilled, folded)
+	}
+	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, before) {
+		t.Fatal("execution-start migration changed source bytes, actors, sequence or occurrence times")
+	}
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(migration107Backfill(t)); err != nil {
-		t.Fatal(err)
-	}
-	if backfilled := executionStart("the migration backfill"); backfilled != folded {
+	if backfilled := executionStart(db, "upgraded migration107"); backfilled != folded {
 		t.Fatalf("migration backfill derived %q, want the folded value %q", backfilled, folded)
 	}
-
-}
-
-// migration107Backfill returns migration 107's text after its ALTER TABLE, so
-// the derivation test runs the shipped backfill rather than a copy of it.
-func migration107Backfill(t *testing.T) string {
-	t.Helper()
-	const alter = "ALTER TABLE workflow_instances ADD COLUMN execution_started_at TEXT;"
-	for _, migration := range migrations {
-		if migration.Version != 107 {
-			continue
-		}
-		index := strings.Index(migration.SQL, alter)
-		if index < 0 {
-			t.Fatal("migration 107 carries no execution_started_at ALTER TABLE")
-		}
-		return migration.SQL[index+len(alter):]
-	}
-	t.Fatal("migration 107 is missing")
-	return ""
+	assertHistoricalReceipts(t, db, before)
+	assertEventLogAbsent(t, &Store{db: db, path: path})
+	queries := []string{`SELECT execution_started_at FROM workflow_instances WHERE work_id='execution-start-derivation'`}
+	assertCorpusSelectionRed(t, historicalFactCorpus{
+		events: corpus,
+		parents: func(t *testing.T, prefix *Store, guard string) {
+			copyFixtureDataToPrefix(t, s, prefix.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
+				"products":           {"planning_mode": "'local_only'"},
+				"workflow_instances": {"definition_version": "2"},
+			}, guard)
+		},
+	}, 107, "ORDER BY e.seq", "ORDER BY e.seq DESC", queries, workerFactsQueryRows(t, s, queries))
 }
 
 // seedProjectWorkItem seeds a needed task with a title, a value statement, and

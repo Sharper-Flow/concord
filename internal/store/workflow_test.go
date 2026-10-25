@@ -765,7 +765,17 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		dependentID := workID + "-dependent"
 		seedImpactDependent(t, s, dependentID, workID, "hard")
 		noticeID := WorkflowNoticeID(workID, 1, "work_item", workID, dependentID, "non-breaking")
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "notice-event:"+noticeID, "work.intent_revised", string(SubjectWorkItem), workID, executor, "2026-08-09T00:00:00Z", 1, `{}`); err != nil {
+		if err := s.Transact(t.Context(), func(tx *Transaction) error {
+			scope, err := beginWrite(t.Context(), tx.tx)
+			if err != nil {
+				return err
+			}
+			_, err = appendPreparedEvent(t.Context(), tx.tx, Event{EventID: "notice-event:" + noticeID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: executor, OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
+			if err != nil {
+				return err
+			}
+			return scope.close(t.Context())
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}

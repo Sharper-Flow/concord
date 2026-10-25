@@ -800,7 +800,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	}
 	var payloadVersion int
 	var workerAttempt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.payload_version,json_extract(d.payload,'$.worker_attempt_id') FROM effect_receipts r JOIN worker_attempt_dispositions d ON d.event_id=r.event_id WHERE r.event_id=? AND d.action_id='accept_worker_result'`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
 		t.Fatal(err)
 	}
 	completion, ok := registeredEventKind(WorkflowActionCompleted)
@@ -1240,7 +1240,7 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var kind, subject, producerRun string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_run_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, "authority-bind", WorkflowEvidenceBound).Scan(&kind, &subject, &producerRun); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings WHERE work_id=? ORDER BY binding_seq DESC LIMIT 1`, "authority-bind").Scan(&kind, &subject, &producerRun); err != nil {
 		t.Fatalf("acceptance bound no evidence: %v", err)
 	}
 	if subject != attemptID || producerRun != "accept-bind" {
@@ -1302,7 +1302,7 @@ func TestWorkerAuthorizePersistsRegistryCurrentDispatchVersion(t *testing.T) {
 		t.Fatalf("dispatch authorize failed: %v", err)
 	}
 	var stored int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-dispatch").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "version-dispatch").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	current := func() int { r, _ := registeredEventKind(WorkerDispatched); return r.CurrentVersion }()
@@ -1323,7 +1323,7 @@ func TestWorkerCompletedPersistsRegistryCurrentVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stored int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-completion").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "version-completion").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()

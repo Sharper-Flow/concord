@@ -1704,34 +1704,35 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "later-history", test.laterKind, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-10-13T00:00:01Z", 1, payload); err != nil {
+				tx, err := db.BeginTx(ctx, nil)
+				if err != nil {
 					t.Fatal(err)
 				}
-				if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='later-history'`).Scan(&beforeSeq); err != nil {
+				defer tx.Rollback()
+				scope, err := beginWrite(ctx, tx)
+				if err != nil {
 					t.Fatal(err)
 				}
+				event := Event{EventID: "later-history", Kind: test.laterKind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: fixture.owner.PrincipalRef, OccurredAt: time.Date(2026, 10, 13, 0, 0, 1, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+				beforeSeq, err = appendPreparedEvent(ctx, tx, event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				event.Seq = beforeSeq
 				if test.laterKind == WorkflowVerdictRecorded {
-					if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?; DELETE FROM write_guard`, beforeSeq, workID); err != nil {
+					if _, err := tx.Exec(`UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?`, beforeSeq, workID); err != nil {
 						t.Fatal(err)
 					}
 				} else {
-					tx, err := db.BeginTx(ctx, nil)
-					if err != nil {
+					if err := writeWorkerAuthorizationTx(ctx, tx, event, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
 						t.Fatal(err)
 					}
-					defer tx.Rollback()
-					if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-						t.Fatal(err)
-					}
-					if err := writeWorkerAuthorizationTx(ctx, tx, Event{Seq: beforeSeq, EventID: "later-history", SubjectID: workID, Payload: payload}, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
-						t.Fatal(err)
-					}
-					if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
-						t.Fatal(err)
-					}
-					if err := tx.Commit(); err != nil {
-						t.Fatal(err)
-					}
+				}
+				if err := scope.close(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
 				}
 			}
 			for _, boundary := range []struct {

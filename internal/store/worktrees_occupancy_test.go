@@ -142,7 +142,7 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 		t.Fatalf("entry=%+v, want reclaimed", entry)
 	}
 	var released int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-ended'`).Scan(&released); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND event_id=?`, occupancyReleasedEventID("work-w", claimed.Entry.ProjectID, claimed.Entry.ClaimOpID, "ses-ended", 0)).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != 1 {

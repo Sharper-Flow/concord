@@ -299,14 +299,14 @@ func TestCombinedAcceptDeliversAtomically(t *testing.T) {
 			// One operation recorded the assertion: the accept completion
 			// carries the delivery fields and no record_delivery call ran.
 			var acceptCompletions int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.delivery_artifact')='artifact:accept-delivery-`+workID+`' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted, c.attempt).Scan(&acceptCompletions); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=? AND json_extract(payload,'$.delivery_artifact')='artifact:accept-delivery-`+workID+`' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, c.attempt).Scan(&acceptCompletions); err != nil {
 				t.Fatal(err)
 			}
 			if acceptCompletions != 1 {
 				t.Fatalf("combined accept recorded %d asserted completions, want 1", acceptCompletions)
 			}
 			var refineDeliveries int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery' AND json_extract(payload,'$.step_id') IN ('refine','delivery')`, workID, WorkflowActionCompleted).Scan(&refineDeliveries); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_completed_exits WHERE work_id=? AND action_id='record_delivery' AND step_id IN ('refine','delivery')`, workID).Scan(&refineDeliveries); err != nil {
 				t.Fatal(err)
 			}
 			if refineDeliveries != 0 {
@@ -419,7 +419,7 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 						reviewGateRequireStep(t, s, workID, "refine")
 						if c.attempt != "" {
 							var accepted int
-							if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, c.attempt).Scan(&accepted); err != nil {
+							if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, workID, c.attempt).Scan(&accepted); err != nil {
 								t.Fatal(err)
 							}
 							if accepted != 0 {
@@ -508,7 +508,7 @@ func TestCombinedDeliveryAssertionReaders(t *testing.T) {
 
 	var acceptSeq, acceptPayloadVersion int64
 	var acceptEventID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,payload_version,event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, c.attempt).Scan(&acceptSeq, &acceptPayloadVersion, &acceptEventID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT d.seq,r.payload_version,d.event_id FROM worker_attempt_dispositions d JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq WHERE d.work_id=? AND d.action_id='accept_worker_result' AND d.attempt_id=?`, workID, c.attempt).Scan(&acceptSeq, &acceptPayloadVersion, &acceptEventID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -547,7 +547,7 @@ func TestCombinedDeliveryAssertionReaders(t *testing.T) {
 	}
 
 	var completions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&completions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND json_extract(payload,'$.delivery_state')='asserted'`, workID).Scan(&completions); err != nil {
 		t.Fatal(err)
 	}
 	if completions != 1 {

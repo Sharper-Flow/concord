@@ -54,7 +54,7 @@ func TestActiveResearchRevisionBoundary(t *testing.T) {
 	} else {
 		assertFailureKind(t, err, KindVersionConflict)
 	}
-	beforeEvents := countRows(t, s, "domain_events")
+	beforeEvents := currentEffectRows(t, s)
 	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 2, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Example", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +65,8 @@ func TestActiveResearchRevisionBoundary(t *testing.T) {
 	if err != nil || len(complete.Revisions) != 2 || len(complete.Revisions[1].Sources) != 1 || len(complete.Revisions[1].Findings) != 1 || len(complete.Revisions[1].Findings[0].SourceIDs) != 1 {
 		t.Fatalf("complete research pack = %+v, %v", complete, err)
 	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
-		t.Fatalf("research content entered domain_events: %d -> %d", beforeEvents, got)
+	if got := currentEffectRows(t, s); !reflect.DeepEqual(got, beforeEvents) {
+		t.Fatalf("research content changed effect receipts: %v -> %v", beforeEvents, got)
 	}
 	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 2, UseRole: UseContext, Required: true})
 	pinned, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
@@ -760,7 +760,8 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	}
 	terminalizeResearchOwner(t, s, "owner")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "owner-repo", RepoPath: repo, HeadRef: "HEAD"}
-	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "retained-proof-compaction")); err != nil {
+	request := compactionRequest(home, commit, path, "retained-proof-compaction")
+	if err := PublishCompactionLink(ctx, s, request); err != nil {
 		t.Fatal(err)
 	}
 	// Publication is proof-backed archive, not destruction: the pack body
@@ -773,19 +774,36 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || len(got.Revisions) != 2 {
 		t.Fatalf("retained pack after publication=%+v err=%v", got, err)
 	}
-	var bodyEvents, bodySummary int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE payload LIKE ?`, "%"+secret+"%").Scan(&bodyEvents); err != nil {
-		t.Fatal(err)
-	}
+	var bodySummary int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work WHERE summary LIKE ?`, "%"+secret+"%").Scan(&bodySummary); err != nil {
 		t.Fatal(err)
 	}
-	if bodyEvents != 0 || bodySummary != 0 {
-		t.Fatalf("retained pack body leaked to events/summary=%d/%d", bodyEvents, bodySummary)
+	if bodySummary != 0 {
+		t.Fatalf("retained pack body leaked to %d archive summaries", bodySummary)
 	}
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
 	if err != nil || strings.Contains(string(note.Content), secret) {
 		t.Fatalf("Git authority contains retained pack body: err=%v", err)
+	}
+	expected := compactionLinkPayload{
+		ID: note.ID, Type: note.Kind, Title: note.Title, CompletedAt: note.CompletedAt,
+		OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState,
+		Priority: note.Priority, Summary: note.Summary, SuccessorID: note.SuccessorID,
+		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: []string{"auth"}, TagIDs: note.TagIDs,
+		HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID,
+		NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash,
+		Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+	}
+	wantDigest, err := effectPayloadDigest(mustJSONValue(expected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var digest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='compaction_link.published' AND subject_type='work_item' AND subject_id=?`, request.EventID, request.WorkID).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest != wantDigest {
+		t.Fatalf("publication digest=%q, want the exact bounded note/request with no research body: %q", digest, wantDigest)
 	}
 }
 

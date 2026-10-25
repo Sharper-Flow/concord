@@ -296,7 +296,7 @@ func TestAuthorizedFailedRetryApprovalNeverOverridesAnotherRefusal(t *testing.T)
 func TestAuthorizedAttemptCannotBeAcceptedWithoutDispatchEvidence(t *testing.T) {
 	const workID = "authorized-failure-no-success-evidence"
 	s, owner, attemptID := seedAuthorizedFailedWorker(t, workID)
-	// Corroborate against the event log even if a projection claims success.
+	// A lifecycle label cannot substitute for the retained dispatch evidence.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET lifecycle_state='completed',readback_model='model/synthetic',completed_at='2026-01-01T00:00:00Z',failed_at=NULL,failure_kind='',failure_detail='' WHERE attempt_id=?; DELETE FROM write_guard`, attemptID); err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestAuthorizedAttemptCannotBeAcceptedWithoutDispatchEvidence(t *testing.T) 
 	}
 	defer func() { _ = tx.Rollback() }()
 	var seq int64
-	if err := tx.QueryRow(`SELECT COALESCE(MAX(seq),0)+1 FROM domain_events`).Scan(&seq); err != nil {
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(effect_seq),0)+1 FROM effect_receipts`).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
 	err = validateWorkerAttemptAction(context.Background(), tx,

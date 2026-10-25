@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -805,11 +806,8 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	}
 	raw, _ := json.Marshal(payload)
 	event := Event{EventID: "cd0059-consume-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "client:cd0059:principal/operator", PayloadVersion: 3, Payload: raw}
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?,?,?,?,?,?,?,?)`,
-		event.EventID, event.Kind, string(event.SubjectType), workID, event.Actor, "2026-08-22T00:00:00Z", event.PayloadVersion, string(raw))
-	if err == nil {
-		event.Seq, err = inserted.LastInsertId()
-	}
+	event.OccurredAt = time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
+	event.Seq, err = appendPreparedEvent(ctx, tx, event)
 	if err == nil {
 		err = writeWorkerDispatchFactsTx(ctx, tx, event, attemptID)
 	}
@@ -993,67 +991,86 @@ func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
 func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	seed := seedDispatchFixture(t, s, "work-pre-cd0067")
-	actor := seed.ownerActor
+	const workID = "work-pre-cd0067"
+	actor := stepFixtureActor()
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Seed the WorkflowActionStarted event the window's start_seq
 	// resolves against, plus a completion that does NOT carry
-	// worker_packet_digest (the pre-CD-0067 shape). seedDispatchFixture
-	// already pinned the workflow instance to "execution"; the two
-	// domain_events below ride the standard fold path.
+	// worker_packet_digest (the pre-CD-0067 shape). Migration 143 derives
+	// the retained window's start identity before the log is retired.
 	startPayload := mustJSON(map[string]any{
-		"work_id": seed.workID, "expected_version": 4, "resulting_version": 5,
+		"work_id": workID, "expected_version": 4, "resulting_version": 5,
 		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
 		"idempotency_identity":   "pre-cutover-open",
-		"actor_ref":              actor,
+		"actor_ref":              actorRef,
 	})
 	completionPayload := mustJSON(map[string]any{
-		"work_id":              seed.workID,
+		"work_id":              workID,
 		"expected_version":     5,
 		"resulting_version":    6,
 		"step_id":              "execution",
 		"action_id":            "dispatch_worker",
 		"attempt_epoch":        1,
 		"result_evidence_refs": []string{},
-		"changed_refs":         []string{seed.workID},
-		"actor_ref":            actor,
+		"changed_refs":         []string{workID},
+		"actor_ref":            actorRef,
 		"worker_attempt_id":    "attempt-pre-cd0067",
 		// No worker_packet_digest key — the pre-CD-0067 shape.
 	})
-	actorRef, err := WorkflowActorRef(actor)
+	path := filepath.Join(t.TempDir(), "pre-packet-window.db")
+	db := openMigratedTo(t, path, 142)
+	parents := []Event{
+		productCreatedEvent("product", "pre-packet-product"), projectCreatedEvent("project", "pre-packet-project"),
+		operationEvent("pre-packet-product-project", "product_project.added", SubjectProduct, "product", map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+	}
+	insertHistoricalEvents(t, db, parents)
+	insertHistoricalEvents(t, db, []Event{
+		{EventID: "pre-cutover-start", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(0, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(startPayload)},
+		{EventID: "pre-cutover-completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(0, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(completionPayload)},
+	})
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		sqlTx, err := transactionSQL(tx, "test_pre_cd0067")
-		if err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"pre-cutover-start", WorkflowActionStarted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 1, []byte(startPayload)); err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"pre-cutover-completed", WorkflowActionCompleted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 2, []byte(completionPayload)); err != nil {
-			return err
-		}
-		if err := enterWrite(ctx, sqlTx); err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, "attempt-pre-cd0067", "pre-cutover-start", "pre-cutover-completed"); err != nil {
-			return err
-		}
-		return leaveWrite(ctx, sqlTx)
-	}); err != nil {
-		t.Fatalf("seed pre-CD-0067 window: %v", err)
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard VALUES(1)`); err != nil {
+		t.Fatal(err)
 	}
+	for i, event := range parents {
+		event.Seq = int64(i + 1)
+		if err := applyEffect(ctx, tx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The historical work row has no migration-150 transition metadata.
+	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Pre-packet window','in_progress',0,6,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z'); INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'project','primary')`, workID, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) SELECT subject_id,'attempt-pre-cd0067',seq,payload FROM domain_events WHERE event_id='pre-cutover-completed'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	// Run the gate with a non-empty digest; the recorded digest is empty,
 	// so the cutover refusal must fire.
 	err = s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-pre-cd0067", "sha256:"+strings.Repeat("d", 64))
+		return ValidateWorkerDispatchWindow(ctx, tx, workID, "execution", "attempt-pre-cd0067", "sha256:"+strings.Repeat("d", 64))
 	})
 	if err == nil {
 		t.Fatal("pre-CD-0067 window with non-empty digest was accepted")

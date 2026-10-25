@@ -60,7 +60,7 @@ func TestRemoteNoIdentityOriginUsesOnlyRegisteredPath(t *testing.T) {
 			if err != nil || resolved.ProjectID != "project-a" || len(resolved.Locators) != 1 || resolved.Locators[0].Kind != LocatorCanonicalPath {
 				t.Fatalf("resolved=%+v err=%v", resolved, err)
 			}
-			before := histEventRows(t, s)
+			before := currentEffectRows(t, s)
 			for _, mutate := range []func(context.Context, string, ProjectLocator, int64) error{s.AddProjectLocator, s.UpdateProjectLocator} {
 				err := mutate(ctx, "project-a", ProjectLocator{ID: "path", Kind: LocatorGitRemote, Value: raw}, 2)
 				assertFailureKind(t, err, KindInvalidFilter)
@@ -69,7 +69,7 @@ func TestRemoteNoIdentityOriginUsesOnlyRegisteredPath(t *testing.T) {
 					t.Fatalf("missing path recovery: %v", err)
 				}
 			}
-			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+			if !reflect.DeepEqual(before, currentEffectRows(t, s)) {
 				t.Fatal("unsupported locator mutation wrote an event")
 			}
 		})
@@ -103,12 +103,12 @@ func TestLiveRemoteAppendCannotBypassAdmission(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := locatorReplayStore(t)
-			before := histEventRows(t, s)
+			before := currentEffectRows(t, s)
 			e := recordedLocatorEvent("attempt", string(LocatorGitRemote), tc.raw, tc.normalized)
 			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{e}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
 			assertFailureKind(t, err, tc.kind)
 			assertTableCount(t, s, "project_locators", 0)
-			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+			if !reflect.DeepEqual(before, currentEffectRows(t, s)) {
 				t.Fatal("refused generic append changed journal")
 			}
 		})

@@ -61,11 +61,7 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 		return out
 	}
 	want := snapshot()
-	// Remove only 143's destination state. Its backfill must reconstruct the
-	// same current facts the real writing paths produced above.
-	if _, err := s.db.Exec(workerWindowFactsFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
+	assertWorkerWindowCorpus143(t)
 	var migration143 migration
 	for _, m := range migrations {
 		if m.Version == 143 {
@@ -75,9 +71,6 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 	if migration143.Version != 143 || !migration143.Breaking || migration143.FoldMaintained != "advance" {
 		t.Fatal("missing breaking advance migration 143")
 	}
-	if err := applyMigration(context.Background(), s.db, migration143); err != nil {
-		t.Fatal(err)
-	}
 	if got := snapshot(); !reflect.DeepEqual(got, want) {
 		for i := range queries {
 			if !reflect.DeepEqual(got[i], want[i]) {
@@ -86,23 +79,6 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 		}
 	}
 }
-
-const workerWindowFactsFixtureReversal = `
-DROP TABLE worker_attempt_dispositions;
-ALTER TABLE work_items DROP COLUMN effect_seq;
-ALTER TABLE work_items DROP COLUMN last_progress_at;
-ALTER TABLE worker_authorizations DROP COLUMN event_id;
-ALTER TABLE worker_authorizations DROP COLUMN start_seq;
-ALTER TABLE worker_authorizations DROP COLUMN start_payload;
-ALTER TABLE worker_authorizations DROP COLUMN contract_version;
-ALTER TABLE worker_attempts DROP COLUMN terminal_seq;
-ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at;
-ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq;
-ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq;
-ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id;
-ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq;
-ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
-`
 
 func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "effect-frontier.db"), 142)

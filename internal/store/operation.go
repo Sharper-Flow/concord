@@ -545,6 +545,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			if err := refuseRemovedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
 				return output, rollback(err)
 			}
+			if err := refusePublishedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
+				return output, rollback(err)
+			}
 		}
 		// Validate the current payload before recording any effect.
 		if err := validateRegisteredEvent(event); err != nil {

@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f457f7e8961100a8d32ea885c3ff6d3115ae01d39814cfe683c93cf8d3e4bce0",
+  "sha256": "sha256:38970af58e620c68921c3a1c7f6fab52cf3ce2029591c7952499630f00ad5346",
   "status": "accepted",
-  "summary": "Defines canonical home placement and git-first proof for durable notes.",
+  "summary": "Verifies canonical Git note identity and publication recovery; canonical discovery is independent of settled linkage and does not itself authorize terminal cleanup.",
   "tags": [
     "pm6",
     "git",

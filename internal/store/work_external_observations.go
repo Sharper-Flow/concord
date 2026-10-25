@@ -138,6 +138,9 @@ func (s *Store) ExternalObservationsForWork(ctx context.Context, workID string, 
 }
 
 func externalObservationsForWork(ctx context.Context, q queryer, workID string, now time.Time, limit int) ([]ExternalObservationRow, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, workID, "external_observations"); err != nil {
+		return nil, err
+	}
 	if limit < 1 {
 		limit = 10
 	}

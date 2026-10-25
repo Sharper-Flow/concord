@@ -15,31 +15,32 @@ per-item, scoped, fenced, and subject to the existing planning handoff.
 
 ## Context
 
-Canonical note proof, historical scope, and query populations govern deferred terminal projection pruning.
+Canonical note proof, historical scope and query populations govern terminal execution cleanup under CD-0242 D2.
 Research retention has a separate explicit boundary.
 
 ## Contract
 
-### 1. Authority and deferred projection pruning
+### 1. Authority and terminal execution cleanup
 
 The canonical Git note owns distilled knowledge.
-The store keeps current rows and finite verified snapshots ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-`archived_work` and historical scope edges are disposable Git-derived read projections, not another authority for work.
-PM6 verifies canonical note identity and records compaction linkage before any future terminal-projection removal can become eligible.
-Publication does not itself remove live work projections or research.
+The store keeps current rows and finite verified snapshots under CD-0242 D2.
+archived_work and historical scope edges are disposable Git-derived read projections, not another authority for work.
+A verified committed canonical note is discoverable without a retained publication flag; discovery alone does not grant destructive eligibility.
 
-CD-0217 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
-Terminal work stays in live typed projections indefinitely.
-`work_projection_pruned` and `archived_work_linked` remain reserved names; this record introduces neither mutation nor projection.
-Reintroduction requires an accepted decision that supersedes the deferral and preserves the authority guarantees here.
-The three revisit triggers are measurable degradation of authoritative operations, deployment beyond one operator, or snapshot-size recovery risk.
+Cleanup of completed, cancelled or superseded execution requires the settled canonical publication and the closure stage's reviewed judgement under CD-0242 D9.
+The receipt links the delivered subject, accepted outcome, consequential decisions and acceptance proof in its body, without new front matter.
+Active references and claims must be released, and outstanding effects must be reconciled, before the cleanup transaction removes execution state.
+Each retained category keeps its documented consumer and removal condition; recurrence-admission classification remains readable under CD-0211 D2–D4.
+Consumers of collected execution state receive typed absence and the canonical outcome locator, never a reference claiming that the removed artifact remains inspectable.
 
-CD-0142 separately governs nonterminal execution removal after verified planning handoff and reconciliation.
-It is not terminal compaction and removes no retained research.
-No work-removal or foreign-key cascade may serve as an alternate route to delete retained research.
-Removal must preserve the research authority or refuse before destructive effects.
+Cleanup never shelves or cancels work, removes nonterminal execution, deletes code or worktrees, or deletes canonical Git knowledge or shared setup.
+CD-0142 separately governs scoped execution removal after its required planning handoff and reconciliation.
+Research is a separate aggregate deleted only by explicit eligible research_retire.
+An item that owns a retained research pack is blocked from terminal cleanup; releasing a consumer pin never deletes the pack.
+No work-removal operation or foreign-key cascade may delete retained research.
+Owner removal must preserve retained research or refuse before destructive effects.
 
-### 2. Guarantees for any later pruning mechanism
+### 2. Guarantees for terminal execution cleanup
 
 Calendar age alone cannot create removal eligibility.
 Uncompacted or proof-degraded work cannot become terminal-prune-eligible.
@@ -52,7 +53,7 @@ A future run must declare hard item or time bounds and return an explicit contin
 No unmeasured default pressure threshold or calendar sweep is accepted.
 Each work item must move atomically between live and historical projections, with replay returning the committed idempotent result.
 Retention removal follows each retained category's documented removal condition and never removes a receipt or verified snapshot a consumer needs ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-These guarantees constrain a future accepted mechanism; they do not activate the deferred one.
+These guarantees constrain terminal execution cleanup under CD-0242 D2; note discovery alone does not satisfy them.
 
 ### 3. Minimum Git-rebuildable historical projection
 
@@ -106,7 +107,7 @@ A projection-pruned ID cannot reopen; renewed need uses a new canonical work ide
 The old note and recorded terminal state remain unchanged.
 Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
 It must not pretend that a removed projection is a live foreign-key endpoint.
-The cross-tier record and projection remain deferred under CD-0217.
+CD-0242 D2 governs the cleanup boundary; historical links never recreate a live execution endpoint.
 
 ### 6. Protected research retirement
 
@@ -139,8 +140,9 @@ Authorized owner reopen before retirement removes eligibility without reconstruc
 | Data | Treatment | Authority |
 |---|---|---|
 | canonical Git note | retain | distilled knowledge |
-| PM6 compaction linkage | retain | verified linkage rows |
-| live terminal work and membership/relation rows | retain; pruning deferred | current state rows ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
+| canonical publication proof | verify from Git; the settled operation and closure judgement gate cleanup | PM6 and CD-0242 D9 |
+| terminal execution and owned membership/relation rows | collect only after verified closure and release of every consuming category | CD-0242 D2 |
+| defect recurrence classification and required Product/workflow scope | retain until work or Product removal | CD-0211 D2–D4 |
 | historical index and scope edges | retain or rebuild | verified Git-derived projections |
 | research packs and dependent content | retain until explicit eligible retirement | direct tables |
 | WIP logs, traces, screenshots, binary output | producer-owned process exhaust | no Concord retention |
@@ -165,7 +167,7 @@ Snapshot aging, `VACUUM`, and backup topology remain PM10 concerns; this specifi
 - Research retirement has one owner and every active pin protects content.
 
 A fixed calendar sweep is rejected because no measured window supports it.
-Immediate projection pruning during PM6 publication is rejected because it couples durable publication to destructive cleanup.
+Cleanup inside an unsettled publication or before reference and effect release is rejected because it can destroy state that still has a consumer.
 Restoration of the same pruned work ID is rejected; a note is not a verified recovery snapshot ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 Copied historical status on membership edges is rejected because terminal state belongs once on the historical work projection.
 

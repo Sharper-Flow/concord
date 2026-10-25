@@ -69,13 +69,33 @@ func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[strin
 	if len(ids) == 0 {
 		return out, nil
 	}
+	for _, id := range ids {
+		retained, err := retainedExecutionExistsQ(ctx, q, id)
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "scope", "cannot read execution presence", true, "retry once the database is readable", err)
+		}
+		if retained {
+			continue
+		}
+		var outcomes int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM archived_work WHERE id=? AND type='work_note'`, id).Scan(&outcomes); err != nil {
+			return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve canonical outcome identity", true, "retry once the database is readable", err)
+		}
+		if outcomes > 1 {
+			return nil, newFailure(KindUnknownScope, "scope", "work "+id+" has no unique canonical outcome scope", false, "resolve the outcome within an explicitly authorized knowledge home")
+		}
+	}
 	placeholders := make([]string, len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+") ORDER BY wp.work_id,pp.product_id", args...)
+	// Removed execution is authorized through the outcome's frozen scope,
+	// never through the knowledge home's current Product memberships.
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+`)
+		UNION SELECT p.work_id,p.product_id FROM archived_work_products p JOIN archived_work a ON a.home_project_id=p.home_project_id AND a.home_locator_id=p.home_locator_id AND a.id=p.work_id
+		WHERE a.type='work_note' AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=a.id) AND p.work_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY 1,2`, append(args, args...)...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve work Product scope", true, "retry once the database is readable", err)
 	}
@@ -154,6 +174,9 @@ func workExistsCore(ctx context.Context, q queryer, id string) (bool, error) {
 // widen the candidate set into an ambiguity. Multiple candidates are ambiguous
 // and never silently selected.
 func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (KnowledgeHome, error) {
+	if err := publishedWorkAbsenceQ(ctx, s.db, workID, "compaction_home"); err != nil {
+		return KnowledgeHome{}, err
+	}
 	return resolveCompactionHome(ctx, s.db, workID)
 }
 

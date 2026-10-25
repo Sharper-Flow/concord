@@ -229,6 +229,9 @@ func (s *Store) readNativeVerifyOutput(ctx context.Context, req WorktreeInspectR
 	if req.WorkID == "" || req.ProjectID == "" || req.RunRef == "" || req.Path != "" || req.Offset < 0 || req.Length < 1 || req.Length > nativeOraclePageLimit || (req.Stream != "stdout" && req.Stream != "stderr") {
 		return out, oracleFailure(KindInvalidOperation, "oracle output requires a scoped run, stdout or stderr, nonnegative offset, and 1 to 16384 bytes", "supply a bounded output-page request")
 	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, "", req.ProjectID, "worker_oracle"); err != nil {
+		return out, err
+	}
 	column := "stdout_blob"
 	if req.Stream == "stderr" {
 		column = "stderr_blob"

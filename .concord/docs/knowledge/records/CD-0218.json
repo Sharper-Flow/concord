@@ -9,7 +9,8 @@
     "internal/store/workflow_registry_test.go",
     "internal/store/workflow_diagnosis_derived_start_test.go",
     "internal/store/workflow_stale_registry_repin_test.go",
-    "internal/store/workflow_worker_failure_retry_test.go"
+    "internal/store/workflow_worker_failure_retry_test.go",
+    "internal/store/terminal_absence_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0218",
@@ -23,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ab31c53ee030bd2993f097f635559faa417b8abf0f08b87b5067ae23c7a238e1",
+  "sha256": "sha256:c70b61afe3fccc3c05afabd11453ee9a4ee5eae4e629f6057791494ec9508340",
   "status": "accepted",
-  "summary": "Publishes the approved three-family live catalog: implementation, break_fix, and research own new execution; the four retired families refuse new authoring while recorded items stay readable as current state and finite snapshots. Authorization, correction, ordinary stale recovery, and independent acceptance keep their owners. Publication is the isolated candidate only; live supersession of the candidate set, consumer disposition, and release activation wait for the operator cutover boundary.",
+  "summary": "Retains three execution families and distinguishes unchanged retained-state readback from typed absence for execution state collected under CD-0242 D2.",
   "tags": [
     "workflow",
     "workflow-families",

@@ -37,9 +37,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f09d7dda7576f1174e1c02b59e908b42dbe30b515226f5babf5511072cf81c72",
+  "sha256": "sha256:6fb044f073668d9fb41b5ec12c419cdb5f2269f881410a48506a55d3f32e70d9",
   "status": "accepted",
-  "summary": "Defines the typed Product-memory schema boundary: current state and finite verified snapshots per CD-0242 D2, explicit typed current-state tables, and JSON only for rare versioned extension metadata.",
+  "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete.",
   "tags": [
     "pm3",
     "schema"

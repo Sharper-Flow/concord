@@ -975,6 +975,9 @@ type projectRetirementHandoffFacts struct {
 // the fact reads as unrecorded with the stale contract named, and
 // readiness fails closed.
 func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, facts *projectRetirementHandoffFacts) error {
+	if err := publishedWorkAbsenceInScopeQ(ctx, q, workID, "", projectID, "project_retirement"); err != nil {
+		return err
+	}
 	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
 	switch {
 	case contractErr == sql.ErrNoRows:

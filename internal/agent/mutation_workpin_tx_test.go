@@ -63,6 +63,7 @@ func requireMutationPinVersion(t *testing.T, response Envelope, workID string, v
 
 func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	observed := false
@@ -86,6 +87,7 @@ func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 
 func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	service.publicationObserver = func(phase string) error {
@@ -124,6 +126,7 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 		t.Run(route, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, key, home := agentJobsCompactionFixture(t)
+			holdCompactionCleanup(t, s)
 			initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 			_, before := readWorkFromStore(t, s, "work-cancelled")
 			first := publishCancelledNote(t, s, service, grant, key, home)
@@ -429,6 +432,7 @@ func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
 
 func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	response := publishCancelledNote(t, s, service, grant, key, home)
 	if response.Outcome != OutcomeOK {
@@ -444,6 +448,25 @@ func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 			}
 		} else if err != nil {
 			t.Fatalf("write at N must succeed: %v", err)
+		}
+	}
+}
+
+func TestCompactionFencesFollowingWritesAfterCleanup(t *testing.T) {
+	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	_, version := readWorkFromStore(t, s, "work-cancelled")
+	response := publishCancelledNote(t, s, service, grant, key, home)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("publish: %+v", response.Error)
+	}
+	for _, expected := range []int64{version + 1, version} {
+		payload, _ := json.Marshal(map[string]any{"from": "cancelled", "reason": "reopen", "expected_version": expected, "resulting_version": expected + 1})
+		err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: fmt.Sprintf("reopen-after-compact-%d", expected), Kind: "work.reopened", SubjectType: store.SubjectWorkItem, SubjectID: "work-cancelled", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-cancelled"): expected}})
+		// CD-0242 D2 releases terminal execution after publication; its old
+		// version no longer authorizes reopening collected execution state.
+		var failure *store.Failure
+		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
+			t.Fatalf("write after cleanup must return canonical absence: %v", err)
 		}
 	}
 }

@@ -5075,6 +5075,9 @@ func (s *Store) InspectWorktree(ctx context.Context, req WorktreeInspectRequest)
 	default:
 		return WorktreeInspectResult{}, newFailure(KindInvalidOperation, "worktree_inspect", "mode must be status, diff, or file", false, "select one inspection mode")
 	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, "", req.ProjectID, "worktree_inspect"); err != nil {
+		return WorktreeInspectResult{}, err
+	}
 	entry, err := activeWorktreeEntryForProject(ctx, s.db, "worktree_inspect", req.WorkID, req.ProjectID)
 	if err != nil {
 		return WorktreeInspectResult{}, err

@@ -13,20 +13,26 @@
 Work publication and research retirement serve different purposes.
 Git notes retain selected durable reasoning; direct-authority packs support exact revision-specific reuse.
 Publishing a note must not destroy a pack or force its active consumers to stop.
-Projection pruning remains a deferred optimization, not a new maintenance obligation.
+Terminal execution cleanup follows CD-0242 D2; research retention remains a separate explicit boundary.
 
 ## Decision
 
 CD-0013 D11 separates routine local publication/proof reconciliation from research retirement. Publication locks exact content, home, and work version in its durable intent without human attestation; it retains salvage and Git proof. Physical pack deletion requires exact operator approval only when a [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision) class applies; dry-run and mere retirement eligibility grant no deletion authority. CD-0243 D5 governs recovery and permanent loss.
 
 
-### D1. Terminal projection pruning remains deferred
+### D1. Terminal execution cleanup follows verified closure
 
-No terminal-work prune eligibility predicate, storage-pressure threshold, or maintenance run is introduced.
-Terminal work remains in live typed projections indefinitely.
-`work_projection_pruned` and `archived_work_linked` remain reserved; introducing either requires a successor to this deferral.
-CD-0142 remains a separate operator-directed nonterminal execution-removal boundary after verified handoff and reconciliation.
-It is not terminal pruning: it removes one nonterminal work item and its owned execution projections and keeps the removal receipt as a current row under [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history).
+Completed, cancelled and superseded execution state is eligible for cleanup only after verified canonical publication, release of active references and claims, and reconciliation of outstanding effects under CD-0242 D2.
+The closure stage records the reviewed publication judgement required by CD-0242 D9; byte verification alone does not establish that judgement.
+The canonical receipt links the delivered subject, accepted outcome, consequential decisions and acceptance proof.
+Cleanup runs only after the publication operation has settled and removes no retained category that still has a consumer.
+A reader of collected execution state receives typed absence and the canonical outcome locator, not a claim that the removed artifact remains inspectable.
+
+Cleanup never shelves or cancels work and grants no authority to remove a nonterminal execution.
+CD-0142 remains the separate scoped execution-removal route after its required planning handoff and reconciliation.
+Terminal cleanup does not delete retained research; an owned research pack blocks cleanup until explicit eligible retirement through research_retire.
+Releasing a research consumer pin never deletes its pack.
+No work-removal operation or foreign-key cascade may delete retained research.
 
 ### D2. Authority guarantees remain in force
 
@@ -46,16 +52,13 @@ Research retirement needs neither a compaction link nor a calendar deadline.
 Only `research_retire` deletes pack aggregates; eligibility alone has no destructive effect.
 PM8's WIP-byte exclusion, PM9's process-exhaust rejection, and [CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)'s retention rules remain unchanged.
 
-### D3. Live projection growth has a revisit trigger
+### D3. Retention follows the consuming category
 
-Live work, relation, membership, idempotency, operation, worker, message, observation, and workflow projections may grow without bound at single-operator pre-floor scale.
-A later accepted decision must restore a pruning mechanism before any of these conditions holds:
-
-1. Representative projection size measurably degrades authoritative query latency or startup.
-2. Deployment moves beyond one operator through another concurrent operator or a hosted installation.
-3. Backup snapshot size makes the absence of reclamation a recovery risk.
-
-Research retirement does not supply that terminal-projection mechanism or change those triggers.
+Each retained category names its consumer and removal condition under CD-0242 D2.
+Terminal lifecycle alone neither preserves all execution projections indefinitely nor grants deletion authority.
+Unpublished work, unresolved effects, active references and claims, and research protected by an owner or consumer remain outside destructive eligibility.
+Cleanup has no calendar deadline, pressure threshold or periodic sweep.
+Research retirement remains a separate authorized, bounded, version-fenced transaction.
 
 ### D4. Backup retention remains separate
 
@@ -78,25 +81,25 @@ The manifest must not claim a satisfied state without evidence for those obligat
 
 ## Alternatives considered
 
-- Immediate terminal pruning introduces a deferred optimization without measured need.
+- Cleanup before settled publication or release of references removes evidence or coordination state that a consumer still needs.
 - Research deletion during publication couples durable promotion to destructive cleanup.
 - Calendar expiration substitutes elapsed time for explicit intent and consumer protection.
 - Treating an old satisfied coverage record as current proof conceals changed obligations.
 
 ## Consequences
 
-Terminal work remains queryable in live projections alongside Git-derived historical views.
-Historical index rebuild remains derived, not a new work-authority writer.
-Explicit research retirement adds bounded destructive intent without changing deferred work pruning.
-Compaction note proof, exact history, frozen historical scope, and deduplicated query populations remain mandatory.
+Retained terminal state remains readable without rewriting its recorded facts; collected execution state returns typed absence and its canonical outcome locator.
+Historical index rebuild remains Git-derived, not a new work-authority writer.
+Explicit research retirement remains separate from publication and terminal execution cleanup.
+Canonical note proof, frozen historical scope and deduplicated query populations remain mandatory; CD-0242 D2 does not retain exact execution history.
 
 Migration and conformance witnesses are required before deployment.
 
 ## Verification
 
-Preserved anchors include `internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim`
-and `internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted`.
-New candidate anchors include `internal/store.TestResearchRetirementCascadesContent`
-and `internal/agent.TestResearchRetireDryRunAndReplay`.
-Publication, every terminal route, owner removal, restart/replay, restore, and the pin/retire race still need integrated assessment.
-Coverage remains unmeasured until the required witnesses prove these obligations.
+Publication and research boundaries are checked by `internal/store.TestResearchRetirementCascadesContent` and `internal/agent.TestResearchRetireDryRunAndReplay`.
+`internal/store.TestTerminalCleanupDefersUnreleasedOwners` checks unreleased ownership and effect blockers.
+`internal/store.TestTerminalCleanupRetainsDefectAdmissionClassification` checks that recurrence-admission facts survive collection of execution state.
+`internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestPublishedClassificationOnlyAbsenceReaders` check truthful readback after collection.
+Publication, every terminal route, owner removal, restart, restore and the pin/retire race still require integrated evidence.
+Coverage remains unmeasured until the required witnesses pass on the implementing subject.

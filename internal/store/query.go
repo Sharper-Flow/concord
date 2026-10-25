@@ -1274,6 +1274,9 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 }
 
 func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
+	if err := publishedWorkAbsenceQ(ctx, tx, id, "query"); err != nil {
+		return WorkItem{}, err
+	}
 	items, err := scanWorkItems(ctx, tx, `SELECT id,kind,title,lifecycle,version,priority,urgency,created_at,updated_at,coalesce(terminal_time,'') FROM work_items WHERE id=?`, id)
 	if err != nil {
 		return WorkItem{}, err
@@ -1334,6 +1337,9 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	}
 	defer tx.Rollback()
 	if req.Work != "" {
+		if err := publishedWorkAbsenceInScopeQ(ctx, tx, req.Work, req.Product, req.Project, "PM1.Q6"); err != nil {
+			return out, err
+		}
 		w, err := readOneWork(ctx, tx, req.Work)
 		if err != nil {
 			return out, err

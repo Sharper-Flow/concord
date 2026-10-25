@@ -200,6 +200,13 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
 	}
+	_, products, scopeErr := s.ScopeVersion(ctx, projectID)
+	if scopeErr != nil || len(products) != 1 || products[0] != productID {
+		return entry, newFailure(KindUnknownScope, "work_resume", "claimed Project is not in the requested Product scope", false, "resume from the Project's own Product")
+	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, workID, productID, projectID, "work_resume"); err != nil {
+		return entry, err
+	}
 	var lifecycle, kind string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle,kind FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &kind); err != nil {
 		if err == sql.ErrNoRows {
@@ -226,10 +233,6 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	}
 	if !member {
 		return entry, newFailure(KindUnknownScope, "work_resume", "work item "+workID+" does not hold Project "+projectID, false, "resume from a Project the work item belongs to")
-	}
-	_, products, err := s.ScopeVersion(ctx, projectID)
-	if err != nil || len(products) != 1 || products[0] != productID {
-		return entry, newFailure(KindUnknownScope, "work_resume", "claimed Project is not in the requested Product scope", false, "resume from the Project's own Product")
 	}
 	return activeWorktreeEntryForProject(ctx, s.db, "work_resume", workID, projectID)
 }
@@ -259,6 +262,9 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	}
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
+		return BootstrapResult{}, err
+	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, req.ProductID, req.ProjectID, "work_resume"); err != nil {
 		return BootstrapResult{}, err
 	}
 	identity, found, crossProject, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)

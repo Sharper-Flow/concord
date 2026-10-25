@@ -192,6 +192,9 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 			return FenceResult{}, err
 		}
 	}
+	if err := refusePublishedWorkTx(ctx, tx.Tx, req.WorkID, "claim_step"); err != nil {
+		return FenceResult{}, err
+	}
 	var epoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch), 0) + 1 FROM durable_operations WHERE op_id = ?`, req.OpID).Scan(&epoch); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot allocate attempt epoch", true, "retry once the database is readable", err)

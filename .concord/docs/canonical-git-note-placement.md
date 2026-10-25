@@ -195,11 +195,11 @@ monotonic publish protocol rather than pretending cross-store atomicity:
 
 PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pruning transition.
 
-Failure before step 3 leaves only a draft. Failure after git commit but before step 5
-leaves an orphan canonical-looking note; a retry finds and verifies the same note by
-work ID rather than creating another. Failure before/inside step 5 leaves SQLite
-`not_compacted` because no compaction-link row committed, even if an approved git
-note exists in the orphan window. SQLite never commits a locator before git proof.
+Failure before the Git commit leaves only a draft.
+Failure after the commit but before the SQLite publication step settles leaves an incomplete publication operation; reconciliation finds and verifies the same note by work ID rather than creating another.
+A committed note whose identity and content proof verify may already be indexed and discovered as canonical during that interval.
+Canonical discovery does not prove that the publication operation settled or that the closure judgement was accepted, and it does not grant cleanup eligibility.
+SQLite never records a canonical locator before verifying its Git proof.
 
 Rebuild scans canonical note directories, validates unique `concord_work_id`, and
 reconstructs `archived_work`. Two valid notes claiming one work ID are typed
@@ -254,7 +254,7 @@ note.
 | Outcome | Meaning |
 |---|---|
 | canonical locator | one verified note proof exists and index watermark is complete |
-| `not_compacted` | publish protocol is incomplete; no compaction-link row is recorded |
+| not_compacted | retained work has no verified canonical note in the applicable index; an incomplete publication operation alone does not prevent discovery of a verified note |
 | `ambiguous` | home selection failed or multiple notes claim the work ID |
 | `missing` | recorded/candidate git object cannot be found after required authorities were checked |
 

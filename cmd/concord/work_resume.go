@@ -127,6 +127,11 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
 		}
+		// A missing active tree may bootstrap; removed execution may not.
+		if _, err := s.ReadWorkItemSummary(ctx, input.WorkID); err != nil {
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
+			return storeFailureExit(err)
+		}
 		var ref string
 		if !resolution.MainWorktree {
 			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {

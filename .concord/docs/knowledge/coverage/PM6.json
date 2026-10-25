@@ -1,14 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestProductKnowledgeHomeDesignationPersists"
-    }
-  ],
   "id": "PM6",
-  "state": "satisfied"
+  "reason": "Canonical discovery does not require settled publication and does not itself authorize cleanup. internal/store.TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag and internal/store.TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes are candidate discovery witnesses; internal/agent.TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote is a recovery witness. Existing internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact and internal/store.TestProductKnowledgeHomeDesignationPersists cover narrower boundaries. Criterion 2 and its Verification paragraph still require orphan not_compacted and name the removed TestQ10OrphanWorkNoteRemainsNotCompacted; those unlisted clauses need separate wording approval. Coverage remains unmeasured.",
+  "state": "unmeasured"
 }

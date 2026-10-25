@@ -274,6 +274,15 @@ func copyFixtureDataToPrefix(t *testing.T, source *Store, db *sql.DB, tables []s
 		t.Fatal(err)
 	}
 	for _, table := range tables {
+		// Source-only tables cannot seed an earlier schema. Qualify main:
+		// SQLite would otherwise resolve them in the attached current store.
+		var present bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?)`, table).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		if !present {
+			continue
+		}
 		columns := func(schema string) []string {
 			t.Helper()
 			rows, err := tx.Query(`SELECT name FROM pragma_table_info(?,?) ORDER BY cid`, table, schema)
@@ -338,5 +347,23 @@ func copyFixtureDataToPrefix(t *testing.T, source *Store, db *sql.DB, tables []s
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCopyFixtureDataToPrefixSkipsLaterTables(t *testing.T) {
+	s, _, _ := worktreeFixture(t)
+	// These are source-only fixture data, not reconstructed historical DDL.
+	if _, err := s.db.Exec(`CREATE TABLE fixture_future_table(id TEXT); INSERT INTO fixture_future_table VALUES('future-only')`); err != nil {
+		t.Fatal(err)
+	}
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "prefix151.db"), 151)
+	copyFixtureDataToPrefix(t, s, db, []string{"fixture_future_table", "products"}, nil, "write_guard")
+	var exists bool
+	if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='fixture_future_table')`).Scan(&exists); err != nil || exists {
+		t.Fatalf("source-only table entered historical schema: exists=%t error=%v", exists, err)
+	}
+	var products int
+	if err := db.QueryRow(`SELECT count(*) FROM products WHERE id='product-w'`).Scan(&products); err != nil || products != 1 {
+		t.Fatalf("shared historical table lost fixture data: products=%d error=%v", products, err)
 	}
 }

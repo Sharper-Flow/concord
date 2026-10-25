@@ -754,7 +754,7 @@ func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiv
 		return WorkLiveness{}, err
 	}
 	var latest sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT max(occurred_at) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind NOT IN ('work.message_sent','work.message_withdrawn','workflow.overlap_resolved')`, workID).Scan(&latest); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT max(NULLIF(last_progress_at,'')) FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
 		return WorkLiveness{}, err
 	}
 	return workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest), nil

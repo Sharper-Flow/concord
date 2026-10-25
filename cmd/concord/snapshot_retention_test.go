@@ -271,24 +271,165 @@ func TestUpgradeSnapshotRetentionDefersUnderRetainedFence(t *testing.T) {
 	if fence, err := hostlease.ReadFence(root); err != nil || fence == nil {
 		t.Fatalf("fence = %+v, %v", fence, err)
 	}
-	if !strings.Contains(out, `"snapshot_retention"`) || !strings.Contains(out, "maintenance.json") {
-		t.Fatalf("missing exclusion report: %s", out)
+	var report struct {
+		SnapshotRetention struct {
+			DeferredReason string `json:"deferred_reason"`
+		} `json:"snapshot_retention"`
 	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !strings.Contains(report.SnapshotRetention.DeferredReason, hostlease.FencePath(root)) {
+		t.Fatalf("missing structured exclusion reason: %s; %v", out, err)
+	}
+}
+
+func TestUpgradeSucceedsWhenSnapshotRetentionCannotRun(t *testing.T) {
+	_, root, _ := snapshotUpgradeFixture(t)
+	backup := snapshotDatabase
+	t.Cleanup(func() { snapshotDatabase = backup })
+	snapshotDatabase = func(ctx context.Context, source, destination string) (store.BackupManifest, error) {
+		manifest, err := backup(ctx, source, destination)
+		if err != nil {
+			return manifest, err
+		}
+		backups := filepath.Dir(destination)
+		if err := os.Rename(backups, backups+"-held"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(backups+"-held", backups); err != nil {
+			t.Fatal(err)
+		}
+		return manifest, nil
+	}
+	code, out, errOut := runUpgradeStdin(t, `{}`)
+	if code != 0 || !strings.Contains(errOut, "upgrade finished; snapshot retention failed") {
+		t.Fatalf("upgrade = %d: %s; %s", code, out, errOut)
+	}
+	var report struct {
+		SnapshotRetention struct {
+			Error string `json:"error"`
+		} `json:"snapshot_retention"`
+		Maintenance struct {
+			FenceID           string `json:"fence_id"`
+			ActivationCommand string `json:"activation_command"`
+		} `json:"maintenance"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil || report.SnapshotRetention.Error == "" || report.Maintenance.FenceID == "" || report.Maintenance.ActivationCommand == "" {
+		t.Fatalf("missing retention error or maintenance block: %s; %v", out, err)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence == nil || fence.FenceID != report.Maintenance.FenceID {
+		t.Fatalf("maintenance fence = %+v: %v", fence, err)
+	}
+}
+
+func retentionRepairFixture(t *testing.T, f retentionFixture) *repairFixture {
+	t.Helper()
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
+	t.Setenv(dbOverrideEnv, f.source)
+	version.Value = "v9.9.9"
+	if err := os.WriteFile(filepath.Join(f.root, "install-manifest.json"), []byte(`{"version":"v9.9.9"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return fixture
 }
 
 func TestFailedNewRepairSnapshotPrunesNothing(t *testing.T) {
 	f := newRetentionFixture(t)
 	old := f.snapshot(t, 1, 40*24*time.Hour)
+	fixture := retentionRepairFixture(t, f)
 	backup := snapshotDatabase
 	t.Cleanup(func() { snapshotDatabase = backup })
 	snapshotDatabase = func(context.Context, string, string) (store.BackupManifest, error) {
 		return store.BackupManifest{}, fmt.Errorf("verification refused")
 	}
-	var out, errOut bytes.Buffer
-	if _, code := backupBeforeRepair(&out, &errOut, f.root, "v-test"); code != 1 {
-		t.Fatalf("backup = %d", code)
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
+	if code != 1 || !strings.Contains(errOut.String(), "nothing was repaired") {
+		t.Fatalf("repair = %d: %s", code, errOut)
 	}
 	requireSnapshot(t, old, true)
+}
+
+func TestRepairSucceedsWhenSnapshotRetentionCannotRun(t *testing.T) {
+	f := newRetentionFixture(t)
+	old := f.snapshot(t, 1, 40*24*time.Hour)
+	fixture := retentionRepairFixture(t, f)
+	release, err := hostlease.AcquireMaintenance(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
+	if code != 0 || !strings.Contains(errOut.String(), "repair finished; snapshot retention could not lock maintenance") {
+		t.Fatalf("repair = %d: %s", code, errOut)
+	}
+	requireSnapshot(t, old, true)
+}
+
+func TestRepairSucceedsWhenSnapshotRetentionVerificationFails(t *testing.T) {
+	f := newRetentionFixture(t)
+	old := f.snapshot(t, 1, 40*24*time.Hour)
+	fixture := retentionRepairFixture(t, f)
+	backup := snapshotDatabase
+	t.Cleanup(func() { snapshotDatabase = backup })
+	snapshotDatabase = func(ctx context.Context, source, destination string) (store.BackupManifest, error) {
+		manifest, err := backup(ctx, source, destination)
+		if err == nil {
+			// Model removal after successful publication, before cleanup re-verifies.
+			if err := os.Remove(destination + ".manifest.json"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return manifest, err
+	}
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+fixture.artifactDir+`"}`)
+	if code != 0 || !strings.Contains(errOut.String(), "repair finished; snapshot retention failed") {
+		t.Fatalf("repair = %d: %s", code, errOut)
+	}
+	requireSnapshot(t, old, true)
+}
+
+func TestManagedSnapshotRetentionKeepsNewSnapshotUnderClockSkew(t *testing.T) {
+	f := newRetentionFixture(t)
+	var future []string
+	for i := 1; i <= managedSnapshotCount; i++ {
+		future = append(future, f.snapshot(t, i, -time.Duration(managedSnapshotCount+1-i)*time.Hour))
+	}
+	newest := f.snapshot(t, 0, 0)
+	report, err := pruneManagedSnapshots(f.root, newest, f.now)
+	if err != nil || len(report.Deleted) != 0 || report.ProtectedExcess != 1 {
+		t.Fatalf("prune = %+v, %v", report, err)
+	}
+	for _, path := range append(future, newest) {
+		requireSnapshot(t, path, true)
+	}
+}
+
+func TestManagedSnapshotRestoreThroughSymlinkedAncestor(t *testing.T) {
+	f := newRetentionFixture(t)
+	source := f.snapshot(t, 1, 40*24*time.Hour)
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(filepath.Dir(f.root), alias); err != nil {
+		t.Fatal(err)
+	}
+	aliased := filepath.Join(alias, filepath.Base(f.root), "backups", filepath.Base(source))
+	restore := func(destination string) (int, string) {
+		raw, err := json.Marshal(map[string]string{"source": aliased, "destination": destination})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out, errOut bytes.Buffer
+		return runWithInput([]string{"restore"}, bytes.NewReader(raw), &out, &errOut), errOut.String()
+	}
+	release, err := hostlease.AcquireMaintenance(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, errOut := restore(filepath.Join(t.TempDir(), "held.db")); code != 1 || !strings.Contains(errOut, "held") {
+		release()
+		t.Fatalf("aliased restore under retention lock = %d: %s", code, errOut)
+	}
+	release()
+	if code, errOut := restore(filepath.Join(t.TempDir(), "restored.db")); code != 0 {
+		t.Fatalf("aliased restore = %d: %s", code, errOut)
+	}
 }
 
 func TestManagedSnapshotRestoreSharesMaintenanceExclusion(t *testing.T) {

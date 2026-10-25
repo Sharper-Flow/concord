@@ -576,13 +576,14 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	if snapshotPath != "" {
 		result["backup"] = snapshotPath
+		// Cleanup failure is reported but never fails the finished upgrade
+		// or drops the maintenance report below.
 		retention, err := pruneManagedSnapshots(dataRoot, snapshotPath, time.Now().UTC())
-		result["snapshot_retention"] = retention
 		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", "upgrade finished; snapshot retention failed: "+diagnosticText(err))
-			_ = writeJSON(out, result, errOut)
-			return 1
+			retention.Error = diagnosticText(err)
+			writeOperatorDiagnostic(errOut, "upgrade", "upgrade finished; snapshot retention failed: "+retention.Error)
 		}
+		result["snapshot_retention"] = retention
 	}
 	if fence != nil {
 		result["maintenance"] = map[string]any{

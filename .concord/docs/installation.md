@@ -316,8 +316,9 @@ files, and the verification result.
 After a successful upgrade or repair that made a verified snapshot, Concord
 keeps at most eight verified managed snapshots no older than 30 days. It ranks
 them by verified manifest creation time, newest first, with descending filename
-as the stable tie-break. The newest verified snapshot counts toward eight but
-is never deleted, even when older than 30 days.
+as the stable tie-break. The newest verified snapshot and the snapshot the
+finishing operation just made count toward eight but are never deleted, even
+when older than 30 days or outranked by a clock-skewed creation time.
 
 Cleanup owns only regular snapshot/manifest pairs in the data root's `backups`
 directory with the reserved `pre-upgrade-<release>-<timestamp>` or
@@ -343,8 +344,10 @@ counts verified snapshots outside the ordinary count or age limit that safety
 rules kept. Recovery can therefore keep more than eight snapshots indefinitely.
 Failed snapshot creation or a failed upgrade or repair never prunes. Restore
 never prunes. A cleanup failure reports that the operation finished but cleanup
-failed; an interrupted pair removal can leave an orphan manifest, which is not
-treated as a verified snapshot on a later pass.
+failed, in the upgrade's `snapshot_retention.error` or repair's diagnostic,
+and keeps the operation's success exit status. An interrupted pair removal can
+leave an orphan manifest, which is not treated as a verified snapshot on a
+later pass.
 
 Offline repair uses locally published assets:
 

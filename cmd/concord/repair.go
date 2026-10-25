@@ -142,25 +142,26 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "repair", "cannot run the verified installer: "+diagnosticText(err))
 		return 1
 	}
-	if snapshot != "" {
-		// The installer acquires this same lock itself; acquire only after
-		// it exits, then recheck recovery exclusion under the lock.
-		release, err := hostlease.AcquireMaintenance(dataRoot)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention could not lock maintenance: "+diagnosticText(err))
-			return 1
-		}
-		defer release()
-		report, err := pruneManagedSnapshots(dataRoot, snapshot, time.Now().UTC())
-		if err != nil {
-			writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention failed: "+diagnosticText(err))
-			return 1
-		}
-		_, _ = fmt.Fprintf(out, "repair: snapshot retention: deleted %d, protected excess %d", len(report.Deleted), report.ProtectedExcess)
-		if report.DeferredReason != "" {
-			_, _ = fmt.Fprintf(out, "; deferred: %s", report.DeferredReason)
-		}
-		_, _ = fmt.Fprintln(out)
+	if snapshot == "" {
+		return 0
+	}
+	// The installer acquires this same lock itself; acquire only after
+	// it exits, then recheck recovery exclusion under the lock. Cleanup
+	// failure is reported but never fails the finished repair.
+	release, err := hostlease.AcquireMaintenance(dataRoot)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention could not lock maintenance: "+diagnosticText(err))
+		return 0
+	}
+	defer release()
+	report, err := pruneManagedSnapshots(dataRoot, snapshot, time.Now().UTC())
+	_, _ = fmt.Fprintf(out, "repair: snapshot retention: deleted %d, protected excess %d", len(report.Deleted), report.ProtectedExcess)
+	if report.DeferredReason != "" {
+		_, _ = fmt.Fprintf(out, "; deferred: %s", report.DeferredReason)
+	}
+	_, _ = fmt.Fprintln(out)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention failed: "+diagnosticText(err))
 	}
 	return 0
 }

@@ -23,6 +23,7 @@ type snapshotRetentionReport struct {
 	Deleted         []string `json:"deleted"`
 	DeferredReason  string   `json:"deferred_reason,omitempty"`
 	ProtectedExcess int      `json:"protected_excess"`
+	Error           string   `json:"error,omitempty"`
 }
 
 type managedSnapshot struct {
@@ -44,8 +45,10 @@ func pruneManagedSnapshots(dataRoot, newSnapshot string, now time.Time) (snapsho
 	if filepath.Dir(newSnapshot) != backups {
 		return report, fmt.Errorf("new snapshot is outside the managed backups directory")
 	}
-	if err := snapshotDirectoryWithoutSymlinks(backups); err != nil {
-		return report, err
+	for _, directory := range []string{dataRoot, backups} {
+		if !realSnapshotDirectory(directory) {
+			return report, fmt.Errorf("snapshot retention refuses non-directory or symlink %s", directory)
+		}
 	}
 	root, err := os.OpenRoot(backups)
 	if err != nil {
@@ -84,7 +87,9 @@ func pruneManagedSnapshots(dataRoot, newSnapshot string, now time.Time) (snapsho
 		if i < managedSnapshotCount && !snapshot.created.Before(now.Add(-managedSnapshotAge)) {
 			continue
 		}
-		if i == 0 || reason != "" {
+		// The snapshot this operation just made survives even when another
+		// manifest's clock-skewed creation time outranks it.
+		if i == 0 || snapshot.name == filepath.Base(newSnapshot) || reason != "" {
 			report.ProtectedExcess++
 			continue
 		}
@@ -177,23 +182,16 @@ func sameSnapshotMember(root *os.Root, name string, before os.FileInfo) bool {
 	return err == nil && after.Mode().IsRegular() && os.SameFile(before, after) && before.Size() == after.Size() && before.ModTime().Equal(after.ModTime())
 }
 
-func snapshotDirectoryWithoutSymlinks(path string) error {
-	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-		info, err := os.Lstat(current)
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("snapshot retention refuses non-directory or symlink %s", current)
-		}
-		if filepath.Dir(current) == current {
-			return nil
-		}
-	}
+// realSnapshotDirectory reports whether path itself is a directory, not a
+// symlink. Ancestors above the data root are the operator's filesystem
+// layout and may be symlinks.
+func realSnapshotDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
 }
 
 func snapshotRecoveryExclusion(dataRoot string) (string, error) {
-	for _, path := range []string{hostlease.FencePath(dataRoot), filepath.Join(dataRoot, "prepared-release.json")} {
+	for _, path := range []string{hostlease.FencePath(dataRoot), preparedReleasePath(dataRoot)} {
 		if _, err := os.Lstat(path); err == nil {
 			return "unfinished recovery record: " + path, nil
 		} else if !os.IsNotExist(err) {
@@ -231,17 +229,17 @@ func snapshotRecoveryExclusion(dataRoot string) (string, error) {
 
 // A restore to an arbitrary destination must still exclude cleanup at its
 // managed source. Destination staging alone cannot supply that exclusion.
+// Cleanup runs only where the data root and backups are real directories,
+// so only such a source needs the lock.
 func lockManagedSnapshotRestore(source string) (func(), error) {
 	path, err := filepath.Abs(source)
 	if err != nil {
 		return nil, err
 	}
 	backups := filepath.Dir(path)
-	if filepath.Base(backups) != "backups" || !managedSnapshotName.MatchString(filepath.Base(path)) {
+	if filepath.Base(backups) != "backups" || !managedSnapshotName.MatchString(filepath.Base(path)) ||
+		!realSnapshotDirectory(backups) || !realSnapshotDirectory(filepath.Dir(backups)) {
 		return func() {}, nil
-	}
-	if err := snapshotDirectoryWithoutSymlinks(backups); err != nil {
-		return nil, err
 	}
 	return hostlease.AcquireMaintenance(filepath.Dir(backups))
 }

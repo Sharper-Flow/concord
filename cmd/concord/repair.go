@@ -11,6 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
 const defaultReleaseBaseURL = "https://github.com/Sharper-Flow/concord/releases"
@@ -117,7 +120,8 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// A verified database snapshot precedes the repair mutation. A missing
 	// database is reported, not fatal: an incomplete install may never have
 	// reached store creation.
-	if code := backupBeforeRepair(out, errOut, dataRoot, manifest.Version); code != 0 {
+	snapshot, code := backupBeforeRepair(out, errOut, dataRoot, manifest.Version)
+	if code != 0 {
 		return code
 	}
 	_, _ = fmt.Fprintf(out, "repair: release %s, installer from %s\n", manifest.Version, installerTag)
@@ -138,29 +142,49 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "repair", "cannot run the verified installer: "+diagnosticText(err))
 		return 1
 	}
+	if snapshot != "" {
+		// The installer acquires this same lock itself; acquire only after
+		// it exits, then recheck recovery exclusion under the lock.
+		release, err := hostlease.AcquireMaintenance(dataRoot)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention could not lock maintenance: "+diagnosticText(err))
+			return 1
+		}
+		defer release()
+		report, err := pruneManagedSnapshots(dataRoot, snapshot, time.Now().UTC())
+		if err != nil {
+			writeOperatorDiagnostic(errOut, "repair", "repair finished; snapshot retention failed: "+diagnosticText(err))
+			return 1
+		}
+		_, _ = fmt.Fprintf(out, "repair: snapshot retention: deleted %d, protected excess %d", len(report.Deleted), report.ProtectedExcess)
+		if report.DeferredReason != "" {
+			_, _ = fmt.Fprintf(out, "; deferred: %s", report.DeferredReason)
+		}
+		_, _ = fmt.Fprintln(out)
+	}
 	return 0
 }
 
 // backupBeforeRepair snapshots the work database to a fresh path under the
 // data root and prints the location. The backup verb's own rules apply: the
 // destination must not exist, and the snapshot is verified after it is taken.
-func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
+func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) (string, int) {
 	path, err := databasePath()
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "repair", diagnosticText(err))
-		return 1
+		return "", 1
 	}
 	destination, present, err := snapshotBeforeMutation(path, dataRoot, "repair", version)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %s", destination, diagnosticText(err)))
-		return 1
+		return "", 1
 	}
 	if !present {
 		_, _ = fmt.Fprintln(out, "repair: no work database found; skipped the backup")
-		return 0
+		return "", 0
 	}
 	_, _ = fmt.Fprintf(out, "repair: database backup at %s\n", destination)
-	return 0
+	return destination, 0
 }
 
 // gatherRepairAsset materializes one release asset in the workspace, from the

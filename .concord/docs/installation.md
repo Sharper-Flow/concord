@@ -311,6 +311,41 @@ when the release-matched installer itself is defective. The report names the
 selected release, the installer's release, the backup path, the repaired
 files, and the verification result.
 
+### Managed snapshot retention
+
+After a successful upgrade or repair that made a verified snapshot, Concord
+keeps at most eight verified managed snapshots no older than 30 days. It ranks
+them by verified manifest creation time, newest first, with descending filename
+as the stable tie-break. The newest verified snapshot counts toward eight but
+is never deleted, even when older than 30 days.
+
+Cleanup owns only regular snapshot/manifest pairs in the data root's `backups`
+directory with the reserved `pre-upgrade-<release>-<timestamp>` or
+`pre-repair-<release>-<timestamp>` name. Each manifest must pass backup verification.
+Foreign names, invalid or incomplete pairs, symlinks, and snapshots with pending
+SQLite sidecar data remain untouched. Operator-selected exports outside this
+managed namespace are not subject to cleanup.
+
+The maintenance lock serializes cleanup with upgrade and installer operations.
+Restore from a managed snapshot holds its source data root's maintenance lock
+even when its destination is elsewhere; it never starts cleanup.
+Any maintenance fence (`maintenance.json`), prepared activation
+(`prepared-release.json`), entry in `.concord-transactions`, or
+`.concord-restore-*` staging in the data root or its backups directory excludes
+the entire snapshot set from cleanup. Malformed records also exclude cleanup;
+their age never proves recovery finished. No new recovery record or per-snapshot
+pin is created. A breaking upgrade that retains its activation fence therefore
+reports deferred cleanup rather than pruning.
+
+Upgrade reports `snapshot_retention` in its JSON result; repair prints the
+deleted count, protected excess, and any exclusion reason. Protected excess
+counts verified snapshots outside the ordinary count or age limit that safety
+rules kept. Recovery can therefore keep more than eight snapshots indefinitely.
+Failed snapshot creation or a failed upgrade or repair never prunes. Restore
+never prunes. A cleanup failure reports that the operation finished but cleanup
+failed; an interrupted pair removal can leave an orphan manifest, which is not
+treated as a verified snapshot on a later pass.
+
 Offline repair uses locally published assets:
 
 ```sh

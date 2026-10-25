@@ -65,8 +65,7 @@ type Event struct {
 	Payload []byte
 }
 
-// Sequence is the log's stable total order. It is assigned by the database on
-// append.
+// Sequence is the stable effect order allocated inside the write transaction.
 type Sequence = int64
 
 // AppendEvent writes one event inside the caller's transaction and returns its
@@ -137,7 +136,7 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	// The retirement can also be a property of the payload or the subject
 	// rather than of the event kind: a generic work.created whose
 	// payload classifies as initiative, or any new event on an existing
-	// initiative work item, refuses here before the log row exists (CD-0213
+	// initiative work item, refuses here before the receipt exists (CD-0213
 	// D4).
 	if err := refuseRetiredPlanningAppend(ctx, tx, e); err != nil {
 		return 0, err
@@ -155,20 +154,6 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	if err != nil {
 		return 0, err
 	}
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO domain_events
-			(seq, event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		seq, e.EventID, e.Kind, string(e.SubjectType), e.SubjectID, e.Actor,
-		e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
-	if err != nil {
-		if isUniqueViolation(err) {
-			return 0, classifyEventIDConflict(ctx, tx, e, err)
-		}
-		return 0, wrapFailure(KindUnavailable, "append_event", "cannot append the event", true,
-			"retry once the database is writable", err)
-	}
-
 	counted, err := effectCreatesRelationPosition(e)
 	if err != nil {
 		return 0, err
@@ -189,6 +174,9 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq) VALUES(?,?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, asserted, relationSeq); err != nil {
+		if isUniqueViolation(err) {
+			return 0, classifyEventIDConflict(ctx, tx, e, err)
+		}
 		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil

@@ -27,9 +27,6 @@ type workCreatedPayload struct {
 	ExternalRef      string        `json:"external_ref,omitempty"`
 	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
 	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
-	// ResizeOf decodes a historical v4 payload only; the resize core is
-	// retired (CD-0242 D6) and no new event carries the member.
-	ResizeOf string `json:"resize_of,omitempty"`
 }
 
 // validateWorkCreatedPayload enforces the defect intake kind rules.
@@ -212,14 +209,11 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
 			"supply raised_from_work_id only when acknowledging a live external reference conflict")
 	}
-	// ResizeOf decodes a historical v4 payload: a resize successor replays
-	// as an ordinary creation of the intent its payload carries (CD-0242
-	// D6 retired the resize core). No new event carries the member.
 	// Refuse an external reference a live work item already owns unless the
 	// capture acknowledges that owner.
 	if payload.ExternalRef != "" {
 		var existingWorkID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL AND id<>? LIMIT 1`, payload.ExternalRef, payload.ResizeOf).Scan(&existingWorkID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
 				"retry once the database is readable", err)

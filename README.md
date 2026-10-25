@@ -219,8 +219,8 @@ These are not shipped features or release-date commitments:
   limit and require oversized work to split instead of raising the limit.
 - **Review of suggested fixes.** Carry proposed patches with review findings.
   A separate reviewer checks the corrections. Each install chooses reviewer models.
-- **Release-history compatibility.** Expand release gates to exercise event-log
-  restore and rebuild across earlier released binaries and candidate releases.
+- **Release compatibility.** Expand release gates to exercise snapshot restoration
+  across earlier released binaries and candidate releases.
 
 ## Install a release
 
@@ -264,7 +264,6 @@ planning-mirror writes, Initiative projections, Linear Project links, and the
 Product planning-mode column. It retains recorded issue identities only when
 both the issue key and URL are non-empty; incomplete links remain only in the
 backup. Use the backup for any reconciliation through the Linear MCP server.
-The migration preserves event history for replay, not retired planning behavior.
 
 </details>
 

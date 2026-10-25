@@ -147,14 +147,6 @@
     },
     {
       "domain_ids": [
-        "durable-authority",
-        "operator-surface",
-        "repository-verification"
-      ],
-      "path": "scripts/release-restore-inventory"
-    },
-    {
-      "domain_ids": [
         "agent-surface"
       ],
       "path": "scripts/schema-guidance"

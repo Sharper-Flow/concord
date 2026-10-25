@@ -815,7 +815,7 @@ func decodePayload(event Event, target any) error {
 	if err := json.Unmarshal(event.Payload, target); err != nil {
 		failure := wrapFailure(KindInvalidPayload, "fold_event",
 			fmt.Sprintf("event %s payload does not match its kind", event.EventID), false,
-			"repair the event payload before rebuilding", err)
+			"repair the event payload before retrying the operation", err)
 		failure.Stage = StageDecode
 		return failure
 	}

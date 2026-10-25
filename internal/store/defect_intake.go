@@ -93,8 +93,8 @@ func ValidateDefectIntake(kind string, intake *DefectIntake) error {
 
 // DefectClassification is the persisted intent_json block the admission
 // owner writes: the captured intake plus the core's sibling snapshot. Every
-// list field marshals as an array, never null, so the projection stays
-// byte-stable across a rebuild.
+// list field marshals as an array, never null, so the stored classification
+// has one encoding.
 type DefectClassification struct {
 	FailureShape     string   `json:"failure_shape"`
 	Reproduction     string   `json:"reproduction"`
@@ -144,8 +144,8 @@ func normalizedDefectIntake(intake *DefectIntake) *DefectIntake {
 // admission. The capture membership fold calls it with the new item's Project
 // memberships already inserted, so Product scope is known inside the same
 // transaction that creates the item: concurrent same-shape captures serialize
-// on the store's single write connection, a refusal rolls the whole capture
-// back, and a rebuild replays the identical decision from the log prefix.
+// on the store's single write connection, and a refusal rolls the whole
+// capture back.
 func admitDefectIntakeTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var kind, intentJSON string
 	err := tx.QueryRowContext(ctx, `SELECT kind, intent_json FROM work_items WHERE id=?`, workID).Scan(&kind, &intentJSON)

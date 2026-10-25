@@ -261,6 +261,8 @@ func workResumeCaller(ctx context.Context, s *store.Store, input workResumeInput
 	if err != nil {
 		return ctx, nil, err
 	}
-	ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
+	if member != nil {
+		ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
+	}
 	return ctx, member, nil
 }

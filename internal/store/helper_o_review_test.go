@@ -52,8 +52,8 @@ func oCompleteOracleFixtureReview(t *testing.T, f oracleRepairFixture, workID, d
 	w := workContextFixture{store: s, workID: workID, owner: f.owner}
 	job := reviewSubjectReadyRevision(t, w)
 	attempt := "review:" + job.JobID
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, currentStep(t, s, workID), attempt, "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, currentStep(t, s, workID), attempt, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "review")
 	correction, err := workflowCorrectionContextForDispatch(t.Context(), s.db, workID, currentStep(t, s, workID), attempt)
 	if err != nil {

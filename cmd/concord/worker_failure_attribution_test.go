@@ -66,7 +66,7 @@ func attributionSignedV2Assertion(t *testing.T, key ed25519.PrivateKey, attemptI
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError,
 		Version:           agent.WorkerEvidenceAssertionVersion2,
 		ObservationDigest: observationDigest,
@@ -84,7 +84,7 @@ func attributionDispatchJSON(t *testing.T, key ed25519.PrivateKey, workID, attem
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel:        readback,
 		HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
 		PacketDigest:         "sha256:" + strings.Repeat("c", 64),
@@ -92,7 +92,7 @@ func attributionDispatchJSON(t *testing.T, key ed25519.PrivateKey, workID, attem
 	}
 	value := map[string]any{
 		"event_id": "dispatch-" + attemptID, "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion,
 		"report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest":         "sha256:" + strings.Repeat("c", 64),
@@ -259,7 +259,7 @@ func TestWorkerFailAttributionV2AuthenticatesTheProducerObservation(t *testing.T
 				// plain released-format assertion and the nonce is untouched.
 				refused["assertion"] = signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 					Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
-					LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+					LaneID: lane.ID, LaneDigest: lane.Digest,
 					ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError, Nonce: testCase.nonce,
 				})
 			} else {
@@ -436,7 +436,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel:        "provider/executing-model",
 		FailureKind:          store.WorkerFailureModelIdentity,
 		HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
@@ -447,7 +447,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	}
 	request := map[string]any{
 		"event_id": "born-failed-con787-readback", "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion,
 		"report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest":         "sha256:" + strings.Repeat("c", 64),

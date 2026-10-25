@@ -190,8 +190,6 @@ const (
 	// distinct from workflow action refusals so callers cannot mistake a binary
 	// definition drift for a retryable action failure.
 	KindInvalidDefinition             FailureKind = "invalid_definition"
-	KindDefinitionVersionConflict     FailureKind = "definition_version_conflict"
-	KindDefinitionVersionNotMonotonic FailureKind = "definition_version_not_monotonic"
 	KindDefinitionDigestMismatch      FailureKind = "definition_digest_mismatch"
 	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
 	// Lane failures are closed registry errors. They fail before a worker can

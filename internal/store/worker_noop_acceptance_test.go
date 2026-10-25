@@ -29,7 +29,7 @@ func TestAcceptWorkerResultNoChangeProvesDeclaredOutcomeAndReachesReview(t *test
 	review := "attempt:confirmed-review"
 	reviewJob := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirmed-review", twoPathOracleFields(t, f.store, workID, nil))
 	lane := reviewGateLane(t, "review")
-	packet := joinPacketFor(t, f.store, workID, "repair", review, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, f.store, workID, "repair", review, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, f.store, workID, reviewJob, lane.ID)
 	if err := dispatchJobPacketForTest(t, f.store, workID, review, f.owner, "dispatch-confirmed-review", packet); err != nil {
 		t.Fatalf("review after accepted confirmation: %v", err)
@@ -174,7 +174,7 @@ func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	t.Helper()
 	s := f.store
 	lane := reviewGateLane(t, "implementation")
-	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, lane.ID)
 	view, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {

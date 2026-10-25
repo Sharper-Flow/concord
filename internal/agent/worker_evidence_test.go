@@ -31,7 +31,6 @@ type workerEvidenceVectorCase struct {
 		WorkID               string `json:"work_id"`
 		AttemptID            string `json:"attempt_id"`
 		LaneID               string `json:"lane_id"`
-		LaneVersion          int64  `json:"lane_version"`
 		LaneDigest           string `json:"lane_digest"`
 		ReadbackModel        string `json:"readback_model"`
 		FailureKind          string `json:"failure_kind"`
@@ -96,7 +95,7 @@ func TestCanonicalWorkerEvidenceVector(t *testing.T) {
 			value := testCase.Assertion
 			assertion := WorkerEvidenceAssertion{
 				ClientRef: value.ClientRef, Verb: value.Verb, WorkID: value.WorkID, AttemptID: value.AttemptID,
-				LaneID: value.LaneID, LaneVersion: value.LaneVersion, LaneDigest: value.LaneDigest,
+				LaneID: value.LaneID, LaneDigest: value.LaneDigest,
 				ReadbackModel: value.ReadbackModel, FailureKind: value.FailureKind,
 				HostProvenanceDigest: value.HostProvenanceDigest, PacketDigest: value.PacketDigest,
 				IssuedAt: value.IssuedAt, Nonce: value.Nonce,
@@ -131,7 +130,7 @@ func TestCanonicalWorkerEvidenceVectorV2(t *testing.T) {
 			}
 			assertion := WorkerEvidenceAssertion{
 				ClientRef: value.ClientRef, Verb: value.Verb, WorkID: value.WorkID, AttemptID: value.AttemptID,
-				LaneID: value.LaneID, LaneVersion: value.LaneVersion, LaneDigest: value.LaneDigest,
+				LaneID: value.LaneID, LaneDigest: value.LaneDigest,
 				ReadbackModel: value.ReadbackModel, FailureKind: value.FailureKind,
 				HostProvenanceDigest: value.HostProvenanceDigest, PacketDigest: value.PacketDigest,
 				Version: value.Version, ObservationDigest: value.ObservationDigest,
@@ -330,14 +329,14 @@ func TestWorkerEvidenceBindingMismatchOnPacketDigest(t *testing.T) {
 	matched := WorkerEvidenceAssertion{
 		ClientRef: dispatchCase.Assertion.ClientRef, Verb: dispatchCase.Assertion.Verb,
 		WorkID: dispatchCase.Assertion.WorkID, AttemptID: dispatchCase.Assertion.AttemptID,
-		LaneID: dispatchCase.Assertion.LaneID, LaneVersion: dispatchCase.Assertion.LaneVersion,
+		LaneID:     dispatchCase.Assertion.LaneID,
 		LaneDigest: dispatchCase.Assertion.LaneDigest, ReadbackModel: dispatchCase.Assertion.ReadbackModel,
 		HostProvenanceDigest: dispatchCase.Assertion.HostProvenanceDigest,
 		PacketDigest:         dispatchCase.Assertion.PacketDigest,
 	}
 	binding := WorkerEvidenceBinding{
 		Verb: matched.Verb, WorkID: matched.WorkID, AttemptID: matched.AttemptID,
-		LaneID: matched.LaneID, LaneVersion: matched.LaneVersion, LaneDigest: matched.LaneDigest,
+		LaneID: matched.LaneID, LaneDigest: matched.LaneDigest,
 		ReadbackModel: matched.ReadbackModel, HostProvenanceDigest: matched.HostProvenanceDigest,
 		PacketDigest: matched.PacketDigest,
 	}
@@ -364,13 +363,13 @@ func TestWorkerEvidenceBindingMismatchOnPacketDigest(t *testing.T) {
 	complete := WorkerEvidenceAssertion{
 		ClientRef: completeCase.Assertion.ClientRef, Verb: completeCase.Assertion.Verb,
 		WorkID: completeCase.Assertion.WorkID, AttemptID: completeCase.Assertion.AttemptID,
-		LaneID: completeCase.Assertion.LaneID, LaneVersion: completeCase.Assertion.LaneVersion,
+		LaneID:     completeCase.Assertion.LaneID,
 		LaneDigest: completeCase.Assertion.LaneDigest, ReadbackModel: completeCase.Assertion.ReadbackModel,
 		PacketDigest: completeCase.Assertion.PacketDigest,
 	}
 	completeBinding := WorkerEvidenceBinding{
 		Verb: complete.Verb, WorkID: complete.WorkID, AttemptID: complete.AttemptID,
-		LaneID: complete.LaneID, LaneVersion: complete.LaneVersion, LaneDigest: complete.LaneDigest,
+		LaneID: complete.LaneID, LaneDigest: complete.LaneDigest,
 		ReadbackModel: complete.ReadbackModel, PacketDigest: complete.PacketDigest,
 	}
 	if !workerEvidenceMatchesBinding(complete, completeBinding) {
@@ -393,7 +392,6 @@ type workerEvidenceAssertionEnvelope struct {
 	WorkID               string `json:"work_id"`
 	AttemptID            string `json:"attempt_id"`
 	LaneID               string `json:"lane_id"`
-	LaneVersion          int64  `json:"lane_version"`
 	LaneDigest           string `json:"lane_digest"`
 	ReadbackModel        string `json:"readback_model"`
 	FailureKind          string `json:"failure_kind"`
@@ -429,7 +427,6 @@ func workerEvidenceV2Envelope(t *testing.T, nonce string) workerEvidenceAssertio
 		WorkID:               value.WorkID,
 		AttemptID:            value.AttemptID,
 		LaneID:               value.LaneID,
-		LaneVersion:          value.LaneVersion,
 		LaneDigest:           value.LaneDigest,
 		ReadbackModel:        value.ReadbackModel,
 		FailureKind:          value.FailureKind,
@@ -461,7 +458,7 @@ func decodeWorkerEvidenceEnvelope(t *testing.T, env workerEvidenceAssertionEnvel
 func workerEvidenceBindingEnvelope(env workerEvidenceAssertionEnvelope, version int, observationDigest string) map[string]any {
 	return map[string]any{
 		"Verb": env.Verb, "WorkID": env.WorkID, "AttemptID": env.AttemptID,
-		"LaneID": env.LaneID, "LaneVersion": env.LaneVersion, "LaneDigest": env.LaneDigest,
+		"LaneID": env.LaneID, "LaneDigest": env.LaneDigest,
 		"ReadbackModel": env.ReadbackModel, "FailureKind": env.FailureKind,
 		"HostProvenanceDigest": env.HostProvenanceDigest, "PacketDigest": env.PacketDigest,
 		"Version": version, "ObservationDigest": observationDigest,
@@ -506,7 +503,6 @@ func signWorkerEvidenceV2CanonicalBytes(t *testing.T, key ed25519.PrivateKey, en
 		{"work_id", env.WorkID},
 		{"attempt_id", env.AttemptID},
 		{"lane_id", env.LaneID},
-		{"lane_version", strconv.FormatInt(env.LaneVersion, 10)},
 		{"lane_digest", env.LaneDigest},
 		{"readback_model", env.ReadbackModel},
 		{"failure_kind", env.FailureKind},

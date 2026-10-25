@@ -4,11 +4,10 @@
   "title": "Concord worker scope contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "registry", "version", "summary", "premise", "assignments"],
+  "required": ["schema_version", "registry", "summary", "premise", "assignments"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "registry": {"const": "worker_scope"},
-    "version": {"const": 1},
     "summary": {"type": "string", "minLength": 2, "maxLength": 1024},
     "premise": {
       "type": "object",

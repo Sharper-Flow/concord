@@ -45,7 +45,7 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
+			selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
 			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{selected}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +91,7 @@ func TestTerminalLifecycleRefusesCompletedWhileWorkflowLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
+	selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{selected}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			t.Fatalf("seed %s: %v", workID, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_model) VALUES(?,?,?,?,?,'running','single_actor')`,
-			workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, "proposal"); err != nil {
+			workID, definition.Definition.Ref, 1, definition.Digest, "proposal"); err != nil {
 			t.Fatalf("seed instance %s: %v", workID, err)
 		}
 	}

@@ -130,8 +130,8 @@ func TestMultiProjectRecoveryAbandonsOnlyAttemptProject(t *testing.T) {
 				attempt := "attempt-missing-primary"
 				f.dispatch(t, attempt)
 				if dispatched {
-					version, digest := implementLaneIdentity()
-					lane, err := LookupLane("implement", version, digest)
+					digest := implementLaneIdentity()
+					lane, err := LookupLane("implement", digest)
 					if err != nil {
 						t.Fatal(err)
 					}

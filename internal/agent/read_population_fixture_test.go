@@ -132,7 +132,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 			fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('%s','%s','Perf work %03d-%02d','%s',%d,1,'2026-08-%02dT00:00:00Z','2026-08-%02dT00:00:00Z',%s);", workID, kind, product, work, lifecycle, work+1, (work%8)+1, (work%8)+1, terminal)
 			fmt.Fprintf(&statements, "INSERT INTO work_projects(work_id,project_id,role) VALUES('%s','%s','primary'),('%s','%s','secondary');", workID, projectPrimary, workID, projectSecondary)
 			if work == 0 {
-				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,started_at) VALUES('%s','%s',%d,'%s','planning','ready','2026-08-01T00:00:00Z');", workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest)
+				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,started_at) VALUES('%s','%s','%s','planning','ready','2026-08-01T00:00:00Z');", workID, definition.Definition.Ref, definition.Digest)
 			}
 		}
 		blockerID := fmt.Sprintf("perf-work-%03d-06", product)
@@ -467,7 +467,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
 	// The unresolved overlap must follow setup mutations that enforce admission.
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
 // seedPopulationDomainRows attaches the home Project and one managed resource
@@ -557,6 +557,6 @@ func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	}
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,?,'request:population','2026-09-01T00:00:00Z')`,
-		fx.workID, focusVersion, registered.Definition.Ref, registered.Definition.Version, registered.Digest, actorRef)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,'request:population','2026-09-01T00:00:00Z')`,
+		fx.workID, focusVersion, registered.Definition.Ref, registered.Digest, actorRef)
 }

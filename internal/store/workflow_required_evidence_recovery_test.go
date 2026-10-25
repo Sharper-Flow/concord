@@ -410,7 +410,7 @@ func countEvidenceBinding(t *testing.T, s *Store, workID, kind, reference string
 func readDefinitionIdentity(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var identity string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref||':'||definition_version||':'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&identity); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref||':'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&identity); err != nil {
 		t.Fatal(err)
 	}
 	return identity

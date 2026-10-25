@@ -25,7 +25,7 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 			continue
 		}
 		if workflowContractCorrectionCheckpoint(definition, dispatchCorrectionMissingStep) {
-			t.Fatalf("%s v%d: nonexistent step resolved as a correction checkpoint", definition.Ref, definition.Version)
+			t.Fatalf("%s: nonexistent step resolved as a correction checkpoint", definition.Ref)
 		}
 		for _, step := range definition.StepGraph.Steps {
 			if stepDeclaresAction(definition, step.ID, "complete") {
@@ -40,10 +40,10 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 			switch step.Kind {
 			case WorkflowStepCrossAuthority, WorkflowStepInternalSQLite, WorkflowStepExternalEffect:
 				if !workflowContractCorrectionCheckpoint(definition, step.ID) {
-					t.Fatalf("%s v%d step %s (%s) declares dispatch_worker but is not a correction checkpoint", definition.Ref, definition.Version, step.ID, step.Kind)
+					t.Fatalf("%s step %s (%s) declares dispatch_worker but is not a correction checkpoint", definition.Ref, step.ID, step.Kind)
 				}
 				if !admissionContractCorrection(definition, admissionModelState{step: step.ID, contracts: 1}) {
-					t.Fatalf("%s v%d step %s (%s): admission model refuses contract correction before dispatch", definition.Ref, definition.Version, step.ID, step.Kind)
+					t.Fatalf("%s step %s (%s): admission model refuses contract correction before dispatch", definition.Ref, step.ID, step.Kind)
 				}
 				counts[step.Kind]++
 			case WorkflowStepHumanCheckpoint:
@@ -54,10 +54,10 @@ func TestDispatchCheckpointCorrectionAcrossKinds(t *testing.T) {
 				expected := !slices.Contains(definition.StepGraph.TerminalSteps, step.ID) &&
 					(workflowUnhealthyVerdictRouteTarget(definition, step.ID) != "" || slices.Contains(step.Actions, "confirm_premise"))
 				if workflowContractCorrectionCheckpoint(definition, step.ID) != expected {
-					t.Fatalf("%s v%d step %s (%s) resolves as a correction checkpoint = %v, want the structure's %v", definition.Ref, definition.Version, step.ID, step.Kind, !expected, expected)
+					t.Fatalf("%s step %s (%s) resolves as a correction checkpoint = %v, want the structure's %v", definition.Ref, step.ID, step.Kind, !expected, expected)
 				}
 				if admissionContractCorrection(definition, admissionModelState{step: step.ID, contracts: 1}) != expected {
-					t.Fatalf("%s v%d step %s (%s): admission model disagrees with the structure's %v", definition.Ref, definition.Version, step.ID, step.Kind, expected)
+					t.Fatalf("%s step %s (%s): admission model disagrees with the structure's %v", definition.Ref, step.ID, step.Kind, expected)
 				}
 				counts[step.Kind]++
 			}
@@ -84,7 +84,7 @@ func dispatchCorrectionAssertExcluded(t *testing.T, definition WorkflowDefinitio
 		return
 	}
 	if workflowContractCorrectionCheckpoint(definition, step.ID) {
-		t.Fatalf("%s v%d step %s (%s) without dispatch_worker, confirm_premise, or an evaluator route resolved as a correction checkpoint", definition.Ref, definition.Version, step.ID, step.Kind)
+		t.Fatalf("%s step %s (%s) without dispatch_worker, confirm_premise, or an evaluator route resolved as a correction checkpoint", definition.Ref, step.ID, step.Kind)
 	}
 }
 
@@ -94,8 +94,7 @@ func dispatchCorrectionAssertExcluded(t *testing.T, definition WorkflowDefinitio
 // confirm_premise, and a plain internal step without dispatch_worker.
 func dispatchCorrectionProbeDefinition() WorkflowDefinition {
 	return WorkflowDefinition{
-		Ref:     "workflow.correction_probe",
-		Version: 1,
+		Ref: "workflow.correction_probe",
 		StepGraph: WorkflowStepGraph{
 			StartStep:     "producing",
 			TerminalSteps: []string{"sealed"},
@@ -240,7 +239,7 @@ func TestDispatchCheckpointCorrectionAvailability(t *testing.T) {
 func dispatchCorrectionAuthorize(t *testing.T, f crossAttemptFixture, attemptID string, lane LaneDefinition, dispatcher WorkflowActor) error {
 	t.Helper()
 	dispatchSessionWorktree(t, f.s, f.workID)
-	packet := joinPacketFor(t, f.s, f.workID, f.step, attemptID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, f.s, f.workID, f.step, attemptID, lane.ID, lane.Digest)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), f.s.DatabaseForTesting(), f.workID, f.step, attemptID)
 	if err != nil {
 		return err
@@ -457,7 +456,7 @@ func TestResearchWalledCorrectionRecovery(t *testing.T) {
 	if issue1013Pin(t, f.s, workID).Correction != nil {
 		t.Fatal("the materialized dispatch left the rejection correction standing")
 	}
-	_, reviewErr := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, refusedReview, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest))
+	_, reviewErr := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, refusedReview, f.reviewLane.ID, f.reviewLane.Digest))
 	if reviewErr != nil {
 		t.Fatalf("post-materialization review dispatch: %v", reviewErr)
 	}

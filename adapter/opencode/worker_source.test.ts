@@ -8,7 +8,7 @@ function fixture() {
   const lane = agentLanes.find((entry) => entry.id === "verify")!
   const packet: AgentLanePacket = {
     schema_version: "1.0", attempt_id: "read-attempt", work_id: "read-work", step_id: "verify",
-    lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    lane_id: lane.id, lane_digest: lane.digest,
     inputs: { task: "Read the declared source", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
   }
   const worker: WorkerCapabilityContext = {

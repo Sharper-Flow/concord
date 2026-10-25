@@ -36,7 +36,7 @@ func checkBinaryCompatibility(ctx context.Context, q queryer) error {
 			return compatibilityReadFailure(err)
 		}
 		if err == nil {
-			return binaryCompatibilityFailure(ctx, q, "knowledge", "", required, "",
+			return binaryCompatibilityFailure(ctx, q, knowledgeStateWriter(required),
 				fmt.Sprintf("knowledge projection version %d exceeds this binary's version %d", required, knowledgeProjectionVersion))
 		}
 	}
@@ -48,12 +48,12 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 	// read or a completion gate. Empty pre-pin contract rows are not pins.
 	queries := []string{}
 	for _, table := range []string{"workflow_instances", "workflow_contracts"} {
-		present, err := columnPresent(ctx, q, table, "definition_version")
+		present, err := columnPresent(ctx, q, table, "definition_digest")
 		if err != nil {
 			return err
 		}
 		if present {
-			queries = append(queries, "SELECT definition_ref,definition_version,definition_digest FROM "+table+" WHERE definition_ref <> '' AND definition_version > 0")
+			queries = append(queries, "SELECT definition_ref,definition_digest FROM "+table+" WHERE definition_ref <> '' AND definition_digest <> ''")
 		}
 	}
 	if len(queries) == 0 {
@@ -63,7 +63,7 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 	if len(queries) == 2 {
 		query += " UNION " + queries[1]
 	}
-	rows, err := q.QueryContext(ctx, "SELECT DISTINCT definition_ref,definition_version,definition_digest FROM ("+query+") ORDER BY definition_ref,definition_version,definition_digest") //nolint:gosec // table names come only from the closed list above.
+	rows, err := q.QueryContext(ctx, "SELECT DISTINCT definition_ref,definition_digest FROM ("+query+") ORDER BY definition_ref,definition_digest") //nolint:gosec // table names come only from the closed list above.
 	if err != nil {
 		return compatibilityReadFailure(err)
 	}
@@ -71,7 +71,7 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 	var unsupported *WorkflowDefinitionPin
 	for rows.Next() {
 		var pin WorkflowDefinitionPin
-		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+		if err := rows.Scan(&pin.Ref, &pin.Digest); err != nil {
 			return compatibilityReadFailure(err)
 		}
 		// Known retired families remain readable metadata. Their nonterminal
@@ -79,7 +79,7 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		if workflowFamilyArchived(pin.Ref) {
 			continue
 		}
-		if _, current := builtinWorkflowCurrentVersions[pin.Ref]; !current && !registryHolds(pin) {
+		if !registryHolds(pin) {
 			unsupported = &pin
 			break
 		}
@@ -91,8 +91,8 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		return compatibilityReadFailure(err)
 	}
 	if unsupported != nil {
-		return binaryCompatibilityFailure(ctx, q, "workflow", unsupported.Ref, unsupported.Version, unsupported.Digest,
-			fmt.Sprintf("workflow definition %s version %d is not registered by this binary", unsupported.Ref, unsupported.Version))
+		return binaryCompatibilityFailure(ctx, q, workflowStateWriter(*unsupported),
+			fmt.Sprintf("workflow definition %s (digest %s) is not registered by this binary", unsupported.Ref, unsupported.Digest))
 	}
 	return nil
 }
@@ -114,8 +114,8 @@ func checkWorkflowAuthoringCutover(ctx context.Context, q queryer) error {
 	}
 	if len(work) != 0 {
 		first := work[0]
-		return binaryCompatibilityFailure(ctx, q, "workflow", first.Pin.Ref, first.Pin.Version, first.Pin.Digest,
-			fmt.Sprintf("workflow definition %s version %d %s; nonterminal work item %s still pins it through its instance or active contract; re-run concord upgrade with {\"cancel_cutover_pinned_work\":true} to cancel every selected item inside the maintenance boundary after the verified snapshot", first.Pin.Ref, first.Pin.Version, first.Classification, first.WorkID))
+		return binaryCompatibilityFailure(ctx, q, workflowStateWriter(first.Pin),
+			fmt.Sprintf("workflow definition %s (digest %s) %s; nonterminal work item %s still pins it through its instance or active contract; re-run concord upgrade with {\"cancel_cutover_pinned_work\":true} to cancel every selected item inside the maintenance boundary after the verified snapshot", first.Pin.Ref, first.Pin.Digest, first.Classification, first.WorkID))
 	}
 	return nil
 }
@@ -140,12 +140,12 @@ func cutoverBlockedWork(ctx context.Context, q queryer) ([]cutoverWork, error) {
 		return nil, err
 	}
 	if instancePresent {
-		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,i.definition_ref,i.definition_version,i.definition_digest
+		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,i.definition_ref,i.definition_digest
 			FROM workflow_instances i JOIN work_items w ON w.id=i.work_id
 			WHERE i.definition_ref IN `+authoringFamilySQLList()+`
 			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
 	}
-	contractPresent, err := columnPresent(ctx, q, "workflow_contracts", "definition_version")
+	contractPresent, err := columnPresent(ctx, q, "workflow_contracts", "definition_digest")
 	if err != nil {
 		return nil, err
 	}
@@ -159,10 +159,10 @@ func cutoverBlockedWork(ctx context.Context, q queryer) ([]cutoverWork, error) {
 		if activePresent {
 			activeClause = " AND c.superseded_by IS NULL"
 		}
-		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,c.definition_ref,c.definition_version,c.definition_digest
+		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,c.definition_ref,c.definition_digest
 			FROM workflow_contracts c JOIN work_items w ON w.id=c.work_id
 			WHERE c.definition_ref IN `+authoringFamilySQLList()+`
-			  AND c.definition_ref <> '' AND c.definition_version > 0`+activeClause+`
+			  AND c.definition_ref <> '' AND c.definition_digest <> ''`+activeClause+`
 			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
 	}
 	selected := []cutoverWork{}
@@ -170,14 +170,14 @@ func cutoverBlockedWork(ctx context.Context, q queryer) ([]cutoverWork, error) {
 		return selected, nil
 	}
 	query := strings.Join(queries, " UNION ")
-	rows, err := q.QueryContext(ctx, "SELECT id,lifecycle,version,definition_ref,definition_version,definition_digest FROM ("+query+") ORDER BY id,definition_ref,definition_version,definition_digest") //nolint:gosec // table names come only from the closed list above.
+	rows, err := q.QueryContext(ctx, "SELECT id,lifecycle,version,definition_ref,definition_digest FROM ("+query+") ORDER BY id,definition_ref,definition_digest") //nolint:gosec // table names come only from the closed list above.
 	if err != nil {
 		return nil, compatibilityReadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var work cutoverWork
-		if err := rows.Scan(&work.WorkID, &work.Lifecycle, &work.Version, &work.Pin.Ref, &work.Pin.Version, &work.Pin.Digest); err != nil {
+		if err := rows.Scan(&work.WorkID, &work.Lifecycle, &work.Version, &work.Pin.Ref, &work.Pin.Digest); err != nil {
 			return nil, compatibilityReadFailure(err)
 		}
 		if len(selected) > 0 && selected[len(selected)-1].WorkID == work.WorkID {
@@ -271,7 +271,7 @@ func (s *Store) cancelCutoverPinnedWork(ctx context.Context) (*CutoverDispositio
 	for _, work := range selected {
 		payload, err := json.Marshal(workTransitionPayload{
 			From: work.Lifecycle, To: "cancelled",
-			Reason:          fmt.Sprintf("CD-0218 D5 cutover disposition: %s version %d %s (digest %s)", work.Pin.Ref, work.Pin.Version, work.Classification, work.Pin.Digest),
+			Reason:          fmt.Sprintf("CD-0218 D5 cutover disposition: %s %s (digest %s)", work.Pin.Ref, work.Classification, work.Pin.Digest),
 			ExpectedVersion: work.Version, ResultingVersion: work.Version + 1,
 		})
 		if err != nil {
@@ -295,23 +295,55 @@ func (s *Store) cancelCutoverPinnedWork(ctx context.Context) (*CutoverDispositio
 	return disposition, nil
 }
 
-// registryHolds is the slow path for a pin outside the built-in current
-// versions table: it builds the registry, which also holds definitions
-// registered at runtime (test fixture families). Store open reaches it only
-// for such a pin or for one this binary refuses.
+// registryHolds reports whether the registry, which also holds definitions
+// registered at runtime (test fixture families), declares the pin's family.
 func registryHolds(pin WorkflowDefinitionPin) bool {
 	_, ok := BuiltinWorkflowRegistry().Current(pin.Ref)
 	return ok
 }
 
-func binaryCompatibilityFailure(ctx context.Context, q queryer, surface, ref string, required int64, digest, detail string) error {
+// runtimeStateWriter names one shared-state representation whose writer
+// binary is recorded: a workflow definition by ref and digest, or the
+// knowledge projection by its format version.
+type runtimeStateWriter struct {
+	surface           string
+	definitionRef     string
+	digest            string
+	projectionVersion int64
+}
+
+func workflowStateWriter(pin WorkflowDefinitionPin) runtimeStateWriter {
+	return runtimeStateWriter{surface: "workflow", definitionRef: pin.Ref, digest: pin.Digest}
+}
+
+func knowledgeStateWriter(projectionVersion int64) runtimeStateWriter {
+	return runtimeStateWriter{surface: "knowledge", projectionVersion: projectionVersion}
+}
+
+func binaryCompatibilityFailure(ctx context.Context, q queryer, subject runtimeStateWriter, detail string) error {
 	writer := "unknown (writer provenance was not recorded)"
 	present, err := columnPresent(ctx, q, "runtime_state_writers", "binary_version")
 	if err != nil {
 		return err
 	}
 	if present {
-		err := q.QueryRowContext(ctx, `SELECT binary_version FROM runtime_state_writers WHERE surface=? AND definition_ref=? AND version=? AND digest=?`, surface, ref, required, digest).Scan(&writer)
+		query := `SELECT binary_version FROM runtime_state_writers WHERE surface=? AND definition_ref=? AND digest=?`
+		args := []any{subject.surface, subject.definitionRef, subject.digest}
+		if subject.surface == "knowledge" {
+			// Compatibility is inspected before migration. The old schema's
+			// version column also carries the knowledge format discriminator.
+			current, err := columnPresent(ctx, q, "runtime_state_writers", "knowledge_projection_version")
+			if err != nil {
+				return err
+			}
+			if current {
+				query += " AND knowledge_projection_version=?"
+			} else {
+				query += " AND version=?"
+			}
+			args = append(args, subject.projectionVersion)
+		}
+		err := q.QueryRowContext(ctx, query, args...).Scan(&writer)
 		if err != nil && err != sql.ErrNoRows {
 			return compatibilityReadFailure(err)
 		}
@@ -327,15 +359,15 @@ func compatibilityReadFailure(err error) error {
 
 // Writer identity is diagnostic storage metadata, not replay authority. It
 // commits with the representation it names; legacy state remains unknown.
-func recordRuntimeStateWriter(ctx context.Context, tx *sql.Tx, surface, ref string, required int64, digest string) error {
-	// An older schema can be folded during explicit migration/replay. It has
-	// no writer provenance yet; compatibility never relies on this metadata.
-	present, err := columnPresent(ctx, tx, "runtime_state_writers", "binary_version")
+func recordRuntimeStateWriter(ctx context.Context, tx *sql.Tx, subject runtimeStateWriter) error {
+	// A store folded before the current writer table exists has no writer
+	// provenance yet; compatibility never relies on this metadata.
+	present, err := columnPresent(ctx, tx, "runtime_state_writers", "knowledge_projection_version")
 	if err != nil || !present {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO runtime_state_writers(surface,definition_ref,version,digest,binary_version) VALUES(?,?,?,?,?)
-		ON CONFLICT(surface,definition_ref,version,digest) DO UPDATE SET binary_version=excluded.binary_version`, surface, ref, required, digest, version.Value)
+	_, err = tx.ExecContext(ctx, `INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES(?,?,?,?,?)
+		ON CONFLICT(surface,definition_ref,knowledge_projection_version,digest) DO UPDATE SET binary_version=excluded.binary_version`, subject.surface, subject.definitionRef, subject.projectionVersion, subject.digest, version.Value)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "binary_compatibility", "cannot record the shared-state writer binary", true, "confirm the database is writable", err)
 	}
@@ -344,13 +376,13 @@ func recordRuntimeStateWriter(ctx context.Context, tx *sql.Tx, surface, ref stri
 
 func recordRuntimeContractWriter(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64) error {
 	var pin WorkflowDefinitionPin
-	err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts
-		WHERE work_id=? AND contract_version=? AND definition_version>0`, workID, contractVersion).Scan(&pin.Ref, &pin.Version, &pin.Digest)
+	err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_contracts
+		WHERE work_id=? AND contract_version=? AND definition_digest<>''`, workID, contractVersion).Scan(&pin.Ref, &pin.Digest)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return compatibilityReadFailure(err)
 	}
-	return recordRuntimeStateWriter(ctx, tx, "workflow", pin.Ref, pin.Version, pin.Digest)
+	return recordRuntimeStateWriter(ctx, tx, workflowStateWriter(pin))
 }

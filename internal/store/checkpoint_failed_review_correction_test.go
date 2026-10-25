@@ -49,22 +49,21 @@ func workerAttemptPopulation(t *testing.T, s *Store, workID string) (attempts, d
 
 // assertFailedReviewCorrectionPreservesPinnedState pins what the checkpoint
 // correction must leave exactly as it found it: the pinned definition digest
-// and version, the single active contract, the failed attempt's failure
+// identity, the single active contract, the failed attempt's failure
 // history, and the absence of any authored verdict.
-func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, workID, definitionRef string, definitionVersion int64) {
+func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, workID, definitionRef string) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	registered, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 	if !ok {
-		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
+		t.Fatalf("workflow definition %s is not registered", definitionRef)
 	}
 	var digest string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&digest, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
-	if digest != registered.Digest || version != registered.Definition.Version {
-		t.Fatalf("pinned definition = v%d %s, want the released v%d %s", version, digest, registered.Definition.Version, registered.Digest)
+	if digest != registered.Digest {
+		t.Fatalf("pinned definition = %s, want the current %s", digest, registered.Digest)
 	}
 	var contracts int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
@@ -170,7 +169,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// The return carries no law, contract, history, or evidence edit: the
 	// pinned digest, the one contract, and the failure record survive
 	// unchanged, and no verdict was authored.
-	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix", mustBuiltinDefinition(t, "workflow.break_fix").Definition.Version)
+	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix")
 
 	// The return reopens the owning execution step's normal dispatch: a fresh
 	// fenced attempt mints a new identity and a strictly incremented epoch,
@@ -185,7 +184,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatal("the fresh attempt identity reuses the dispositioned review attempt")
 	}
 	implement := laneForID(t)
-	packet := joinPacketFor(t, s, workID, "repair", fresh, "implement", implement.Version, implement.Digest)
+	packet := joinPacketFor(t, s, workID, "repair", fresh, "implement", implement.Digest)
 	packet["inputs"].(map[string]any)["correction"] = pin.Correction
 	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(ctx, t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {

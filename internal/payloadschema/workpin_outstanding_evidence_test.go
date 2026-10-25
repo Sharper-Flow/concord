@@ -14,9 +14,8 @@ func outstandingEvidencePinFixture() map[string]any {
 		"workflow_type": "workflow.implementation", "step": "acceptance", "attempt": nil,
 		"pending_operator_decision": nil, "driving_sessions": []any{},
 		"watermark": "seq:3", "next_valid_intents": []any{},
-		"workflow_definition_version": 1,
-		"workflow_definition_digest":  "sha256:" + strings.Repeat("0", 64),
-		"obligations":                 []string{"verification"},
+		"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
+		"obligations":                []string{"verification"},
 	}
 }
 
@@ -54,7 +53,6 @@ func TestOutsideRepairWorkPinOmitsOutstandingEvidenceKinds(t *testing.T) {
 	for _, state := range []string{"active", "completed"} {
 		t.Run(state, func(t *testing.T) {
 			pin := outstandingEvidencePinFixture()
-			delete(pin, "workflow_definition_version")
 			delete(pin, "workflow_definition_digest")
 			delete(pin, "obligations")
 			pin["outside_repair_disposition"] = map[string]any{

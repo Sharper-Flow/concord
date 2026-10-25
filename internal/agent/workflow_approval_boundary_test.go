@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,7 +61,6 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			local.Ref = "workflow.consent-local"
-			local.Version = 1
 			local.ApprovalPolicy = vector.approvalPolicy
 			mutated := 0
 			for index := range local.ActionDefinitions {
@@ -121,8 +121,27 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				if challenges != 0 || approvals != 0 {
 					t.Fatalf("routine record_proposal minted consent state: challenges=%d approvals=%d, want none", challenges, approvals)
 				}
-				if versionAfter != version+1 {
-					t.Fatalf("routine record_proposal work version=%d, want %d after its advance-mode completion", versionAfter, version+1)
+				if versionAfter != version+2 {
+					t.Fatalf("routine record_proposal work version=%d, want %d after proposal and advance-mode completion", versionAfter, version+2)
+				}
+				rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY seq`, store.WorkflowProposalRecorded, store.WorkflowActionCompleted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var effects []string
+				for rows.Next() {
+					var effect string
+					if err := rows.Scan(&effect); err != nil {
+						t.Fatal(err)
+					}
+					effects = append(effects, effect)
+				}
+				if err := rows.Err(); err != nil {
+					t.Fatal(err)
+				}
+				rows.Close()
+				if want := []string{store.WorkflowProposalRecorded, store.WorkflowActionCompleted}; !slices.Equal(effects, want) {
+					t.Fatalf("routine record_proposal effects=%v, want exactly %v", effects, want)
 				}
 				var started int
 				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
@@ -173,7 +192,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	t.Parallel()
 	base := store.WorkflowApprovalBoundaryState{
-		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test", Version: 1}, Digest: "digest-1"},
+		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test"}, Digest: "digest-1"},
 		WorkVersion:            3,
 		ContractVersion:        2,
 		ActiveContractVersions: []int64{1, 2},
@@ -184,11 +203,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
 		t.Fatal("an identical boundary snapshot reported changed facts")
-	}
-	versionMetadata := base
-	versionMetadata.Definition.Definition.Version++
-	if workflowApprovalBoundaryChanged(base, versionMetadata) {
-		t.Fatal("definition version metadata invalidated unchanged dependency content")
 	}
 	// A JSON round trip can turn an empty slice nil; that is not a fact
 	// change and must not refuse the action.

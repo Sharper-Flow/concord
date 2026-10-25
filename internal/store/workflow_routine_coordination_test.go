@@ -172,7 +172,7 @@ func seedRecordedWorkerLaneActor(t *testing.T, s *Store, workID string, version 
 	dispatch := Event{
 		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_digest": lane.Digest,
 			"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 			"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 		}),

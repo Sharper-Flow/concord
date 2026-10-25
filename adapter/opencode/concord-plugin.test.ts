@@ -259,7 +259,6 @@ const packet = {
   schema_version: "1.0" as const,
   attempt_id: "attempt-plugin",
   lane_id: "implement",
-  lane_version: 1,
   lane_digest: "sha256:" + "b".repeat(64),
   work_id: "work-plugin",
   step_id: "step-1",

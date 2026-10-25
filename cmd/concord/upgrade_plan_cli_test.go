@@ -287,6 +287,22 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 }
 
 var migrationTailReversals = map[int][]string{
+	152: {
+		// Recreate the input columns the content-identity migration consumes.
+		// Definition counters have no current identity; fixtures use one only
+		// to populate the pre-migration shape.
+		`ALTER TABLE durable_operations ADD COLUMN workflow_type_version INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE durable_operations DROP COLUMN workflow_type_digest`,
+		`ALTER TABLE workflow_contracts ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE workflow_instances ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 1 CHECK(definition_version > 0 AND definition_version <= 2147483647)`,
+		`ALTER TABLE workflow_context_checkpoints ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 1 CHECK(workflow_definition_version > 0)`,
+		`ALTER TABLE workflow_context_boundaries ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 1 CHECK(workflow_definition_version > 0)`,
+		`ALTER TABLE worker_attempts ADD COLUMN lane_version INTEGER NOT NULL DEFAULT 1 CHECK(lane_version > 0)`,
+		`CREATE TABLE runtime_state_writers_old(surface TEXT NOT NULL,definition_ref TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0),digest TEXT NOT NULL,binary_version TEXT NOT NULL,PRIMARY KEY(surface,definition_ref,version,digest))`,
+		`INSERT INTO runtime_state_writers_old SELECT surface,definition_ref,CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 1 END,digest,binary_version FROM runtime_state_writers`,
+		`DROP TABLE runtime_state_writers`,
+		`ALTER TABLE runtime_state_writers_old RENAME TO runtime_state_writers`,
+	},
 	150: {
 		`ALTER TABLE workflow_phase_exits DROP COLUMN record_version`,
 		`ALTER TABLE workflow_phase_exits DROP COLUMN contract_version`,
@@ -1017,17 +1033,17 @@ func cutoverFixtureActor(workID string) store.WorkflowActor {
 
 // cutoverFixtureContract inserts one contract pin row for a work item under
 // the fold guard, the shape an approval leaves behind.
-func cutoverFixtureContract(workID string, contractVersion int64, ref string, definitionVersion int64, digest string) string {
+func cutoverFixtureContract(workID string, contractVersion int64, ref string, digest string) string {
 	return fmt.Sprintf(`INSERT INTO workflow_contracts
-		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_version,definition_digest)
+		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		VALUES('%s',%d,'cutover contract pin','internal_sqlite','[]','[]','2026-10-12T00:00:00Z',
-		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','%s',%d,'%s')`,
-		workID, contractVersion, ref, definitionVersion, digest)
+		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','%s','%s')`,
+		workID, contractVersion, ref, digest)
 }
 
 // This row represents stored metadata, not an executable archived definition.
 func cutoverFixtureArchivedInstance(workID string) string {
-	return fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='workflow.generic_one_off',definition_version=1,definition_digest='%s' WHERE work_id='%s'`, "sha256:"+strings.Repeat("a", 64), workID)
+	return fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='workflow.generic_one_off',definition_digest='%s' WHERE work_id='%s'`, "sha256:"+strings.Repeat("a", 64), workID)
 }
 
 // seedCutoverPinStore builds one fully migrated temporary store whose
@@ -1076,9 +1092,9 @@ func seedCutoverPinStore(t *testing.T, path string) {
 		cutoverFixtureArchivedInstance(cutoverTerminalHistoryWork),
 		// Both active and superseded old-version metadata must leave a
 		// current-family item outside the cancellation population.
-		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
-		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
-		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", canonical.Definition.Version, canonical.Digest),
+		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", canonical.Digest),
 		fmt.Sprintf(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='%s' AND contract_version=1`, cutoverSupersededContractWork),
 	)
 	// A terminal item with archived metadata is not selected again. Record
@@ -1646,7 +1662,15 @@ func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
 	}
 	for _, table := range tables {
 		common := sharedColumns(t, readTx, writeTx, table)
-		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(common, ",")+` FROM `+table)
+		selectColumns := append([]string(nil), common...)
+		if table == "workflow_instances" {
+			// Schema 122 requires a positive definition counter with no default.
+			// This fixture-only value fills that historical shape; the copied
+			// ref and digest remain the identity, and migration 152 retires it.
+			common = append(common, "definition_version")
+			selectColumns = append(selectColumns, "1")
+		}
+		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(selectColumns, ",")+` FROM `+table)
 		if err != nil {
 			t.Fatalf("cannot read the seeded %s rows: %v", table, err)
 		}

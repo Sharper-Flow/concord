@@ -328,9 +328,9 @@ func TestChecksRepairSatisfiesNamedRevisionsAndAdmitsOneConfirmingReview(t *test
 func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding, actor WorkflowActor) error {
 	t.Helper()
 	lane := reviewGateLane(t, "review")
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	step := currentStep(t, s, workID)
-	packet := joinPacketFor(t, s, workID, step, attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, step, attemptID, "review", laneDigest)
 	packet["schema_version"] = WorkerPacketSchemaVersion
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
@@ -375,7 +375,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 		t.Fatal(err)
 	}
 	dispatch := Event{EventID: "checks-repair-review-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
 	return s.Transact(context.Background(), func(transaction *Transaction) error {
@@ -832,12 +832,11 @@ func acceptChecksRepairAttemptAtStep(t *testing.T, s *Store, workID, attemptID, 
 func checksRepairAttemptLane(t *testing.T, s *Store, workID, attemptID string) LaneDefinition {
 	t.Helper()
 	var laneID string
-	var laneVersion int64
 	var laneDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lane_id,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneDigest); err != nil {
 		t.Fatal(err)
 	}
-	lane, err := LookupLane(laneID, laneVersion, laneDigest)
+	lane, err := LookupLane(laneID, laneDigest)
 	if err != nil {
 		t.Fatal(err)
 	}

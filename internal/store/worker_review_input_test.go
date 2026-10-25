@@ -23,8 +23,8 @@ func TestReviewDispatchRequiresExactReviewInput(t *testing.T) {
 			if field == "other lane" {
 				lane = "implement"
 			}
-			version, digest := registeredLaneIdentity(t, lane)
-			packet := joinPacketFor(t, f.store, f.workID, currentStep(t, f.store, f.workID), "attempt:review-input", lane, version, digest)
+			digest := registeredLaneIdentity(t, lane)
+			packet := joinPacketFor(t, f.store, f.workID, currentStep(t, f.store, f.workID), "attempt:review-input", lane, digest)
 			inputs := packet["inputs"].(map[string]any)
 			inputs["worker_job"] = recordedPacketJobForTest(t, f.store, f.workID, job, lane)
 			deps, err := workflowReviewDependencies(t.Context(), f.store.db, f.workID)

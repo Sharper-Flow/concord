@@ -169,7 +169,7 @@ func TestOutsideRepairHoldRefusesOutstandingExecution(t *testing.T) {
 			if state == "dispatched" {
 				lane := BuiltinLaneDefinitions()[0]
 				event := Event{EventID: "outside-running", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-					Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
+					Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
 					t.Fatal(err)
 				}
@@ -207,7 +207,7 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 	}), KindOutsideRepairActive)
 	lane := BuiltinLaneDefinitions()[0]
 	event := Event{EventID: "outside-late-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt-late", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt-late", LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 	assertFailureKind(t, ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}), KindOutsideRepairActive)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("dispatch consumption while held changed the database")
@@ -282,7 +282,7 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	if state == "dispatched" {
 		lane := BuiltinLaneDefinitions()[0]
 		event := Event{EventID: "outside-recheck-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
 			t.Fatal(err)
 		}

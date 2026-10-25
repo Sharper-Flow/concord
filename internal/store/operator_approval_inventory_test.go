@@ -1176,16 +1176,15 @@ func syntheticClassifierConsent(facts WorkflowApprovalFacts) WorkflowApprovalPol
 	}
 }
 
-// approvalInventoryTriple is one definition/version/action identity whose
+// approvalInventoryTriple is one current definition/action identity whose
 // resolved action demands operator approval.
 type approvalInventoryTriple struct {
-	Ref     string
-	Version int64
-	Action  string
+	Ref    string
+	Action string
 }
 
 func (t approvalInventoryTriple) key() string {
-	return fmt.Sprintf("%s@%d:%s", t.Ref, t.Version, t.Action)
+	return fmt.Sprintf("%s:%s", t.Ref, t.Action)
 }
 
 // approvalInventoryExpansion walks resolved definitions and the off-pin
@@ -1195,7 +1194,7 @@ func approvalInventoryExpansion(definitions []WorkflowDefinition) []approvalInve
 	for _, definition := range definitions {
 		for _, action := range definition.ActionDefinitions {
 			if action.Approval == ActionApprovalRequired {
-				triples = append(triples, approvalInventoryTriple{Ref: definition.Ref, Version: definition.Version, Action: action.ID})
+				triples = append(triples, approvalInventoryTriple{Ref: definition.Ref, Action: action.ID})
 			}
 		}
 		// Recovery actions resolve off-pin: every builtin recovery action
@@ -1203,16 +1202,13 @@ func approvalInventoryExpansion(definitions []WorkflowDefinition) []approvalInve
 		// approval-required actions reach every version.
 		for _, recovery := range BuiltinWorkflowRecoveryActionDefinitions() {
 			if recovery.Approval == ActionApprovalRequired {
-				triples = append(triples, approvalInventoryTriple{Ref: definition.Ref, Version: definition.Version, Action: recovery.ID})
+				triples = append(triples, approvalInventoryTriple{Ref: definition.Ref, Action: recovery.ID})
 			}
 		}
 	}
 	sort.Slice(triples, func(i, j int) bool {
 		if triples[i].Ref != triples[j].Ref {
 			return triples[i].Ref < triples[j].Ref
-		}
-		if triples[i].Version != triples[j].Version {
-			return triples[i].Version < triples[j].Version
 		}
 		return triples[i].Action < triples[j].Action
 	})
@@ -1236,13 +1232,12 @@ func TestOperatorApprovalInventoryRegistryExpansionCatchesNewDefinition(t *testi
 	// for reasons a caller registry never introduces.
 	synthetic := cloneWorkflowDefinition(definitions[0])
 	synthetic.Ref = "workflow.synthetic_consent"
-	synthetic.Version = definitions[0].Version + 1000
 	registry := NewWorkflowDefinitionRegistry()
 	registered, err := registry.Register(synthetic)
 	if err != nil {
 		t.Fatalf("synthetic caller-registered definition is not registrable: %v", err)
 	}
-	resolved, found := registry.Lookup(synthetic.Ref, synthetic.Version)
+	resolved, found := registry.Current(synthetic.Ref)
 	if !found {
 		t.Fatal("caller registry did not resolve the synthetic definition")
 	}
@@ -1255,7 +1250,7 @@ func TestOperatorApprovalInventoryRegistryExpansionCatchesNewDefinition(t *testi
 	triples := approvalInventoryExpansion([]WorkflowDefinition{synthetic})
 	found = false
 	for _, triple := range triples {
-		if triple.Ref == synthetic.Ref && triple.Version == synthetic.Version && triple.Action == "approve_contract" {
+		if triple.Ref == synthetic.Ref && triple.Action == "approve_contract" {
 			found = true
 		}
 	}
@@ -1268,7 +1263,6 @@ func TestOperatorApprovalInventoryRegistryExpansionCatchesNewDefinition(t *testi
 	// row and proves the same coverage check fails and then passes.
 	unknown := cloneWorkflowDefinition(synthetic)
 	unknown.Ref = "workflow.synthetic_unknown_action"
-	unknown.Version = synthetic.Version + 1
 	unknown.ActionDefinitions = append(unknown.ActionDefinitions, WorkflowActionDefinition{
 		ID: "synthetic_unknown_action", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired, ExecutionMode: ActionHold,
 	})
@@ -1292,12 +1286,11 @@ func callerWitnessTriples(t *testing.T) []approvalInventoryTriple {
 	definitions := BuiltinWorkflowDefinitions()
 	synthetic := cloneWorkflowDefinition(definitions[0])
 	synthetic.Ref = "workflow.caller_witness"
-	synthetic.Version = definitions[0].Version + 2000
 	registry := NewWorkflowDefinitionRegistry()
 	if _, err := registry.Register(synthetic); err != nil {
 		t.Fatalf("caller-registered witness definition is not registrable: %v", err)
 	}
-	if resolved, found := registry.Lookup(synthetic.Ref, synthetic.Version); !found || resolved.Definition.Ref != synthetic.Ref {
+	if resolved, found := registry.Current(synthetic.Ref); !found || resolved.Definition.Ref != synthetic.Ref {
 		t.Fatal("caller registry did not resolve the witness definition")
 	}
 	return approvalInventoryExpansion([]WorkflowDefinition{synthetic})
@@ -1570,31 +1563,16 @@ func approvalInventoryClassificationProblems(row approvalInventoryPointRow) []st
 // and off-pin recovery resolve to.
 func approvalInventoryTripleCoverageProblems(builtinTriples []approvalInventoryTriple, callerTriples []approvalInventoryTriple, rows []approvalInventoryPointRow) []string {
 	triples := append(append([]approvalInventoryTriple{}, builtinTriples...), callerTriples...)
-	headRefs := map[string]int64{}
 	registeredRefs := map[string]bool{}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		registeredRefs[definition.Ref] = true
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version > headRefs[definition.Ref] {
-			headRefs[definition.Ref] = definition.Version
-		}
-	}
 	tripleClass := func(triple approvalInventoryTriple) string {
-		// A ref outside the builtin history is a caller-registered
-		// definition: its consent context is caller_registered. A registered
-		// ref that is not a live authoring head is retired; a live family's
-		// current version is live, and every earlier pin is legacy_pinned.
+		// The builtin registry holds current live families only.
 		if !registeredRefs[triple.Ref] {
 			return "caller_registered"
 		}
-		if _, head := headRefs[triple.Ref]; !head {
-			return "retired"
-		}
-		if triple.Version == headRefs[triple.Ref] {
-			return "live"
-		}
-		return "legacy_pinned"
+		return "live"
 	}
 	tripleActions := map[string]bool{}
 	classesByAction := map[string]map[string]bool{}

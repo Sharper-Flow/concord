@@ -29,7 +29,10 @@ func validateWorkflowDesignContent(p workflowDesignContent) error {
 	return nil
 }
 
-func workflowDesignRecordedEvents(request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
+func workflowDesignRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	if declared, err := workflowDeclaresDocument(definition, "record_design"); err != nil || !declared {
+		return nil, err
+	}
 	var content workflowDesignContent
 	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "design record is not a closed typed document", false, "supply only approach, decisions and touched_refs")
@@ -56,7 +59,7 @@ func appendWorkflowDesignCorrection(ctx context.Context, tx *sql.Tx, definition 
 	if err := validateWorkflowActionPayload(definition, "record_design", raw); err != nil {
 		return nil, err
 	}
-	designEvents, err := workflowDesignRecordedEvents(request, actor, raw, eventID+":design", expected+1)
+	designEvents, err := workflowDesignRecordedEvents(definition, request, actor, raw, eventID+":design", expected+1)
 	if err != nil {
 		return nil, err
 	}

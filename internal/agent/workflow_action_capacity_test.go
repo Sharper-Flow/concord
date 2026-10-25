@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 33518411
+const derivedRequestWireMaxBytes = 33517457
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -86,7 +86,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// proof uses, and the union of writer-owned member bounds carries each
 	// variant's prefix, so one options set serves every variant's walk.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
+	packet := derivedPacketFigure(t, defs, findingRefMax)
 	digestWire := 2 + len("sha256:") + 64
 	commitOIDWire := 2 + 64
 	const recordJob = "work_transition_action_variant_record_worker_job"
@@ -97,10 +97,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		RefBounds: map[string]int{
 			"worker_acceptance_oracle":   store.OracleCombinedMaxBytes,
 			"worker_failure_observation": store.WorkerFailureAttributionMaxBlockBytes,
-			"worker_packet2":             packet2 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet3":             packet3 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet4":             packet4 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet5":             packet5 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet":              packet + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		PathBounds: map[string]int{
 			recordJob + "/fields" + lawSourceHash: digestWire,

@@ -43,7 +43,6 @@ const basePin = (): Record<string, unknown> => ({
   driving_sessions: [],
   watermark: "seq:1",
   next_valid_intents: [],
-  workflow_definition_version: 1,
   workflow_definition_digest: "sha256:" + "a".repeat(64),
   obligations: [],
 })

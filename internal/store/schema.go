@@ -7417,6 +7417,226 @@ UPDATE workflow_phase_exits AS x SET
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		// CD-0242 D14: a workflow definition is identified by its ref and
+		// content digest. The integer definition counter leaves every
+		// projection, and a workflow step claim binds the definition digest.
+		Version:        152,
+		Name:           "workflow_definition_content_identity",
+		Breaking:       true,
+		FoldMaintained: "origin",
+		SQL: `
+ALTER TABLE durable_operations ADD COLUMN workflow_type_digest TEXT NOT NULL DEFAULT '';
+ALTER TABLE durable_operations DROP COLUMN workflow_type_version;
+ALTER TABLE workflow_contracts DROP COLUMN definition_version;
+CREATE TABLE runtime_state_writers_v152 (
+    surface TEXT NOT NULL CHECK(surface IN ('knowledge','workflow')),
+    definition_ref TEXT NOT NULL,
+    knowledge_projection_version INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    binary_version TEXT NOT NULL,
+    PRIMARY KEY(surface, definition_ref, knowledge_projection_version, digest),
+    CHECK((surface='knowledge' AND knowledge_projection_version > 0) OR
+          (surface='workflow' AND knowledge_projection_version=0))
+);
+INSERT INTO runtime_state_writers_v152
+    SELECT surface,definition_ref,CASE WHEN surface='knowledge' THEN version ELSE 0 END,digest,binary_version
+      FROM runtime_state_writers;
+DROP TABLE runtime_state_writers;
+ALTER TABLE runtime_state_writers_v152 RENAME TO runtime_state_writers;
+CREATE TABLE worker_attempts_v152 (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('in_flight','dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    dispatch_payload TEXT CHECK(dispatch_payload IS NULL OR json_valid(dispatch_payload)),
+    dispatch_event_id TEXT,
+    dispatch_actor TEXT,
+    dispatch_payload_version INTEGER,
+    dispatch_seq INTEGER,
+    terminal_payload TEXT CHECK(terminal_payload IS NULL OR json_valid(terminal_payload)),
+    terminal_event_id TEXT,
+    terminal_payload_version INTEGER,
+    terminal_kind TEXT CHECK(terminal_kind IS NULL OR terminal_kind IN ('worker.completed','worker.failed')),
+    failure_recorded INTEGER NOT NULL DEFAULT 0 CHECK(failure_recorded>=0),
+    terminal_seq INTEGER NOT NULL DEFAULT 0,
+    terminal_occurred_at TEXT NOT NULL DEFAULT '',
+    failure_recorded_seq INTEGER NOT NULL DEFAULT 0,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version IN ('1.0','1.1','2.0')),
+    CHECK(report_schema_version IN ('1.0','1.1','2.0')),
+    CHECK((lifecycle_state='in_flight' AND completed_at IS NULL AND failed_at IS NULL AND readback_model='' AND failure_kind='' AND failure_detail='') OR
+          (lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            (length(readback_model) >= 3 OR failure_kind IN ('model_readback_missing','model_readback_ambiguous','abandoned'))))
+);
+INSERT INTO worker_attempts_v152
+    (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,
+     lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,
+     dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_seq,
+     terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind,failure_recorded,
+     terminal_seq,terminal_occurred_at,failure_recorded_seq)
+SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,
+       lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,
+       dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_seq,
+       terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind,failure_recorded,
+       terminal_seq,terminal_occurred_at,failure_recorded_seq
+  FROM worker_attempts;
+DROP TABLE worker_attempts;
+ALTER TABLE worker_attempts_v152 RENAME TO worker_attempts;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_instances_v152 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded','outside_repair')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    outside_repair_state TEXT,
+    result_disposition TEXT NOT NULL DEFAULT '',
+    completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload)),
+    completion_occurred_at TEXT,
+    unhealthy_verdict_seq INTEGER NOT NULL DEFAULT 0,
+    latest_non_dispatch_start_seq INTEGER NOT NULL DEFAULT 0,
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128),
+    CHECK(outside_repair_state IS NULL OR outside_repair_state IN ('active','completed','resumed'))
+);
+INSERT INTO workflow_instances_v152
+    (work_id, definition_ref, definition_digest, current_step, instance_state, execution_actor_ref, execution_model,
+     started_at, completed_at, last_checkpoint_at, execution_started_at, outside_repair_state, result_disposition,
+     completion_payload, completion_occurred_at, unhealthy_verdict_seq, latest_non_dispatch_start_seq)
+SELECT work_id, definition_ref, definition_digest, current_step, instance_state, execution_actor_ref, execution_model,
+       started_at, completed_at, last_checkpoint_at, execution_started_at, outside_repair_state, result_disposition,
+       completion_payload, completion_occurred_at, unhealthy_verdict_seq, latest_non_dispatch_start_seq
+  FROM workflow_instances;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v152 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_context_checkpoints_v152 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL,
+    checkpoint_sequence INTEGER NOT NULL,
+    checkpoint_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    active_unit TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    diagnosis TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    touched_refs TEXT NOT NULL CHECK(json_valid(touched_refs) AND json_type(touched_refs)='array'),
+    evidence_refs TEXT NOT NULL CHECK(json_valid(evidence_refs) AND json_type(evidence_refs)='array'),
+    pending_questions TEXT NOT NULL CHECK(json_valid(pending_questions) AND json_type(pending_questions)='array'),
+    pending_decisions TEXT NOT NULL CHECK(json_valid(pending_decisions) AND json_type(pending_decisions)='array'),
+    workflow_ref TEXT NOT NULL,
+    workflow_definition_digest TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, work_version, checkpoint_sequence),
+    UNIQUE(work_id, checkpoint_id),
+    CHECK(work_version > 0),
+    CHECK(checkpoint_sequence > 0),
+    CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(length(active_unit) BETWEEN 2 AND 256),
+    CHECK(length(hypothesis) BETWEEN 2 AND 4096),
+    CHECK(length(diagnosis) BETWEEN 2 AND 4096),
+    CHECK(length(strategy) BETWEEN 2 AND 4096),
+    CHECK(json_array_length(touched_refs) BETWEEN 1 AND 64),
+    CHECK(json_array_length(evidence_refs) BETWEEN 1 AND 64),
+    CHECK(json_array_length(pending_questions) BETWEEN 0 AND 16),
+    CHECK(json_array_length(pending_decisions) BETWEEN 0 AND 16),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128),
+    CHECK(length(workflow_definition_digest) = 71 AND substr(workflow_definition_digest,1,7)='sha256:'),
+    CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_context_checkpoints_v152
+    (work_id, work_version, checkpoint_sequence, checkpoint_id, step_id, attempt_epoch, active_unit, hypothesis, diagnosis,
+     strategy, touched_refs, evidence_refs, pending_questions, pending_decisions, workflow_ref, workflow_definition_digest,
+     actor_ref, request_id, recorded_at)
+SELECT work_id, work_version, checkpoint_sequence, checkpoint_id, step_id, attempt_epoch, active_unit, hypothesis, diagnosis,
+       strategy, touched_refs, evidence_refs, pending_questions, pending_decisions, workflow_ref, workflow_definition_digest,
+       actor_ref, request_id, recorded_at
+  FROM workflow_context_checkpoints;
+DROP TABLE workflow_context_checkpoints;
+ALTER TABLE workflow_context_checkpoints_v152 RENAME TO workflow_context_checkpoints;
+CREATE INDEX workflow_context_checkpoints_latest ON workflow_context_checkpoints(work_id, checkpoint_sequence DESC);
+CREATE TRIGGER workflow_context_checkpoints_guard_insert BEFORE INSERT ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_update BEFORE UPDATE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is immutable'); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_context_boundaries_v152 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL,
+    boundary_sequence INTEGER NOT NULL,
+    boundary_count INTEGER NOT NULL,
+    boundary_id TEXT NOT NULL,
+    boundary_kind TEXT NOT NULL CHECK(boundary_kind='summary'),
+    checkpoint_id TEXT NOT NULL,
+    checkpoint_sequence INTEGER NOT NULL,
+    attempt_epoch INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    workflow_ref TEXT NOT NULL,
+    workflow_definition_digest TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, boundary_sequence),
+    UNIQUE(work_id, boundary_id),
+    CHECK(work_version > 0),
+    CHECK(boundary_sequence > 0 AND boundary_count = boundary_sequence),
+    CHECK(length(boundary_id) BETWEEN 2 AND 128),
+    CHECK(boundary_kind='summary' AND length(summary) BETWEEN 1 AND 16384),
+    CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128),
+    CHECK(checkpoint_sequence > 0),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128),
+    CHECK(length(workflow_definition_digest) = 71 AND substr(workflow_definition_digest,1,7)='sha256:'),
+    CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_context_boundaries_v152
+    (work_id, work_version, boundary_sequence, boundary_count, boundary_id, boundary_kind, checkpoint_id, checkpoint_sequence,
+     attempt_epoch, summary, workflow_ref, workflow_definition_digest, actor_ref, request_id, recorded_at)
+SELECT work_id, work_version, boundary_sequence, boundary_count, boundary_id, boundary_kind, checkpoint_id, checkpoint_sequence,
+       attempt_epoch, summary, workflow_ref, workflow_definition_digest, actor_ref, request_id, recorded_at
+  FROM workflow_context_boundaries;
+DROP TABLE workflow_context_boundaries;
+ALTER TABLE workflow_context_boundaries_v152 RENAME TO workflow_context_boundaries;
+CREATE INDEX workflow_context_boundaries_history ON workflow_context_boundaries(work_id, boundary_sequence DESC);
+CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
+CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

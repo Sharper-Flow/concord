@@ -5,7 +5,6 @@ const packet = {
   schema_version: "1.0" as const,
   attempt_id: "attempt-current",
   lane_id: "implement",
-  lane_version: 1,
   lane_digest: "sha256:" + "a".repeat(64),
   work_id: "work-current",
   step_id: "step-current",

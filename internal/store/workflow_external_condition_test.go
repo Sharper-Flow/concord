@@ -57,8 +57,8 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 func seedWorkflowTestConditionAuthority(t *testing.T, s *Store, workID, opID, evidenceRef string) {
 	t.Helper()
 	var workflowTypeRef string
-	var workflowTypeVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion); err != nil {
+	var workflowTypeDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeDigest); err != nil {
 		t.Fatal(err)
 	}
 	var currentStep string
@@ -70,8 +70,8 @@ func seedWorkflowTestConditionAuthority(t *testing.T, s *Store, workID, opID, ev
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,?,?,?,'external_effect',?,?,'completed','{}',?,'principal/condition-authority',?,?,?,?)`,
-		opID, workID, workflowTypeRef, workflowTypeVersion, currentStep, "sha256:condition-authority", "{}", string(evidenceJSON), "req-"+opID, at.Format(time.RFC3339Nano), at.Format(time.RFC3339Nano), testManifestDigest); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,?,?,?,'external_effect',?,?,'completed','{}',?,'principal/condition-authority',?,?,?,?)`,
+		opID, workID, workflowTypeRef, workflowTypeDigest, currentStep, "sha256:condition-authority", "{}", string(evidenceJSON), "req-"+opID, at.Format(time.RFC3339Nano), at.Format(time.RFC3339Nano), testManifestDigest); err != nil {
 		t.Fatalf("seed the condition authority operation: %v", err)
 	}
 }

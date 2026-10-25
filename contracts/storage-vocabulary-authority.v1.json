@@ -139,7 +139,7 @@
     },
     {
       "table": "durable_operations",
-      "column": "workflow_type_version",
+      "column": "workflow_type_digest",
       "authority": "go_registry",
       "symbol": "builtinWorkflowRegistry"
     },

@@ -43,10 +43,13 @@ const (
 // RequestID is transport-attempt identity; IdempotencyKey is logical retry
 // identity and must be reused by callers retrying the same intent.
 type ClaimRequest struct {
-	OpID                  string    `json:"op_id"`
-	WorkID                string    `json:"work_id"`
-	WorkflowTypeRef       string    `json:"workflow_type_ref"`
-	WorkflowTypeVersion   int       `json:"workflow_type_version"`
+	OpID            string `json:"op_id"`
+	WorkID          string `json:"work_id"`
+	WorkflowTypeRef string `json:"workflow_type_ref"`
+	// WorkflowTypeDigest binds a claim on a workflow.* step to the exact
+	// definition content it was claimed under; an auxiliary claim (any
+	// other ref) carries none.
+	WorkflowTypeDigest    string    `json:"workflow_type_digest,omitempty"`
 	StepID                string    `json:"step_id"`
 	StepKind              StepKind  `json:"step_kind"`
 	AcceptedInputsDigest  string    `json:"accepted_inputs_digest"`
@@ -198,10 +201,10 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 	}
 	observed := req.ObservedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
-		 (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
-		req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest,
+		req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest,
 		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractDigest); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err)
 	}
@@ -326,8 +329,8 @@ func validateClaim(req ClaimRequest) error {
 			return newFailure(KindInvalidOperation, "claim_step", name+" is empty", false, "supply all durable identity fields")
 		}
 	}
-	if req.WorkflowTypeVersion <= 0 {
-		return newFailure(KindInvalidOperation, "claim_step", "workflow_type_version must be positive", false, "supply a supported workflow version")
+	if validWorkflowRef(req.WorkflowTypeRef) != validDigest(req.WorkflowTypeDigest) || (!validWorkflowRef(req.WorkflowTypeRef) && req.WorkflowTypeDigest != "") {
+		return newFailure(KindInvalidOperation, "claim_step", "workflow_type_digest must be the definition digest exactly when workflow_type_ref names a workflow", false, "supply the pinned definition digest for a workflow step claim and none otherwise")
 	}
 	if !validStepKind(req.StepKind) {
 		return newFailure(KindInvalidOperation, "claim_step", "step_kind is not recognized", false, "use an accepted D4 step kind")
@@ -399,12 +402,11 @@ func validateStringRefs(refs []string, field string) error {
 
 func claimDigest(req ClaimRequest) string {
 	return digestJSON(struct {
-		OpID, WorkID, WorkflowTypeRef                                                                string
-		WorkflowTypeVersion                                                                          int
+		OpID, WorkID, WorkflowTypeRef, WorkflowTypeDigest                                            string
 		StepID                                                                                       string
 		StepKind                                                                                     StepKind
 		AcceptedInputsDigest, AcceptedScopeSnapshot, PrincipalRef, Tool, IdempotencyKey, ApprovalRef string
-	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey, req.ApprovalRef})
+	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey, req.ApprovalRef})
 }
 func completeDigest(req CompleteRequest) string {
 	return digestJSON(struct {

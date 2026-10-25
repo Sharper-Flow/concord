@@ -22,8 +22,8 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 	f := newNativeOracleFixture(t)
 	packet := mustJSONValue(map[string]any{"work_id": f.work, "attempt_id": f.a.AttemptID, "job": f.a.WorkerJobBinding.Digest, "subject_commit": f.head})
 	if dispatched {
-		lv, ld := implementLaneIdentity()
-		lane, err := LookupLane("implement", lv, ld)
+		ld := implementLaneIdentity()
+		lane, err := LookupLane("implement", ld)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -38,7 +38,7 @@ func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -59,7 +59,6 @@ func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID stri
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        f.workID,
 		"step_id":        "repair",

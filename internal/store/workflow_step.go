@@ -59,7 +59,7 @@ func workflowDeclaredStep(definition WorkflowDefinition, stepID string) (string,
 // verifies the pin against the registry.
 func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return RegisteredDefinition{}, newFailure(KindProjectionNotFound, "workflow_step", "workflow instance does not exist", false, "select a workflow definition first")
 		}
@@ -93,11 +93,11 @@ func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, defin
 // start step, or from the instance's current step after the fold verified the
 // carried-forward definition declares it.
 func pinWorkflowInstanceToStepTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition, stepID, selectingActor string) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_version=excluded.definition_version,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, stepID)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES(?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Digest, stepID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow definition")
 	}
-	if err := recordRuntimeStateWriter(ctx, tx, "workflow", definition.Definition.Ref, definition.Definition.Version, definition.Digest); err != nil {
+	if err := recordRuntimeStateWriter(ctx, tx, workflowStateWriter(WorkflowDefinitionPin{Ref: definition.Definition.Ref, Digest: definition.Digest})); err != nil {
 		return err
 	}
 	if selectingActor == "" {

@@ -53,9 +53,6 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 			t.Fatalf("%s does not resolve: %v", testCase.ref, err)
 		}
 		definition := registered.Definition
-		if want := builtinWorkflowCurrentVersions[testCase.ref]; definition.Version != want {
-			t.Fatalf("%s resolved version %d, want %d", testCase.ref, definition.Version, want)
-		}
 		if got := workflowNextStep(definition, testCase.afterStep); got != "alignment" {
 			t.Fatalf("%s routes %s to %q, want alignment", testCase.ref, testCase.afterStep, got)
 		}

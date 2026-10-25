@@ -517,7 +517,7 @@ func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registr
 		registry = BuiltinWorkflowRegistry()
 	}
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "complete_workflow", "workflow definition pin is missing", false, "reread_entities")
 		}
@@ -1101,15 +1101,14 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 }
 
 type workflowContractDefinitionPin struct {
-	definitionRef     string
-	definitionVersion int64
-	definitionDigest  string
+	definitionRef    string
+	definitionDigest string
 }
 
 type workflowContractDefinitionPinsData map[int64]workflowContractDefinitionPin
 
 func workflowContractDefinitionPins(ctx context.Context, q queryer, workID string, currentVersion int64) (workflowContractDefinitionPinsData, error) {
-	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version`, workID, currentVersion)
+	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version`, workID, currentVersion)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow contract definition pins", true, "retry once the database is readable", err)
 	}
@@ -1117,7 +1116,7 @@ func workflowContractDefinitionPins(ctx context.Context, q queryer, workID strin
 	for rows.Next() {
 		var version int64
 		var pin workflowContractDefinitionPin
-		if err := rows.Scan(&version, &pin.definitionRef, &pin.definitionVersion, &pin.definitionDigest); err != nil {
+		if err := rows.Scan(&version, &pin.definitionRef, &pin.definitionDigest); err != nil {
 			rows.Close()
 			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow contract definition pins", true, "retry once the database is readable", err)
 		}

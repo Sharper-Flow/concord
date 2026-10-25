@@ -11,7 +11,7 @@ import (
 // an auxiliary cross-authority workflow layered over a work item that already
 // carries its own item workflow.
 func compactionClaimRequest(workID string) ClaimRequest {
-	return ClaimRequest{OpID: "compact-" + workID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{"work_ids":["` + workID + `"]}`, PrincipalRef: "principal/operator", Tool: "concord_work_compact", IdempotencyKey: "compact-" + workID, RequestID: "request:compact-" + workID, ObservedAt: time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC), ContractDigest: "sha256:" + strings.Repeat("d", 64)}
+	return ClaimRequest{OpID: "compact-" + workID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{"work_ids":["` + workID + `"]}`, PrincipalRef: "principal/operator", Tool: "concord_work_compact", IdempotencyKey: "compact-" + workID, RequestID: "request:compact-" + workID, ObservedAt: time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC), ContractDigest: "sha256:" + strings.Repeat("d", 64)}
 }
 
 // A completed work item keeps its workflow instance pinned to its item
@@ -31,7 +31,7 @@ func TestCompactionClaimOnAWorkflowBearingWorkItemIsAdmitted(t *testing.T) {
 }
 
 // The identity check itself stays: a claim that names the item's own workflow
-// family must match the stored definition pin's version, and must match the
+// family must match the stored definition pin's digest, and must match the
 // current step. The auxiliary route may not become a hole for stale item
 // workflow claims.
 func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
@@ -42,7 +42,7 @@ func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
 	own := compactionClaimRequest(workID)
 	own.OpID, own.IdempotencyKey, own.RequestID = "own-"+workID, "own-"+workID, "request:own-"+workID
 	own.WorkflowTypeRef = "workflow.break_fix"
-	own.WorkflowTypeVersion = 999
+	own.WorkflowTypeDigest = "sha256:" + strings.Repeat("0", 64)
 	own.StepID = "reproduce"
 	err := func() error {
 		fence, claimErr := ClaimStepAuthorized(context.Background(), s, own, nil)
@@ -50,7 +50,7 @@ func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
 		return claimErr
 	}()
 	if err == nil {
-		t.Fatal("a claim naming the item workflow at a wrong version was admitted")
+		t.Fatal("a claim naming the item workflow at a wrong digest was admitted")
 	}
 	if got := err.Error(); !strings.Contains(got, "workflow claim identity does not match the stored definition pin") {
 		t.Fatalf("refusal = %q, want the pin identity refusal", got)
@@ -62,7 +62,7 @@ func TestItemWorkflowClaimStillVerifiesTheStoredPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownTwo.WorkflowTypeVersion = int(entry.Definition.Version)
+	ownTwo.WorkflowTypeDigest = entry.Digest
 	ownTwo.StepID = "verify"
 	_, err = ClaimStepAuthorized(context.Background(), s, ownTwo, nil)
 	if err == nil {

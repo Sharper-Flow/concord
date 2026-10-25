@@ -86,11 +86,11 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	// qualifying checkpoint; the callable start is gone from it.
 	refineEntry := "start_refine"
 	{
-		var definitionVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, f.work).Scan(&definitionVersion); err != nil {
+		var ref string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, f.work).Scan(&ref); err != nil {
 			t.Fatal(err)
 		}
-		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", definitionVersion); ok {
+		if pinned, ok := store.BuiltinWorkflowRegistry().Current(ref); ok {
 			declares := false
 			for _, step := range pinned.Definition.StepGraph.Steps {
 				if slices.Contains(step.Actions, "start_refine") {

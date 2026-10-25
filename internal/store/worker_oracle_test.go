@@ -281,7 +281,7 @@ func TestOwnerOracleActiveDerivesFromDeclaredMember(t *testing.T) {
 	capable := BuiltinWorkflowDefinitions()
 	for _, definition := range capable {
 		if !workflowOwnerOracleActive(definition) {
-			t.Fatalf("%s version %d declares record_worker_job without the oracle member", definition.Ref, definition.Version)
+			t.Fatalf("%s declares record_worker_job without the oracle member", definition.Ref)
 		}
 	}
 	// The declared member is the only derivation: a definition whose

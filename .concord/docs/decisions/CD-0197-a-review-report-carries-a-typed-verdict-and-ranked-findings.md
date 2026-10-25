@@ -103,9 +103,7 @@ The review reports one disposition, continue, correction required, revision requ
 
 Each terminal result is a recorded current fact, and no payload version, upcast, or replay reinterprets a recorded result ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-A dispatch recorded under the pre-CD-0197 review digest still resolves: the
-digest joins the lane's legacy set, and the completion answers to its
-recorded dispatch requirements.
+Lane identity is the content digest ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D6. The lane verdict is report content only
 
@@ -136,8 +134,7 @@ source instead of prose.
 The lane disposition holds no workflow authority: Main records its acceptance
 (D6), and the report itself records no transition.
 
-Stored completions are current rows, so no replay or rebuild participates ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An
-in-flight attempt completes under its recorded dispatch requirements.
+Stored completions are current rows, so no replay or rebuild participates ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ## Verification
 
@@ -176,7 +173,6 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 - `go test ./internal/store/ -run TestReviewLaneCompletionRequiresTheTypedReviewBlock` proves the first and second scenarios.
 - `go test ./internal/store/ -run TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock` proves the fourth scenario's refusal half.
 - `go test ./internal/store/ -run TestWorkerCompletionReviewBlockShapeIsClosed` proves the closed scales at the store boundary.
-- `go test ./internal/store/ -run TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock` proves the pre-CD-0197 dispatch identity still completes, answering to its recorded dispatch requirements.
 - `bun test adapter/opencode/dispatch.test.ts` proves the adapter refusals and the typed ride-through.
 - `bun test adapter/opencode/lane_completion.test.ts` proves the attempt summary carries the verdict and the per-severity counts.
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.

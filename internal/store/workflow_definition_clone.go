@@ -12,9 +12,8 @@ import (
 // equal to what a JSON round trip of it would produce: every slice and pointer
 // is fresh, and an empty slice in an omitempty field becomes nil.
 //
-// The registry clones on every derivation, registration, and lookup, and a
-// fresh process builds every historical version before its first workflow
-// read. A JSON round trip made that build cost most of each concord call.
+// The registry clones on every derivation, registration, and lookup. Compile
+// one copier for the declaration type so those paths share the same semantics.
 func cloneWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
 	var cloned WorkflowDefinition
 	workflowDefinitionCopier().copy(reflect.ValueOf(&cloned).Elem(), reflect.ValueOf(definition))

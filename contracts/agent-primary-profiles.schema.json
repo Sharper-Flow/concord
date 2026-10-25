@@ -4,11 +4,10 @@
   "title": "Concord named primary agent profiles",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "registry", "version", "profiles"],
+  "required": ["schema_version", "registry", "profiles"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "registry": {"const": "agent_primary_profiles"},
-    "version": {"const": 1},
     "profiles": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/profile"}}
   },
   "$defs": {
@@ -31,10 +30,9 @@
     "profile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "description", "role_source", "tools", "bash", "task", "denied_concord_tools"],
+      "required": ["id", "description", "role_source", "tools", "bash", "task", "denied_concord_tools"],
       "properties": {
         "id": {"$ref": "#/$defs/agent_id"},
-        "version": {"type": "integer", "minimum": 1},
         "description": {"type": "string", "minLength": 16, "maxLength": 512},
         "role_source": {"type": "string", "minLength": 4, "maxLength": 256, "pattern": "^\\.concord/roles/[a-z][a-z0-9-]*\\.md$"},
         "tools": {

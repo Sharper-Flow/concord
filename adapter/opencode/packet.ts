@@ -516,7 +516,6 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     schema_version: PACKET_SCHEMA_VERSION,
     attempt_id: request.attemptId,
     lane_id: lane.id,
-    lane_version: lane.version,
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,

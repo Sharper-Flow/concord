@@ -262,8 +262,8 @@ class SubagentMethodProjectionTests(unittest.TestCase):
         self.assertIn("inputs.review_input.dependencies", text)
 
 
-class LaneDigestRetentionTests(unittest.TestCase):
-    def test_generation_refuses_a_replaced_digest_without_retention(self):
+class LaneContentIdentityTests(unittest.TestCase):
+    def test_generation_accepts_changed_content_without_a_counter_or_alias(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
         previous = generator.lane_digest(manifest["lanes"][0])
         manifest["lanes"][0]["purpose"] += " Preserve future evidence."
@@ -272,35 +272,25 @@ class LaneDigestRetentionTests(unittest.TestCase):
             path = Path(tmp) / "manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with mock.patch.object(generator, "MANIFEST", path):
-                with self.assertRaisesRegex(ValueError, previous):
-                    generator.load_manifest()
-
-    def test_generation_accepts_a_retained_replaced_digest(self):
-        manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
-        lane = manifest["lanes"][0]
-        previous = generator.lane_digest(lane)
-        lane["purpose"] += " Preserve future evidence."
-        manifest["legacy_lane_digests"][f"{lane['id']}:{lane['version']}"].append(previous)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "manifest.json"
-            path.write_text(json.dumps(manifest), encoding="utf-8")
-            with mock.patch.object(generator, "MANIFEST", path):
                 loaded, _ = generator.load_manifest()
-        self.assertIn(previous, loaded["legacy_lane_digests"]["research:1"])
+        self.assertEqual(loaded["lanes"][0]["digest"], generator.lane_digest(manifest["lanes"][0]))
+        self.assertNotIn("version", loaded["lanes"][0])
+        self.assertNotIn("legacy_lane_digests", loaded)
 
-    def test_generation_refuses_a_removed_legacy_digest(self):
+    def test_generation_refuses_alias_catalogs(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
-        removed = manifest["legacy_lane_digests"]["research:1"].pop(0)
+        manifest["legacy_lane_digests"] = {"research:1": ["sha256:" + "b" * 64]}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with mock.patch.object(generator, "MANIFEST", path):
-                with self.assertRaisesRegex(ValueError, removed):
+                with self.assertRaises(ValueError):
                     generator.load_manifest()
 
-    def test_history_reads_ignore_inherited_repository_redirection(self):
+    def test_generation_does_not_read_repository_history(self):
         with mock.patch.dict("os.environ", {"GIT_DIR": "/fixtures/not-a-repository", "GIT_WORK_TREE": "/fixtures/not-a-worktree"}):
-            generator.load_manifest()
+            with mock.patch.object(generator.subprocess, "run", side_effect=AssertionError("unexpected process")):
+                generator.load_manifest()
 
 
 class AgentProjectionTests(unittest.TestCase):
@@ -391,7 +381,7 @@ class AgentProjectionTests(unittest.TestCase):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("verify the first message you received", projection)
         self.assertIn("`agent-lane-packet.v1` packet", projection)
-        for field in ("schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"):
+        for field in ("schema_version", "attempt_id", "lane_id", "lane_digest", "work_id", "step_id", "inputs"):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
 
@@ -1170,13 +1160,9 @@ class WorkerScopeProjectionTests(unittest.TestCase):
             {"id": "implement", "evidence_obligations": ["files_touched"]},
         ]
     }
-    LEGACY = {
-        "research:1": ["sha256:" + "b" * 64],
-        "implement:1": ["sha256:" + "c" * 64],
-    }
     FULL_LANES = [
         {
-            "id": "research", "version": 1, "digest": "sha256:" + "a" * 64,
+            "id": "research", "digest": "sha256:" + "a" * 64,
             "purpose": "p", "capability_class": "read_only", "capabilities": ["product_read"],
             "packet_schema_ref": "contracts/agent-lane-packet.schema.json",
             "report_schema_ref": "contracts/agent-lane-report.schema.json",
@@ -1219,7 +1205,7 @@ class WorkerScopeProjectionTests(unittest.TestCase):
 
     def test_ts_projection_emits_the_assigned_result_surface(self):
         projection = generator.ts_projection(
-            {"lanes": self.MANIFEST["lanes"], "utilities": [], "legacy_lane_digests": self.LEGACY},
+            {"lanes": self.MANIFEST["lanes"], "utilities": []},
             "sha256:" + "0" * 64,
             {},
             {},
@@ -1234,26 +1220,23 @@ class WorkerScopeProjectionTests(unittest.TestCase):
         # same worker-scope contract the adapter reads, so both generated
         # layers must project it.
         projection = generator.go_projection(
-            {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY},
+            {"lanes": self.FULL_LANES, "utilities": []},
             "sha256:" + "0" * 64,
             {"research": "bounded_findings"},
         )
         self.assertIn("var generatedWorkerScopeAssignments = map[string]string{\n\t\"research\": \"bounded_findings\",\n}", projection)
 
-    def test_projections_carry_the_legacy_lane_digest_set(self):
-        # The legacy digest set (CD-0197 D5) is registry contract: both
-        # generated layers must project it, so a persisted packet pinned to a
-        # pre-policy digest resolves in the store and the adapter alike.
-        manifest = {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY}
+    def test_projections_carry_only_current_content_identity(self):
+        manifest = {"lanes": self.FULL_LANES, "utilities": []}
         digest = "sha256:" + "0" * 64
         scope = {"research": "bounded_findings", "implement": "files_touched"}
         go = generator.go_projection(manifest, digest, scope)
         ts = generator.ts_projection(manifest, digest, {}, {}, scope)
         for projection in (go, ts):
-            self.assertIn('"research:1"', projection)
-            self.assertIn('"sha256:' + "b" * 64 + '"', projection)
-            self.assertIn('"implement:1"', projection)
-            self.assertIn('"sha256:' + "c" * 64 + '"', projection)
+            self.assertIn('"sha256:' + "a" * 64 + '"', projection)
+            self.assertNotIn("Legacy", projection)
+            self.assertNotIn("Version", projection)
+            self.assertNotIn('"version"', projection)
 
 
 class PrimaryProfileProjectionTests(unittest.TestCase):

@@ -83,7 +83,6 @@ const packet = (): AgentLanePacket => ({
   schema_version: "1.0",
   attempt_id: "attempt-1",
   lane_id: lane.id,
-  lane_version: lane.version,
   lane_digest: lane.digest,
   work_id: "work-1",
   step_id: "step-1",
@@ -114,7 +113,6 @@ const canonicalReport = (overrides: Record<string, unknown> = {}, p: AgentLanePa
     schema_version: p.schema_version,
     attempt_id: p.attempt_id,
     lane_id: p.lane_id,
-    lane_version: p.lane_version,
     lane_digest: p.lane_digest,
   }) as CanonicalLaneReport
 
@@ -1517,7 +1515,7 @@ test("a successful run records dispatch evidence before completion evidence", as
   expect(dispatched.work_id).toBe("work-1")
   expect(dispatched.attempt_id).toBe("attempt-1")
   expect(dispatched.lane_id).toBe(lane.id)
-  expect(dispatched.lane_version).toBe(lane.version)
+  expect(dispatched).not.toHaveProperty("lane_version")
   expect(dispatched.lane_digest).toBe(lane.digest)
   expect(dispatched.readback_model).toBe(READBACK_MODEL)
   expect(dispatched.packet_schema_version).toBe("1.0")
@@ -2530,7 +2528,6 @@ const lanePacketFor = (laneID: string): AgentLanePacket => {
   return {
     ...packet(),
     lane_id: target.id,
-    lane_version: target.version,
     lane_digest: target.digest,
     inputs: { ...packet().inputs, binding: { ...packet().inputs.binding, assigned_result: workerScopeAssignedResult(target.id)! } },
   }
@@ -2887,7 +2884,6 @@ test("each dispatch-owned identity field is stripped when the model supplies it"
   const conflicts: Record<string, unknown> = {
     attempt_id: "attempt-work-1-other",
     lane_id: "review",
-    lane_version: 99,
     lane_digest: "sha256:" + "0".repeat(64),
   }
   for (const [field, value] of Object.entries(conflicts)) {
@@ -3277,7 +3273,7 @@ test("invalid-report and readback diagnostics never supply context_findings", as
 // block — an explicit disposition and per-finding severity and confidence —
 // and the adapter refuses a review completion without it.
 const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
-const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest })
+const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.id, lane_digest: reviewLane.digest })
 // Evidence beside the typed review block carries no severity entry: the block
 // discharges severity, so a free-text severity entry beside it is refused
 // (CD-0197 D2). reviewEvidenceWithSeverity covers every declared obligation
@@ -3342,14 +3338,14 @@ test("a block-only review report is admitted without a severity entry", () => {
   expect("detail" in admitted).toBe(false)
 })
 
-test("a valid typed review report under the legacy review digest is admitted", () => {
-  // CD-0197 D5: a packet pinned to a pre-CD-0197 digest still resolves to the
-  // current review definition, so the typed report is admitted against the
-  // requirement the current contract carries.
+test("a typed review report under a stale digest is refused without relabeling", () => {
   const legacy = "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15"
   expect(legacy).not.toBe(reviewLane.digest)
-  const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: legacy })
-  expect("detail" in admitted).toBe(false)
+  const original = { ...reviewPacket(), lane_digest: legacy }
+  const before = JSON.stringify(original)
+  const refused = resolveWorkerReportFromText(JSON.stringify(reviewReport()), original)
+  expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
+  expect(JSON.stringify(original)).toBe(before)
 })
 
 test("an unknown lane digest is refused as an unregistered lane identity", () => {
@@ -3357,11 +3353,7 @@ test("an unknown lane digest is refused as an unregistered lane identity", () =>
   expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
 })
 
-test("a completion under a legacy lane digest signs and records the packet's digest", async () => {
-  // CD-0017 D5: the evidence binds the digest the core authorized in the
-  // packet, not the resolved current definition. The CLI compares assertions
-  // against the stored attempt row, so a substituted digest would refuse the
-  // completion of a legacy-digest dispatch.
+test("a completion under a stale lane digest refuses before writing evidence", async () => {
   const legacy = "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb"
   expect(legacy).not.toBe(lane.digest)
   const records: { verb: string; body: Record<string, unknown> }[] = []
@@ -3371,14 +3363,10 @@ test("a completion under a legacy lane digest signs and records the packet's dig
       return { exitCode: 0, stdout: "", stderr: "" }
     } },
   }, { ...packet(), lane_digest: legacy })
-  expect(result.outcome).toBe("ok")
-  expect(records.map((record) => record.verb)).toEqual(["worker-dispatch", "worker-complete"])
-  for (const record of records) {
-    expect((record.body.assertion as Record<string, unknown>).lane_digest).toBe(legacy)
-    if (record.verb === "worker-dispatch") expect(record.body.lane_digest).toBe(legacy)
-  }
-  // The coordinator-facing envelope keeps the authorized identity too: the
-  // summary must not relabel a legacy-digest attempt as the current digest.
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("content revalidation")
+  expect(records).toHaveLength(0)
   expect(result.lane.digest).toBe(legacy)
 })
 
@@ -3423,7 +3411,7 @@ test.each(["dispatched", "completed"] as const)("review subject checks distingui
     packet_digest: PACKET_DIGEST, worker_worktree: WORKER_DIRECTORY, coordinator_session: "parent", attempt_epoch: 1,
     dispatch_event_id: "original-dispatch", lifecycle_state: state, packet_schema_version: "1.0", report_schema_version: "1.0",
     ...(state === "completed" ? { terminal_event_id: "original-completion" } : {}),
-    dispatch: { attempt_id: dispatched.attempt_id, lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest,
+    dispatch: { attempt_id: dispatched.attempt_id, lane_id: reviewLane.id, lane_digest: reviewLane.digest,
       packet_schema_version: "1.0", report_schema_version: "1.0", packet_digest: PACKET_DIGEST, readback_model: READBACK_MODEL,
       host_provenance: { digest: "sha256:" + "c".repeat(64), sources: [{ kind: "unenumerated", path: "synthetic-retained-instruction" }] } },
   }
@@ -3727,7 +3715,6 @@ test("an echoed dispatch-owned field is stripped, and the schema stays closed", 
   const echoed = resolveWorkerReportFromText(JSON.stringify(report({
     attempt_id: "attempt-forged",
     lane_id: "lane-forged",
-    lane_version: 99,
     lane_digest: "sha256:" + "0".repeat(64),
     work_id: "work-forged",
     step_id: "step-forged",

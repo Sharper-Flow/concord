@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-	"time"
 )
 
 // workPinObligationDeclarationIDs recomputes the root, step, and rigor
@@ -35,7 +34,7 @@ func workPinObligationDeclarationIDs(t *testing.T, definition WorkflowDefinition
 	return ids
 }
 
-func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string, registered RegisteredDefinition, version int64) {
+func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string, registered RegisteredDefinition) {
 	t.Helper()
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
@@ -48,13 +47,10 @@ func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string
 	if !sort.StringsAreSorted(*pin.Obligations) {
 		t.Fatalf("pin obligations=%v are not sorted", *pin.Obligations)
 	}
-	if pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != version {
-		t.Fatalf("pin definition version=%v, want the pinned instance version %d", pin.WorkflowDefinitionVersion, version)
-	}
 	if pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
 		t.Fatalf("pin definition digest=%v, want the registry digest %q", pin.WorkflowDefinitionDigest, registered.Digest)
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, version, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pin definition digest does not verify: %v", err)
 	}
 	// The continuity envelope — the pinned projection every session boot
@@ -72,92 +68,19 @@ func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string
 	if !reflect.DeepEqual(snapshot.WorkPin.Obligations, pin.Obligations) {
 		t.Fatalf("continuity envelope obligations=%v, pin obligations=%v", snapshot.WorkPin.Obligations, pin.Obligations)
 	}
-	if snapshot.WorkPin.WorkflowDefinitionVersion == nil || *snapshot.WorkPin.WorkflowDefinitionVersion != *pin.WorkflowDefinitionVersion ||
-		snapshot.WorkPin.WorkflowDefinitionDigest == nil || *snapshot.WorkPin.WorkflowDefinitionDigest != *pin.WorkflowDefinitionDigest {
-		t.Fatalf("continuity envelope definition identity=(%v, %v), pin identity=(%v, %v)",
-			snapshot.WorkPin.WorkflowDefinitionVersion, snapshot.WorkPin.WorkflowDefinitionDigest,
-			pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest)
+	if snapshot.WorkPin.WorkflowType != pin.WorkflowType || snapshot.WorkPin.WorkflowDefinitionDigest == nil || *snapshot.WorkPin.WorkflowDefinitionDigest != *pin.WorkflowDefinitionDigest {
+		t.Fatalf("continuity envelope definition identity=(%s, %v), pin identity=(%s, %v)",
+			snapshot.WorkPin.WorkflowType, snapshot.WorkPin.WorkflowDefinitionDigest,
+			pin.WorkflowType, pin.WorkflowDefinitionDigest)
 	}
 }
 
 func TestWorkPinPublishesDeclaredObligationsAndDefinitionIdentity(t *testing.T) {
 	s := openTemp(t)
 	continuityTestWorkflow(t, s, "workpin-obligations")
-	var pinned int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "workpin-obligations").Scan(&pinned); err != nil {
-		t.Fatal(err)
-	}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	workPinDeclaredObligationsAndIdentity(t, s, "workpin-obligations", registered, pinned)
-}
-
-func TestWorkPinPublishesDeclaredObligationsForHistoricalDefinition(t *testing.T) {
-	registry := BuiltinWorkflowRegistry()
-	// The current family version comes from the current definition set, not
-	// from Lookup(ref, version) — that returns the requested historical
-	// definition itself, so comparing against it always succeeds and the
-	// fixture silently skips. A real historical pin is a version strictly
-	// below the current family version for the same ref.
-	currentVersions := map[string]int64{}
-	for _, current := range BuiltinWorkflowDefinitions() {
-		currentVersions[current.Ref] = current.Version
-	}
-	historical := WorkflowDefinition{}
-	found := false
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		current, ok := currentVersions[definition.Ref]
-		if !ok || definition.Version >= current {
-			continue
-		}
-		historical = definition
-		found = true
-		break
-	}
-	if !found {
-		t.Skip("no registered workflow definition family carries a historical version")
-	}
-	registered, ok := registry.Lookup(historical.Ref, historical.Version)
-	if !ok {
-		t.Fatalf("historical definition %s version %d is not registered", historical.Ref, historical.Version)
-	}
-	// The historical pin is written through the same event-fold route a real
-	// definition change takes — a WorkflowDefinitionSelected event applied by
-	// the fold, replayed the way
-	// TestReplayAdmitsRecordedDefinitionChangeBetweenContractApprovals
-	// replays one — never a manual projection UPDATE. The instance starts on
-	// the family's current definition with no contract and no started
-	// action, which is exactly the state the definition-change fold admits.
-	s := openTemp(t)
-	const workID = "workpin-historical"
-	seedWork(t, s, workID)
-	current, err := BuiltinWorkflowDefinitionForRef(historical.Ref)
-	if err != nil {
-		t.Fatal(err)
-	}
-	actor := WorkflowActor{PrincipalRef: "principal:workpin-historical", ClientRef: "client:workpin-historical", AgentRef: "agent:workpin-historical", SessionRef: "session:workpin-historical", ActorClass: ActorAgent}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		return initializeWorkflowRawTx(context.Background(), tx.tx, WorkflowInitializationRequest{WorkID: workID, Definition: current, Actor: actor, Now: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	selected := workflowEventWithActor("workpin-historical-definition", WorkflowDefinitionSelected, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"ref": historical.Ref, "version": historical.Version, "digest": registered.Digest, "work_kind": historical.WorkKind,
-	})
-	selected.PayloadVersion = 1
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{selected}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("fold refused the recorded definition change: %v", err)
-	}
-	workPinDeclaredObligationsAndIdentity(t, s, workID, registered, historical.Version)
+	workPinDeclaredObligationsAndIdentity(t, s, "workpin-obligations", registered)
 }

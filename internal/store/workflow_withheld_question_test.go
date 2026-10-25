@@ -240,8 +240,8 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) Workflo
 		actorRef, "principal/withheld", "client/withheld", "agent/withheld", "session/withheld", "agent", "2026-08-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,?,'running',?)`,
-		workID, registered.Definition.Ref, registered.Definition.Version, digest, "verify", actorRef); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,'running',?)`,
+		workID, registered.Definition.Ref, digest, "verify", actorRef); err != nil {
 		t.Fatal(err)
 	}
 	// The operator question belongs to decision-bearing work: a
@@ -254,5 +254,5 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) Workflo
 		workID, actorRef, decisionDomains); err != nil {
 		t.Fatal(err)
 	}
-	return WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: digest}
+	return WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}
 }

@@ -686,8 +686,8 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 // current step, carrying the open correction context when one exists.
 func (j *candidateJourney) dispatchJob(t *testing.T, attemptID, laneID, capability string, job WorkerJobBinding) {
 	t.Helper()
-	laneVersion, laneDigest := registeredLaneIdentity(t, laneID)
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, laneID, laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, laneID)
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, laneID, laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "implement")
 	correction, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attemptID)
 	if err != nil {
@@ -761,8 +761,8 @@ func (j *candidateJourney) dispatchReview(t *testing.T, attemptID string) {
 // dispatch route.
 func (j *candidateJourney) dispatchReviewJob(t *testing.T, attemptID string, job WorkerJobBinding) error {
 	t.Helper()
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	if err := j.dispatchPacket(t, packet); err != nil {
 		return err
@@ -781,7 +781,7 @@ func (j *candidateJourney) laneDispatch(t *testing.T, attemptID, capability stri
 		t.Fatalf("read dispatch digest %s: %v", attemptID, err)
 	}
 	dispatch := Event{EventID: "candidate-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
 	if err := j.s.Transact(context.Background(), func(transaction *Transaction) error {

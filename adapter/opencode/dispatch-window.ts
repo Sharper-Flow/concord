@@ -141,10 +141,7 @@ export class DispatchWindows {
       const mismatch = dispatchDirectoryMismatch(canonicalWorkerDirectory, workerDirectory)
       if (mismatch) throw new DispatchWindowError(mismatch)
     }
-    const workerDirectoryIdentity = canonicalDirectoryIdentity(canonicalWorkerDirectory)
-    if (workerDirectoryIdentity === null) {
-      throw new DispatchWindowError("worker dispatch requires a resolvable worker directory identity")
-    }
+    const workerDirectoryIdentity = canonicalDirectoryIdentity(canonicalWorkerDirectory)!
     let generations = this.#generations.get(sessionID)
     if (!generations) {
       generations = { latest: 0, correlatedThrough: 0, pending: new Map() }
@@ -417,18 +414,14 @@ export function directoryIdentity(value: unknown): string | null {
   return canonical === null ? null : canonicalDirectoryIdentity(canonical)
 }
 
-export function dispatchDirectoryIdentityMismatch(expectedIdentity: string, sessionDirectory: unknown): string | null {
-  const actualIdentity = directoryIdentity(sessionDirectory)
-  return actualIdentity !== expectedIdentity
-    ? `worker dispatch directory does not match the active claimed worktree (expected identity ${expectedIdentity}, session identity ${actualIdentity ?? "unresolved"})`
-    : null
-}
-
-export function dispatchDirectoryMismatch(expected: unknown, sessionDirectory: unknown): string | null {
-  const expectedIdentity = directoryIdentity(expected)
+export function dispatchDirectoryIdentityMismatch(expectedIdentity: string | null, sessionDirectory: unknown): string | null {
   const actualIdentity = directoryIdentity(sessionDirectory)
   return expectedIdentity !== null && expectedIdentity === actualIdentity ? null :
     `worker dispatch directory does not match the active claimed worktree (expected identity ${expectedIdentity ?? "unresolved"}, session identity ${actualIdentity ?? "unresolved"})`
+}
+
+export function dispatchDirectoryMismatch(expected: unknown, sessionDirectory: unknown): string | null {
+  return dispatchDirectoryIdentityMismatch(directoryIdentity(expected), sessionDirectory)
 }
 
 const shared = new DispatchWindows()

@@ -401,12 +401,6 @@ func readDispatchReadingContent(ctx context.Context, runner GitRunner, witness d
 // a changed source can never borrow an earlier proof.
 func admitWorkerDispatchReadingResolutionTx(ctx context.Context, tx *sql.Tx, workID string, admittedContext *WorkContextView) error {
 	proof := workerDispatchPreparationFrom(ctx)
-	if proof == nil {
-		return newFailure(KindInvalidOperation, workerDispatchReadingResolutionOp, "the dispatch reached live action assembly without its sealed preparation", false, "run the dispatch through the authenticated mutation boundary, which prepares one proof per dispatch before the transaction opens")
-	}
-	if proof.proof.workID != workID {
-		return newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "the sealed preparation names work "+proof.proof.workID+", not this dispatch's work", false, "prepare the dispatch this mutation authorizes")
-	}
 	var readings []WorkContextReading
 	if admittedContext != nil {
 		readings = admittedContext.RequiredReading

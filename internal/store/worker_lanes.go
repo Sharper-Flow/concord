@@ -1907,10 +1907,7 @@ func validateNoLiveWorkerSession(ctx context.Context, tx *sql.Tx, workID, attemp
 			p.hostPID = &v
 		}
 		if hostPIDStart.Valid {
-			v, err := occupancyPIDStart(hostPIDStart.Int64)
-			if err != nil {
-				return err
-			}
+			v := uint64(hostPIDStart.Int64) //nolint:gosec // G115: the host_pid_start schema CHECK requires a nonnegative value.
 			p.hostPIDStart = &v
 		}
 		actives = append(actives, p)

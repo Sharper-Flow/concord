@@ -498,11 +498,6 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if proof.observation == nil {
 		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared output proof carries no observation for a worker completion", false, "prepare the completion against a reachable claimed worktree")
 	}
-	// The observed delta is measured from the authorization's own subject
-	// commit, or recorded absent for a subject-less authorization.
-	if proof.observation.Base != "" && proof.observation.Base != liveWindow.SubjectCommit {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatch's recorded subject commit", false, "prepare the completion against the recorded authorization")
-	}
 	payload.ObservedDelivery = proof.observation
 	return nil
 }

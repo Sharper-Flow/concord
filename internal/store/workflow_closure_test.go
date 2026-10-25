@@ -617,6 +617,40 @@ func TestReviewedClosureDirectCompleteRequiresJudgement(t *testing.T) {
 	}
 }
 
+func TestNoKnowledgeChangeJudgementCompletesThroughClose(t *testing.T) {
+	const workID = "no-knowledge-change-close"
+	s, _ := seedCompletionGateCase(t, workID, completionGateCase{
+		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
+		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+	})
+	complete := func() error {
+		return runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`))
+	}
+	before := readWorkVersion(t, s, workID)
+	err := complete()
+	assertFailureKind(t, err, KindMissingEvidence)
+	if !strings.Contains(err.Error(), "reviewed closure") || readWorkVersion(t, s, workID) != before {
+		t.Fatalf("unbound completion did not refuse without effects: %v", err)
+	}
+	const receipt = "# Reviewed closure judgment\n\nNo knowledge change. The implementation changes no accepted Product law or reusable knowledge. Verification and Review evidence cover the delivered outcome.\n"
+	repo := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repo, "closure.md", receipt)
+	commitKnowledgeRepo(t, repo, "record reviewed no-knowledge-change judgment")
+	hash := nativeDigest([]byte(receipt))
+	f := workflowReturnRouteFixture{store: s, owner: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}}
+	if err := closureBind(t, f, workID, "review", hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := complete(); err != nil {
+		t.Fatalf("reviewed no-knowledge-change completion: %v", err)
+	}
+	requireTerminalHash(t, s, workID, hash)
+	var lifecycle, state string
+	if err := s.db.QueryRow(`SELECT w.lifecycle,i.instance_state FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state); err != nil || lifecycle != "completed" || state != "completed" {
+		t.Fatalf("completion lifecycle=%q workflow=%q err=%v", lifecycle, state, err)
+	}
+}
+
 func TestReviewedClosureExternalProducerAndUnrelatedBinding(t *testing.T) {
 	const workID = "closure-other-binding"
 	f := closureBindingFixture(t, workID, "execution")

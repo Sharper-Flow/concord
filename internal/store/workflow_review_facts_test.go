@@ -17,7 +17,7 @@ CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,
 CREATE TABLE workflow_design_records(work_id TEXT,work_version INTEGER,approach TEXT,decisions TEXT,touched_refs TEXT,recorded_at TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload TEXT,terminal_event_id TEXT);
-CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,correction_ref TEXT,recorded_payload TEXT,digest TEXT);
+CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,correction_ref TEXT,recorded_payload TEXT,digest TEXT,recorded_seq INTEGER);
 CREATE TABLE workflow_member_groups(work_id TEXT,group_id TEXT,controller_actor_ref TEXT,base_subject TEXT,permission TEXT,review_ref TEXT,recorded_seq INTEGER,PRIMARY KEY(work_id,group_id));
 CREATE TABLE workflow_group_members(work_id TEXT,group_id TEXT,member_id TEXT,job_id TEXT,job_revision INTEGER,job_digest TEXT,project_id TEXT,actor_ref TEXT,confirmed INTEGER);
 ` + workflowReviewFactsDDL); err != nil {

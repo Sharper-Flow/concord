@@ -48,7 +48,7 @@ func workflowMemberCandidate(ctx context.Context, q queryer, workID string) (wor
 	 AND json_extract(a.payload,'$.actor_ref')=m.actor_ref
 	 JOIN worker_attempts t ON t.work_id=a.work_id AND t.attempt_id=a.attempt_id
 	 JOIN worker_attempt_dispositions d ON d.work_id=a.work_id AND d.attempt_id=a.attempt_id AND d.action_id='accept_worker_result'
-	 WHERE m.work_id=? AND m.group_id=(SELECT group_id FROM workflow_member_groups WHERE work_id=? AND base_subject IS NOT NULL ORDER BY recorded_seq DESC LIMIT 1)
+	 WHERE m.work_id=? AND m.group_id=(SELECT group_id FROM workflow_member_groups WHERE work_id=? ORDER BY recorded_seq DESC LIMIT 1)
 	 AND json_extract(a.payload,'$.worker_capability_class')='implementation'
 	 AND json_extract(t.terminal_payload,'$.observed_delivery.state')='clean'
 	 AND NOT EXISTS(SELECT 1 FROM worker_attempt_dispositions r WHERE r.work_id=d.work_id AND r.attempt_id=d.attempt_id AND r.seq>d.seq)

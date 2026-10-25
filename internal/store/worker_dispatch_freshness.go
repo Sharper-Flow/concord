@@ -588,7 +588,7 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 		return err
 	}
 	if len(join.Ancestors) != 0 && !workflowPreparedMemberCandidate(ctx, subject) {
-		return reviewFailure(KindStaleRequiresReview, "Review input does not include every accepted member and the current candidate", "merge the accepted member commits into Main's integration worktree and qualify that candidate before Review")
+		return reviewFailure(KindStaleRequiresReview, "Review input has no proven ancestry from every accepted member and the current candidate", "merge the accepted member commits into Main's integration worktree and qualify that candidate before Review")
 	}
 	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) && !workflowPreparedMemberCandidate(ctx, subject) {
 		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "dispatch Review on the accepted current candidate")

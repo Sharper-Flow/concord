@@ -72,17 +72,17 @@ func TestMemberResultsJoinIntoReviewedIntegrationCandidate(t *testing.T) {
 				m.job = job
 			}
 		}
-		copy := *f
-		copy.request += 1000 * (i + 1)
-		copy.env.SessionRef = fmt.Sprintf("session-member-join-%d", i)
-		copy.env.AgentRef = "agent-engineer"
-		copy.proof = ""
-		m.f = &copy
+		memberFixture := *f
+		memberFixture.request += 1000 * (i + 1)
+		memberFixture.env.SessionRef = fmt.Sprintf("session-member-join-%d", i)
+		memberFixture.env.AgentRef = "agent-engineer"
+		memberFixture.proof = ""
+		m.f = &memberFixture
 		spineOK(t, f.action(t, "record_worker_job", map[string]any{"member_binding": map[string]any{
 			"group_id": descriptor.Group.ID, "member_id": assigned.ID, "project_id": "project-1",
-			"actor": map[string]any{"principal_ref": copy.env.PrincipalRef, "client_ref": copy.env.ClientRef, "agent_ref": copy.env.AgentRef, "session_ref": copy.env.SessionRef},
+			"actor": map[string]any{"principal_ref": memberFixture.env.PrincipalRef, "client_ref": memberFixture.env.ClientRef, "agent_ref": memberFixture.env.AgentRef, "session_ref": memberFixture.env.SessionRef},
 		}}))
-		claimed := spineOK(t, copy.call(t, "concord_work_transition", "worktree_claim", map[string]any{
+		claimed := spineOK(t, memberFixture.call(t, "concord_work_transition", "worktree_claim", map[string]any{
 			"work_id": f.work, "project_id": "project-1", "host_pid": os.Getpid(), "base_sha": f.base,
 			"expected_version": workVersion(t, f.s, f.work), "idempotency_key": fmt.Sprintf("join-claim-%d", i),
 		}))
@@ -139,8 +139,8 @@ func TestMemberResultsJoinIntoReviewedIntegrationCandidate(t *testing.T) {
 	groupFields = map[string]any{"assignment_group": map[string]any{"members": bindings}}
 	f.recordJob(t)
 	// The baseline continue was consumed by the first roster, not renewed by acceptance.
-	if response := f.action(t, "record_worker_job", groupFields); response.Outcome == OutcomeOK {
-		t.Fatal("next group opened without Review of combined candidate")
+	if response := f.action(t, "record_worker_job", groupFields); response.Error == nil || response.Error.Kind != "operation_conflict" || !strings.Contains(response.Error.Message, "continue permission has already opened group") {
+		t.Fatalf("next group did not wait for combined Review: %+v", response.Error)
 	}
 	oAgentReview(t, &oAgentFixtureState{spineFixture: f}, "continue", false, proof)
 	if got := f.read(t).Pinned.Pin.Review.Candidate; got == nil || got.Commit != combined {

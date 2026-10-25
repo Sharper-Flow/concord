@@ -96,6 +96,16 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef, assignment, identity); err != nil || own != "" {
 			return nil, err
 		}
+		var sibling bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_group_members caller
+		 JOIN workflow_group_members held USING(work_id,group_id)
+		 WHERE caller.work_id=? AND caller.actor_ref=? AND caller.job_id=?
+		 AND held.actor_ref=? AND held.job_id<>caller.job_id)`, workID, callerActorRef, assignment.jobID, start.ActorRef).Scan(&sibling); err != nil {
+			return nil, err
+		}
+		if sibling {
+			return nil, nil
+		}
 		held, err := workflowLaneAttemptHeldFrom(ctx, q, workID, step, startSeq, start, callerActorRef)
 		if err != nil || !held {
 			return nil, err

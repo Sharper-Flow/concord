@@ -3290,7 +3290,18 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	var startSeq, startEpoch int64
 	var found bool
 	var err error
-	if step != nil && step.Kind == WorkflowStepHumanCheckpoint || payload.ActionID == "record_worker_job" {
+	var memberBase *workflowMemberBase
+	if capability == "implementation" && (payload.ActionID == "accept_worker_result" || payload.ActionID == "accept_worker_evidence") {
+		auth, _, readErr := readReviewAttempt(ctx, tx, event.SubjectID, payload.WorkerAttemptID)
+		if readErr != nil {
+			return readErr
+		}
+		memberBase, err = workflowMemberResultBase(ctx, tx, event.SubjectID, auth)
+		if err != nil {
+			return err
+		}
+	}
+	if step != nil && step.Kind == WorkflowStepHumanCheckpoint || payload.ActionID == "record_worker_job" || memberBase != nil {
 		var raw []byte
 		err = tx.QueryRowContext(ctx, `SELECT start_seq,start_payload FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0`, event.SubjectID, payload.WorkerAttemptID).Scan(&startSeq, &raw)
 		switch err {

@@ -327,6 +327,16 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	}
 	if auth.WorkerCapabilityClass != "review" {
 		if auth.WorkerCapabilityClass == "implementation" {
+			base, err := workflowMemberResultBase(ctx, q, workID, auth)
+			if err != nil {
+				return err
+			}
+			if base != nil {
+				if auth.WorkerSubjectCommit != base.Commit {
+					return reviewFailure(KindStaleRequiresReview, "member result does not start from its group's shared base", "dispatch the member from its admitted group base")
+				}
+				return nil
+			}
 			state, err := loadWorkflowReviewState(ctx, q, workID)
 			if err != nil {
 				return err
@@ -372,7 +382,13 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 		return err
 	}
 	if state.Candidate != nil && *state.Candidate != report.InputCandidate {
-		return reviewFailure(KindStaleRequiresReview, "a newer accepted candidate replaced this Review's input", "retain this report as evidence of its original subject and obtain Review of the current candidate")
+		current, err := workflowMemberReviewCurrent(ctx, q, workID, auth, *state.Candidate, report.InputCandidate)
+		if err != nil {
+			return err
+		}
+		if !current {
+			return reviewFailure(KindStaleRequiresReview, "a newer accepted candidate replaced this Review's input", "retain this report as evidence of its original subject and obtain Review of the current candidate")
+		}
 	}
 	dependencies, err := workflowReviewDependencies(ctx, q, workID)
 	if err != nil {

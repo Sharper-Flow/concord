@@ -65,9 +65,10 @@ type workerDispatchProof struct {
 	claimState  string
 	probePath   string
 
-	observation *WorkerObservedDelivery
-	acceptance  bool
-	pinReceipt  *WorktreeVerifyResult
+	observation     *WorkerObservedDelivery
+	acceptance      bool
+	pinReceipt      *WorktreeVerifyResult
+	memberCandidate bool
 
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
@@ -142,8 +143,9 @@ type workerDispatchSample struct {
 
 	// readings holds the SQL-sampled source identities of the view's
 	// declared required readings, from the same snapshot.
-	readings   []dispatchReadingWitness
-	pinReceipt *WorktreeVerifyResult
+	readings        []dispatchReadingWitness
+	pinReceipt      *WorktreeVerifyResult
+	memberAncestors []string
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -218,6 +220,11 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, request PrepareWo
 	if err != nil {
 		return sample, err
 	}
+	join, err := workflowMemberCandidate(ctx, q, workID)
+	if err != nil {
+		return sample, err
+	}
+	sample.memberAncestors = join.Ancestors
 	return sample, nil
 }
 
@@ -323,6 +330,17 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 		return nil, err
 	}
 	proof.observation = observation
+	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
+		probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
+		defer cancel()
+		proof.memberCandidate = true
+		for _, ancestor := range sample.memberAncestors {
+			if _, err := runner.Run(probeCtx, probePath, "merge-base", "--is-ancestor", ancestor, observation.Commit); err != nil {
+				proof.memberCandidate = false
+				break
+			}
+		}
+	}
 	return &WorkerDispatchPreparation{proof: proof}, nil
 }
 
@@ -565,7 +583,14 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 	if err != nil {
 		return err
 	}
-	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) {
+	join, err := workflowMemberCandidate(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if len(join.Ancestors) != 0 && !workflowPreparedMemberCandidate(ctx, subject) {
+		return reviewFailure(KindStaleRequiresReview, "Review input does not include every accepted member and the current candidate", "merge the accepted member commits into Main's integration worktree and qualify that candidate before Review")
+	}
+	if state.Candidate != nil && (state.Candidate.Commit != subject || state.Candidate.ProjectID != receipt.ProjectID) && !workflowPreparedMemberCandidate(ctx, subject) {
 		return reviewFailure(KindStaleRequiresReview, "Review input differs from Main's current integrated candidate", "dispatch Review on the accepted current candidate")
 	}
 	return nil

@@ -168,6 +168,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "verification-fixture")
+	runVerificationStoreAction(t, s, "record_design", workflowDesignFieldsFixture("verification-fixture"), owner, "verification-fixture-design")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:verification", "verification", strings.Repeat("a", 40), path, "repo:verification", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -183,6 +184,8 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	}
 	grant.Worktree = path
 	env := mutationEnvelope(grant, scopeVersion)
+	recordReadyRetryJob(t, s, service, env, "job:verification-architecture-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 	var version int64
 	for cycle := int64(1); cycle <= 4; cycle++ {
 		attemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)

@@ -149,11 +149,28 @@ func oAgentControlRepository(t *testing.T, f *oAgentFixtureState) {
 // command receipts the caller asks Review to assess on this candidate.
 func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove bool, receipts ...string) {
 	t.Helper()
+	oAgentReviewJob(t, f, "", disposition, prove, receipts...)
+}
+
+func oAgentReviewJob(t *testing.T, f *oAgentFixtureState, jobID, disposition string, prove bool, receipts ...string) {
+	t.Helper()
 	snapshot, err := store.ReadWorkflowContinuity(context.Background(), f.s, store.ContinuityRequest{Work: f.work})
 	if err != nil || len(snapshot.ReadyWorkerJobs) == 0 {
 		t.Fatalf("O Review ready job: %v (%d jobs)", err, len(snapshot.ReadyWorkerJobs))
 	}
 	selected := snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1]
+	if jobID != "" {
+		found := false
+		for _, ready := range snapshot.ReadyWorkerJobs {
+			if ready.JobID == jobID {
+				selected, found = ready, true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("O Review job %s is not ready", jobID)
+		}
+	}
 	selected.CallerExclusions = nil
 	job := &store.WorkerJobBinding{JobID: selected.JobID, Revision: selected.Revision, Digest: selected.Digest}
 	lane := deliveryRecoveryLane(t, "review")

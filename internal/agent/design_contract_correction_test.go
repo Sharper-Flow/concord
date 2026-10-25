@@ -27,7 +27,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	fields["required_evidence"] = []string{"verification"}
 	fields["route_conventions"] = []string{}
 	fields["rigor_class"] = "prototype_internal"
-	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
+	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}

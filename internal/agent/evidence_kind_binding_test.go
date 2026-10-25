@@ -59,7 +59,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	workID := captureCompositionWork(t, ctx, s, service, env, "Evidence kind binding "+key, "task", "workflow.implementation", "ekb-capture-"+key)
 	// The canonical head declares approve_contract behind the pre-contract walk.
 	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
-	approved, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
+	approved, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
 		"premise":              "one bind records one evidence kind",
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
 		"architecture_binding": workflowArchitectureBindingFixture(),
@@ -71,7 +71,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
-	after = recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
+	after := recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
 	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
 	if started.Outcome != OutcomeOK {
 		t.Fatalf("start_execution: %+v", started.Error)

@@ -27,14 +27,14 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation": {"proposal", "alignment", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
+		"workflow.implementation": {"proposal", "alignment", "planning", "design", "execution", "refine", "delivery", "acceptance", "release"},
 		"workflow.break_fix":      {"diagnosis", "planning", "repair", "refine", "delivery", "verify", "complete"},
 		"workflow.research":       {"frame", "investigate", "findings", "conclude", "complete"},
 	}
 	// A composed head lists each action once, in first appearance over its
 	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "record_design", "approve_contract", "accept_worker_evidence", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "approve_contract", "accept_worker_evidence", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
 		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "accept_worker_result", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
 		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_worker_job", "complete"},
 	}
@@ -42,7 +42,7 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation": {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
+		"workflow.implementation": {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "planning", WorkflowEdgeForward}, {"planning", "design", WorkflowEdgeForward}, {"design", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
 		"workflow.break_fix":      {{"diagnosis", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
 		"workflow.research":       {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 	}

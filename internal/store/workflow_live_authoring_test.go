@@ -277,7 +277,7 @@ func TestLiveAuthoringActionUnionTargets31WithRecovery(t *testing.T) {
 	}
 }
 
-func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t *testing.T) {
+func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeCriteria(t *testing.T) {
 	t.Parallel()
 	registered, err := LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -314,7 +314,7 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 	}
 	aligned := false
 	for _, edge := range definition.StepGraph.Edges {
-		if edge.From == "alignment" && edge.To == "design" && edge.Kind == WorkflowEdgeForward {
+		if edge.From == "alignment" && edge.To == "planning" && edge.Kind == WorkflowEdgeForward {
 			aligned = true
 		}
 		if edge.From == "discovery" || edge.To == "discovery" {
@@ -322,7 +322,7 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		}
 	}
 	if !aligned {
-		t.Fatal("the mandatory alignment step lost its forward edge into design")
+		t.Fatal("the mandatory alignment step lost its forward edge into criteria approval")
 	}
 	if definition.StepGraph.StartStep != "proposal" {
 		t.Fatalf("canonical start step = %q, want proposal", definition.StepGraph.StartStep)

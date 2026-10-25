@@ -211,9 +211,13 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 func recordApprovedWorkDesign(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, key string) int64 {
 	t.Helper()
 	input := map[string]any{"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": "record_design", "idempotency_key": key,
-		"fields": map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + key, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + key}}}
+		"fields": workflowDesignFieldsFixture(key)}
 	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env))
 	return workVersion(t, s, workID)
+}
+
+func workflowDesignFieldsFixture(key string) map[string]any {
+	return map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + key, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + key}}
 }
 
 func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T) {

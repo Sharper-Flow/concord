@@ -1173,15 +1173,10 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 			return nil
 		}
 	}
-	// A carried-forward instance keeps the exits it recorded under the
-	// definition pin in effect when each exit completed. The carry forward
-	// splices steps between a recorded exit and the verdict step, so the
-	// current graph alone cannot vouch for them.
-	satisfied, err := carriedExitSatisfiedItsPinnedDefinition(ctx, tx, workID, verdictStep, exits)
-	if err != nil {
-		return err
-	}
-	if satisfied {
+	// A carried-forward instance keeps each completion's family. Resolve
+	// that family's current graph when the instance graph cannot vouch for
+	// an exit that preceded the verdict step.
+	if carriedExitSatisfiedItsPinnedDefinition(verdictStep, exits) {
 		return nil
 	}
 	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
@@ -1238,9 +1233,10 @@ func advancingActionsBeforeStep(definition WorkflowDefinition, stepID string) ma
 	return advancingActions
 }
 
-// readWorkflowExits reads the work's completed workflow actions, newest first.
+// readWorkflowExits reads the latest completion per family/step/action class,
+// newest first. Held and local completions also witness these admission classes.
 func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workflowExitRecord, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),json_extract(payload,'$.action_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC`, SubjectWorkItem, workID, WorkflowActionCompleted)
+	rows, err := tx.QueryContext(ctx, `SELECT step_id,action_id,definition_ref,exit_seq FROM workflow_completed_exits WHERE work_id=? ORDER BY exit_seq DESC`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the workflow exits", true, "retry once the database is readable", err)
 	}
@@ -1248,7 +1244,7 @@ func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workfl
 	var exits []workflowExitRecord
 	for rows.Next() {
 		var exit workflowExitRecord
-		if err := rows.Scan(&exit.seq, &exit.stepID, &exit.actionID); err != nil {
+		if err := rows.Scan(&exit.stepID, &exit.actionID, &exit.definitionRef, &exit.seq); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the workflow exits", true, "retry once the database is readable", err)
 		}
 		exits = append(exits, exit)
@@ -1259,46 +1255,37 @@ func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workfl
 	return exits, nil
 }
 
-// workflowExitRecord names one recorded workflow action completion: the
-// sequence it completed at and the step and action it recorded.
+// workflowExitRecord names one current completion class and its latest witness.
 type workflowExitRecord struct {
-	seq      int64
-	stepID   string
-	actionID string
+	seq           int64
+	stepID        string
+	actionID      string
+	definitionRef string
 }
 
 // carriedExitSatisfiedItsPinnedDefinition accepts a recorded exit that
 // advanced out of a step directly preceding the verdict step under the
-// definition pin in effect when that exit completed. Each exit resolves its
-// own pin (latest definition_selected at or before the exit sequence) in the
-// immutable registry; an exit no pinned definition satisfies is refused by
-// the caller.
-func carriedExitSatisfiedItsPinnedDefinition(ctx context.Context, tx *sql.Tx, workID, verdictStep string, exits []workflowExitRecord) (bool, error) {
-	historical := make(map[string]map[string]bool)
+// current definition of the family selected when it completed. An empty
+// family means no definition had been selected and contributes no fallback.
+func carriedExitSatisfiedItsPinnedDefinition(verdictStep string, exits []workflowExitRecord) bool {
+	byFamily := make(map[string]map[string]bool)
 	for _, exit := range exits {
-		var pinRef string
-		var pinVersion int64
-		err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.ref'),json_extract(payload,'$.version') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowDefinitionSelected, exit.seq).Scan(&pinRef, &pinVersion)
-		if err == sql.ErrNoRows {
+		if exit.definitionRef == "" {
 			continue
 		}
-		if err != nil {
-			return false, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve the workflow pin in effect at an exit", true, "retry once the database is readable", err)
-		}
-		key := registryKey(pinRef, pinVersion)
-		advancing, resolved := historical[key]
+		advancing, resolved := byFamily[exit.definitionRef]
 		if !resolved {
 			advancing = nil
-			if entry, ok := BuiltinWorkflowRegistry().Current(pinRef); ok {
+			if entry, ok := BuiltinWorkflowRegistry().Current(exit.definitionRef); ok {
 				advancing = workflowVerdictPredecessorAdvancingExits(entry.Definition, verdictStep)
 			}
-			historical[key] = advancing
+			byFamily[exit.definitionRef] = advancing
 		}
 		if advancing[exit.stepID+"\x00"+exit.actionID] {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // workflowVerdictPredecessorAdvancingExits returns the advancing exits out of

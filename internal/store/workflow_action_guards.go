@@ -632,13 +632,13 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
 	if err := q.QueryRowContext(ctx, `SELECT
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
-    SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
-      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN (`+workerAttemptDisposalActions+`)
-      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?))) +
+		SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id
+		  AND f.action_id IN (`+workerAttemptDisposalActions+`)
+		  AND f.attempt_id=a.attempt_id AND (?=0 OR f.seq<?))) +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
-    SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
-      AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure'
-      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?)))`, workID, workID, WorkflowActionCompleted, beforeSeq, beforeSeq, workID, WorkflowActionCompleted, beforeSeq, beforeSeq).Scan(&unsettled); err != nil {
+		SELECT 1 FROM worker_attempt_dispositions f WHERE f.work_id=a.work_id
+		  AND f.action_id='record_worker_failure'
+		  AND f.attempt_id=a.attempt_id AND (?=0 OR f.seq<?)))`, workID, workID, beforeSeq, beforeSeq, workID, beforeSeq, beforeSeq).Scan(&unsettled); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect unsettled worker attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return unsettled != 0, nil

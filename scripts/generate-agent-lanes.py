@@ -895,6 +895,9 @@ For a changed contract, event, or value, trace the producing code through the
 relevant consumer or dispatch path. Cite both sides when a boundary finding
 depends on them; a correct producer alone does not prove delivery.
 
+When work relies on a knowledge entry, check that it applies and that its
+consequential facts hold; a stale or false citation is a finding.
+
 For each defect, state the triggering input or state, impact, and exact source
 location. Distinguish proven defects, missing required evidence, and optional
 suggestions using the existing finding detail. For an oracle-governed finding,

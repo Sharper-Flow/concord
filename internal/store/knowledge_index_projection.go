@@ -130,9 +130,6 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect existing compaction linkage", true, "retry once the database is readable", err)
 	}
 	scopeDomainIDs := append([]string{}, note.DomainIDs...)
-	if len(scopeDomainIDs) == 0 && note.HasComponentIDs {
-		scopeDomainIDs = append([]string{}, note.ComponentIDs...)
-	}
 	payload := compactionLinkPayload{
 		ID: note.ID, Type: note.Kind, Title: note.Title, CompletedAt: note.CompletedAt,
 		OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState,
@@ -207,9 +204,6 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO compaction_publications(work_id) VALUES(?) ON CONFLICT(work_id) DO NOTHING`, event.SubjectID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot record compaction publication", true, "retry once the database is writable", err)
 	}
 	var existing struct {
 		HomeProjectID string
@@ -597,7 +591,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			}
 		}
 	}
-	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
+	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		// Every scope row carries its own home pair: the same work id can
 		// project in more than one registered source, so the clear deletes
 		// only this home's rows. An unqualified work_id match erased another
@@ -821,12 +815,8 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 		}
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert an indexed note", true, "retry once the database is writable", err)
 	}
-	scopeTable, scopeColumn, scopeIDs := "archived_work_components", "component_id", note.ComponentIDs
-	if note.HasDomainIDs || len(note.DomainIDs) > 0 {
-		scopeTable, scopeColumn, scopeIDs = "archived_work_domains", "domain_id", note.DomainIDs
-	}
-	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, scopeTable: scopeIDs, "archived_work_tags": note.TagIDs} {
-		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
+	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_domains": note.DomainIDs, "archived_work_tags": note.TagIDs} {
+		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_domains": "domain_id", "archived_work_tags": "tag_id"}[table]
 		for _, value := range values {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and all values stay parameter-bound.
 				if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {

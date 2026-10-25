@@ -506,7 +506,7 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 		`SELECT id,type,title,completed_at,outcome_tag,lesson_tags,summary,scope_mode,note_path,commit_oid,content_hash FROM archived_work ORDER BY id`,
 		`SELECT work_id,product_id FROM archived_work_products ORDER BY work_id,product_id`,
 		`SELECT work_id,project_id FROM archived_work_projects ORDER BY work_id,project_id`,
-		`SELECT work_id,component_id FROM archived_work_components ORDER BY work_id,component_id`,
+		`SELECT work_id,domain_id FROM archived_work_domains ORDER BY work_id,domain_id`,
 		`SELECT work_id,tag_id FROM archived_work_tags ORDER BY work_id,tag_id`,
 		`SELECT kind,coverage,reason,scanned_commit_oid FROM knowledge_kind_coverage ORDER BY kind`,
 		`SELECT law_id,kind,status,path,title,content_hash,scanned_commit_oid FROM law_subjects ORDER BY home_project_id,home_locator_id,law_id`,

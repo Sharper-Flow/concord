@@ -98,14 +98,9 @@ func knowledge140Seed(t *testing.T) (*sql.DB, map[string][]string) {
 	commitKnowledgeRepo(t, repo, "current law")
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "concord", home)
-	// The current rebuild reads publication membership, but schema 139 has
-	// no publication owner. Keep its empty input in the temporary schema
-	// only while preparing the fixture; migration 140 still sees schema 139.
-	knowledge140Exec(t, db, `CREATE TEMP TABLE compaction_publications(work_id TEXT PRIMARY KEY)`)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	knowledge140Exec(t, db, `DROP TABLE temp.compaction_publications`)
 	knowledge140Exec(t, db, `INSERT INTO fold_guard(active) VALUES(1)`)
 	knowledge140Exec(t, db, `INSERT INTO law_subjects SELECT home_project_id,home_locator_id,'law-b','spec','accepted',path,'B',content_hash,scanned_commit_oid,'legislated','[{"criterion":1,"exemption":"Verified by the migration fixture."}]' FROM law_subjects WHERE law_id='CD-0001'`)
 	knowledge140Exec(t, db, `INSERT INTO law_subjects SELECT home_project_id,home_locator_id,'law-c','constitution','accepted',path,'C',content_hash,scanned_commit_oid,'derived','[]' FROM law_subjects WHERE law_id='CD-0001'`)
@@ -155,7 +150,9 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if got := knowledge140Snapshot(t, db, knowledge140Tables); !reflect.DeepEqual(got, preserved) {
+	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool { return table == "archived_work_components" })
+	delete(preserved, "archived_work_components")
+	if got := knowledge140Snapshot(t, db, currentTables); !reflect.DeepEqual(got, preserved) {
 		t.Fatalf("current projection changed:\ngot %v\nwant %v", got, preserved)
 	}
 	// Compare this step's schema changes in isolation; later migrations may

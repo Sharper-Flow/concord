@@ -7417,6 +7417,16 @@ UPDATE workflow_phase_exits AS x SET
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		Version:        153,
+		Name:           "terminal_execution_cleanup",
+		Breaking:       true,
+		FoldMaintained: "origin",
+		SQL: `
+DROP TABLE archived_work_components;
+DROP TABLE compaction_publications;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

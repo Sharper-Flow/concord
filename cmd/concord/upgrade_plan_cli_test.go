@@ -287,6 +287,10 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 }
 
 var migrationTailReversals = map[int][]string{
+	153: {
+		`CREATE TABLE compaction_publications (work_id TEXT PRIMARY KEY)`,
+		`CREATE TABLE archived_work_components (home_project_id TEXT NOT NULL, home_locator_id TEXT NOT NULL, work_id TEXT NOT NULL, component_id TEXT NOT NULL, PRIMARY KEY(home_project_id, home_locator_id, work_id, component_id), FOREIGN KEY(home_project_id, home_locator_id, work_id) REFERENCES archived_work(home_project_id, home_locator_id, id) ON DELETE RESTRICT)`,
+	},
 	150: {
 		`ALTER TABLE workflow_phase_exits DROP COLUMN record_version`,
 		`ALTER TABLE workflow_phase_exits DROP COLUMN contract_version`,

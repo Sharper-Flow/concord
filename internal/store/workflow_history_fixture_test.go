@@ -65,6 +65,7 @@ func progressFixtureTables(t *testing.T, db *sql.DB) {
 		`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload BLOB,actor TEXT NOT NULL DEFAULT '',event_id TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE effect_receipts(event_id TEXT PRIMARY KEY,effect_seq INTEGER,kind TEXT,subject_type TEXT,subject_id TEXT)`,
 		`CREATE TABLE workflow_actors (actor_ref TEXT PRIMARY KEY, principal_ref TEXT NOT NULL, client_ref TEXT NOT NULL, agent_ref TEXT NOT NULL, session_ref TEXT NOT NULL, actor_class TEXT NOT NULL)`,
+		`CREATE TABLE workflow_member_callers(actor_ref TEXT PRIMARY KEY,work_id TEXT,project_id TEXT,group_id TEXT,member_id TEXT)`,
 		`CREATE TABLE workflow_instances (work_id TEXT PRIMARY KEY, execution_actor_ref TEXT)`,
 		`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER NOT NULL)`,
 		`CREATE TABLE durable_operations (op_id TEXT, attempt_epoch INTEGER NOT NULL DEFAULT 1, work_id TEXT NOT NULL, principal_ref TEXT NOT NULL, request_id TEXT NOT NULL, result_kind TEXT, evidence_refs TEXT NOT NULL DEFAULT '[]')`,

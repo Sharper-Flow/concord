@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"math"
+	"slices"
 )
 
 // WorkflowStartTakeover names the attempt a fresh fenced start would take
@@ -27,16 +28,24 @@ func WorkflowActionOpensHeldAttempt(action WorkflowActionDefinition) bool {
 
 // WorkflowStartTakeoverRead opens its own read transaction around the single
 // implementation (the store connection invariant).
-func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
+func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowActionDefinition, request WorkflowActionPreflightRequest) (*WorkflowStartTakeover, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_action", "store is not open", false, "open the authority database")
+	}
+	identity := ""
+	if action.RequiredCapability == WorkerDispatchCapability {
+		canonical, err := canonicalWorkerWorktreePath(request.SessionWorktree)
+		if err != nil {
+			return nil, err
+		}
+		identity = workerWorktreeIdentity(canonical)
 	}
 	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot open the takeover read transaction", true, "retry once the store is readable", err)
 	}
 	defer func() { _ = readTx.Rollback() }()
-	return workflowStartTakeover(ctx, readTx, action, workID, callerActorRef)
+	return workflowStartTakeover(ctx, readTx, action, request.WorkID, DeriveWorkflowActorRef(request.Actor.PrincipalRef, request.Actor.ClientRef, request.Actor.AgentRef, request.Actor.SessionRef), workflowDispatchLaneID(request.Payload), identity)
 }
 
 // workflowStartTakeover returns nil when no foreign takeover is required: no
@@ -47,12 +56,14 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 // through a recorded result decision, which that rule already reads; a session
 // relinquishes through session_vacate after it took the authority. Leaving the
 // step ends the attempt, so a start on a re-entered step takes nothing over.
+// An unresolved own child that conflicts with this dispatch defers refusal to
+// dispatch admission, after exact replay and selected-job readiness.
 //
 // A worker-lane dispatch takes over only an unfinished lane attempt another
 // session dispatched: its worker is running or its result awaits a decision.
 // A failed attempt is finished, and the next dispatch is a retry
 // whose approval binds the failed attempt.
-func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string) (*WorkflowStartTakeover, error) {
+func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef, laneID, identity string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string
 	if err := q.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &executionActor); err != nil {
 		if err == sql.ErrNoRows {
@@ -84,7 +95,7 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	if action.RequiredCapability == WorkerDispatchCapability {
 		// The caller's own unresolved child refuses at the write guard, so
 		// no takeover approval is requested over it.
-		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef); err != nil || own != "" {
+		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef, laneID, identity); err != nil || own != "" {
 			return nil, err
 		}
 		held, err := workflowLaneAttemptHeldFrom(ctx, q, workID, step, startSeq, start, callerActorRef)
@@ -139,25 +150,12 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 	return !ended, nil
 }
 
-// guardStartTakeover refuses an unresolved own child before checking foreign
-// takeover authority inside the action transaction. A takeover needs the exact
+// guardStartTakeover checks foreign takeover authority inside the action
+// transaction. A takeover needs the exact
 // approval minted for the current held attempt; a changed holder or epoch
 // invalidates that approval.
-func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, approved *WorkflowStartTakeover) error {
-	if action.RequiredCapability == WorkerDispatchCapability {
-		// A caller's own unfinished child is not a takeover. Its durable
-		// authorization survives a host restart even when the adapter window
-		// does not, and a later start must not hide that unresolved effect.
-		// Check at the write boundary, after exact request replay has resolved.
-		attemptID, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, actorRef)
-		if err != nil {
-			return err
-		}
-		if attemptID != "" {
-			return newFailure(KindOperationConflict, "worker_dispatch", "the caller's started worker attempt "+attemptID+" has no terminal outcome", false, "reconcile the original Task through worker_reconcile, or close the exact attempt through admitted worker_abandon before authorizing another attempt")
-		}
-	}
-	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef)
+func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef, laneID, identity string, approved *WorkflowStartTakeover) error {
+	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef, laneID, identity)
 	if err != nil {
 		return err
 	}
@@ -173,20 +171,58 @@ func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDef
 	return nil
 }
 
-// workflowUnresolvedOwnWorkerAttempt names the caller's earliest authorized
-// worker attempt that started and has no terminal outcome, across every start
-// on the work item, so a later start cannot hide it.
-func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, actorRef string) (string, error) {
-	var attemptID string
-	err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_attempts a
+func guardWorkerDispatchRestart(ctx context.Context, q queryer, workID, actorRef, laneID, identity string) error {
+	attemptID, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, actorRef, laneID, identity)
+	if err != nil {
+		return err
+	}
+	if attemptID != "" {
+		return newFailure(KindOperationConflict, "worker_dispatch", "the caller's started worker attempt "+attemptID+" has no terminal outcome", false, "reconcile the original Task through worker_reconcile, or close the exact attempt through admitted worker_abandon before authorizing another attempt")
+	}
+	return nil
+}
+
+// workflowDispatchLaneID reads either the public selector or the internal
+// packet. Missing identity stays conservative until payload validation refuses.
+func workflowDispatchLaneID(payload json.RawMessage) string {
+	var fields struct {
+		LaneID string `json:"lane_id"`
+		Packet struct {
+			LaneID string `json:"lane_id"`
+		} `json:"worker_packet"`
+	}
+	_ = json.Unmarshal(payload, &fields)
+	if fields.Packet.LaneID != "" {
+		return fields.Packet.LaneID
+	}
+	return fields.LaneID
+}
+
+// workflowUnresolvedOwnWorkerAttempt examines every outstanding own start,
+// never just the latest epoch. Editing authority survives contract supersession;
+// read-only work can coexist with a different lane on the same claim. Missing
+// claim identity cannot prove a separate claim; unknown lanes block conservatively.
+func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, actorRef, laneID, identity string) (string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lane_digest,COALESCE(json_extract(c.payload,'$.worker_worktree_identity'),'') FROM worker_attempts a
 	 JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
 	 WHERE a.work_id=? AND a.lifecycle_state='dispatched'
-	 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq LIMIT 1`, workID, actorRef).Scan(&attemptID)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
+	 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq`, workID, actorRef)
 	if err != nil {
 		return "", workflowProjectionError(err, "cannot inspect the caller's unresolved started worker attempts")
 	}
-	return attemptID, nil
+	defer rows.Close()
+	for rows.Next() {
+		var attemptID, heldLane, digest, heldIdentity string
+		if err := rows.Scan(&attemptID, &heldLane, &digest, &heldIdentity); err != nil {
+			return "", workflowProjectionError(err, "cannot read the caller's unresolved started worker attempt")
+		}
+		if identity != "" && heldIdentity != "" && identity != heldIdentity {
+			continue
+		}
+		lane, laneErr := LookupLane(heldLane, digest)
+		if laneErr != nil || slices.Contains(lane.Capabilities, "edit_scoped_files") || laneID == "" || heldLane == laneID {
+			return attemptID, nil
+		}
+	}
+	return "", rows.Err()
 }

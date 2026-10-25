@@ -986,11 +986,11 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // would take over and binds the held holder and epoch into the approval
 // challenge (CD-0013 criterion 25); the takeover stays a separate mandatory
 // exact approval beside the classified consent.
-func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
+func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, request store.WorkflowActionPreflightRequest, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
 	if !store.WorkflowActionOpensHeldAttempt(action) {
 		return nil, nil
 	}
-	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, request)
 	if err != nil || takeover == nil {
 		return nil, err
 	}
@@ -1144,7 +1144,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	case "request_correction":
 		versions["contract"] = contractVersion
 	}
-	takeover, err := r.supersededAttemptBindings(ctx, action, in.WorkID, grant, scope, versions)
+	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

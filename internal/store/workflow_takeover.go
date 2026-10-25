@@ -82,6 +82,11 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 		return nil, nil
 	}
 	if action.RequiredCapability == WorkerDispatchCapability {
+		// The caller's own unresolved child refuses at the write guard, so
+		// no takeover approval is requested over it.
+		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef); err != nil || own != "" {
+			return nil, err
+		}
 		held, err := workflowLaneAttemptHeldFrom(ctx, q, workID, step, startSeq, start, callerActorRef)
 		if err != nil || !held {
 			return nil, err
@@ -134,26 +139,22 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 	return !ended, nil
 }
 
-// guardStartTakeover rereads the held attempt inside the action transaction.
-// A takeover needs the exact approval minted for that held attempt; an
-// approval minted for a held attempt that has since changed authorizes
-// nothing.
+// guardStartTakeover refuses an unresolved own child before checking foreign
+// takeover authority inside the action transaction. A takeover needs the exact
+// approval minted for the current held attempt; a changed holder or epoch
+// invalidates that approval.
 func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, approved *WorkflowStartTakeover) error {
 	if action.RequiredCapability == WorkerDispatchCapability {
 		// A caller's own unfinished child is not a takeover. Its durable
 		// authorization survives a host restart even when the adapter window
 		// does not, and a later start must not hide that unresolved effect.
 		// Check at the write boundary, after exact request replay has resolved.
-		var attemptID string
-		err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_attempts a
-		 JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
-		 WHERE a.work_id=? AND a.lifecycle_state='dispatched' AND a.terminal_seq=0
-		 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq LIMIT 1`, workID, actorRef).Scan(&attemptID)
-		if err == nil {
-			return newFailure(KindOperationConflict, "worker_dispatch", "the caller's started worker attempt "+attemptID+" has no terminal outcome", false, "reconcile the original Task through worker_reconcile, or close the exact attempt through admitted worker_abandon before authorizing another attempt")
+		attemptID, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, actorRef)
+		if err != nil {
+			return err
 		}
-		if err != sql.ErrNoRows {
-			return workflowProjectionError(err, "cannot inspect the caller's unresolved started worker attempts")
+		if attemptID != "" {
+			return newFailure(KindOperationConflict, "worker_dispatch", "the caller's started worker attempt "+attemptID+" has no terminal outcome", false, "reconcile the original Task through worker_reconcile, or close the exact attempt through admitted worker_abandon before authorizing another attempt")
 		}
 	}
 	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef)
@@ -170,4 +171,22 @@ func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDef
 		return newFailure(KindApprovalInvalid, "workflow_action", "the held attempt changed after the takeover approval challenge", false, "reread the work item and request a fresh approval")
 	}
 	return nil
+}
+
+// workflowUnresolvedOwnWorkerAttempt names the caller's earliest authorized
+// worker attempt that started and has no terminal outcome, across every start
+// on the work item, so a later start cannot hide it.
+func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, actorRef string) (string, error) {
+	var attemptID string
+	err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_attempts a
+	 JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
+	 WHERE a.work_id=? AND a.lifecycle_state='dispatched'
+	 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq LIMIT 1`, workID, actorRef).Scan(&attemptID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", workflowProjectionError(err, "cannot inspect the caller's unresolved started worker attempts")
+	}
+	return attemptID, nil
 }

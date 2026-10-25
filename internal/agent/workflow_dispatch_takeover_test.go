@@ -87,14 +87,14 @@ func (f dispatchTakeoverFixture) failLane(t *testing.T, eventID, attemptID strin
 
 // laneDispatch records the worker session's own worker.dispatched for the
 // attempt and returns the lane actor it pins.
-func (f dispatchTakeoverFixture) laneDispatch(t *testing.T, eventID, attemptID string) string {
+func (f dispatchTakeoverFixture) laneDispatch(t *testing.T, eventID, attemptID string, caller Authority) string {
 	t.Helper()
 	ctx := context.Background()
 	lane := retryLane(t)
 	event := store.Event{EventID: eventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: authorizedWorkerJob(t, f.s, attemptID)})}
 	var laneActor string
 	if err := f.s.Transact(ctx, func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, event, f.ownerGrant.PrincipalRef, f.ownerGrant.ClientRef)
+		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, event, caller.PrincipalRef, caller.ClientRef)
 		if err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
+	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
 	heldEpoch, ownerRef := latestExecutionStart(t, f.s)
 
 	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
@@ -149,6 +149,17 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 	if epoch, actor := latestExecutionStart(t, f.s); epoch != heldEpoch+1 || actor != actorRefOf(f.otherGrant) {
 		t.Fatalf("approved dispatch takeover epoch %d actor %s, want epoch %d opened by the taker", epoch, actor, heldEpoch+1)
 	}
+
+	// The taker's later start must not hide the original caller's unresolved
+	// child, and no takeover approval is requested over it.
+	f.laneDispatch(t, "other-lane-dispatched", "attempt:work-1:other", f.otherGrant)
+	challenges, effects := verifyWallChallenges(t, f.s), agentCurrentEffects(t, f.s)
+	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Error == nil || again.Error.Kind != "operation_conflict" {
+		t.Fatalf("owner fresh dispatch behind a later takeover start = %+v, want operation_conflict", again.Error)
+	}
+	if verifyWallChallenges(t, f.s) != challenges || agentCurrentEffects(t, f.s) != effects {
+		t.Fatal("refused own-child replacement minted an approval challenge or changed durable progress")
+	}
 }
 
 // Once the worker records its dispatch, the lane holds the unfinished
@@ -163,7 +174,7 @@ func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
 	heldEpoch, _ := latestExecutionStart(t, f.s)
-	laneActor := f.laneDispatch(t, "owner-lane-dispatched", attemptID)
+	laneActor := f.laneDispatch(t, "owner-lane-dispatched", attemptID, f.ownerGrant)
 
 	challenge, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
 	requireTakeoverChallenge(t, challenge, laneActor, heldEpoch)
@@ -186,7 +197,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
+	f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
 	challenge, input := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved dispatch takeover = %+v, want approval_required", challenge.Error)
@@ -197,7 +208,7 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != OutcomeOK {
 		t.Fatalf("owner re-dispatch: %+v", again.Error)
 	}
-	f.laneDispatch(t, "owner-lane-redispatched", "attempt:work-1:owner-again")
+	f.laneDispatch(t, "owner-lane-redispatched", "attempt:work-1:owner-again", f.ownerGrant)
 	movedEpoch, _ := latestExecutionStart(t, f.s)
 	ref := challenge.Error.Details["approval_ref"].(string)
 	approved := cloneWithApproval(t, input, ref)
@@ -223,7 +234,7 @@ func TestDispatchWorkerAfterHolderVacatesNeedsNoApproval(t *testing.T) {
 	if first, _ := f.dispatch(t, f.owner, "attempt:work-1:owner", "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner")
+	laneActor := f.laneDispatch(t, "owner-lane-dispatched", "attempt:work-1:owner", f.ownerGrant)
 	var holderSession string
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, laneActor).Scan(&holderSession); err != nil {
 		t.Fatal(err)
@@ -246,17 +257,13 @@ func TestDispatchWorkerAfterFailedAttemptConsumesCorrectionWithoutConsent(t *tes
 	if first, _ := f.dispatch(t, f.owner, attemptID, "owner-dispatch"); first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
-	f.laneDispatch(t, "owner-lane-dispatched", attemptID)
+	f.laneDispatch(t, "owner-lane-dispatched", attemptID, f.ownerGrant)
 	f.failLane(t, "owner-lane-failed", attemptID)
 	pin, err := store.ReadWorkPin(context.Background(), f.s, "work-1")
 	if err != nil || pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
 		t.Fatalf("failed attempt correction = %+v err=%v", pin.Correction, err)
 	}
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "other-retry",
-		"fields": map[string]any{"attempt_id": "attempt:work-1:other", "worker_packet": retryMutationPacket(t, f.s, "attempt:work-1:other", pin.Correction)},
-	}
-	if retry := f.invoke(t, f.other, input); retry.Outcome != OutcomeOK {
+	if retry, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-retry"); retry.Outcome != OutcomeOK {
 		t.Fatalf("consuming retry after the failure = %+v, want ok without consent", retry.Error)
 	}
 	if challenges := verifyWallChallenges(t, f.s); challenges != 0 {

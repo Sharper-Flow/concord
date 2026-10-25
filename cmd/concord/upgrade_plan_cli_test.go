@@ -309,6 +309,12 @@ var migrationTailReversals = map[int][]string{
 	134: nil,
 	// Migration 140 replaces its own knowledge tables and removes its TEMP copies.
 	140: nil,
+	144: {
+		`DROP TABLE session_relocation_counts`,
+		`DROP INDEX project_handoffs_recorded_seq`,
+		`ALTER TABLE project_handoffs DROP COLUMN recorded_seq`,
+		`ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`,
+	},
 	143: {
 		`DROP TABLE worker_attempt_dispositions`,
 		`ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq`,

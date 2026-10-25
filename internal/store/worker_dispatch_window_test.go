@@ -1781,4 +1781,9 @@ func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
 	if err != nil || takeover != nil {
 		t.Fatalf("another session's dispatch over the born-failed attempt = takeover %+v err %v, want none", takeover, err)
 	}
+	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
+		"G33-born-failed-takeover": func() (any, error) {
+			return workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef)
+		},
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +135,76 @@ func TestTerminalCleanupDoesNotCollectSharedRequest(t *testing.T) {
 	s, _ := terminalCleanupFixture(t)
 	terminalCleanupSQL(t, s, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,first_observed_at,last_observed_at) SELECT principal_ref,tool,'mutation','shared-request',canonical_digest,'mixed-product-work-request','["create-work-work-done","create-prod-work-done"]',first_observed_at,last_observed_at FROM idempotency_records LIMIT 1`)
 	assertFailureKind(t, s.CleanupPublishedTerminalWork(t.Context(), "work-done"), KindOperationConflict)
+}
+
+func TestTerminalCleanupPreservesReferencedResearch(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		name := "another_owners_active_consumer"
+		if owned {
+			name = "owned_referenced_pack_blocks"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, _ := terminalCleanupFixture(t)
+			seedResearchWork(t, s, "research-owner", "research-consumer")
+			owner := "research-owner"
+			if owned {
+				version := readWorkVersion(t, s, "work-done")
+				if err := applyWorkEvent(t, s, workReopenedEvent("reopen-research-owner", "work-done", "cancelled", version, version+1), workVersion("work-done", version)); err != nil {
+					t.Fatal(err)
+				}
+				owner = "work-done"
+			}
+			pack := createSimplePack(t, s, "cleanup", owner)
+			if _, err := recordResearchFinding(t.Context(), s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: pack.ExpectedVersion, Finding: ResearchFinding{
+				FindingID: "finding:retained", Kind: FindingConclusion, Statement: "An active consumer still needs this finding.", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			pinResearch(t, s, "research-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
+			if owned {
+				content := strings.Replace(canonicalWorkNote("work-done", "2026-08-07T00:00:00Z"), "terminal_state: completed", "terminal_state: cancelled", 1)
+				version := readWorkVersion(t, s, "work-done")
+				cancel := workflowEventWithActor("cancel-research-owner", "work.transitioned", "work-done", "operator", map[string]any{
+					"from": "needed", "to": "cancelled", "reason": "reviewed research owner closure", "evidence_refs": []string{nativeDigest([]byte(content))}, "expected_version": version, "resulting_version": version + 1,
+				})
+				if err := applyWorkEvent(t, s, cancel, workVersion("work-done", version)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			read := func() ResearchPack {
+				t.Helper()
+				got, err := s.ReadResearchPack(t.Context(), ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(got.Consumers) != 1 || got.Consumers[0].ConsumerWorkID != "research-consumer" || len(got.Revisions) != 1 || len(got.Revisions[0].Findings) != 1 {
+					t.Fatalf("referenced research missing: %+v", got)
+				}
+				return got
+			}
+			before := read()
+			err := s.CleanupPublishedTerminalWork(t.Context(), "work-done")
+			if owned {
+				assertFailureKind(t, err, KindResearchConsumerBlocked)
+				if !strings.Contains(err.Error(), "owned research packs") {
+					t.Fatalf("cleanup refused for the wrong reason: %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if after := read(); !reflect.DeepEqual(before, after) {
+				t.Fatalf("cleanup changed referenced research:\nbefore %+v\nafter %+v", before, after)
+			}
+			var remaining int
+			if err := s.db.QueryRow(`SELECT count(*) FROM work_items WHERE id='work-done'`).Scan(&remaining); err != nil {
+				t.Fatal(err)
+			}
+			if (remaining == 1) != owned {
+				t.Fatalf("terminal execution remaining=%d, owned research=%t", remaining, owned)
+			}
+		})
+	}
 }
 
 func TestTerminalCleanupCollectsReleasedLeaseStreamsAfterReleaseVersion(t *testing.T) {

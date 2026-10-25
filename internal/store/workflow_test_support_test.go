@@ -60,7 +60,7 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()
 	registered := make([]RegisteredDefinition, 0, 2)
 	for _, definition := range []WorkflowDefinition{
-		workflowFixtureShape(workflowFixtureBase(), 1),
+		workflowFixtureShape(workflowFixtureBase()),
 		workflowFixtureWorkerDefinition(),
 	} {
 		entry, err := registry.Register(definition)
@@ -73,7 +73,7 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 }
 
 func workflowFixtureWorkerDefinition() WorkflowDefinition {
-	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()), 2)
+	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()))
 	definition.Ref = workflowWorkerFixtureRef
 	return definition
 }
@@ -104,7 +104,7 @@ func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition
 	return workflowFixtureVersions[version-1]
 }
 
-func workflowFixtureShape(definition WorkflowDefinition, version int64) WorkflowDefinition {
+func workflowFixtureShape(definition WorkflowDefinition) WorkflowDefinition {
 	definition.Ref = workflowFixtureRef
 	definition.WorkKind = WorkKindStaticAnalysis
 	changesProductTruth := false

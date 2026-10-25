@@ -5542,7 +5542,7 @@ test("CON-913 row 18: a stopped recovery composite reports an uncertain effect w
     throw new Error("no evidence may run past a stopped composite: " + argv.join(" "))
   } })
   expectTuple(result, M, "row 18")
-  expect(result.error.message).toContain("lane definition")
+  expect(result.error.message).toContain("the original dispatched lane requires content revalidation")
 })
 
 test("CON-913 row 17: a caller deadline during the recovery composite keeps the conflict tuple and the cause", async () => {

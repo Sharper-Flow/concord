@@ -181,7 +181,7 @@ func TestHistoryContractVersionWithoutAVerifiedPin(t *testing.T) {
 			}
 			wantPin := `"definition_pin":null`
 			if digest != "" {
-				wantPin = `"definition_pin":{"ref":"` + ref + `","version":`
+				wantPin = `"definition_pin":{"ref":"` + ref + `","digest":"` + digest + `","verified":false}`
 				if contract.DefinitionPin.Pin == nil || contract.DefinitionPin.Pin.Verified {
 					t.Fatalf("definition pin = %+v, want an unverified pin", contract.DefinitionPin.Pin)
 				}

@@ -233,11 +233,12 @@ func contentIdentity152Snapshot(t *testing.T, db *sql.DB, before bool) map[strin
 		}
 		slices.Sort(columns)
 		for i, column := range columns {
-			if table == "runtime_state_writers" && before && column == "knowledge_projection_version" {
+			switch {
+			case table == "runtime_state_writers" && before && column == "knowledge_projection_version":
 				columns[i] = `CASE WHEN surface='knowledge' THEN version ELSE 0 END`
-			} else if table == "durable_operations" && before && column == "workflow_type_digest" {
+			case table == "durable_operations" && before && column == "workflow_type_digest":
 				columns[i] = `''`
-			} else {
+			default:
 				columns[i] = `"` + column + `"`
 			}
 		}

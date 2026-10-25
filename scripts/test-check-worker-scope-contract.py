@@ -60,7 +60,6 @@ def contract(**overrides) -> dict:
     value: dict = {
         "schema_version": "1.0",
         "registry": "worker_scope",
-        "version": 1,
         "summary": "Every lane carries one assigned result.",
         "premise": {
             "single_assigned_result": "Each worker attempt completes only its assigned result.",
@@ -79,6 +78,12 @@ def kinds(findings: list[str]) -> list[str]:
 class WorkerScopeContractValidationTests(unittest.TestCase):
     def test_valid_contract_yields_no_findings(self) -> None:
         self.assertEqual(checker.validate(contract(), contract_schema(), lanes_registry(), lane_schema()), [])
+
+    def test_format_and_registry_identity_stay_closed(self) -> None:
+        for field, value in (("schema_version", "2.0"), ("registry", "other_scope")):
+            with self.subTest(field=field):
+                findings = checker.validate(contract(**{field: value}), contract_schema(), lanes_registry(), lane_schema())
+                self.assertEqual(kinds(findings), ["contract-shape"])
 
     def test_design_lane_scoped_to_visual_artifacts(self) -> None:
         value = contract()

@@ -92,8 +92,8 @@ def validate(
     if not isinstance(contract, dict):
         findings.append("contract-shape: the worker-scope contract is not an object")
         return findings
-    if contract.get("schema_version") != "1.0" or contract.get("registry") != "worker_scope" or contract.get("version") != 1:
-        findings.append("contract-shape: schema_version, registry, and version must be 1.0, worker_scope, and 1")
+    if contract.get("schema_version") != "1.0" or contract.get("registry") != "worker_scope":
+        findings.append("contract-shape: schema_version and registry must be 1.0 and worker_scope")
     summary = contract.get("summary")
     if not isinstance(summary, str) or not (2 <= len(summary) <= 1024):
         findings.append("contract-shape: summary must be a string of 2..1024 characters")

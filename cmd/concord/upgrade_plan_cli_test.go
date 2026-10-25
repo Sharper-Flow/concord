@@ -1662,7 +1662,15 @@ func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
 	}
 	for _, table := range tables {
 		common := sharedColumns(t, readTx, writeTx, table)
-		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(common, ",")+` FROM `+table)
+		selectColumns := append([]string(nil), common...)
+		if table == "workflow_instances" {
+			// Schema 122 requires a positive definition counter with no default.
+			// This fixture-only value fills that historical shape; the copied
+			// ref and digest remain the identity, and migration 152 retires it.
+			common = append(common, "definition_version")
+			selectColumns = append(selectColumns, "1")
+		}
+		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(selectColumns, ",")+` FROM `+table)
 		if err != nil {
 			t.Fatalf("cannot read the seeded %s rows: %v", table, err)
 		}

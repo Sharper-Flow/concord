@@ -755,7 +755,7 @@ func TestCutoverBlocksOutsideRepairArchivedPin(t *testing.T) {
 	if !ok || failure.Kind != KindSchemaUnsupported {
 		t.Fatalf("readiness with an outside-repair archived pin = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") {
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook (digest "+mustBuiltinDefinition(t, "workflow.implementation").Digest+")") {
 		t.Fatalf("cutover refusal %q must name the held archived pin", failure.Detail)
 	}
 }
@@ -932,7 +932,7 @@ func TestCutoverRefusesActiveArchivedContractBesideCanonicalInstance(t *testing.
 	if !ok || failure.Kind != KindSchemaUnsupported {
 		t.Fatalf("readiness with an active archived contract beside the canonical instance = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") || !strings.Contains(failure.Detail, "is archived") {
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook (digest "+mustBuiltinDefinition(t, "workflow.implementation").Digest+")") || !strings.Contains(failure.Detail, "is archived") {
 		t.Fatalf("cutover refusal %q must name the active contract's archived pin", failure.Detail)
 	}
 	eventsAfter, migrationsAfter := storedCounts(t, path)
@@ -1021,7 +1021,7 @@ func TestCutoverRefusesActiveArchivedContractWithoutInstance(t *testing.T) {
 	if !ok || failure.Kind != KindSchemaUnsupported {
 		t.Fatalf("readiness with an active archived contract and no instance = %v, want %s", err, KindSchemaUnsupported)
 	}
-	if !strings.Contains(failure.Detail, "workflow.ops_runbook version 9") {
+	if !strings.Contains(failure.Detail, "workflow.ops_runbook (digest "+mustBuiltinDefinition(t, "workflow.implementation").Digest+")") {
 		t.Fatalf("cutover refusal %q must name the contract-only pin", failure.Detail)
 	}
 	// The refusal gates activation, not the recorded state.

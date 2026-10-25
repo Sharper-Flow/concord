@@ -2,6 +2,7 @@ package agent
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,7 @@ func TestSpineMainAssociatesCurrentProofAcrossSessions(t *testing.T) {
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
 		"selected_choice": "confirm", "idempotency_key": "spine-main-proof-confirm",
 	}))
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t).Pinned.Pin
 	if done.Lifecycle != "completed" || len(done.VerifiedCriteria) != 1 || done.VerifiedCriteria[0].PredicateID != "predicate:primary" || done.VerifiedCriteria[0].VerdictKind != "ok" {

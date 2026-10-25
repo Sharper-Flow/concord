@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -177,6 +178,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 		t.Fatalf("completion did not revalidate the final checkout against C: %+v", changedSubject)
 	}
 	gitRun(t, f.path, "checkout", "--detach", c.Commit)
+	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t).Pinned.Pin
 	if done.Lifecycle != "completed" || done.Review.Candidate == nil || *done.Review.Candidate != c || !done.Review.PublicationOutstanding || len(done.VerifiedCriteria) != 1 {

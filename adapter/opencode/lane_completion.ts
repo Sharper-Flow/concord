@@ -368,7 +368,8 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   if (!object(part) || part.type !== "tool" || part.tool !== TASK_TOOL_ID || typeof part.sessionID !== "string" || typeof part.callID !== "string") return null
   const state = part.state
   if (!object(state) || (state.status !== "error" && state.status !== "completed")) return null
-  if (state.status === "error" ? typeof state.error !== "string" : typeof state.output !== "string") return null
+  const terminalText = state.status === "error" ? state.error : state.output
+  if (typeof terminalText !== "string") return null
   const windows = deps.windows ?? dispatchWindows()
   const matchesCurrent = windows.observeTerminalPart(part.sessionID, part.callID, typeof part.id === "string" ? part.id : undefined, object(state.input) ? state.input.prompt : undefined)
   if (state.status !== "error" || !matchesCurrent) return null
@@ -387,14 +388,14 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   if (!windows.claimSettlement(part.sessionID, callID, pending)) return null
   const sessionID = part.sessionID
   const observed = observations.take(metadata.sessionId)
-  const detail = cancelledDetail(state.error, observed)
+  const detail = cancelledDetail(terminalText, observed)
   try {
     // the retained sources ride the terminal write as typed
     // attribution, not only the returned envelope. The arm observation binds
     // the exact child this dispatch window authorized.
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory, capturedProvenance: pending.provenance,
-      failureAttribution: cancellationFailureObservation(state.error, metadata.sessionId, observed),
+      failureAttribution: cancellationFailureObservation(terminalText, metadata.sessionId, observed),
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID, pending))
     if (envelope.error && observed.length > 0) {
       envelope.error.details = { ...envelope.error.details, host_observations: observed }

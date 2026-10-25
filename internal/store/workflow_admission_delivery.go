@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -73,7 +74,7 @@ func loadWorkflowDeliveryAdmission(ctx context.Context, q queryer, workID string
 	if !state.ProofRequired || !found {
 		return state, nil, integrationRuns, nil
 	}
-	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
+	refs, err := workflowCandidateVerificationRefs(ctx, q, workID, acceptingAttempt)
 	if err != nil {
 		return state, nil, nil, err
 	}
@@ -120,8 +121,8 @@ func workflowVerificationProof(runs []workflowVerificationRun, tooling *ProjectT
 
 func workflowRefineProofFailure(why string) *Failure {
 	return newFailure(KindMissingEvidence, "workflow_action",
-		"leaving refine requires a verification binding in the current refine epoch that names a green worktree_verify run for this work item: "+why,
-		false, "run worktree_verify on the refined work, then bind_evidence with evidence_kind verification and the run's worktree_verify operation ref before record_delivery")
+		"leaving refine requires a passing worktree_verify run on the current integrated candidate: "+why,
+		false, "run worktree_verify on the current integrated candidate before record_delivery")
 }
 
 // loadWorkflowDeliveryJobAdmissionForAccept loads the CD-0205 job facet of the delivery
@@ -185,7 +186,7 @@ func loadWorkflowDeliveryJobAdmissionForAccept(ctx context.Context, q queryer, w
 	}
 	sort.Strings(pendingRepairs)
 	state.ChecksRepairPendingKeys = strings.Join(pendingRepairs, ",")
-	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
+	refs, err := workflowCandidateVerificationRefs(ctx, q, workID, acceptingAttempt)
 	if err != nil {
 		return nil, err
 	}
@@ -220,30 +221,68 @@ func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, re
 	if producer == nil {
 		return nil, "", "no passing unchanged-tree producer receipt", nil
 	}
-	// Only an actual producer needs singular Review dependencies. Inapplicable
-	// delivery and refs without a producer must leave recovery readable.
-	review, err := loadWorkflowReviewState(ctx, q, workID)
+	candidate, err := workflowVerificationCandidate(ctx, q, workID, acceptingAttempt)
 	if err != nil {
 		return nil, "", "", err
-	}
-	candidate := review.Candidate
-	if acceptingAttempt != "" {
-		auth, result, err := readReviewAttempt(ctx, q, workID, acceptingAttempt)
-		if err != nil {
-			return nil, "", "", err
-		}
-		pending, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
-		if err != nil {
-			return nil, "", "", err
-		}
-		if pending != nil {
-			candidate = pending
-		}
 	}
 	if candidate == nil || producer.SubjectRef != "commit:"+candidate.Commit || producer.ProjectID != candidate.ProjectID {
 		return producer.Command, producer.ProjectID, "verification does not cover the current integrated candidate", nil
 	}
 	return producer.Command, producer.ProjectID, "", nil
+}
+
+// Explicit bindings and qualified producer receipts share the same candidate
+// admission. Reading a tool's own receipt creates no duplicate evidence row.
+func workflowCandidateVerificationRefs(ctx context.Context, q queryer, workID, acceptingAttempt string) ([]string, error) {
+	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, 0, "workflow_action")
+	if err != nil {
+		return nil, err
+	}
+	candidate, err := workflowVerificationCandidate(ctx, q, workID, acceptingAttempt)
+	if err != nil || candidate == nil {
+		return refs, err
+	}
+	rows, err := q.QueryContext(ctx, oracleVerifyReceiptSQL+` AND json_extract(l.result_json,'$.subject_ref')=? AND l.project_id=? ORDER BY d.rowid`, workID, "commit:"+candidate.Commit, candidate.ProjectID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the candidate's producer verification", true, "retry once the producer receipts are readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the candidate's producer verification", true, "retry once the producer receipts are readable", err)
+		}
+		producer, err := decodeOracleVerifyReceipt(raw, workID)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(refs, producer.OperationRef) {
+			refs = append(refs, producer.OperationRef)
+		}
+	}
+	return refs, rows.Err()
+}
+
+func workflowVerificationCandidate(ctx context.Context, q queryer, workID, acceptingAttempt string) (*WorkerReviewCandidate, error) {
+	review, err := loadWorkflowReviewState(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	candidate := review.Candidate
+	if acceptingAttempt != "" {
+		auth, result, err := readReviewAttempt(ctx, q, workID, acceptingAttempt)
+		if err != nil {
+			return nil, err
+		}
+		pending, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
+		if err != nil {
+			return nil, err
+		}
+		if pending != nil {
+			candidate = pending
+		}
+	}
+	return candidate, nil
 }
 
 // The fold and combined delivery admission must select the same candidate.
@@ -329,7 +368,7 @@ func workflowDeliveryJobsFailure(state workflowDeliveryAdmission, accepting *Wor
 	if state.JobsRecorded && !state.JobsIntegrated {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			"the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project",
-			false, "verify the integrated candidate and bind the passing producer receipt for each required Project before recording delivery")
+			false, "run worktree_verify on the integrated candidate for each required Project before recording delivery")
 	}
 	return nil
 }
@@ -457,7 +496,7 @@ func workflowIntegrationToolingFailure(delivery workflowDeliveryAdmission, runs 
 	if !workflowIntegrationCovered(scopes, declared) {
 		return newFailure(KindMissingEvidence, "workflow_action",
 			"the delivery assertion's integration evidence must run commands the Project declares, covering every required Project",
-			false, "run worktree_verify with the Project's declared tooling on the integrated work, then bind its verification evidence")
+			false, "run worktree_verify with the Project's declared tooling on the integrated candidate")
 	}
 	return nil
 }

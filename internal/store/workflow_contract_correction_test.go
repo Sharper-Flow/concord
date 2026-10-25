@@ -72,7 +72,13 @@ func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]a
 	}
 	predicates := make([]any, len(contract.OutcomePredicates))
 	for i, predicate := range contract.OutcomePredicates {
-		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)}
+		var outcome map[string]any
+		decoder := json.NewDecoder(strings.NewReader(predicate.OutcomePayload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&outcome); err != nil {
+			t.Fatal(err)
+		}
+		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": outcome}
 	}
 	payload := map[string]any{"contract_version": version, "premise": premise, "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:return-route-artifact"}, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
 	if contract.DecisionDomains != nil {

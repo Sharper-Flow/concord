@@ -567,6 +567,9 @@ ORDER BY 1`)
 		if err := probe.Close(); err != nil {
 			t.Fatal(err)
 		}
+		if err := probe.Err(); err != nil {
+			t.Fatal(err)
+		}
 		for i, column := range columns {
 			columns[i] = `quote("` + strings.ReplaceAll(column, `"`, `""`) + `")`
 		}

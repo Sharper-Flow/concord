@@ -39,7 +39,7 @@ func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID stri
 func reviewGateCountDeliveries(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=1`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

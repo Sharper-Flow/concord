@@ -230,9 +230,10 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 	attemptID := "attempt-fixture-" + r.LeaseID
 	var existing string
 	err = s.db.QueryRow(`SELECT attempt_id FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_job.job_id')=? AND json_extract(payload,'$.worker_job.revision')=? AND json_extract(payload,'$.worker_job.digest')=? AND json_extract(payload,'$.worker_subject_commit')=? ORDER BY seq DESC LIMIT 1`, r.WorkID, job.JobID, job.Revision, job.Digest, strings.TrimPrefix(r.SubjectRef, "commit:")).Scan(&existing)
-	if err == nil {
+	switch err {
+	case nil:
 		attemptID = existing
-	} else if err == sql.ErrNoRows {
+	case sql.ErrNoRows:
 		lane := reviewGateLane(t, "implementation")
 		var step string
 		if err := s.db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, r.WorkID).Scan(&step); err != nil {
@@ -244,7 +245,7 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 			t.Fatalf("authorize producer through dispatch_worker: %v", err)
 		}
 		recordJobBoundWorkerDispatch(t, s, r.WorkID, attemptID, &job)
-	} else {
+	default:
 		t.Fatal(err)
 	}
 	var dispatch workflowActionCompletedPayload

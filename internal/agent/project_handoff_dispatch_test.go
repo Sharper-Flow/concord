@@ -139,15 +139,14 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if version != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", version)
 	}
-	// Walk the research workflow to its approved contract through the real
+	// Walk the implementation workflow to its approved contract through the real
 	// tool boundary, so the handoff record binds an active workflow
 	// contract version. Each step carries the fields its contract declares.
 	stepFields := map[string]map[string]any{
 		"record_proposal":  {"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}},
 		"record_alignment": {"searched": "The bounded backlog search statement.", "outcome": "none_found"},
-		"record_design":    {"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:handoff", "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []any{}}}, "touched_refs": []string{"path:handoff"}},
 	}
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		stepped := handoffInvoke(t, s, sourceService, sourceEnv, "workflow_action", map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": action,
 			"fields": stepFields[action], "idempotency_key": "handoff-" + action,
@@ -165,6 +164,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract failed: %+v", approved.Error)
 	}
+	recordApprovedWorkDesign(t, s, sourceService, sourceEnv, "work-1", "handoff-design")
 	// The source Project's claimed worktree: the real claim the preservation
 	// bind resolves, and the worktree the source session runs in once the
 	// boot route places it there.

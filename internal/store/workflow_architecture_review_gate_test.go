@@ -2,6 +2,19 @@ package store
 
 import "testing"
 
+func TestAcceptedCriteriaPrecedeArchitecture(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == "planning" && edge.Kind == WorkflowEdgeForward {
+			if edge.To != "design" {
+				t.Fatalf("accepted criteria advance to %q, want architecture before execution", edge.To)
+			}
+			return
+		}
+	}
+	t.Fatal("accepted criteria have no forward architecture stage")
+}
+
 func TestArchitectureReviewGuardsFirstAndContinuingDispatch(t *testing.T) {
 	report := reviewBlockFixture()
 	report.Disposition = "continue"

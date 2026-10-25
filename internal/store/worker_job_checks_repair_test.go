@@ -662,6 +662,23 @@ func TestChecksRepairCorrectiveReviewVoidsRepair(t *testing.T) {
 			if got := checksRepairRevisionView(t, s, workID, *recovered).ContractVersion; got != 2 {
 				t.Fatalf("recovery revision contract = %d, want the successor's 2", got)
 			}
+			reviewState, err := loadWorkflowReviewState(ctx, s.db, workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			declared, err := workflowDeclaredReviewCorrection(ctx, s.db, workID, "", &reviewState)
+			if err != nil || declared != "" || !reviewState.StaleJobs[jobID] {
+				t.Fatalf("the successor's revised job retained old correction authority: %q, %+v, %v", declared, reviewState, err)
+			}
+			correctionRecord, err := workflowCorrectionOpenRecord(ctx, s.db, workID, "", "workflow_correction")
+			if err != nil || correctionRecord == nil || correctionRecord.fields.ActionID != "record_worker_failure" {
+				t.Fatalf("the failed own-obligation run's correction = %+v, %v", correctionRecord, err)
+			}
+			// A failed run's correction is not an accepted Review of the revised
+			// job. Review that job and request its correction before dispatch.
+			reviewFixture := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
+			acceptCurrentReviewForTest(t, reviewFixture, workerFixtureDirectory(t, s, workID), "correction_required")
+			checksRepairRequestCorrection(t, s, workID, acceptor)
 			pin = issue1013Pin(t, s, workID)
 			issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 			pin = issue1013Pin(t, s, workID)
@@ -677,9 +694,12 @@ func TestChecksRepairCorrectiveReviewVoidsRepair(t *testing.T) {
 			completeChecksRepairAttemptObserved(t, s, workID, recoveryAttempt, "checks-repair-completed-"+recoveryAttempt, native.execute(t, recoveryAttempt))
 			acceptChecksRepairAttempt(t, s, workID, recoveryAttempt, acceptor)
 			// Satisfying the revision admits no second authoring dispatch.
+			pin = issue1013Pin(t, s, workID)
 			secondPacket := dispatchWorkerPacket(t, s, workID, "repair", "attempt:"+workID+":recovery-2")
 			secondPacket["schema_version"] = WorkerPacketSchemaVersion
-			secondPacket["inputs"].(map[string]any)["correction"] = pin.Correction
+			if pin.Correction != nil {
+				secondPacket["inputs"].(map[string]any)["correction"] = pin.Correction
+			}
 			secondPacket["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovered, "implement")
 			if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":recovery-2", worker, "checks-repair-void-recovery-2", secondPacket); err == nil || !strings.Contains(err.Error(), "selected worker-job revision is not ready") {
 				t.Fatalf("second authoring dispatch = %v, want the satisfied revision's readiness refusal", err)
@@ -920,10 +940,14 @@ func checksRepairRequestCorrection(t *testing.T, s *Store, workID string, actor 
 	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}), 0, actor); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "request_correction", mustJSONValue(map[string]any{
-		"predicate_ids": fixtureRepairPredicateIDs(t, s, workID), "evidence_refs": []string{reportRef}, "open_finding_ids": lineage.openFindingIDs(),
+	fields := map[string]any{
+		"predicate_ids": fixtureRepairPredicateIDs(t, s, workID), "evidence_refs": []string{reportRef},
 		"diagnosis": "The accepted Review finds the repairing checks cannot run.", "strategy": "Re-record and repair the unresolved obligation.",
-	}), 0, actor); err != nil {
+	}
+	if open := lineage.openFindingIDs(); len(open) != 0 {
+		fields["open_finding_ids"] = open
+	}
+	if err := runVerdictActionAs(t, s, workID, "request_correction", mustJSONValue(fields), 0, actor); err != nil {
 		t.Fatal(err)
 	}
 }

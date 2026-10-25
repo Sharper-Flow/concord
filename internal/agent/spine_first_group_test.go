@@ -11,8 +11,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// First entry without Review applies only where no architecture is recorded;
+// the break-fix family has none.
 func TestSpineFirstGroupFailedAssignmentRelaunchesAcrossRevision(t *testing.T) {
-	f := newSpineExecutionFixture(t)
+	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
 	f.recordJob(t)
 	const failed = "attempt:first-group-failed"
@@ -48,7 +50,7 @@ func TestSpineFirstGroupFailedAssignmentRelaunchesAcrossRevision(t *testing.T) {
 }
 
 func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
-	f := newSpineExecutionFixture(t)
+	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
 	f.recordJob(t)
 	if f.read(t).Pinned.Pin.Review.Accepted != nil {
@@ -101,7 +103,7 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 }
 
 func TestSpineFirstGroupUnknownLaunchCannotAuthorizeAnotherAttempt(t *testing.T) {
-	f := newSpineExecutionFixture(t)
+	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
 	f.recordJob(t)
 	lane, ok := builtinLane("implement")

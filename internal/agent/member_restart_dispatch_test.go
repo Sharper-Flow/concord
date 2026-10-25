@@ -19,6 +19,12 @@ func TestSameSessionServiceRestartRefusesUnresolvedStartedAssignment(t *testing.
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND dispatch_seq>0 AND terminal_seq=0`, f.work).Scan(&unresolved); err != nil || unresolved != 1 {
 		t.Fatalf("started unresolved attempts = %d, error=%v", unresolved, err)
 	}
+	var beforeAttempts, beforeAuthorizations int
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT
+	 (SELECT count(*) FROM worker_attempts WHERE work_id=?),
+	 (SELECT count(*) FROM worker_authorizations WHERE work_id=?)`, f.work, f.work).Scan(&beforeAttempts, &beforeAuthorizations); err != nil {
+		t.Fatal(err)
+	}
 
 	// Reopen persisted authority without changing the authenticated caller or
 	// carrying any adapter-local dispatch window into the new service.
@@ -52,7 +58,7 @@ func TestSameSessionServiceRestartRefusesUnresolvedStartedAssignment(t *testing.
 		var attempts, authorizations int
 		if err := f.s.DatabaseForTesting().QueryRow(`SELECT
 		 (SELECT count(*) FROM worker_attempts WHERE work_id=?),
-		 (SELECT count(*) FROM worker_authorizations WHERE work_id=?)`, f.work, f.work).Scan(&attempts, &authorizations); err != nil || attempts != 1 || authorizations != 1 {
+		 (SELECT count(*) FROM worker_authorizations WHERE work_id=?)`, f.work, f.work).Scan(&attempts, &authorizations); err != nil || attempts != beforeAttempts || authorizations != beforeAuthorizations {
 			t.Fatalf("refused dispatch minted attempts=%d authorizations=%d, error=%v", attempts, authorizations, err)
 		}
 	}

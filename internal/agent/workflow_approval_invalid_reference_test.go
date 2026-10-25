@@ -34,13 +34,13 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 10 {
-				t.Fatalf("pre-contract version=%d, want 10", got)
+			if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 8 {
+				t.Fatalf("pre-contract version=%d, want 8", got)
 			}
 			input := workflowContractActionInput(t, "wf-approve-invalid-ref", testCase.ref)
 			digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 10}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")
+			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")
 			before := agentDurableStateSnapshot(t, s)
 			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 			if err != nil || response.Outcome != OutcomeError || response.Error == nil {

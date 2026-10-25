@@ -101,12 +101,15 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
 
+	recordApprovedWorkDesign(t, s, service, env, "work-1", "replay-journey-design")
 	if start := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "start_execution",
 		"fields": map[string]any{}, "idempotency_key": "replay-journey-start",
 	}); start.Outcome != OutcomeOK {
 		t.Fatalf("start_execution: %+v", start.Error)
 	}
+	recordRecoveryWorkerJob(t, s, service, env, "job:replay-architecture-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 	recordRecoveryWorkerJob(t, s, service, env, "job:replay-journey")
 	if declared := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "record_work_context",

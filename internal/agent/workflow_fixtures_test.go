@@ -115,10 +115,8 @@ func workflowContractActionInputWithFields(t *testing.T, key, approvalRef string
 	t.Helper()
 	input := map[string]any{
 		"work_id": "work-1",
-		// The canonical pre-contract walk is proposal, alignment, design:
-		// two events each over the version-4 capture, so the approval lands
-		// at expected version 10 without the retired discovery marker.
-		"expected_version": 10,
+		// Proposal and alignment each record their document and completion.
+		"expected_version": 8,
 		"action_id":        "approve_contract",
 		"fields":           fields,
 		"idempotency_key":  key,
@@ -179,7 +177,7 @@ func challengeApprovalBindings(t *testing.T, summary *ConsequenceSummary) (map[s
 }
 
 // advanceCapturedWorkToContract walks one captured implementation work item
-// through the canonical pre-contract steps (proposal, alignment, design) so
+// through the canonical pre-contract steps (proposal, alignment) so
 // approve_contract is declared on the work's current step. Each action
 // consumes two events; the walk returns the version approve_contract takes.
 func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, keyPrefix string) int64 {
@@ -207,8 +205,15 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 		return after
 	}
 	dispatch("record_proposal", map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}, "proposal")
-	dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
-	return dispatch("record_design", map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + keyPrefix, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + keyPrefix}}, "design")
+	return dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
+}
+
+func recordApprovedWorkDesign(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, key string) int64 {
+	t.Helper()
+	input := map[string]any{"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": "record_design", "idempotency_key": key,
+		"fields": map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + key, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + key}}}
+	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env))
+	return workVersion(t, s, workID)
 }
 
 func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T) {

@@ -44,7 +44,7 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 func crossProductBindingApproval(t *testing.T, s *Store, workID string, actor WorkflowActor) {
 	t.Helper()
 	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "cross-product-"+workID+"-"+action, actor)
 	}
 	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"` + crossProductRegistryHash + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)

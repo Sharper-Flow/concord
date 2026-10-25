@@ -62,6 +62,7 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verification", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "combined-reject-fixture")
+	runVerificationStoreAction(t, s, "record_design", workflowDesignFieldsFixture("combined-reject-fixture"), owner, "combined-reject-fixture-design")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:combined-reject", "combined-reject", strings.Repeat("a", 40), path, "repo:combined-reject", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -80,8 +81,13 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	}
 	fixture := oAgentFixture(t, s, service, env, "work-1")
 	oAgentNativeJob(t, fixture)
+	recordReadyRetryJob(t, s, service, env, "job:combined-reject-architecture-review")
+	oAgentReviewJob(t, fixture, "job:combined-reject-architecture-review", "continue", false)
 	attemptID := "attempt:work-1:combined-reject-1"
 	lane, job, _ := fixture.startWorker(t, "implement", attemptID)
+	if job.JobID != "job:o-agent-native" {
+		t.Fatalf("combined-reject implementation job=%s, want job:o-agent-native", job.JobID)
+	}
 	// A rejected result need not edit the candidate. Keeping it unchanged
 	// lets the retry consume the same qualified native preparation.
 	fixture.finishWorker(t, lane, attemptID, job, nil)

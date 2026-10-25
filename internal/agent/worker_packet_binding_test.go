@@ -699,7 +699,7 @@ func oracleFixtureBundleDigest(t *testing.T, oracle map[string]any, controlID st
 
 func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 		VALUES('work-1',1,'predicate:second-approved',1,'check','{"kind":"check","check_ref":"check:second","immutable_subject_ref":"commit:second","expected_result":"pass"}');

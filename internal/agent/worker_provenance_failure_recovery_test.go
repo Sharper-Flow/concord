@@ -14,7 +14,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 		t.Run(defect, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-			grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+			grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -34,6 +34,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			beforeEvents := agentCurrentEffects(t, s)
+			acceptedEvidenceBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`)
 			digest := "sha256:" + strings.Repeat("a", 64)
 			provenance := &store.WorkerHostProvenance{Digest: digest, Sources: []store.WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "synthetic-host-surface"}}}
 			if defect == "invalid_digest" {
@@ -150,15 +151,16 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if got := verifyWallChallenges(t, s); got != challengesBefore {
 				t.Fatalf("engineering retry minted approval challenges: %d -> %d", challengesBefore, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != 0 {
-				t.Fatalf("recovery fabricated %d accepted evidence events", got)
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != acceptedEvidenceBefore {
+				t.Fatalf("recovery changed accepted evidence events from %d to %d", acceptedEvidenceBefore, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 2 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='implementation'`); got != 2 {
 				t.Fatalf("recovery created %d attempts, want the failed and fresh identities", got)
 			}
 			var epoch int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil || epoch != 2 {
-				t.Fatalf("fresh retry epoch=%d error=%v, want 2", epoch, err)
+			wantEpoch := attemptEpoch(t, s, failedID) + 1
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil || epoch != wantEpoch {
+				t.Fatalf("fresh retry epoch=%d error=%v, want %d", epoch, err, wantEpoch)
 			}
 		})
 	}

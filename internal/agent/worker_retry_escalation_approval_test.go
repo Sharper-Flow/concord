@@ -59,15 +59,15 @@ func TestRepeatedFailedCorrectionKeepsLaunchFenceAndRecovery(t *testing.T) {
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
 		t.Fatalf("replayed retry recorded %d dispatch completions, want 1", got)
 	}
-	// The two admitted prerequisite Reviews are not implementation retries.
+	// The three admitted prerequisite Reviews are not implementation retries.
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='implementation'`); got != 4 {
 		t.Fatalf("replayed retry left %d worker attempts, want 4", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='review'`); got != 2 {
-		t.Fatalf("prerequisite Review attempts=%d, want 2", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='review'`); got != 3 {
+		t.Fatalf("prerequisite Review attempts=%d, want 3", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 6 {
-		t.Fatalf("replayed retry left %d total worker attempts, want four implementation attempts and two Reviews", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 7 {
+		t.Fatalf("replayed retry left %d total worker attempts, want four implementation attempts and three Reviews", got)
 	}
 
 	// An unresolved launch must be reconciled before another authorization.
@@ -203,6 +203,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:escalated-retry", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "escalated-fixture")
+	runVerificationStoreAction(t, s, "record_design", workflowDesignFieldsFixture("escalated-fixture"), owner, "escalated-fixture-design")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:escalated", "escalated", strings.Repeat("a", 40), path, "repo:escalated", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -230,7 +231,6 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		// revision ready, so the cycle's dispatch binds a fresh one.
 		recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:escalated-"+strconv.FormatInt(cycle, 10))
 		env := mutationEnvelope(grant, scopeVersion)
-		version = workVersion(t, s, "work-1")
 		// After a failed correction the dispatch packet consumes the live
 		// correction context the pin carries; cycle 1 carries none. The
 		// packet selects the freshly recorded ready job explicitly, as the
@@ -256,13 +256,11 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			t.Fatal(selectErr)
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
-		if cycle > 1 {
-			// The Review consumes its own job, so the selected implementation
-			// revision stays ready for this cycle's dispatch.
-			recordReadyRetryJob(t, s, service, env, "job:escalated-"+strconv.FormatInt(cycle, 10)+"-review")
-			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
-			version = workVersion(t, s, "work-1")
-		}
+		// The Review consumes its own job, so the selected implementation
+		// revision stays ready for this cycle's dispatch.
+		recordReadyRetryJob(t, s, service, env, "job:escalated-"+strconv.FormatInt(cycle, 10)+"-review")
+		oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+		version = workVersion(t, s, "work-1")
 		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
 		input := map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "escalated-dispatch-" + strconv.FormatInt(cycle, 10),

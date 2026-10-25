@@ -39,13 +39,13 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	// workflow.implementation: break_fix folds the alignment step into the
 	// merged diagnosis step, whose shape the CD-0198 tests hold. The
 	// canonical implementation head removes the discovery step, so the
-	// alignment step's single forward exit lands on design.
+	// alignment step's single forward exit lands on criteria approval.
 	cases := []struct {
 		ref       string
 		afterStep string
 		nextStep  string
 	}{
-		{"workflow.implementation", "proposal", "design"},
+		{"workflow.implementation", "proposal", "planning"},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -174,8 +174,8 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "design" {
-		t.Fatalf("after record_alignment the workflow sits at %q, want design", step)
+	if step != "planning" {
+		t.Fatalf("after record_alignment the workflow sits at %q, want planning", step)
 	}
 	var searchedRecorded, outcome string
 	var related []string

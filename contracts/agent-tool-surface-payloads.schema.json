@@ -809,7 +809,7 @@
             }
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "properties": {
               "next_valid_intents": {
                 "type": "array",
@@ -818,11 +818,6 @@
             },
             "not": {
               "anyOf": [
-                {
-                  "required": [
-                    "workflow_definition_version"
-                  ]
-                },
                 {
                   "required": [
                     "workflow_definition_digest"
@@ -842,7 +837,7 @@
             }
           },
           "else": {
-            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — digest and the declared obligation set — is required in full.",
             "properties": {
               "workflow_type": {
                 "$ref": "#/$defs/id"
@@ -852,7 +847,6 @@
               }
             },
             "required": [
-              "workflow_definition_version",
               "workflow_definition_digest",
               "obligations"
             ]
@@ -910,11 +904,6 @@
         "workflow_type": {
           "type": "string",
           "maxLength": 128
-        },
-        "workflow_definition_version": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Version of the pinned workflow definition the registry verified for this pin."
         },
         "workflow_definition_digest": {
           "$ref": "#/$defs/digest",
@@ -5513,15 +5502,44 @@
             },
             "allOf": [
               {
-                "if": {"required": ["successor_id"]},
+                "if": {
+                  "required": [
+                    "successor_id"
+                  ]
+                },
                 "then": {
-                  "properties": {"kind": {"const": "note"}},
-                  "not": {"required": ["status"]}
+                  "properties": {
+                    "kind": {
+                      "const": "note"
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "status"
+                    ]
+                  }
                 }
               },
               {
-                "if": {"properties": {"kind": {"type": "string", "enum": ["constitution", "decision", "specification"]}}},
-                "then": {"properties": {"status": {"const": "accepted"}}}
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "constitution",
+                        "decision",
+                        "specification"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -18192,56 +18210,26 @@
           "$ref": "#/$defs/digest"
         },
         "fields": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "attempt_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "x-minBytes": 2,
-                  "x-maxBytes": 128,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet5"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ]
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "attempt_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "x-minBytes": 2,
-                  "x-maxBytes": 128,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet3"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ],
-              "not": {
-                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
-              }
+            "worker_packet": {
+              "$ref": "#/$defs/worker_packet"
             }
+          },
+          "required": [
+            "attempt_id",
+            "worker_packet"
           ]
         }
       },
@@ -28423,29 +28411,6 @@
             "architecture_digest"
           ]
         }
-      ]
-    },
-    "work_transition_action_variant_dispatch_worker_fields_member_0": {
-      "type": "object",
-      "additionalProperties": false,
-      "maxProperties": 32,
-      "properties": {
-        "attempt_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "x-minBytes": 2,
-          "x-maxBytes": 128,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
-        },
-        "worker_packet": {
-          "$ref": "#/$defs/worker_packet5"
-        }
-      },
-      "required": [
-        "attempt_id",
-        "worker_packet"
       ]
     },
     "retained_workflow_correction_context": {

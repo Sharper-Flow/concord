@@ -13489,7 +13489,7 @@ const GeneratedPayloadSchemaDocument = `{
       "allOf": [
         {
           "else": {
-            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — digest and the declared obligation set — is required in full.",
             "properties": {
               "step": {
                 "$ref": "#/$defs/short"
@@ -13499,7 +13499,6 @@ const GeneratedPayloadSchemaDocument = `{
               }
             },
             "required": [
-              "workflow_definition_version",
               "workflow_definition_digest",
               "obligations"
             ]
@@ -13526,14 +13525,9 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "not": {
               "anyOf": [
-                {
-                  "required": [
-                    "workflow_definition_version"
-                  ]
-                },
                 {
                   "required": [
                     "workflow_definition_digest"
@@ -13761,11 +13755,6 @@ const GeneratedPayloadSchemaDocument = `{
         "workflow_definition_digest": {
           "$ref": "#/$defs/digest",
           "description": "Registry digest of the pinned workflow definition; verifies through the builtin registry."
-        },
-        "workflow_definition_version": {
-          "description": "Version of the pinned workflow definition the registry verified for this pin.",
-          "minimum": 1,
-          "type": "integer"
         },
         "workflow_type": {
           "maxLength": 128,
@@ -19033,57 +19022,27 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "oneOf": [
-            {
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "type": "string",
-                  "x-maxBytes": 128,
-                  "x-minBytes": 2
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet5"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ],
-              "type": "object"
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_id": {
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
             },
-            {
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "not": {
-                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
-              },
-              "properties": {
-                "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "type": "string",
-                  "x-maxBytes": 128,
-                  "x-minBytes": 2
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet3"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ],
-              "type": "object"
+            "worker_packet": {
+              "$ref": "#/$defs/worker_packet"
             }
-          ]
+          },
+          "required": [
+            "attempt_id",
+            "worker_packet"
+          ],
+          "type": "object"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -19145,29 +19104,6 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id",
         "idempotency_key",
         "fields"
-      ],
-      "type": "object"
-    },
-    "work_transition_action_variant_dispatch_worker_fields_member_0": {
-      "additionalProperties": false,
-      "maxProperties": 32,
-      "properties": {
-        "attempt_id": {
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "type": "string",
-          "x-maxBytes": 128,
-          "x-minBytes": 2
-        },
-        "worker_packet": {
-          "$ref": "#/$defs/worker_packet5"
-        }
-      },
-      "required": [
-        "attempt_id",
-        "worker_packet"
       ],
       "type": "object"
     },

@@ -76,8 +76,11 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	if dispatch.WorkerPacketDigest != window.PacketDigest || dispatch.WorkerJob == nil {
 		return workerControlUnauthorized()
 	}
-	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)
-	if err != nil || (!slices.Contains(lane.Capabilities, "run_tests") && !slices.Contains(lane.Capabilities, "run_targeted_checks") && !slices.Contains(lane.Capabilities, "run_validators")) {
+	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(lane.Capabilities, "run_tests") && !slices.Contains(lane.Capabilities, "run_targeted_checks") && !slices.Contains(lane.Capabilities, "run_validators") {
 		return workerControlUnauthorized()
 	}
 	oracle := NativeOracleRequest{Phase: "execute", AttemptID: req.AttemptID, AttemptEpoch: window.AttemptEpoch, WorkerPacketDigest: window.PacketDigest, WorkerJobBinding: dispatch.WorkerJob, ControlID: req.ControlID}

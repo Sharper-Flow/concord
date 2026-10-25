@@ -43,7 +43,7 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			}
 			lane := reviewGateLane(t, "verification")
 			attemptID := "attempt:" + workID
-			packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Version, lane.Digest)
+			packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Digest)
 			packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(ready[0])
 			version := readWorkVersion(t, s, workID)
 			err = dispatchJobPacketForTest(t, s, workID, attemptID, fixture.owner, "dispatch-"+workID, packet)
@@ -101,7 +101,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 			definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 			attemptID := "attempt:" + workID
-			packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+			packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Digest)
 			if err := dispatchJobPacketForTest(t, s, workID, attemptID, fixture.owner, "unbound-"+workID, packet); err == nil || !strings.Contains(err.Error(), "carries no inputs.worker_job") {
 				t.Fatalf("unbound %s dispatch error = %v, want missing-job refusal", lane.ID, err)
 			}
@@ -113,7 +113,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 				// seeded delivery carries its own job, so this lane's
 				// recorded revision stays ready.
 				seedAcceptedImplementationDelivery(t, s, workID, fixture.owner)
-				packet = joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+				packet = joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Digest)
 				packet["inputs"].(map[string]any)["worker_job"] = recorded
 				packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 			}

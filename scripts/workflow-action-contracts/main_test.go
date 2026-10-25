@@ -28,8 +28,8 @@ func closedPayload(fields ...store.WorkflowPayloadField) store.WorkflowPayloadDe
 	return store.WorkflowPayloadDefinition{Closed: true, Fields: fields}
 }
 
-func definition(ref string, version int64, actions ...store.WorkflowActionDefinition) store.WorkflowDefinition {
-	return store.WorkflowDefinition{Ref: ref, Version: version, ActionDefinitions: actions}
+func definition(ref string, actions ...store.WorkflowActionDefinition) store.WorkflowDefinition {
+	return store.WorkflowDefinition{Ref: ref, ActionDefinitions: actions}
 }
 
 func action(id string, payload store.WorkflowPayloadDefinition) store.WorkflowActionDefinition {
@@ -65,8 +65,8 @@ func TestCurrentFieldsetAdditionProjectsVariants(t *testing.T) {
 	extended := closedPayload(field("diagnosis", true, 4096), field("strategy", true, 4096), field("open_finding_ids", false, 32))
 	contracts, err := collectActionContracts(
 		[]store.WorkflowDefinition{
-			definition("workflow.implementation", 26, action("request_correction", extended)),
-			definition("workflow.research", 15, action("request_correction", base)),
+			definition("workflow.implementation", action("request_correction", extended)),
+			definition("workflow.research", action("request_correction", base)),
 		},
 		nil,
 	)
@@ -96,8 +96,8 @@ func TestCurrentSameFieldConflictStillRefuses(t *testing.T) {
 	hard := closedPayload(field("diagnosis", true, 4096))
 	_, err := collectActionContracts(
 		[]store.WorkflowDefinition{
-			definition("workflow.implementation", 26, action("request_correction", hard)),
-			definition("workflow.research", 15, action("request_correction", soft)),
+			definition("workflow.implementation", action("request_correction", hard)),
+			definition("workflow.research", action("request_correction", soft)),
 		},
 		nil,
 	)
@@ -120,8 +120,8 @@ func TestPublicPayloadDivergenceKeepsThePair(t *testing.T) {
 	repeat.PublicPayload = &public
 	contracts, err := collectActionContracts(
 		[]store.WorkflowDefinition{
-			definition("workflow.implementation", 26, repeat),
-			definition("workflow.break_fix", 23, func() store.WorkflowActionDefinition {
+			definition("workflow.implementation", repeat),
+			definition("workflow.break_fix", func() store.WorkflowActionDefinition {
 				again := action("dispatch_worker", secret)
 				again.PublicPayload = &public
 				return again
@@ -324,7 +324,7 @@ func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 func TestSchemaRefsComeFromCurrentDeclarations(t *testing.T) {
 	currentRef := "current_only_ref"
 	projection := collectSchemaRefs(
-		[]store.WorkflowDefinition{definition("workflow.implementation", 27,
+		[]store.WorkflowDefinition{definition("workflow.implementation",
 			action("record_worker_job", closedPayload(field("objective", true, 4096)))),
 		},
 		[]store.WorkflowActionDefinition{{ID: "record_verdict", Payload: store.WorkflowPayloadDefinition{

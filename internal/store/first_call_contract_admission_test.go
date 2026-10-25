@@ -344,7 +344,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned definition declares no obligations; the fixture cannot prove declared-obligation membership")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned definition identity does not verify: %v", err)
 	}
 	pinnedObligation := (*pin.Obligations)[0]
@@ -508,7 +508,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned break-fix definition declares no obligations")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
@@ -550,7 +550,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)

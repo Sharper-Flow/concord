@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func workerFoundationCurrentDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,event_id TEXT,subject_type TEXT,subject_id TEXT,kind TEXT,payload TEXT,payload_version INTEGER DEFAULT 1);
 		CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,contract_version INTEGER,payload TEXT);
-		CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_version INTEGER,lane_digest TEXT,capability_class TEXT,lifecycle_state TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
+		CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_digest TEXT,capability_class TEXT,lifecycle_state TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
 		CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,state TEXT,satisfied_result_ref TEXT,satisfied_seq INTEGER,path_scope TEXT,digest TEXT,recorded_seq INTEGER,recorded_event_id TEXT,recorded_payload TEXT);
 	`)
 	if err != nil {
@@ -30,10 +31,10 @@ func workerFoundationCurrentDB(t *testing.T) *sql.DB {
 
 func foundationAuthorizationForTest(t *testing.T, db *sql.DB, seq, contract int64, attempt, laneID, subject, tree string) {
 	t.Helper()
-	version, digest := registeredLaneIdentity(t, laneID)
+	digest := registeredLaneIdentity(t, laneID)
 	payload := mustJSONValue(map[string]any{
 		"action_id": "dispatch_worker", "worker_attempt_id": attempt,
-		"worker_lane_id": laneID, "worker_lane_version": version, "worker_lane_digest": digest,
+		"worker_lane_id": laneID, "worker_lane_digest": digest,
 		"worker_subject_commit": subject, "worker_worktree_identity": tree,
 	})
 	if _, err := db.Exec(`INSERT INTO worker_authorizations VALUES('work',?,?,?,?)`, attempt, seq, contract, string(payload)); err != nil {
@@ -41,6 +42,113 @@ func foundationAuthorizationForTest(t *testing.T, db *sql.DB, seq, contract int6
 	}
 	if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,subject_type,subject_id,kind,payload) VALUES(?,?,'work_item','work',?,?)`, seq, attempt, WorkflowActionCompleted, string(payload)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// foundationDispatchForTest records the authorization and the attempt row the
+// dispatch_worker fold binds, with the lane's capability class.
+func foundationDispatchForTest(t *testing.T, db *sql.DB, seq, contract int64, attempt, laneID, subject, tree string) {
+	t.Helper()
+	foundationAuthorizationForTest(t, db, seq, contract, attempt, laneID, subject, tree)
+	class := ""
+	for _, lane := range BuiltinLaneDefinitions() {
+		if lane.ID == laneID {
+			class = lane.CapabilityClass
+		}
+	}
+	foundationAttemptForTest(t, db, attempt, laneID, class)
+}
+
+func foundationAttemptForTest(t *testing.T, db *sql.DB, attempt, laneID string, class any) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,capability_class,lifecycle_state) VALUES('work',?,?,?,'completed')`, attempt, laneID, class); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// staleFoundationAuthorizationForTest records an authorization whose lane
+// digest no current lane content carries, as a dispatch recorded before a lane
+// content change leaves it.
+func staleFoundationAuthorizationForTest(t *testing.T, db *sql.DB, seq int64, attempt, laneID, subject, tree string) {
+	t.Helper()
+	foundationAuthorizationForTest(t, db, seq, 1, attempt, laneID, subject, tree)
+	stale := "sha256:" + strings.Repeat("0", 64)
+	for _, table := range []string{"worker_authorizations", "domain_events"} {
+		column := "attempt_id"
+		if table == "domain_events" {
+			column = "event_id"
+		}
+		if _, err := db.Exec(`UPDATE `+table+` SET payload=json_set(payload,'$.worker_lane_digest',?) WHERE `+column+`=?`, stale, attempt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := LookupLane(laneID, stale); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
+		t.Fatalf("stale lane digest still resolves: %v", err)
+	}
+}
+
+func TestWorkerEditingFoundationClassifiesRecordedClassNotCurrentLane(t *testing.T) {
+	subject, later := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	t.Run("stale research before current implement", func(t *testing.T) {
+		db := workerFoundationCurrentDB(t)
+		staleFoundationAuthorizationForTest(t, db, 2, "attempt:research", "research", later, "claim")
+		foundationAttemptForTest(t, db, "attempt:research", "research", "research")
+		foundationDispatchForTest(t, db, 3, 1, "attempt:implement", "implement", subject, "claim")
+		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+		if err != nil || base != subject {
+			t.Fatalf("stale research history blocked the Review foundation: base=%q err=%v", base, err)
+		}
+	})
+	t.Run("stale editing row is still a foundation", func(t *testing.T) {
+		db := workerFoundationCurrentDB(t)
+		staleFoundationAuthorizationForTest(t, db, 2, "attempt:implement", "implement", subject, "claim")
+		foundationAttemptForTest(t, db, "attempt:implement", "implement", "implementation")
+		foundationDispatchForTest(t, db, 3, 1, "attempt:later", "implement", later, "claim")
+		base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+		if err != nil || base != subject {
+			t.Fatalf("stale editing dispatch lost its foundation: base=%q err=%v", base, err)
+		}
+	})
+	for _, refusal := range []struct {
+		name, class, detail string
+		attempt, noTree     bool
+	}{
+		{name: "stale editing row without worktree identity", class: "implementation", attempt: true, noTree: true, detail: "editing authorization has no recorded worktree identity"},
+		{name: "missing attempt", detail: "earlier authorization has no recorded worker attempt"},
+		{name: "missing class", attempt: true, detail: "earlier worker attempt records no known capability class"},
+		{name: "unknown class", class: "unknown_class", attempt: true, detail: "earlier worker attempt records no known capability class"},
+	} {
+		t.Run(refusal.name, func(t *testing.T) {
+			db := workerFoundationCurrentDB(t)
+			tree := "claim"
+			if refusal.noTree {
+				tree = ""
+			}
+			staleFoundationAuthorizationForTest(t, db, 2, "attempt:earlier", "implement", subject, tree)
+			if refusal.attempt {
+				var class any
+				if refusal.class != "" {
+					class = refusal.class
+				}
+				foundationAttemptForTest(t, db, "attempt:earlier", "implement", class)
+			}
+			foundationDispatchForTest(t, db, 3, 1, "attempt:later", "implement", later, "claim")
+			base, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", 10)
+			var failure *Failure
+			if base != "" || !failureAs(err, &failure) || failure.Kind != KindUnauthorizedDispatch || failure.Detail != refusal.detail {
+				t.Fatalf("unclassifiable earlier authorization did not refuse: base=%q err=%v", base, err)
+			}
+		})
+	}
+}
+
+func TestLaneFoundationClassesMatchLaneCapabilities(t *testing.T) {
+	classes := map[string]bool{}
+	for _, lane := range BuiltinLaneDefinitions() {
+		classes[lane.CapabilityClass] = slices.Contains(lane.Capabilities, "edit_scoped_files") && !slices.Contains(lane.Capabilities, "inspect_diff")
+	}
+	if !reflect.DeepEqual(classes, laneFoundationClasses) {
+		t.Fatalf("foundation classes = %v, current lanes declare %v", laneFoundationClasses, classes)
 	}
 }
 
@@ -73,21 +181,21 @@ func TestWorkerEditingFoundationWithoutLog(t *testing.T) {
 			if scenario.missing == "tree" {
 				tree = ""
 			}
-			foundationAuthorizationForTest(t, db, 2, 1, "first", "implement", subject, tree)
-			foundationAuthorizationForTest(t, db, 3, 1, "other-tree", "implement", successor, "other-claim")
-			foundationAuthorizationForTest(t, db, 4, 1, "later", "implement", successor, "claim")
-			foundationAuthorizationForTest(t, db, 7, 2, "repairing-review", "review", successor, "claim")
+			foundationDispatchForTest(t, db, 2, 1, "first", "implement", subject, tree)
+			foundationDispatchForTest(t, db, 3, 1, "other-tree", "implement", successor, "other-claim")
+			foundationDispatchForTest(t, db, 4, 1, "later", "implement", successor, "claim")
+			foundationDispatchForTest(t, db, 7, 2, "repairing-review", "review", successor, "claim")
 			if scenario.newEditor {
 				newTree := "claim"
 				if scenario.otherTree {
 					newTree = "other-claim"
 				}
-				foundationAuthorizationForTest(t, db, 13, 3, "new-first", "implement", successor, newTree)
+				foundationDispatchForTest(t, db, 13, 3, "new-first", "implement", successor, newTree)
 			}
 			// Neither an authorization at the review boundary nor a later one
 			// can select the review's foundation.
-			foundationAuthorizationForTest(t, db, reviewSeq, 4, "at-review", "implement", strings.Repeat("c", 40), "claim")
-			foundationAuthorizationForTest(t, db, reviewSeq+1, 4, "after-review", "implement", strings.Repeat("c", 40), "claim")
+			foundationDispatchForTest(t, db, reviewSeq, 4, "at-review", "implement", strings.Repeat("c", 40), "claim")
+			foundationDispatchForTest(t, db, reviewSeq+1, 4, "after-review", "implement", strings.Repeat("c", 40), "claim")
 			check := func() {
 				t.Helper()
 				got, err := firstWorkerEditingSubject(t.Context(), db, "work", "claim", reviewSeq)

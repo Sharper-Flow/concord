@@ -31,7 +31,7 @@ func wWorkerFailJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, atte
 	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, FailureKind: failureKind, Nonce: nonce,
 	}
 	assertion = wFailureObservation(t, request, assertion, attributionHostTerminalObservation(detail))

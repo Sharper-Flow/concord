@@ -24,7 +24,7 @@ func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
+	event := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func dropMigration121Objects(ctx context.Context, db *sql.DB) error {
 		`DROP TABLE IF EXISTS outside_repair_reconciliations`,
 		`DROP TABLE IF EXISTS outside_repair_dispositions`,
 		`CREATE TABLE workflow_instances_v121_backup AS
-SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+SELECT work_id, definition_ref, 1 AS definition_version, definition_digest, current_step, instance_state,
        execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
   FROM workflow_instances`,
 		`DROP TRIGGER IF EXISTS workflow_instances_guard_insert`,
@@ -552,17 +552,17 @@ SELECT work_id, definition_ref, definition_version, definition_digest, current_s
 // admits, at the store producer and against the published work_pin contract
 // together. A hold and a completed reconciliation grant no managed pin
 // authority, so the pin carries a typed absence of the workflow-definition
-// identity: the three definition keys are omitted outright, never zero-filled
+// identity: the definition keys are omitted outright, never zero-filled
 // and never fabricated, while the raw instance identity (workflow type, step)
 // the disposition preserves stays readable. The never-held and resumed
-// populations run the managed instance read, so the same three keys are
+// populations run the managed instance read, so the same keys are
 // present and the pin still validates against the strict ordinary branch.
 func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-pin-population"
 	seedOutsideRepairTestWork(t, s, work)
 
-	definitionKeys := []string{"workflow_definition_version", "workflow_definition_digest", "obligations"}
+	definitionKeys := []string{"workflow_definition_digest", "obligations"}
 	read := func() map[string]json.RawMessage {
 		pin, err := ReadWorkPin(context.Background(), s, work)
 		if err != nil {
@@ -592,9 +592,9 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 				t.Fatalf("managed pin carries null obligations: %v", object)
 			}
 		}
-		var version json.Number
-		if err := json.Unmarshal(object["workflow_definition_version"], &version); err != nil || version.String() == "0" {
-			t.Fatalf("managed pin definition version = %s", object["workflow_definition_version"])
+		var digest string
+		if err := json.Unmarshal(object["workflow_definition_digest"], &digest); err != nil || digest != mustBuiltinDefinition(t, "workflow.implementation").Digest {
+			t.Fatalf("managed pin definition digest = %s", object["workflow_definition_digest"])
 		}
 	}
 	requireTypedAbsence := func(object map[string]json.RawMessage, state string) {
@@ -612,7 +612,7 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 		}
 	}
 
-	// Population one: never-held. The managed instance read owns the three
+	// Population one: never-held. The managed instance read owns the
 	// definition keys.
 	requireManagedIdentity(read())
 

@@ -129,7 +129,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 			"worker_packet": bindPacketToRecordedState(t, s, func() map[string]any {
 				lane := recoveryProducerLane(t, "implement")
 				return map[string]any{
-					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 					"work_id": "work-1", "step_id": "execution",
 					"inputs": map[string]any{"task": "deliver the replay journey change", "constraints": []string{"preserve the approved contract"}},
 				}

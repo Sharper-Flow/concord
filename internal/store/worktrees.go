@@ -5510,10 +5510,10 @@ func recordWorktreeVerifyAuthorityTx(ctx context.Context, tx *sql.Tx, req Worktr
 		return newFailure(KindInvariantViolation, "worktree_verify", "native authority lacks its pre-finalized identity metadata", false, "reconcile the native lease")
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
-		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-		VALUES(?, 1, ?, 'worktree.verify', 1, '', 'external_effect', ?, '{}', ?, ?, ?, '', 'completed', ?, ?, '[]', ?)`,
+		VALUES(?, 1, ?, 'worktree.verify', '', '', 'external_effect', ?, '{}', ?, ?, ?, '', 'completed', ?, ?, '[]', ?)`,
 		worktreeVerifyOperationRef(req.LeaseID), req.WorkID,
 		acceptedDigest, req.PrincipalRef, req.RequestID,
 		acquired.UTC().Format(time.RFC3339Nano),

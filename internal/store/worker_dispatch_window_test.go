@@ -680,7 +680,7 @@ type cd0059DispatchSeed struct {
 // refuses on identity grounds.
 func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID string) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, s, workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -694,7 +694,6 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
@@ -718,7 +717,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 	definition := workflowFixtureDefinition(t, 2)
 	events := []Event{
 		workflowEvent("cd0059-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("cd0059-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEvent("cd0059-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -814,7 +813,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 		return err
 	}
 	payload := map[string]any{
-		"attempt_id": attemptID, "lane_id": "research", "lane_version": int64(1),
+		"attempt_id": attemptID, "lane_id": "research",
 		"lane_digest":      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 		"capability_class": "research", "readback_model": "openai/gpt-5.6-luna",
 		"packet_schema_version": "1.0", "report_schema_version": "1.0",
@@ -1485,7 +1484,7 @@ func seedWorkerDispatchEvidenceForAttempt(t *testing.T, s *Store, workID, attemp
 		return err
 	}
 	dispatched := Event{EventID: label + "-dispatched", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": packetDigest, "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
@@ -1507,7 +1506,7 @@ func workerFixtureAttemptLane(s *Store, attemptID string) (LaneDefinition, error
 	if err != nil {
 		return LaneDefinition{}, err
 	}
-	return LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
+	return LookupLane(attempt.LaneID, attempt.LaneDigest)
 }
 
 // cd781DispatchPacketDigest marshals the closed dispatch packet for
@@ -1619,9 +1618,9 @@ func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T)
 func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	t.Parallel()
 	attemptID := "attempt-reaches-canonical"
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	packetBytes, err := json.Marshal(map[string]any{
-		"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+		"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": "implement", "lane_digest": laneDigest,
 		"work_id": "work-fold-defensive", "step_id": "execution",
 		"inputs": map[string]any{"task": "cd0065 dispatch packet", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
 	})
@@ -1757,7 +1756,7 @@ func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
 		}},
 	}
 	dispatch := Event{EventID: "born-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: window.PacketDigest,
 		ReadbackModel: "provider/executing-model", Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
 		WorkerJob: job, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: observation},

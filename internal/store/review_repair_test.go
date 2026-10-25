@@ -135,17 +135,15 @@ func commitReviewRepair(t *testing.T, f *nativeOracleFixture, path string) strin
 func TestReviewRepairTerminalObservationAndContainment(t *testing.T) {
 	for _, tc := range []struct {
 		name, path string
-		readOnly   bool
 		refuse     bool
 	}{
-		{"contained", "pkg/value.go", false, false},
-		{"outside", "outside.go", false, true},
-		{"caller-claim", "pkg/value.go", false, true},
-		{"read-only", "pkg/value.go", true, true},
+		{"contained", "pkg/value.go", false},
+		{"outside", "outside.go", true},
+		{"caller-claim", "pkg/value.go", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newNativeOracleFixture(t)
-			o := f.authorizeLane(t, "review", f.actor, "review", tc.readOnly)
+			o := f.authorizeLane(t, "review", f.actor, "review")
 			nativeFixtureDispatch(t, f, o)
 			c := commitReviewRepair(t, f, tc.path)
 			inputTree, outputTree := reviewObservedTree(t, f.repo, f.head), reviewObservedTree(t, f.repo, c)
@@ -167,12 +165,6 @@ func TestReviewRepairTerminalObservationAndContainment(t *testing.T) {
 				}
 			})
 			prepared, err := PrepareWorkerTerminalDelivery(context.Background(), f.s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.work, AttemptID: o.AttemptID, EventID: event.EventID})
-			if tc.readOnly {
-				if err == nil {
-					t.Fatal("read-only Review edited its input")
-				}
-				return
-			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,10 +199,10 @@ func TestReviewRepairTerminalObservationAndContainment(t *testing.T) {
 }
 
 func TestReviewRepairNativeScopeAndIdentityNegatives(t *testing.T) {
-	for _, tc := range []string{"outside", "read-only", "dirty", "unrelated", "revoked", "foreign-preparation", "foreign-control", "wrong-recipe"} {
+	for _, tc := range []string{"outside", "dirty", "unrelated", "revoked", "foreign-preparation", "foreign-control", "wrong-recipe"} {
 		t.Run(tc, func(t *testing.T) {
 			f := newNativeOracleFixture(t)
-			o := f.authorizeLane(t, "review", f.actor, "review", tc == "read-only")
+			o := f.authorizeLane(t, "review", f.actor, "review")
 			path := "pkg/value.go"
 			if tc == "outside" {
 				path = "outside.go"

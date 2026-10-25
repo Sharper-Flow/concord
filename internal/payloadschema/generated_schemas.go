@@ -1290,7 +1290,7 @@ const GeneratedPayloadSchemaDocument = `{
             "checks_repair_review_jobs": {
               "description": "CD-0205 D4: exact satisfied repairing revisions awaiting their one confirming review. These are not ordinary ready jobs. Only review lanes may bind them; core dispatch admission still enforces the repairing acceptance, single-use review authority and retry wall.",
               "items": {
-                "$ref": "#/$defs/worker_packet_checks_repair_job"
+                "$ref": "#/$defs/worker_packet_worker_job"
               },
               "type": "array"
             },
@@ -1363,7 +1363,7 @@ const GeneratedPayloadSchemaDocument = `{
             "ready_worker_jobs": {
               "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. On a size-capable pin a job carries the caller_exclusions its implementation dispatch binds (CD-0227 D1); a dispatcher drops them for every other lane. Absent when no revision is ready.",
               "items": {
-                "$ref": "#/$defs/worker_packet5_worker_job"
+                "$ref": "#/$defs/worker_packet_worker_job"
               },
               "type": "array"
             },
@@ -3647,21 +3647,8 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
         },
         "retry_worker_packet": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/worker_packet2"
-            },
-            {
-              "$ref": "#/$defs/worker_packet3"
-            },
-            {
-              "$ref": "#/$defs/worker_packet4"
-            },
-            {
-              "$ref": "#/$defs/worker_packet5"
-            }
-          ],
-          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The pinned dispatch admission selects the packet generation the work's pinned definition declares — the retained packet2 closure, the research packet3 closure, the checks-repair packet4 closure, or the size-capable packet5 closure — and the response returns exactly those admitted bytes; every closure shares the 2.0 schema_version and report protocol, so this transport gate invents no second version selection."
+          "$ref": "#/$defs/worker_packet",
+          "description": "The exact current worker packet the core derived and dispatched inside a combined rejection. The host launches these admitted bytes without rebuilding or replacing them."
         },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
@@ -11527,75 +11514,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_context_domain_group2": {
-      "additionalProperties": false,
-      "properties": {
-        "domain_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "finding_ids": {
-          "items": {
-            "pattern": "^finding:[0-9]+:[0-9]+$",
-            "type": "string"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "required_reading_ordinals": {
-          "items": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        }
-      },
-      "required": [
-        "domain_id",
-        "required_reading_ordinals",
-        "finding_ids"
-      ],
-      "type": "object"
-    },
-    "work_context_domain_group3": {
-      "additionalProperties": false,
-      "properties": {
-        "domain_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "finding_ids": {
-          "items": {
-            "description": "The closed view-id namespace: generic finding ids and selected research view ids share the group's ordered id list.",
-            "pattern": "^(finding|research):[0-9]+:[0-9]+$",
-            "type": "string"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "required_reading_ordinals": {
-          "items": {
-            "minimum": 0,
-            "type": "integer"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        }
-      },
-      "required": [
-        "domain_id",
-        "required_reading_ordinals",
-        "finding_ids"
-      ],
-      "type": "object"
-    },
     "work_context_finding": {
       "additionalProperties": false,
       "properties": {
@@ -12138,147 +12056,6 @@ const GeneratedPayloadSchemaDocument = `{
         "domain_groups": {
           "items": {
             "$ref": "#/$defs/work_context_domain_group"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "findings": {
-          "items": {
-            "$ref": "#/$defs/work_context_finding_view"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "oracle_preparations": {
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
-          "items": {
-            "$ref": "#/$defs/native_oracle_preparation"
-          },
-          "maxItems": 512,
-          "minItems": 0,
-          "type": "array"
-        },
-        "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
-          "items": {
-            "$ref": "#/$defs/worker_oracle_receipt"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "required_reading": {
-          "items": {
-            "$ref": "#/$defs/work_context_reading"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "research_findings": {
-          "description": "The selected research entries the latest declaration anchor resolved, in authored order, beside the generic findings under the shared 32-finding bound. Omitted when the declaration selects nothing.",
-          "items": {
-            "$ref": "#/$defs/work_context_research_finding_view"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "source_event_frontier": {
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "subject_commit": {
-          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
-          "maxLength": 64,
-          "minLength": 40,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source_event_frontier",
-        "required_reading",
-        "findings",
-        "domain_groups"
-      ],
-      "type": "object"
-    },
-    "work_context_view2": {
-      "additionalProperties": false,
-      "properties": {
-        "domain_groups": {
-          "items": {
-            "$ref": "#/$defs/work_context_domain_group2"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "findings": {
-          "items": {
-            "$ref": "#/$defs/work_context_finding_view"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "oracle_preparations": {
-          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
-          "items": {
-            "$ref": "#/$defs/native_oracle_preparation"
-          },
-          "maxItems": 512,
-          "minItems": 0,
-          "type": "array"
-        },
-        "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
-          "items": {
-            "$ref": "#/$defs/worker_oracle_receipt"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "required_reading": {
-          "items": {
-            "$ref": "#/$defs/work_context_reading"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
-        "source_event_frontier": {
-          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "subject_commit": {
-          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
-          "maxLength": 64,
-          "minLength": 40,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "type": "string"
-        }
-      },
-      "required": [
-        "source_event_frontier",
-        "required_reading",
-        "findings",
-        "domain_groups"
-      ],
-      "type": "object"
-    },
-    "work_context_view3": {
-      "additionalProperties": false,
-      "properties": {
-        "domain_groups": {
-          "items": {
-            "$ref": "#/$defs/work_context_domain_group3"
           },
           "maxItems": 64,
           "minItems": 0,
@@ -13832,7 +13609,7 @@ const GeneratedPayloadSchemaDocument = `{
       "allOf": [
         {
           "else": {
-            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — digest and the declared obligation set — is required in full.",
             "properties": {
               "step": {
                 "$ref": "#/$defs/short"
@@ -13842,7 +13619,6 @@ const GeneratedPayloadSchemaDocument = `{
               }
             },
             "required": [
-              "workflow_definition_version",
               "workflow_definition_digest",
               "obligations"
             ]
@@ -13869,14 +13645,9 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_version, workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of verified workflow-definition identity and managed evidence metadata. The workflow_definition_digest, obligations, and outstanding_evidence_kinds keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
             "not": {
               "anyOf": [
-                {
-                  "required": [
-                    "workflow_definition_version"
-                  ]
-                },
                 {
                   "required": [
                     "workflow_definition_digest"
@@ -14104,11 +13875,6 @@ const GeneratedPayloadSchemaDocument = `{
         "workflow_definition_digest": {
           "$ref": "#/$defs/digest",
           "description": "Registry digest of the pinned workflow definition; verifies through the builtin registry."
-        },
-        "workflow_definition_version": {
-          "description": "Version of the pinned workflow definition the registry verified for this pin.",
-          "minimum": 1,
-          "type": "integer"
         },
         "workflow_type": {
           "maxLength": 128,
@@ -19381,57 +19147,27 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "oneOf": [
-            {
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "type": "string",
-                  "x-maxBytes": 128,
-                  "x-minBytes": 2
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet5"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ],
-              "type": "object"
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_id": {
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
             },
-            {
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "not": {
-                "$ref": "#/$defs/work_transition_action_variant_dispatch_worker_fields_member_0"
-              },
-              "properties": {
-                "attempt_id": {
-                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
-                  "type": "string",
-                  "x-maxBytes": 128,
-                  "x-minBytes": 2
-                },
-                "worker_packet": {
-                  "$ref": "#/$defs/worker_packet3"
-                }
-              },
-              "required": [
-                "attempt_id",
-                "worker_packet"
-              ],
-              "type": "object"
+            "worker_packet": {
+              "$ref": "#/$defs/worker_packet"
             }
-          ]
+          },
+          "required": [
+            "attempt_id",
+            "worker_packet"
+          ],
+          "type": "object"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -19493,29 +19229,6 @@ const GeneratedPayloadSchemaDocument = `{
         "action_id",
         "idempotency_key",
         "fields"
-      ],
-      "type": "object"
-    },
-    "work_transition_action_variant_dispatch_worker_fields_member_0": {
-      "additionalProperties": false,
-      "maxProperties": 32,
-      "properties": {
-        "attempt_id": {
-          "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[^\\x09-\\x0d    -     　]+$",
-          "type": "string",
-          "x-maxBytes": 128,
-          "x-minBytes": 2
-        },
-        "worker_packet": {
-          "$ref": "#/$defs/worker_packet5"
-        }
-      },
-      "required": [
-        "attempt_id",
-        "worker_packet"
       ],
       "type": "object"
     },
@@ -26248,35 +25961,12 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_packet": {
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "schema_version": {
-                "const": "1.0"
-              }
-            },
-            "required": [
-              "schema_version"
-            ]
-          },
-          "then": {
-            "properties": {
-              "inputs": {
-                "not": {
-                  "required": [
-                    "worker_job"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      ],
-      "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
+      "description": "CD-0067 D1: current closed worker packet, projected from contracts/agent-lane-packet.schema.json.",
       "properties": {
         "attempt_id": {
-          "$ref": "#/$defs/id"
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
         },
         "inputs": {
           "additionalProperties": false,
@@ -26354,656 +26044,42 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "object"
         },
         "lane_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lane_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
-          "enum": [
-            "2.0"
-          ],
-          "type": "string"
-        },
-        "step_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_version",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "type": "object"
-    },
-    "worker_packet2": {
-      "additionalProperties": false,
-      "description": "The versioned packet2 identity the derived-failure workflow definitions record and replay. It mirrors $defs/worker_packet shape for shape under a versioned name, so the frozen decoder carries it beside the byte-exact 1.0/1.1 worker_packet baseline the released pins replay through; the live dispatch_worker surface below the derived-failure heads still records through $defs/worker_packet.",
-      "properties": {
-        "attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "inputs": {
-          "additionalProperties": false,
-          "properties": {
-            "binding": {
-              "$ref": "#/$defs/worker_packet_binding"
-            },
-            "checkpoint": {
-              "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
-            },
-            "constraints": {
-              "items": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 64,
-              "minItems": 0,
-              "type": "array"
-            },
-            "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
-              "minLength": 0,
-              "type": "string"
-            },
-            "correction": {
-              "$ref": "#/$defs/workflow_correction_context"
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_record",
-              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "law_context": {
-              "$ref": "#/$defs/workflow_law_context",
-              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record",
-              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "report_protocol": {
-              "const": "concord-worker-result-v1",
-              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
-              "type": "string"
-            },
-            "task": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "work_context": {
-              "$ref": "#/$defs/work_context_view2",
-              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
-            },
-            "work_record": {
-              "$ref": "#/$defs/worker_packet_work_record"
-            },
-            "worker_job": {
-              "$ref": "#/$defs/worker_packet_worker_job"
-            }
-          },
-          "required": [
-            "task",
-            "binding"
-          ],
-          "type": "object"
-        },
-        "lane_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lane_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
-          "enum": [
-            "2.0"
-          ],
-          "type": "string"
-        },
-        "step_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_version",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "type": "object"
-    },
-    "worker_packet3": {
-      "additionalProperties": false,
-      "description": "The research-context packet identity the promoted definitions record and replay. It mirrors $defs/worker_packet2 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' work_context member anchored at the research-enabled work_context_view3 — so the frozen decoder carries it beside the byte-exact packet2 closure, and the research entries ride the unchanged context aggregate the budgets already measure. The retained packet2 pins replay exactly the closure they recorded and refuse the research-bearing packets the packet3 declaration admits.",
-      "properties": {
-        "attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "inputs": {
-          "additionalProperties": false,
-          "properties": {
-            "binding": {
-              "$ref": "#/$defs/worker_packet_binding"
-            },
-            "checkpoint": {
-              "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
-            },
-            "constraints": {
-              "items": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 64,
-              "minItems": 0,
-              "type": "array"
-            },
-            "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
-              "minLength": 0,
-              "type": "string"
-            },
-            "correction": {
-              "$ref": "#/$defs/workflow_correction_context"
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_record",
-              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "law_context": {
-              "$ref": "#/$defs/workflow_law_context",
-              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record",
-              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "report_protocol": {
-              "const": "concord-worker-result-v1",
-              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
-              "type": "string"
-            },
-            "task": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "work_context": {
-              "$ref": "#/$defs/work_context_view3",
-              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
-            },
-            "work_record": {
-              "$ref": "#/$defs/worker_packet_work_record"
-            },
-            "worker_job": {
-              "$ref": "#/$defs/worker_packet_worker_job"
-            }
-          },
-          "required": [
-            "task",
-            "binding"
-          ],
-          "type": "object"
-        },
-        "lane_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lane_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The coordinated research extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
-          "enum": [
-            "2.0"
-          ],
-          "type": "string"
-        },
-        "step_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_version",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "type": "object"
-    },
-    "worker_packet4": {
-      "additionalProperties": false,
-      "description": "The checks-repair packet identity the repair-capable definition heads record and replay (CD-0205 D4). It mirrors $defs/worker_packet3 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at the repair-capable worker_packet_checks_repair_job — so the frozen decoder carries it beside the byte-exact packet3 closure, and the optional core-recorded checks repair metadata rides the job's immutable digest. The retained packet3 pins replay exactly the closure they recorded and refuse the repair-bearing packets the packet4 declaration admits.",
-      "properties": {
-        "attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "inputs": {
-          "additionalProperties": false,
-          "properties": {
-            "binding": {
-              "$ref": "#/$defs/worker_packet_binding"
-            },
-            "checkpoint": {
-              "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
-            },
-            "constraints": {
-              "items": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 64,
-              "minItems": 0,
-              "type": "array"
-            },
-            "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
-              "minLength": 0,
-              "type": "string"
-            },
-            "correction": {
-              "$ref": "#/$defs/workflow_correction_context"
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_record",
-              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "law_context": {
-              "$ref": "#/$defs/workflow_law_context",
-              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record",
-              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "report_protocol": {
-              "const": "concord-worker-result-v1",
-              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
-              "type": "string"
-            },
-            "task": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "work_context": {
-              "$ref": "#/$defs/work_context_view3",
-              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
-            },
-            "work_record": {
-              "$ref": "#/$defs/worker_packet_work_record"
-            },
-            "worker_job": {
-              "$ref": "#/$defs/worker_packet_checks_repair_job"
-            }
-          },
-          "required": [
-            "task",
-            "binding"
-          ],
-          "type": "object"
-        },
-        "lane_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lane_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The checks-repair extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
-          "enum": [
-            "2.0"
-          ],
-          "type": "string"
-        },
-        "step_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_version",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "type": "object"
-    },
-    "worker_packet5": {
-      "additionalProperties": false,
-      "description": "The caller-scope packet identity the definition heads record and replay. It mirrors $defs/worker_packet4 shape for shape under a versioned name — the same 2.0 schema_version, with the inputs' worker_job member anchored at worker_packet5_worker_job, which adds the direct-caller allowance and the dispatch-time caller exclusions beside the repair-capable checks_repair metadata — so the frozen decoder carries it beside the byte-exact packet2, packet3, and packet4 closures, and the caller scope rides the unchanged packet aggregate. The retained packet2, packet3, and packet4 pins replay exactly the closures they recorded and refuse the caller-scope packets the packet5 declaration admits.",
-      "properties": {
-        "attempt_id": {
-          "$ref": "#/$defs/id"
-        },
-        "inputs": {
-          "additionalProperties": false,
-          "properties": {
-            "binding": {
-              "$ref": "#/$defs/worker_packet_binding"
-            },
-            "checkpoint": {
-              "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
-            },
-            "constraints": {
-              "items": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 64,
-              "minItems": 0,
-              "type": "array"
-            },
-            "context": {
-              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
-              "maxLength": 16384,
-              "minLength": 0,
-              "type": "string"
-            },
-            "correction": {
-              "$ref": "#/$defs/workflow_correction_context"
-            },
-            "design_record": {
-              "$ref": "#/$defs/workflow_design_record",
-              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "law_context": {
-              "$ref": "#/$defs/workflow_law_context",
-              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record",
-              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
-            },
-            "report_protocol": {
-              "const": "concord-worker-result-v1",
-              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
-              "type": "string"
-            },
-            "review_input": {
-              "$ref": "#/$defs/worker_packet_review_input",
-              "description": "Dispatch-owned input candidate and exact criterion/architecture revisions judged by Review. Required by core admission for candidate-bound Review, and refused on other lanes."
-            },
-            "task": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "work_context": {
-              "$ref": "#/$defs/work_context_view3",
-              "description": "The current work-context view the work pin carried when the packet was built, including the selected research entries it resolved. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
-            },
-            "work_record": {
-              "$ref": "#/$defs/worker_packet_work_record"
-            },
-            "worker_job": {
-              "$ref": "#/$defs/worker_packet5_worker_job"
-            }
-          },
-          "required": [
-            "task",
-            "binding"
-          ],
-          "type": "object"
-        },
-        "lane_digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "lane_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lane_version": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists. The size-capable extension rides the workflow definition heads and the frozen schema closure, not a new packet version constant.",
-          "enum": [
-            "2.0"
-          ],
-          "type": "string"
-        },
-        "step_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        }
-      },
-      "required": [
-        "schema_version",
-        "attempt_id",
-        "lane_id",
-        "lane_version",
-        "lane_digest",
-        "work_id",
-        "step_id",
-        "inputs"
-      ],
-      "type": "object"
-    },
-    "worker_packet5_worker_job": {
-      "additionalProperties": false,
-      "description": "The selected ready worker-job revision a packet5 attempt executes: the packet2/3 worker_job shape plus the optional core-recorded checks_repair metadata (CD-0205 D4), the recorded direct-caller allowance, and the dispatch-time caller exclusions (CD-0227 D1). The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content; the exclusions are the core's own computed set and bind the packet, never the job digest. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
-      "properties": {
-        "acceptance_oracle": {
-          "$ref": "#/$defs/worker_acceptance_oracle",
-          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
-        },
-        "caller_exclusions": {
-          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set at dispatch admission and refuses a packet whose exclusions differ; the member binds the packet, never the job digest, and only the implementation capability class carries it.",
-          "items": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "checks": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "checks_repair": {
-          "$ref": "#/$defs/worker_checks_repair"
-        },
-        "digest": {
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
-        "direct_caller_allowance": {
-          "$ref": "#/$defs/worker_job_direct_caller_allowance",
-          "description": "The recorded conditional direct-caller scope of this revision (CD-0227 D1). Optional and omitted on every read-only revision."
-        },
-        "job_id": {
-          "maxLength": 128,
+        "lane_id": {
+          "maxLength": 32,
           "minLength": 2,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
           "type": "string"
         },
-        "objective": {
-          "maxLength": 4096,
-          "minLength": 1,
+        "schema_version": {
+          "description": "The packet identity this packet records. \"1.0\" is the released packet: it never carries inputs.worker_job. \"1.1\" is the released job-capable packet (CD-0205): it may carry inputs.worker_job when the dispatcher selected a ready worker-job revision. \"2.0\" is the current card-free packet: the retired domain_cards member is refused, and it is the only identity a live dispatch may record.",
+          "enum": [
+            "2.0"
+          ],
           "type": "string"
         },
-        "path_scope": {
-          "items": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "predicate_ids": {
-          "items": {
-            "maxLength": 128,
-            "minLength": 11,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "type": "string"
-          },
-          "maxItems": 8,
-          "minItems": 0,
-          "type": "array"
-        },
-        "prerequisites": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "job_id": {
-                "maxLength": 128,
-                "minLength": 2,
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-                "type": "string"
-              },
-              "result_ref": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "revision": {
-                "maximum": 2147483647,
-                "minimum": 1,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "job_id",
-              "revision"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "project_scope": {
+        "step_id": {
           "maxLength": 128,
-          "minLength": 0,
-          "type": "string"
-        },
-        "reserved_integration": {
-          "maxLength": 4096,
-          "minLength": 0,
-          "type": "string"
-        },
-        "revision": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "stopping_condition": {
-          "maxLength": 2048,
           "minLength": 1,
           "type": "string"
         },
-        "unresolved_refs": {
-          "items": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
+        "work_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [
-        "job_id",
-        "revision",
-        "digest",
-        "objective",
-        "stopping_condition",
-        "project_scope",
-        "path_scope",
-        "predicate_ids",
-        "checks",
-        "prerequisites",
-        "unresolved_refs",
-        "reserved_integration"
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
       ],
       "type": "object"
     },
@@ -27081,143 +26157,6 @@ const GeneratedPayloadSchemaDocument = `{
         "work_version",
         "contract_version",
         "assigned_result"
-      ],
-      "type": "object"
-    },
-    "worker_packet_checks_repair_job": {
-      "additionalProperties": false,
-      "description": "The selected worker-job revision this attempt executes on a repair-capable pin (CD-0205 D4). It carries the same full job shape as $defs/worker_packet_worker_job, including the optional core-recorded checks_repair metadata, under a distinct name so the frozen decoder's packet3 closure keeps the byte-exact pre-repair job shape its pins replay. The core refuses a packet whose worker_job is not a ready or review-bound recorded revision with this exact content. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
-      "properties": {
-        "acceptance_oracle": {
-          "$ref": "#/$defs/worker_acceptance_oracle",
-          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
-        },
-        "checks": {
-          "items": {
-            "maxLength": 256,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "checks_repair": {
-          "$ref": "#/$defs/worker_checks_repair"
-        },
-        "digest": {
-          "maxLength": 71,
-          "minLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "job_id": {
-          "maxLength": 128,
-          "minLength": 2,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-          "type": "string"
-        },
-        "objective": {
-          "maxLength": 4096,
-          "minLength": 1,
-          "type": "string"
-        },
-        "path_scope": {
-          "items": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "predicate_ids": {
-          "items": {
-            "maxLength": 128,
-            "minLength": 11,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "type": "string"
-          },
-          "maxItems": 8,
-          "minItems": 0,
-          "type": "array"
-        },
-        "prerequisites": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "job_id": {
-                "maxLength": 128,
-                "minLength": 2,
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-                "type": "string"
-              },
-              "result_ref": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string"
-              },
-              "revision": {
-                "maximum": 2147483647,
-                "minimum": 1,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "job_id",
-              "revision"
-            ],
-            "type": "object"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        },
-        "project_scope": {
-          "maxLength": 128,
-          "minLength": 0,
-          "type": "string"
-        },
-        "reserved_integration": {
-          "maxLength": 4096,
-          "minLength": 0,
-          "type": "string"
-        },
-        "revision": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "stopping_condition": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
-        "unresolved_refs": {
-          "items": {
-            "maxLength": 512,
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 64,
-          "minItems": 0,
-          "type": "array"
-        }
-      },
-      "required": [
-        "job_id",
-        "revision",
-        "digest",
-        "objective",
-        "stopping_condition",
-        "project_scope",
-        "path_scope",
-        "predicate_ids",
-        "checks",
-        "prerequisites",
-        "unresolved_refs",
-        "reserved_integration"
       ],
       "type": "object"
     },
@@ -27481,7 +26420,19 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "acceptance_oracle": {
           "$ref": "#/$defs/worker_acceptance_oracle",
-          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+          "description": "The owner-level acceptance oracle of the selected revision: the one oracle copy every admitted lane receives. Optional and omitted on every revision a pre-oracle definition recorded. The core refuses a packet whose worker_job differs from the recorded ready revision, oracle included."
+        },
+        "caller_exclusions": {
+          "description": "The measured paths of the work's other jobs currently in correction. The core computes this set and refuses a packet whose exclusions differ; only the implementation capability class carries it, and it never enters the job digest.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
         },
         "checks": {
           "items": {
@@ -27493,11 +26444,63 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 0,
           "type": "array"
         },
+        "checks_repair": {
+          "$ref": "#/$defs/worker_checks_repair"
+        },
         "digest": {
           "maxLength": 71,
           "minLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
+        },
+        "direct_caller_allowance": {
+          "additionalProperties": false,
+          "description": "The recorded conditional direct-caller scope of the selected revision (CD-0227 D1). Optional and omitted on every read-only revision.",
+          "properties": {
+            "domain_ids": {
+              "description": "The approved affected Domains of the active parent contract the allowance keeps.",
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "law_bindings": {
+              "description": "The pinned law revisions the allowance keeps, possibly empty.",
+              "items": {
+                "$ref": "#/$defs/worker_oracle_law_binding"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "mechanisms": {
+              "description": "The changed owner mechanisms the caller repair preserves.",
+              "items": {
+                "$ref": "#/$defs/worker_oracle_mechanism"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            "project_id": {
+              "description": "The permitted Project: always the recorded job's project_scope.",
+              "maxLength": 128,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "mechanisms",
+            "domain_ids",
+            "law_bindings"
+          ],
+          "type": "object"
         },
         "job_id": {
           "maxLength": 128,
@@ -27684,10 +26687,6 @@ const GeneratedPayloadSchemaDocument = `{
             "lane_id": {
               "$ref": "#/$defs/id"
             },
-            "lane_version": {
-              "minimum": 1,
-              "type": "integer"
-            },
             "packet_digest": {
               "pattern": "^sha256:[0-9a-f]{64}$",
               "type": "string"
@@ -27746,7 +26745,6 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "attempt_id",
             "lane_id",
-            "lane_version",
             "lane_digest",
             "capability_class",
             "packet_schema_version",
@@ -28163,14 +27161,10 @@ const GeneratedPayloadSchemaDocument = `{
                 },
                 "verified": {
                   "type": "boolean"
-                },
-                "version": {
-                  "$ref": "#/$defs/version"
                 }
               },
               "required": [
                 "ref",
-                "version",
                 "digest",
                 "verified"
               ],
@@ -29153,14 +28147,10 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "ref": {
               "$ref": "#/$defs/id"
-            },
-            "version": {
-              "$ref": "#/$defs/version"
             }
           },
           "required": [
             "ref",
-            "version",
             "digest"
           ],
           "type": "object"

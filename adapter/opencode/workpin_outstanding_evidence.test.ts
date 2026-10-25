@@ -9,7 +9,7 @@ test("work pin validators accept bounded kind debt and legacy absence", () => {
     lifecycle: "in_progress", cancelled_instance_closes: 0,
     workflow_type: "workflow.implementation", step: "acceptance", attempt: null,
     pending_operator_decision: null, driving_sessions: [], watermark: "seq:3", next_valid_intents: [],
-    workflow_definition_version: 1, workflow_definition_digest: "sha256:" + "a".repeat(64), obligations: [],
+    workflow_definition_digest: "sha256:" + "a".repeat(64), obligations: [],
     outstanding_evidence_kinds: kinds,
   }
   expect(validateGeneratedPayload("work_pin", pin)).toBe(true)
@@ -26,7 +26,6 @@ test("work pin validators accept bounded kind debt and legacy absence", () => {
       work_id: "work-debt", reason: "repair", approval_ref: "approval-fixture", state,
       recorded_at: "2026-10-17T00:00:00Z",
     } }
-    delete held.workflow_definition_version
     delete held.workflow_definition_digest
     delete held.obligations
     delete held.outstanding_evidence_kinds

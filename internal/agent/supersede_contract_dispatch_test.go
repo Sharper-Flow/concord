@@ -90,7 +90,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
 			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_digest": lane.Digest,
 				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "verify the synthetic change"},
 			})},
 		})
@@ -347,7 +347,7 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		t.Fatal(err)
 	}
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('correction-peer','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z');
+		INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('correction-peer','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z');
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT 'correction-peer',contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash)

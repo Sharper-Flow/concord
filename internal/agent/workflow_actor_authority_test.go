@@ -168,14 +168,14 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 	capturedWorks := map[string]string{}
 	for _, happy := range []struct {
 		kind, ref, wantRef string
-		wantVersion        int64
+		wantDigest         string
 		defectIntake       bool
 	}{
-		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: liveHeadVersion(t, "workflow.implementation")},
-		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: liveHeadVersion(t, "workflow.break_fix"), defectIntake: true},
-		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: liveHeadVersion(t, "workflow.research")},
-		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: liveHeadVersion(t, "workflow.break_fix")},
-		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: liveHeadVersion(t, "workflow.research")},
+		{kind: "task", ref: "", wantRef: "workflow.implementation", wantDigest: liveHeadDigest(t, "workflow.implementation")},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantDigest: liveHeadDigest(t, "workflow.break_fix"), defectIntake: true},
+		{kind: "research", ref: "", wantRef: "workflow.research", wantDigest: liveHeadDigest(t, "workflow.research")},
+		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantDigest: liveHeadDigest(t, "workflow.break_fix")},
+		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantDigest: liveHeadDigest(t, "workflow.research")},
 	} {
 		happy := happy
 		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
@@ -185,12 +185,12 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 			}
 			workID := (*captured.ChangedRefs)[0].ID
 			var pinnedRef string
-			var pinnedVersion int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef, &pinnedVersion); err != nil {
+			var pinnedDigest string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef, &pinnedDigest); err != nil {
 				t.Fatal(err)
 			}
-			if pinnedRef != happy.wantRef || pinnedVersion != happy.wantVersion {
-				t.Fatalf("capture kind=%s ref=%q pinned %s v%d, want %s v%d", happy.kind, happy.ref, pinnedRef, pinnedVersion, happy.wantRef, happy.wantVersion)
+			if pinnedRef != happy.wantRef || pinnedDigest != happy.wantDigest {
+				t.Fatalf("capture kind=%s ref=%q pinned %s %s, want %s %s", happy.kind, happy.ref, pinnedRef, pinnedDigest, happy.wantRef, happy.wantDigest)
 			}
 			var workKind string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&workKind); err != nil {
@@ -382,13 +382,13 @@ func issue31EvaluatorGrant(t *testing.T, service *Service, privateKey ed25519.Pr
 	return grant
 }
 
-// liveHeadVersion reads the family's current authoring head from the
+// liveHeadDigest reads the family's current authoring head from the
 // registry, so the capture assertions follow the head the selector owns.
-func liveHeadVersion(t *testing.T, ref string) int64 {
+func liveHeadDigest(t *testing.T, ref string) string {
 	t.Helper()
 	live, err := store.LiveWorkflowDefinitionForRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return live.Definition.Version
+	return live.Digest
 }

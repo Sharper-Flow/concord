@@ -102,7 +102,6 @@ const oraclePacket = (): AgentLanePacket => ({
   schema_version: "1.1",
   attempt_id: "attempt-oracle-1",
   lane_id: implementLane.id,
-  lane_version: implementLane.version,
   lane_digest: implementLane.digest,
   work_id: "work-oracle-1",
   step_id: "implement",
@@ -118,7 +117,6 @@ function reviewPacket(): AgentLanePacket {
   return {
     ...oraclePacket(),
     lane_id: reviewLane.id,
-    lane_version: reviewLane.version,
     lane_digest: reviewLane.digest,
     step_id: "review",
     inputs: {

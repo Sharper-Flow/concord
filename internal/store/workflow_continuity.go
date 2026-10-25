@@ -836,7 +836,7 @@ type continuityInstance struct {
 // snapshot projects the same folded confirmation answer the work pin does.
 func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) (continuityInstance, error) {
 	var instance continuityInstance
-	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Version, &instance.definition.Digest, &instance.workVersion)
+	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Digest, &instance.workVersion)
 	if err == sql.ErrNoRows {
 		exists, existsErr := workExistsCore(ctx, tx, work)
 		if existsErr != nil {

@@ -15,7 +15,7 @@ import (
 // dispatch-time validation refuses a lane whose capability class the current
 // step kind does not admit.
 
-func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID string, laneVersion int64, laneDigest string) map[string]any {
+func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID, laneDigest string) map[string]any {
 	t.Helper()
 	task, binding := recordedPacketInputs(t, s, workID, laneID)
 	inputs := map[string]any{
@@ -46,7 +46,6 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        laneID,
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
@@ -55,26 +54,26 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	return packet
 }
 
-// implementLaneIdentity answers the registered implement lane's version and
-// digest for fixtures built outside a *testing.T scope.
-func implementLaneIdentity() (int64, string) {
+// implementLaneIdentity answers the registered implement lane's digest for
+// fixtures built outside a *testing.T scope.
+func implementLaneIdentity() string {
 	for _, lane := range BuiltinLaneDefinitions() {
 		if lane.ID == "implement" {
-			return lane.Version, lane.Digest
+			return lane.Digest
 		}
 	}
 	panic("lane implement is not registered")
 }
 
-func registeredLaneIdentity(t *testing.T, laneID string) (int64, string) {
+func registeredLaneIdentity(t *testing.T, laneID string) string {
 	t.Helper()
 	for _, lane := range BuiltinLaneDefinitions() {
 		if lane.ID == laneID {
-			return lane.Version, lane.Digest
+			return lane.Digest
 		}
 	}
 	t.Fatalf("lane %s is not registered", laneID)
-	return 0, ""
+	return ""
 }
 
 // seedJoinFixture seeds an instance of one live family pinned to its current
@@ -92,7 +91,7 @@ func seedJoinFixture(t *testing.T, s *Store, workID, ref, stepID string) Workflo
 	entry := mustBuiltinDefinition(t, ref)
 	events := []Event{
 		workflowEvent("join-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("join-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": ref, "version": entry.Definition.Version, "digest": entry.Digest, "work_kind": string(entry.Definition.WorkKind)}),
+		workflowEvent("join-definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": ref, "digest": entry.Digest, "work_kind": string(entry.Definition.WorkKind)}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -180,8 +179,8 @@ func TestJoinAdmitsResearchLaneAtReadStep(t *testing.T) {
 	workID := "work-join-admit"
 	actor := seedJoinFixture(t, s, workID, "workflow.implementation", "design")
 	version := readWorkVersion(t, s, workID)
-	laneVersion, laneDigest := registeredLaneIdentity(t, "research")
-	packet := joinPacketFor(t, s, workID, "design", "attempt-join-admit", "research", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "research")
+	packet := joinPacketFor(t, s, workID, "design", "attempt-join-admit", "research", laneDigest)
 	result, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, packet)
 	if err != nil {
 		t.Fatalf("research lane dispatch at the internal_sqlite design step refused: %v", err)
@@ -201,8 +200,8 @@ func TestJoinAdmitsReviewLaneAtEffectStep(t *testing.T) {
 	s := fixture.store
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "repair")
 	version := readWorkVersion(t, s, workID)
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, "repair", "attempt-join-admit-review", "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, "repair", "attempt-join-admit-review", "review", laneDigest)
 	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", fixture.owner, packet)
 	result, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet)
 	if err != nil {
@@ -221,8 +220,8 @@ func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	actor := seedJoinFixture(t, s, workID, "workflow.implementation", "design")
 	version := readWorkVersion(t, s, workID)
 
-	implVersion, implDigest := registeredLaneIdentity(t, "implement")
-	implPacket := joinPacketFor(t, s, workID, "design", "attempt-join-refuse-impl", "implement", implVersion, implDigest)
+	implDigest := registeredLaneIdentity(t, "implement")
+	implPacket := joinPacketFor(t, s, workID, "design", "attempt-join-refuse-impl", "implement", implDigest)
 	_, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, implPacket)
 	if err == nil {
 		t.Fatal("implement lane dispatch at an internal_sqlite step was admitted")
@@ -240,8 +239,8 @@ func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	repairWorkID := "work-join-refuse-repair"
 	repairActor := seedJoinFixture(t, s, repairWorkID, "workflow.break_fix", "repair")
 	repairVersion := readWorkVersion(t, s, repairWorkID)
-	researchVersion, researchDigest := registeredLaneIdentity(t, "research")
-	researchPacket := joinPacketFor(t, s, repairWorkID, "repair", "attempt-join-refuse-research", "research", researchVersion, researchDigest)
+	researchDigest := registeredLaneIdentity(t, "research")
+	researchPacket := joinPacketFor(t, s, repairWorkID, "repair", "attempt-join-refuse-research", "research", researchDigest)
 	_, err = dispatchJoinAttempt(context.Background(), t, s, repairWorkID, repairVersion, repairActor, researchPacket)
 	if err == nil {
 		t.Fatal("research lane dispatch at an external_effect step was admitted")

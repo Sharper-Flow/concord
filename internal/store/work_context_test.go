@@ -1004,8 +1004,8 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	version := readWorkVersion(t, f.store, f.workID)
 	resulting := version + 1
 	var stepID, workflowRef, digest string
-	var definitionVersion, attemptEpoch int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest,definition_version,(SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&stepID, &workflowRef, &digest, &definitionVersion, &attemptEpoch); err != nil {
+	var attemptEpoch int64
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest,(SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&stepID, &workflowRef, &digest, &attemptEpoch); err != nil {
 		t.Fatal(err)
 	}
 	content["work_id"] = f.workID
@@ -1014,7 +1014,6 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	content["step_id"] = stepID
 	content["attempt_epoch"] = attemptEpoch
 	content["workflow_ref"] = workflowRef
-	content["workflow_definition_version"] = definitionVersion
 	content["workflow_definition_digest"] = digest
 	content["actor_ref"] = ownerRef
 	content["request_id"] = "request:raw-work-context"
@@ -1356,7 +1355,7 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 		t.Fatal("lane implement is not registered")
 	}
 	model := preferredModelForLane(dispatchLane)
-	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
+	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
 	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, dispatchEvidence, "principal/operator", "client/concord-1")
 		if prepErr != nil {

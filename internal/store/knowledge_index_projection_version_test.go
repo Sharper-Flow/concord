@@ -96,7 +96,7 @@ func TestOlderProjectionWatermarkStillRebuilds(t *testing.T) {
 		t.Fatalf("rebuild stamped version %d, want %d", versionAfter, knowledgeProjectionVersion)
 	}
 	var writer string
-	if err := db.QueryRow(`SELECT binary_version FROM runtime_state_writers WHERE surface='knowledge' AND version=?`, versionAfter).Scan(&writer); err != nil {
+	if err := db.QueryRow(`SELECT binary_version FROM runtime_state_writers WHERE surface='knowledge' AND knowledge_projection_version=?`, versionAfter).Scan(&writer); err != nil {
 		t.Fatal(err)
 	}
 	if writer != version.Value {

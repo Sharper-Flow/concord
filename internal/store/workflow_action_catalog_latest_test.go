@@ -7,32 +7,19 @@ import (
 	"testing"
 )
 
-func TestLatestCatalogActionUsesLatestContainingCatalog(t *testing.T) {
-	catalogs := builtinWorkflowActionCatalogs()
-	for _, catalog := range catalogs {
-		for id := range catalog.revisions {
-			want, err := catalog.action(id)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, later := range catalogs {
-				if later.Version <= catalog.Version {
-					continue
-				}
-				if _, declared := later.revisions[id]; declared {
-					want, err = later.action(id)
-					if err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			got, err := latestCatalogAction(id)
-			if err != nil || !reflect.DeepEqual(got, want) {
-				t.Fatalf("latest action %s = %+v, %v; want %+v", id, got, err, want)
-			}
+func TestCatalogActionUsesCurrentCatalog(t *testing.T) {
+	catalog := builtinWorkflowActionCatalog()
+	for id := range catalog {
+		want, err := catalog.action(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := catalogAction(id)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("current action %s = %+v, %v; want %+v", id, got, err, want)
 		}
 	}
-	if _, err := latestCatalogAction("unknown_action"); err == nil {
+	if _, err := catalogAction("unknown_action"); err == nil {
 		t.Fatal("unknown action resolved through the catalog")
 	}
 }
@@ -48,7 +35,7 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			continue
 		}
 		for _, step := range definition.StepGraph.Steps {
-			if LaneStepDispatchAllowed(lane.CapabilityClass, step.Kind) && workerLaneEdits(lane.ID, lane.Version, lane.Digest) {
+			if LaneStepDispatchAllowed(lane.CapabilityClass, step.Kind) && workerLaneEdits(lane.ID, lane.Digest) {
 				t.Fatalf("research step %s admits editing producer %s", step.ID, lane.ID)
 			}
 		}
@@ -63,13 +50,13 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			s := openTemp(t)
 			defer s.Close()
 			const workID = "shared-job-research"
-			pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "conclude")
+			pinWorkflowAtStep(t, s, workID, definition.Ref, "conclude")
 			stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:research", "investigate")
 			lane := reviewGateLane(t, "research")
 			if slices.Contains(lane.Capabilities, "edit_scoped_files") {
 				t.Fatal("research lane has editing authority")
 			}
-			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_id=?,lane_version=?,lane_digest=?,capability_class='research' WHERE attempt_id='attempt:research'; DELETE FROM fold_guard`, lane.ID, lane.Version, lane.Digest); err != nil {
+			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_id=?,lane_digest=?,capability_class='research' WHERE attempt_id='attempt:research'; DELETE FROM fold_guard`, lane.ID, lane.Digest); err != nil {
 				t.Fatal(err)
 			}
 			job := WorkerJobBinding{JobID: "job:research", Revision: 1, Digest: "sha256:" + strings.Repeat("a", 64)}

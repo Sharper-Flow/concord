@@ -121,8 +121,8 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest)
-			SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest)
+			SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version<?`, tc.version, workID, tc.version); err != nil {

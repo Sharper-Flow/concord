@@ -83,10 +83,12 @@ func workflowScopedRegistration[T workflowPayload](currentVersion int, fold scop
 
 type workflowDefinitionSelectedPayload struct {
 	WorkflowVersionFields
-	Ref      string `json:"ref"`
-	Version  int64  `json:"version"`
-	Digest   string `json:"digest"`
-	WorkKind string `json:"work_kind"`
+	Ref    string `json:"ref"`
+	Digest string `json:"digest"`
+	// RecordedVersion decodes the definition counter that recorded events
+	// still carry; nothing reads it, and the log drop removes it with replay.
+	RecordedVersion int64  `json:"version,omitempty"`
+	WorkKind        string `json:"work_kind"`
 }
 
 type workflowContractApprovedPayload struct {
@@ -292,7 +294,6 @@ type workflowActionCompletedPayload struct {
 	// the attempt in flight from the durable record alone. The completion
 	// builder writes the quartet together; a completion without one is a
 	// pre-binding authorization the fold leaves unbound.
-	WorkerLaneVersion     int64  `json:"worker_lane_version,omitempty"`
 	WorkerLaneDigest      string `json:"worker_lane_digest,omitempty"`
 	WorkerCapabilityClass string `json:"worker_capability_class,omitempty"`
 	WorkerPacketDigest    string `json:"worker_packet_digest,omitempty"`
@@ -389,35 +390,39 @@ type workflowActionFailedPayload struct {
 
 type workflowContextCheckpointedPayload struct {
 	WorkflowVersionFields
-	CheckpointID              string   `json:"checkpoint_id"`
-	CheckpointSequence        int64    `json:"checkpoint_sequence"`
-	StepID                    string   `json:"step_id"`
-	AttemptEpoch              int64    `json:"attempt_epoch"`
-	ActiveUnit                string   `json:"active_unit"`
-	Hypothesis                string   `json:"hypothesis"`
-	Diagnosis                 string   `json:"diagnosis"`
-	Strategy                  string   `json:"strategy"`
-	TouchedRefs               []string `json:"touched_refs"`
-	EvidenceRefs              []string `json:"evidence_refs"`
-	PendingQuestions          []string `json:"pending_questions"`
-	PendingDecisions          []string `json:"pending_decisions"`
-	WorkflowRef               string   `json:"workflow_ref"`
-	WorkflowDefinitionVersion int64    `json:"workflow_definition_version"`
-	WorkflowDefinitionDigest  string   `json:"workflow_definition_digest"`
-	ActorRef                  string   `json:"actor_ref"`
-	RequestID                 string   `json:"request_id"`
+	CheckpointID       string   `json:"checkpoint_id"`
+	CheckpointSequence int64    `json:"checkpoint_sequence"`
+	StepID             string   `json:"step_id"`
+	AttemptEpoch       int64    `json:"attempt_epoch"`
+	ActiveUnit         string   `json:"active_unit"`
+	Hypothesis         string   `json:"hypothesis"`
+	Diagnosis          string   `json:"diagnosis"`
+	Strategy           string   `json:"strategy"`
+	TouchedRefs        []string `json:"touched_refs"`
+	EvidenceRefs       []string `json:"evidence_refs"`
+	PendingQuestions   []string `json:"pending_questions"`
+	PendingDecisions   []string `json:"pending_decisions"`
+	WorkflowRef        string   `json:"workflow_ref"`
+	// RecordedDefinitionVersion decodes the definition counter recorded events
+	// still carry; nothing reads it, and the log drop removes it with replay.
+	RecordedDefinitionVersion int64  `json:"workflow_definition_version,omitempty"`
+	WorkflowDefinitionDigest  string `json:"workflow_definition_digest"`
+	ActorRef                  string `json:"actor_ref"`
+	RequestID                 string `json:"request_id"`
 }
 
 type workflowContextBoundaryCrossedPayload struct {
 	WorkflowVersionFields
-	BoundaryID                string `json:"boundary_id"`
-	BoundarySequence          int64  `json:"boundary_sequence"`
-	BoundaryKind              string `json:"boundary_kind"`
-	CheckpointID              string `json:"checkpoint_id"`
-	CheckpointSequence        int64  `json:"checkpoint_sequence"`
-	Summary                   string `json:"summary"`
-	WorkflowRef               string `json:"workflow_ref"`
-	WorkflowDefinitionVersion int64  `json:"workflow_definition_version"`
+	BoundaryID         string `json:"boundary_id"`
+	BoundarySequence   int64  `json:"boundary_sequence"`
+	BoundaryKind       string `json:"boundary_kind"`
+	CheckpointID       string `json:"checkpoint_id"`
+	CheckpointSequence int64  `json:"checkpoint_sequence"`
+	Summary            string `json:"summary"`
+	WorkflowRef        string `json:"workflow_ref"`
+	// RecordedDefinitionVersion decodes the definition counter recorded events
+	// still carry; nothing reads it, and the log drop removes it with replay.
+	RecordedDefinitionVersion int64  `json:"workflow_definition_version,omitempty"`
 	WorkflowDefinitionDigest  string `json:"workflow_definition_digest"`
 	AttemptEpoch              int64  `json:"attempt_epoch"`
 	ActorRef                  string `json:"actor_ref"`
@@ -921,10 +926,10 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
-		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
+	if !workflowString(p.Ref, 128) || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
+		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, digest, and family")
 	}
-	registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
+	registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), WorkflowDefinitionPin{Ref: p.Ref, Digest: p.Digest})
 	if err != nil {
 		return err
 	}
@@ -1164,11 +1169,11 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if p.LawChange != nil {
 		lawChange = workflowJSON(p.LawChange)
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest, decisionDomains, lawChange)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
-	if err := recordRuntimeStateWriter(ctx, tx, "workflow", registered.Definition.Ref, registered.Definition.Version, registered.Digest); err != nil {
+	if err := recordRuntimeStateWriter(ctx, tx, workflowStateWriter(WorkflowDefinitionPin{Ref: registered.Definition.Ref, Digest: registered.Digest})); err != nil {
 		return err
 	}
 	for ordinal, predicate := range p.OutcomePredicates {
@@ -1362,7 +1367,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		if err := validateClonedWorkflowContractLawRevisionsTx(ctx, tx, event.SubjectID, predecessors); err != nil {
 			return err
 		}
-		cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)
+		cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)
 		if err != nil {
 			return workflowProjectionError(err, "cannot create superseding workflow contract")
 		}
@@ -2048,18 +2053,17 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
 		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
 		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
-		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		!workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
 	var currentStep, workflowRef, workflowDigestValue string
-	var workflowVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
 	}
-	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
@@ -2079,7 +2083,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if p.CheckpointSequence != 0 && p.CheckpointSequence != sequence {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint sequence is not the next monotonic sequence", false, "use the next checkpoint sequence")
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.WorkflowDefinitionVersion, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record context checkpoint")
 }
 
@@ -2135,18 +2139,17 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || !workflowDigest(p.WorkflowDefinitionDigest) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
 	var workflowRef, workflowDigestValue string
-	var workflowVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&workflowRef, &workflowDigestValue); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for context boundary")
 	}
-	if workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+	if workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest {
 		return newFailure(KindStaleAttempt, "fold_event", "context boundary does not bind the current workflow definition", false, "reread the current workflow context")
 	}
 	var checkpointVersion, checkpointSequence, attemptEpoch int64
@@ -2206,7 +2209,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if p.BoundarySequence != 0 && p.BoundarySequence != sequence {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary sequence is not monotonic", false, "use the next boundary sequence")
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.WorkflowDefinitionVersion, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record context boundary")
 }
 
@@ -2279,7 +2282,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	// binding input, so it is reserved for that action and must arrive all
 	// together: a partial identity would bind an attempt the fold cannot
 	// read back.
-	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneVersion != 0, p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
+	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
 	laneBound, laneUnbound := 0, 0
 	for _, set := range laneFields {
 		if set {
@@ -2295,7 +2298,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 		if p.ActionID != "dispatch_worker" {
 			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
 		}
-		if !workflowString(p.WorkerLaneID, 32) || p.WorkerLaneVersion < 1 || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
+		if !workflowString(p.WorkerLaneID, 32) || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
 			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
 		}
 	}
@@ -2790,9 +2793,9 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
-		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneVersion, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
+		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
+		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
 	if err != nil {
 		if isIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already authorized in flight", false, "open a fresh dispatch_worker authorization with a new attempt identity")

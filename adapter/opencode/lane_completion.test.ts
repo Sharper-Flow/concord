@@ -27,7 +27,6 @@ const packet = (): AgentLanePacket => ({
   schema_version: "1.0",
   attempt_id: "attempt-complete",
   lane_id: lane.id,
-  lane_version: lane.version,
   lane_digest: lane.digest,
   work_id: "work-1",
   step_id: "repair",
@@ -400,22 +399,17 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("readback_refusal")
   })
 
-  // The packet pins lane_version and lane_digest so completion binds to the
-  // definition the dispatch authorized. An installed registry that drifts from
-  // it — an upgrade between dispatch and completion — must refuse, because
-  // signing the installed lane's version and digest onto the attempt records
-  // the worker as having run a contract it never received.
-  test("a lane that drifted from the dispatched version is refused", async () => {
+  test("a lane id that differs from the current registry is refused", async () => {
     const windows = new DispatchWindows()
-    const drifted = { ...packet(), lane_version: lane.version + 1 }
+    const drifted = { ...packet(), lane_id: "unknown" }
     windows.open(SESSION, drifted, PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, windowArgs(), undefined, async () => process.cwd(), process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, { ...windowArgs(), subagent_type: "concord-unknown" }, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
     expect(verbs).toEqual([])
     expect(output.output).toContain("concord_attempt")
-    expect(output.output).toContain("does not carry")
+    expect(output.output).toContain("content revalidation")
   })
 
   test("a lane whose digest drifted from the dispatched packet is refused", async () => {
@@ -427,7 +421,7 @@ describe("completeDispatchedWorker", () => {
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
     expect(verbs).toEqual([])
-    expect(output.output).toContain("does not carry")
+    expect(output.output).toContain("content revalidation")
   })
 
   // One authorization admits one result. A second call for the same session

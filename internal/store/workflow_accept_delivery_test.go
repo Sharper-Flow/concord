@@ -139,14 +139,14 @@ type acceptDeliveryFixture struct {
 	startAction string
 }
 
-// acceptDeliveryFixtureFor seeds one work item pinned to the named family
-// version at the step the case drives from: the refinement step, or the
+// acceptDeliveryFixtureFor seeds one work item pinned to the named family's
+// current definition at the step the case drives from: the refinement step, or the
 // pre-refine work step when the case crosses the work pass first.
-func acceptDeliveryFixtureFor(t *testing.T, workID, definitionRef string, definitionVersion int64, targetStep, startAction string) acceptDeliveryFixture {
+func acceptDeliveryFixtureFor(t *testing.T, workID, definitionRef, targetStep, startAction string) acceptDeliveryFixture {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	registered, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 	if !ok {
-		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
+		t.Fatalf("workflow definition %s is not registered", definitionRef)
 	}
 	return acceptDeliveryFixture{
 		fixture:     seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, targetStep, []string{"verification"}, []string{"verification", "review", "artifact"}),

@@ -11,7 +11,7 @@ func TestWorkflowArtifactBackfillPreservesPostVerdictProduction(t *testing.T) {
 	defer s.Close()
 	const work = "post-verdict-production"
 	definition := mustBuiltinDefinition(t, "workflow.research").Definition
-	pinWorkflowAtStep(t, s, work, definition.Ref, definition.Version, "conclude")
+	pinWorkflowAtStep(t, s, work, definition.Ref, "conclude")
 	stalenessSeedContract(t, s, work)
 	stalenessEvent(t, s, work, WorkflowVerdictRecorded, stalenessVerdictPayload("outcome_mismatch"))
 	stalenessEvent(t, s, work, WorkflowActionCompleted, stalenessActionPayload("late-producer", "record_finding"))

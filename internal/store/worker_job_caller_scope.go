@@ -22,7 +22,7 @@ import (
 // content is never truncated to fit.
 const (
 	// WorkerJobCallerExclusionPathMax is the packet's declared
-	// caller_exclusions item maxLength (worker_packet5_worker_job), counted
+	// caller_exclusions item maxLength (worker_packet_worker_job), counted
 	// in Unicode characters like the schema keyword, never bytes.
 	WorkerJobCallerExclusionPathMax = 512
 	WorkerJobCallerExclusionsMax    = 64
@@ -365,7 +365,7 @@ func workerJobCorrectionExclusions(measured map[string][]string, jobID string) [
 }
 
 // validateWorkerJobPacketExclusions refuses a caller-exclusions set above
-// the packet's declared bounds (worker_packet5_worker_job): at most
+// the packet's declared bounds (worker_packet_worker_job): at most
 // WorkerJobCallerExclusionsMax paths, each at most
 // WorkerJobCallerExclusionPathMax Unicode characters. Both sites that
 // produce or project the set share this one guard: the computation owner

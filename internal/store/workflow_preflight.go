@@ -16,9 +16,8 @@ import (
 )
 
 type WorkflowDefinitionPin struct {
-	Ref     string
-	Version int64
-	Digest  string
+	Ref    string
+	Digest string
 }
 
 type WorkflowActionPreflightRequest struct {
@@ -97,7 +96,7 @@ func VerifyWorkflowInstanceDefinition(ctx context.Context, s *Store, registry De
 		registry = BuiltinWorkflowRegistry()
 	}
 	var pin WorkflowDefinitionPin
-	if err := s.db.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return RegisteredDefinition{}, workflowPinFailure("workflow instance is not recorded")
 		}
@@ -1046,7 +1045,7 @@ func verifyWorkflowDefinitionPinTx(ctx context.Context, tx *sql.Tx, registry Def
 		registry = BuiltinWorkflowRegistry()
 	}
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		return RegisteredDefinition{}, wrapFailure(KindInvariantViolation, "workflow_preflight", "workflow definition pin is unavailable", false, "reread_entities", err)
 	}
 	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
@@ -1081,7 +1080,7 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry Definiti
 	if !validWorkflowRef(req.WorkflowTypeRef) {
 		return nil
 	}
-	if entry.Definition.Ref != req.WorkflowTypeRef || entry.Definition.Version != int64(req.WorkflowTypeVersion) {
+	if entry.Definition.Ref != req.WorkflowTypeRef || entry.Digest != req.WorkflowTypeDigest {
 		return workflowPinFailure("workflow claim identity does not match the stored definition pin")
 	}
 	if entry.Definition.StepGraph.StartStep == "" {
@@ -1098,9 +1097,8 @@ func preflightWorkflowClaimTx(ctx context.Context, tx *sql.Tx, registry Definiti
 }
 
 func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, opID string) error {
-	var workID, workflowRef, stepID string
-	var workflowVersion int
-	err := tx.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_version,step_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowVersion, &stepID)
+	var workID, workflowRef, workflowDigest, stepID string
+	err := tx.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_digest,step_id FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowDigest, &stepID)
 	if err == sql.ErrNoRows {
 		return newFailure(KindProjectionNotFound, "workflow_preflight", "workflow operation is not recorded", false, "claim the workflow operation before completing it")
 	}
@@ -1121,16 +1119,15 @@ func preflightWorkflowOperationTx(ctx context.Context, tx *sql.Tx, registry Defi
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		return workflowPinFailure("workflow instance is unavailable")
 	}
-	if currentStep != stepID || entry.Definition.Version != int64(workflowVersion) || entry.Definition.Ref != workflowRef {
+	if currentStep != stepID || entry.Digest != workflowDigest || entry.Definition.Ref != workflowRef {
 		return workflowPinFailure("workflow operation does not match its pinned definition step")
 	}
 	return nil
 }
 
 func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) error {
-	var workID, workflowRef string
-	var workflowVersion int
-	if err := s.db.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_version FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowVersion); err != nil {
+	var workID, workflowRef, workflowDigest string
+	if err := s.db.QueryRowContext(ctx, `SELECT work_id,workflow_type_ref,workflow_type_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&workID, &workflowRef, &workflowDigest); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "workflow_preflight", "workflow operation is not recorded", false, "claim the workflow operation before resuming it")
 		}
@@ -1146,7 +1143,7 @@ func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) erro
 	if err != nil {
 		return err
 	}
-	if entry.Definition.Ref != workflowRef || entry.Definition.Version != int64(workflowVersion) {
+	if entry.Definition.Ref != workflowRef || entry.Digest != workflowDigest {
 		return workflowPinFailure("workflow resume identity does not match the stored definition pin")
 	}
 	return nil

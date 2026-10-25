@@ -4451,7 +4451,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			return response, nil
 		}
 		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
+		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
 			// CD-0222 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision

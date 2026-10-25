@@ -216,7 +216,7 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: digest}
+	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}
 	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
 		t.Fatalf("question read failed: %v", err)
 	} else if q != nil {

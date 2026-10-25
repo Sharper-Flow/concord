@@ -10,9 +10,8 @@ import (
 // defined in exactly one part; a variant is a parameter of its part, never a
 // copy. Compositions resolve the current parts into the canonical definition.
 type WorkflowPart struct {
-	Ref     string           `json:"ref"`
-	Version int              `json:"version"`
-	Kind    WorkflowStepKind `json:"kind"`
+	Ref  string           `json:"ref"`
+	Kind WorkflowStepKind `json:"kind"`
 	// StepIDOptions lists the step IDs the part can emit. A use names one
 	// when there is more than one.
 	StepIDOptions []string `json:"step_id_options"`
@@ -32,9 +31,9 @@ type WorkflowPart struct {
 	// DisprovedPremiseRoute lets a use add the route that supersedes the
 	// contract when the premise is disproved at completion.
 	DisprovedPremiseRoute bool `json:"disproved_premise_route,omitempty"`
-	// Capabilities are the versioned behaviors the part's step enables. A
-	// composed definition enables the union over its parts.
-	Capabilities workflowCapabilitySet `json:"capabilities"`
+	// Capabilities are the behaviors the part's step enables. A composed
+	// definition enables the union over its parts.
+	Capabilities []WorkflowCapability `json:"capabilities"`
 }
 
 // WorkflowPartRoute declares one recovery route a part's step opens.
@@ -43,11 +42,10 @@ type WorkflowPartRoute struct {
 	Action  string                  `json:"action"`
 }
 
-// WorkflowPartUse pins one part version in a composition and sets its
+// WorkflowPartUse names one current part in a composition and sets its
 // parameters.
 type WorkflowPartUse struct {
 	Ref                   string
-	Version               int
 	StepID                string
 	LeadAction            string
 	FailureTo             string
@@ -59,77 +57,75 @@ var workflowPartRefPattern = regexp.MustCompile(`^part\.[a-z][a-z0-9_.-]{1,62}$`
 
 func partFailure(detail string) error { return definitionFailure(KindInvalidDefinition, detail) }
 
-const (
-	workflowWorkerResultCapabilities = workflowCapabilitySet(WorkflowCapabilityDerivedWorkerFailure | WorkflowCapabilityFailureAttribution)
-	workflowJobCapabilities          = workflowWorkerResultCapabilities | workflowCapabilitySet(WorkflowCapabilityWorkerJobs)
-)
-
-// builtinWorkflowParts lists every released part version. Part catalog v1
-// holds the steps of the three live families.
+// builtinWorkflowParts lists the one current part per stable ref.
 func builtinWorkflowParts() []WorkflowPart {
 	unhealthy := []WorkflowPartRoute{{Trigger: WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction"}}
+	with := func(base []WorkflowCapability, more ...WorkflowCapability) []WorkflowCapability {
+		return workflowCapabilityUnion(base, more)
+	}
+	workerResult := with(nil, WorkflowCapabilityDerivedWorkerFailure, WorkflowCapabilityFailureAttribution)
+	jobs := with(workerResult, WorkflowCapabilityWorkerJobs)
 	return []WorkflowPart{
-		{Ref: "part.proposal", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"proposal"},
+		{Ref: "part.proposal", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"proposal"},
 			Actions:      []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
-			Capabilities: workflowWorkerResultCapabilities},
-		{Ref: "part.alignment", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"alignment"},
+			Capabilities: workerResult},
+		{Ref: "part.alignment", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"alignment"},
 			Actions: []string{"record_alignment", "record_work_context", "checkpoint_context", "cross_context_boundary"}},
-		{Ref: "part.design", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"design"},
+		{Ref: "part.design", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"design"},
 			Actions:      []string{"record_design", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
-			Capabilities: workflowWorkerResultCapabilities},
-		{Ref: "part.diagnosis", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"diagnosis"},
+			Capabilities: workerResult},
+		{Ref: "part.diagnosis", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"diagnosis"},
 			Actions: []string{"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context"}},
-		{Ref: "part.planning", Version: 1, Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"planning", "frame"},
+		{Ref: "part.planning", Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"planning", "frame"},
 			LeadActionOptions: []string{"frame_research"},
 			Actions:           []string{"approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context"}},
-		{Ref: "part.execution", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"execution"},
+		{Ref: "part.execution", Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"execution"},
 			Actions:      []string{"start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
 			Routes:       unhealthy,
-			Capabilities: workflowJobCapabilities},
-		{Ref: "part.repair", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"repair"},
+			Capabilities: jobs},
+		{Ref: "part.repair", Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"repair"},
 			Actions:      []string{"checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Retry:        true,
 			Routes:       unhealthy,
-			Capabilities: workflowJobCapabilities | workflowCapabilitySet(WorkflowCapabilityDerivedStepStart)},
-		{Ref: "part.investigate", Version: 1, Kind: WorkflowStepCrossAuthority, StepIDOptions: []string{"investigate"},
+			Capabilities: with(jobs, WorkflowCapabilityDerivedStepStart)},
+		{Ref: "part.investigate", Kind: WorkflowStepCrossAuthority, StepIDOptions: []string{"investigate"},
 			Actions:      []string{"record_finding", "revise_candidates", "bind_evidence", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
-			Capabilities: workflowWorkerResultCapabilities},
-		{Ref: "part.findings", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"findings"},
+			Capabilities: workerResult},
+		{Ref: "part.findings", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"findings"},
 			Actions:      []string{"record_report", "link_successor", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"},
-			Capabilities: workflowWorkerResultCapabilities | workflowCapabilitySet(WorkflowCapabilityRootCauseAnalysis)},
-		{Ref: "part.refine", Version: 1, Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"refine"},
+			Capabilities: with(workerResult, WorkflowCapabilityRootCauseAnalysis)},
+		{Ref: "part.refine", Kind: WorkflowStepExternalEffect, StepIDOptions: []string{"refine"},
 			Actions:      []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_worker_job", "record_work_context"},
 			Routes:       unhealthy,
-			Capabilities: workflowJobCapabilities | workflowCapabilitySet(WorkflowCapabilityDerivedStepStart|WorkflowCapabilityAcceptDelivery|WorkflowCapabilityRefineProof)},
-		{Ref: "part.delivery", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"delivery"},
+			Capabilities: with(jobs, WorkflowCapabilityDerivedStepStart, WorkflowCapabilityAcceptDelivery, WorkflowCapabilityRefineProof)},
+		{Ref: "part.delivery", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"delivery"},
 			Actions:      []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"},
-			Capabilities: workflowCapabilitySet(WorkflowCapabilityProducesDelivery)},
-		{Ref: "part.verdict", Version: 1, Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"acceptance", "verify", "conclude"},
+			Capabilities: []WorkflowCapability{WorkflowCapabilityProducesDelivery}},
+		{Ref: "part.verdict", Kind: WorkflowStepHumanCheckpoint, StepIDOptions: []string{"acceptance", "verify", "conclude"},
 			LeadActionOptions: []string{"bind_evidence", "record_conclusion"},
 			Actions:           []string{"record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_result", "record_worker_job", "record_work_context"},
 			FailureEdge:       true,
 			Routes:            unhealthy},
-		{Ref: "part.close", Version: 1, Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"release", "complete"},
+		{Ref: "part.close", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"release", "complete"},
 			Actions:               []string{"complete", "record_work_context", "checkpoint_context", "cross_context_boundary"},
 			Routes:                unhealthy,
 			DisprovedPremiseRoute: true},
 	}
 }
 
-// workflowPartCatalog validates a part list and indexes it by ref and
-// version. It refuses an invalid identity or shape, a duplicate version, and
-// a step ID that two parts define.
+// workflowPartCatalog validates a part list and indexes it by ref. It
+// refuses an invalid ref or shape, a duplicate ref, and a step ID that two
+// parts define.
 func workflowPartCatalog(parts []WorkflowPart) (map[string]WorkflowPart, error) {
 	catalog := make(map[string]WorkflowPart, len(parts))
 	owners := map[string]string{}
 	for _, part := range parts {
-		if !workflowPartRefPattern.MatchString(part.Ref) || part.Version < 1 {
-			return nil, partFailure("workflow part identity is invalid")
+		if !workflowPartRefPattern.MatchString(part.Ref) {
+			return nil, partFailure("workflow part ref is invalid")
 		}
-		key := workflowPartKey(part.Ref, part.Version)
-		if _, exists := catalog[key]; exists {
-			return nil, partFailure(fmt.Sprintf("workflow part %s is declared twice", key))
+		if _, exists := catalog[part.Ref]; exists {
+			return nil, partFailure(fmt.Sprintf("workflow part %s is declared twice", part.Ref))
 		}
 		if err := validateWorkflowPart(part); err != nil {
 			return nil, err
@@ -140,12 +136,10 @@ func workflowPartCatalog(parts []WorkflowPart) (map[string]WorkflowPart, error) 
 			}
 			owners[id] = part.Ref
 		}
-		catalog[key] = part
+		catalog[part.Ref] = part
 	}
 	return catalog, nil
 }
-
-func workflowPartKey(ref string, version int) string { return fmt.Sprintf("%s v%d", ref, version) }
 
 func validateWorkflowPart(part WorkflowPart) error {
 	if !validWorkflowStepKind(part.Kind) || len(part.StepIDOptions) < 1 || !uniqueStrings(part.StepIDOptions) || len(part.Actions) < 1 || !uniqueStrings(append(slices.Clone(part.Actions), part.LeadActionOptions...)) {
@@ -160,6 +154,9 @@ func validateWorkflowPart(part WorkflowPart) error {
 		if !validWorkflowRecoveryTrigger(route.Trigger) || !workflowRecoveryRouteActionDeclared(route.Action) {
 			return partFailure(fmt.Sprintf("workflow part %s declares an invalid recovery route", part.Ref))
 		}
+	}
+	if !validWorkflowCapabilities(part.Capabilities) {
+		return partFailure(fmt.Sprintf("workflow part %s declares invalid capabilities", part.Ref))
 	}
 	if part.DisprovedPremiseRoute && len(part.Routes) == 0 {
 		return partFailure(fmt.Sprintf("workflow part %s offers a premise route without a recovery target", part.Ref))

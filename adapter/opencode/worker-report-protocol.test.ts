@@ -9,7 +9,7 @@ const lane = agentLanes[0]
 const protocol = "concord-worker-result-v1"
 const packet = (current = true): AgentLanePacket => ({
   schema_version: "1.1", attempt_id: "attempt-protocol", work_id: "work-protocol", step_id: "investigate",
-  lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+  lane_id: lane.id, lane_digest: lane.digest,
   inputs: { task: "Report bounded findings.", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" }, ...(current ? { report_protocol: protocol } : {}) },
 })
 const report = () => ({

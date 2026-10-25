@@ -927,10 +927,9 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 }
 
 // workflowAcceptDeliveryAdmissionActive reports whether the pinned definition
-// and step admit the combined accept-and-delivery route (CD-0198 D4):
-// workflow.implementation v21+ and workflow.break_fix v19+ at their
-// refinement step. Earlier definition versions keep the behavior and digest
-// they shipped with, and the CD-0166 delivery gate stays record_delivery-only.
+// and step admit the combined accept-and-delivery route (CD-0198 D4): a
+// definition declaring the accept-delivery capability, at its refinement step.
+// The CD-0166 delivery gate stays record_delivery-only.
 func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, currentStep string) bool {
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false
@@ -1008,17 +1007,15 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	}
 	if artifact != "" || state != "" {
 		return newFailure(KindInvalidOperation, "workflow_action",
-			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step of workflow.implementation v21+ and workflow.break_fix v19+",
+			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step",
 			false, "drop the delivery fields here, or assert the delivery through record_delivery")
 	}
 	return nil
 }
 
 // workflowRefineProofGateActive reports whether the refine-exit proof guard
-// governs record_delivery on this step. The guard is active only for
-// workflow.implementation v18+ and workflow.break_fix v16+ at their
-// refinement step; earlier definition versions keep the behavior and digest
-// they shipped with.
+// governs record_delivery on this step. The guard is active only at the
+// refinement step of a definition declaring the refine-proof capability.
 func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep string) bool {
 	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
 		return false
@@ -1173,7 +1170,7 @@ func claimDurableWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry Regi
 		// the durable claim uses its owning SQLite transaction as authority.
 		durableStepKind = string(WorkflowStepInternalSQLite)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Definition.Version, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, request.OperationID, 1, request.WorkID, entry.Definition.Ref, entry.Digest, currentStep, durableStepKind, request.AcceptedInputsDigest, nullableWorkflowText(request.AcceptedScope), request.PrincipalRef, request.RequestID, request.Now.UTC().Format(time.RFC3339Nano), request.ContractDigest); err != nil {
 		return nil, nil, wrapFailure(KindIdempotencyConflict, "workflow_action", "durable workflow operation identity is already claimed: "+err.Error(), false, "retry the same request or reconcile the operation", err)
 	}
 	evidenceRefs := append([]string(nil), request.EvidenceRefs...)
@@ -1471,11 +1468,10 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		// dispatchable at the current step's kind.
 		packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
 		packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
-		packetLaneVersion := workflowFieldInt(packetFields, "lane_version", 0)
-		if !laneIDOK || !laneDigestOK || packetLaneVersion < 1 {
+		if !laneIDOK || !laneDigestOK {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
 		}
-		lane, laneErr := LookupLane(packetLaneID, packetLaneVersion, packetLaneDigest)
+		lane, laneErr := LookupLane(packetLaneID, packetLaneDigest)
 		if laneErr != nil {
 			return events, "", laneErr
 		}
@@ -1495,7 +1491,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		// bind the attempt durably in flight from the record alone, without
 		// re-reading the packet bytes.
 		completionValues["worker_lane_id"] = lane.ID
-		completionValues["worker_lane_version"] = lane.Version
 		completionValues["worker_lane_digest"] = lane.Digest
 		completionValues["worker_capability_class"] = lane.CapabilityClass
 		canonical, err := canonicalJSON(packetRaw)

@@ -266,7 +266,7 @@ func acceptVerificationCorrectionReview(t *testing.T, s *store.Store, service *S
 		}
 	}
 	attemptID := "attempt:work-1:verification-review-" + suffix
-	packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": pin.Step, "inputs": map[string]any{}})
+	packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": pin.Step, "inputs": map[string]any{}})
 	env.RequestID = "request:verification-review-dispatch-" + suffix
 	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "idempotency_key": "verification-review-dispatch-" + suffix, "fields": map[string]any{"attempt_id": attemptID, "worker_packet": packet}})}, env)
 	if dispatch.Outcome != OutcomeOK {
@@ -309,7 +309,7 @@ func completeVerificationAttempt(t *testing.T, s *store.Store, grant Authority, 
 		}
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "synthetic reported evidence for " + obligation})
 	}
-	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

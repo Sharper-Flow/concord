@@ -139,8 +139,7 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 		return false, err
 	}
 	var raw, definitionRef, definitionDigest string
-	var definitionVersion int64
-	err = q.QueryRowContext(ctx, `SELECT self_repair_json,COALESCE(definition_ref,''),COALESCE(definition_version,0),COALESCE(definition_digest,'') FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw, &definitionRef, &definitionVersion, &definitionDigest)
+	err = q.QueryRowContext(ctx, `SELECT self_repair_json,COALESCE(definition_ref,''),COALESCE(definition_digest,'') FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw, &definitionRef, &definitionDigest)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -154,7 +153,7 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	if repair == nil {
 		return false, nil
 	}
-	definition, err := verifyWorkflowDefinitionPinForFold(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Version: definitionVersion, Digest: definitionDigest})
+	definition, err := verifyWorkflowDefinitionPinForFold(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Digest: definitionDigest})
 	if err != nil {
 		return false, err
 	}

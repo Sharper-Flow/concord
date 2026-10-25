@@ -113,7 +113,7 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 		if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("built-in %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
 		}
-		registered, ok := registry.Lookup(definition.Ref, definition.Version)
+		registered, ok := registry.Current(definition.Ref)
 		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
@@ -126,25 +126,6 @@ func TestWorkflowDefinitionRejectsFormFeedInputReference(t *testing.T) {
 	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
 	if err := ValidateWorkflowDefinition(definition); err == nil {
 		t.Fatal("new definition admission accepted a form-feed reference")
-	}
-}
-
-// Only the current definition is addressable for each family.
-func TestBuiltinWorkflowRegistryHoldsOnlyCurrentVersions(t *testing.T) {
-	t.Parallel()
-	registry := NewBuiltinWorkflowRegistry()
-	highest := map[string]int64{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Version > highest[definition.Ref] {
-			highest[definition.Ref] = definition.Version
-		}
-	}
-	for ref, top := range highest {
-		for version := top + 1; version <= top+3; version++ {
-			if _, ok := registry.Lookup(ref, version); ok {
-				t.Fatalf("%s v%d is registered, want nothing above v%d", ref, version, top)
-			}
-		}
 	}
 }
 
@@ -191,27 +172,5 @@ func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 	}
 	if value, ok := manifest["changes_product_truth"].(bool); !ok || !value {
 		t.Fatalf("product truth=%v, want boolean true", manifest["changes_product_truth"])
-	}
-}
-
-// TestRegistryKeyKeepsItsFormat pins the registry key to the ref, a NUL
-// byte, and the decimal version, the format every registry map and
-// composition table is keyed on.
-func TestRegistryKeyKeepsItsFormat(t *testing.T) {
-	for _, test := range []struct {
-		ref     string
-		version int64
-		want    string
-	}{
-		{"workflow.implementation", 1, "workflow.implementation\x001"},
-		{"workflow.implementation", 33, "workflow.implementation\x0033"},
-		{"workflow.break_fix", 30, "workflow.break_fix\x0030"},
-		{"workflow.research", 120, "workflow.research\x00120"},
-		{"workflow.ops_runbook", 9223372036854775807, "workflow.ops_runbook\x009223372036854775807"},
-		{"", 0, "\x000"},
-	} {
-		if got := registryKey(test.ref, test.version); got != test.want {
-			t.Errorf("registryKey(%q, %d) = %q, want %q", test.ref, test.version, got, test.want)
-		}
 	}
 }

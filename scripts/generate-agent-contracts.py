@@ -164,28 +164,6 @@ export function actionFieldsBranches(actionInput: unknown): any[] {
 
 ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
 
-# The closed set of published actions CD-0218 D1/D2 retires from live
-# authoring: the 22 retired-family action IDs and the 6 ceremony/derived
-# IDs. The projection derives their absence from this published set — there
-# is no special case that re-admits a retired shape, and a stale projected
-# def for one is a generation failure.
-RETIRED_PUBLISHED_ACTIONS = frozenset({
-    # Retired with the four families (CD-0218 D1).
-    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
-    "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
-    "cleanup_run", "declare_scope", "discard_poc", "frame_question",
-    "record_decision", "record_health", "record_option", "record_research",
-    "resolve_condition", "rollback_run", "run_analysis", "start_action",
-    "start_poc", "start_run",
-    # Retired by the derived diagnosis/starts/failure/retry forms (CD-0218 D2).
-    "record_reproduction", "record_root_cause", "start_repair", "start_refine",
-    "record_worker_failure", "record_discovery",
-})
-# The approved live public action target: 58 prior public IDs − 28 retired
-# published IDs + record_diagnosis.
-LIVE_ACTION_TARGET = 31
-
-
 def require_delivery_rule_teaching(defs: dict) -> None:
     """CD-0184: the projected authoring schema must teach that acceptance is
     decidable at delivery, so generation fails before any artifact lands when
@@ -193,9 +171,8 @@ def require_delivery_rule_teaching(defs: dict) -> None:
 
     The rule's live owner is the outcome_predicates array shared by
     approve_contract and supersede_contract. The wait-rule teaching retired
-    with add_condition (CD-0218 D1): the wait variant's absence is derived
-    from the retired published actions, so a projected def for it is a stale
-    copy the projection must refuse, never a silently skipped check.
+    with add_condition (CD-0218 D1), so a projected def for its variants is
+    a stale copy the projection must refuse, never a silently skipped check.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
@@ -364,12 +341,6 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
-    live_ids = [action.get("id") for action in actions]
-    retired = sorted(set(live_ids) & RETIRED_PUBLISHED_ACTIONS)
-    if retired:
-        fail(f"retired published actions remain authorable in the live projection (CD-0218 D1/D2): {', '.join(retired)}")
-    if len(live_ids) != LIVE_ACTION_TARGET:
-        fail(f"the live action projection carries {len(live_ids)} actions, want the approved target {LIVE_ACTION_TARGET}")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
@@ -1644,16 +1615,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
     outer_properties["fields"] = {}
 
-    # Projection starts from the previous document, so the retirement drops
-    # are explicit: a stale def would keep satisfying checks that read it
-    # while no validation path consumes it. Retired published actions keep
-    # no authoring variant, the legacy input union is gone entirely, and the
-    # retired decision/wait authoring defs lose their last owners
-    # (CD-0218 D1/D2). Historical layouts replay through the
-    # frozen historical decoder, never through this document.
-    for action_id in RETIRED_PUBLISHED_ACTIONS:
-        defs.pop("work_transition_action_variant_" + action_id, None)
-        defs.pop("work_transition_action_public_variant_" + action_id, None)
+    # Remove variants with no compiled owner (CD-0218 D1/D2, CD-0242 D14).
+    # Preserve existing live slots so generation does not reorder the source.
+    live_prefixes = tuple(prefix + action["id"] for action in actions for prefix in
+                          ("work_transition_action_variant_", "work_transition_action_public_variant_"))
+    for name in list(defs):
+        if name.startswith(("work_transition_action_variant_", "work_transition_action_public_variant_")) and not any(
+                name == prefix or name.startswith(prefix + "_fields_member_") for prefix in live_prefixes):
+            del defs[name]
     for stale in ("work_transition_action_legacy_input", "decision_record_text", "native_report_timestamp"):
         defs.pop(stale, None)
 
@@ -1770,44 +1739,60 @@ def contains_schema_ref(node: object) -> bool:
 
 
 def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
-    """Derive the unversioned packet's inputs from the canonical lane packet.
+    """Project the current packet and its job from the canonical lane input.
 
-    The canonical contract owns the field set and the required set; the
-    payloads schema owns the shared def aliases the aliased fields anchor
-    to. A canonical inputs change either lands here on regeneration or
-    fails --check, so the published surface cannot again omit a wire field
-    the dispatcher sends. Published versioned identities stay authored as
-    frozen inputs: canonical changes cannot rewrite the packet or context
-    identities that retained pins record and replay.
+    Shared record aliases keep their own published bounds. Packet identity,
+    Review provenance and the worker-job field set have one owner.
     """
     inputs = lane_packet.get("properties", {}).get("inputs")
     if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
         fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
     doc_defs = payload.get("$defs", {})
-    # Review provenance has one schema owner; its payload aliases project the
-    # canonical packet definitions rather than maintaining another shape.
-    review_aliases = {
+    packet_aliases = {
         "lane_review_input": "worker_packet_review_input",
         "review_candidate": "worker_packet_review_candidate",
         "review_dependencies": "worker_packet_review_dependencies",
+        "lane_packet_worker_job": "worker_packet_worker_job",
     }
-    refs = {f"#/$defs/{source}": f"#/$defs/{alias}" for source, alias in review_aliases.items()}
+    imported = set(packet_aliases)
+    refs = {f"#/$defs/{source}": f"#/$defs/{alias}" for source, alias in packet_aliases.items()}
+    for source in lane_packet["$defs"]:
+        shared = source.removeprefix("lane_")
+        if shared in doc_defs:
+            refs.setdefault("#/$defs/" + source, "#/$defs/" + shared)
 
     def review_alias(node):
         if isinstance(node, dict):
             result = {key: review_alias(value) for key, value in node.items()}
             if "$ref" in result:
-                result["$ref"] = refs.get(result["$ref"], result["$ref"])
+                ref = result["$ref"]
+                if ref not in refs:
+                    if not ref.startswith("#/$defs/"):
+                        fail(f"lane packet carries a non-local reference {ref}")
+                    source = ref.removeprefix("#/$defs/")
+                    if source not in lane_packet["$defs"]:
+                        fail(f"lane packet references unknown definition {source}")
+                    alias = "worker_packet_" + source.removeprefix("lane_")
+                    refs[ref] = "#/$defs/" + alias
+                    if source not in imported:
+                        imported.add(source)
+                        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
+                result["$ref"] = refs[ref]
+            if "enum" in result and "type" not in result:
+                result["type"] = "string"
             return result
         if isinstance(node, list):
             return [review_alias(value) for value in node]
         return node
 
-    for source, alias in review_aliases.items():
+    for source, alias in packet_aliases.items():
         doc_defs[alias] = review_alias(lane_packet["$defs"][source])
-    packet = doc_defs.get("worker_packet")
-    if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
-        fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
+    packet = {key: copy.deepcopy(lane_packet[key]) for key in ("type", "additionalProperties", "required")}
+    packet["description"] = "CD-0067 D1: current closed worker packet, projected from contracts/agent-lane-packet.schema.json."
+    packet["properties"] = {name: review_alias(schema) for name, schema in lane_packet["properties"].items() if name != "inputs"}
+    # Live dispatch admits only the canonical format's current identity.
+    packet["properties"]["schema_version"]["enum"] = [lane_packet["properties"]["schema_version"]["enum"][-1]]
+    doc_defs["worker_packet"] = packet
     properties = {}
     for name, schema in inputs.get("properties", {}).items():
         alias = WORKER_PACKET_INPUT_ALIASES.get(name)
@@ -1828,9 +1813,6 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     if required:
         projected["required"] = required
     packet["properties"]["inputs"] = projected
-    # The current definition dispatches packet5. Its Review provenance member
-    # comes from the same canonical input, not a separately authored schema.
-    doc_defs["worker_packet5"]["properties"]["inputs"]["properties"]["review_input"] = copy.deepcopy(properties["review_input"])
 
 
 def project_review_report_types(payload: dict, lane_report: dict) -> None:
@@ -2609,6 +2591,24 @@ def main() -> int:
     try:
         check = args.check
         manifest = json.loads(MANIFEST.read_text())
+        fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
+        fixture_text = fixture_path.read_text()
+        first_case = json.loads(fixture_text)["cases"][0]
+        if first_case["schema"] != "workflow-definition.schema.json" or first_case["valid"] is not True:
+            fail("the first workflow engine fixture must be a valid workflow definition")
+        instance_start = fixture_text.index("{", fixture_text.index('"instance":'))
+        instance, instance_length = json.JSONDecoder().raw_decode(fixture_text[instance_start:])
+        canonical_fixture = subprocess.run(
+            ["go", "run", "./scripts/workflow-action-contracts", "--canonical-definition"],
+            cwd=ROOT, input=json.dumps(instance), text=True, capture_output=True,
+            timeout=300, check=True,
+        )
+        instance_text = json.dumps(json.loads(canonical_fixture.stdout), ensure_ascii=False, indent=2).replace("\n", "\n      ")
+        expected_fixture = fixture_text[:instance_start] + instance_text + fixture_text[instance_start + instance_length:]
+        if expected_fixture != fixture_text:
+            if check:
+                fail("generated definition fixture drift: contracts/workflow-engine.fixtures.json")
+            fixture_path.write_text(expected_fixture)
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
         actions, workflows, teaching, schema_refs = load_workflow_action_contracts()

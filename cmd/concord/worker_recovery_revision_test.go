@@ -64,7 +64,7 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 	// store whose lane definition retired from the registry would carry it.
 	lostLane := "sha256:" + strings.Repeat("0", 64)
 	dispatchPayload := mustJSON(t, store.WorkerDispatchedPayload{
-		AttemptID: "attempt-1", LaneID: "research", LaneVersion: 1, LaneDigest: lostLane,
+		AttemptID: "attempt-1", LaneID: "research", LaneDigest: lostLane,
 		CapabilityClass: "research", ReadbackModel: "openai/test-model",
 		PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("c", 64),
@@ -90,7 +90,7 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES ('event-recovery-lost-lane',?,'work_item','work-1',?,'2026-10-10T00:00:00Z',5,?)`, store.WorkerDispatched, "client:"+workerEvidenceClientRef+":operator-1", dispatchPayload); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_payload,dispatch_seq) VALUES ('work-1','attempt-1','research',1,?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL,'event-recovery-lost-lane',?,5,?,last_insert_rowid())`,
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_payload,dispatch_seq) VALUES ('work-1','attempt-1','research',?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL,'event-recovery-lost-lane',?,5,?,last_insert_rowid())`,
 		lostLane, store.WorkerPacketSchemaVersion, store.WorkerReportSchemaVersion, "client:"+workerEvidenceClientRef+":operator-1", dispatchPayload); err != nil {
 		t.Fatal(err)
 	}

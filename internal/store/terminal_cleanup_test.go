@@ -32,7 +32,7 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 	const claim = `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES('claim','work-done','proj-web','wts:work-done','work/closed','1111111111111111111111111111111111111111','/synthetic/work','pending','operator','fixture','now','now')`
 	const entry = `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES('wts:work-done','proj-web','claim','work/closed','1111111111111111111111111111111111111111','/synthetic/work','repository-fixture','reclaimed','now')`
 	const lease = `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-fixture','work-done','proj-web','/synthetic/work','held','client-fixture','agent-fixture','session-fixture','operator','[]','now','running')`
-	const attempt = `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-done','attempt-fixture','implement',1,'sha256:1111111111111111111111111111111111111111111111111111111111111111','engineering','fixture-model','1.0','1.0','dispatched','now')`
+	const attempt = `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-done','attempt-fixture','implement','sha256:1111111111111111111111111111111111111111111111111111111111111111','engineering','fixture-model','1.0','1.0','dispatched','now')`
 	for _, tc := range []struct {
 		name    string
 		kind    FailureKind
@@ -51,7 +51,7 @@ func TestTerminalCleanupDefersUnreleasedOwners(t *testing.T) {
 		{"dispatched_worker", KindOperationConflict, []string{attempt}},
 		{"unaccepted_worker_result", KindOperationConflict, []string{attempt, `UPDATE worker_attempts SET lifecycle_state='completed',completed_at='now'`}},
 		{"unreconciled_failed_worker", KindOperationConflict, []string{attempt, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='now',failure_kind='abandoned'`}},
-		{"pending_durable_effect", KindOperationConflict, []string{`INSERT INTO durable_operations SELECT 'other-operation',attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,'pending',result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest FROM durable_operations WHERE op_id='publication'`}},
+		{"pending_durable_effect", KindOperationConflict, []string{`INSERT INTO durable_operations SELECT 'other-operation',attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,'pending',result_payload,evidence_refs,changed_refs,resume_cursor,principal_ref,request_id,observed_at,completed_at,contract_digest,workflow_type_digest FROM durable_operations WHERE op_id='publication'`}},
 		{"open_condition", KindMissingEvidence, []string{`INSERT INTO workflow_external_conditions(work_id,condition_id,await_type,await_ref,resolution_authority,condition_state,recorded_at) VALUES('work-done','condition-fixture','ci_result','run-fixture','operator','open','now')`}},
 		{"pending_removal", KindOperationConflict, []string{`INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,handoff_json,handoff_digest,state,created_at,updated_at) VALUES('remove-fixture','remove-key','work-done',3,'shelved','operator','{}','sha256:1111111111111111111111111111111111111111111111111111111111111111','prepared','now','now')`}},
 		{"unconsumed_handoff", KindOperationConflict, []string{`INSERT INTO project_handoffs(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at) VALUES('handoff-fixture','work-done',1,'proj-web','proj-other','session-fixture','bounded','[]','[]','[]','[]','continue','recorded','now')`}},
@@ -122,7 +122,7 @@ func TestTerminalCleanupRetryOwnershipAndIssueIdentity(t *testing.T) {
 		t.Fatalf("late retry lost terminal outcome: %v", err)
 	}
 	digest := "sha256:" + strings.Repeat("1", 64)
-	_, err = ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "late-publication", WorkID: "work-done", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: `{}`, PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "late-publication", RequestID: "late-request", ObservedAt: time.Now().UTC(), ContractDigest: digest}, nil)
+	_, err = ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "late-publication", WorkID: "work-done", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: `{}`, PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "late-publication", RequestID: "late-request", ObservedAt: time.Now().UTC(), ContractDigest: digest}, nil)
 	assertFailureKind(t, err, KindProjectionNotFound)
 	if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM durable_operations WHERE work_id='work-done'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("late retry created an effect claim: count=%d err=%v", count, err)
@@ -249,7 +249,7 @@ func terminalCleanupFixture(t *testing.T) (*Store, KnowledgeHome) {
 		t.Fatal(err)
 	}
 	scope, _ := json.Marshal(map[string]any{"work_version": 3, "content_digest": hash, "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID})
-	claim, err := ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "publication", WorkID: "work-done", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: hash, AcceptedScopeSnapshot: string(scope), PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "publish", RequestID: "publish-request", ObservedAt: time.Now().UTC(), ContractDigest: hash}, nil)
+	claim, err := ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "publication", WorkID: "work-done", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: hash, AcceptedScopeSnapshot: string(scope), PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "publish", RequestID: "publish-request", ObservedAt: time.Now().UTC(), ContractDigest: hash}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

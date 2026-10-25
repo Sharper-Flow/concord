@@ -247,7 +247,7 @@ part. [Completion](dispatch.ts) reads the child through the host session API,
 verifies its authorized opening and executing identity, and supplies canonical
 report identity itself. Worker-supplied identity cannot replace host evidence.
 
-The adapter derives `attempt_id`, `lane_id`, `lane_version`, and `lane_digest`
+The adapter derives `attempt_id`, `lane_id`, and `lane_digest`
 from the authorized dispatch packet. An admitted completed report becomes
 `worker-complete` evidence. A
 missing, invalid, or failed report follows the typed worker-failure route.

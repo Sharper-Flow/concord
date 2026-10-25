@@ -212,7 +212,7 @@ func TestCompactionReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				raw := json.RawMessage(`{"work_id":"work-1","idempotency_key":"compaction-replay"}`)
 				const scope = `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"]}`
 				claim, err := store.ClaimStepAuthorized(ctx, s, store.ClaimRequest{
-					OpID: "compaction-replay", WorkID: "work-1", WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1,
+					OpID: "compaction-replay", WorkID: "work-1", WorkflowTypeRef: "concord.pm6.compaction",
 					StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: mutationDigest("concord_work_compact", operation, env, raw),
 					AcceptedScopeSnapshot: scope, PrincipalRef: grant.PrincipalRef, Tool: "concord_work_compact", IdempotencyKey: "compaction-replay",
 					RequestID: env.RequestID, ObservedAt: fixedTime(), ContractDigest: ManifestDigest,

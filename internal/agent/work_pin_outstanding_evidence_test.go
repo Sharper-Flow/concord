@@ -16,9 +16,8 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 			"workflow_type": "workflow.implementation", "step": "acceptance", "attempt": nil,
 			"pending_operator_decision": nil, "driving_sessions": []any{},
 			"watermark": "seq:3", "next_valid_intents": []any{},
-			"workflow_definition_version": 1,
-			"workflow_definition_digest":  "sha256:" + strings.Repeat("0", 64),
-			"obligations":                 []string{"verification"},
+			"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
+			"obligations":                []string{"verification"},
 		}
 		if present {
 			pin["outstanding_evidence_kinds"] = []string{"approval", "artifact", "commit", "durable_note", "native_run", "review", "verification"}

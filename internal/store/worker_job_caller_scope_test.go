@@ -13,7 +13,7 @@ import (
 )
 
 // Boundary tests for the shared packet-bounds guard on the dispatch-time
-// caller exclusions (worker_packet5_worker_job): at most
+// caller exclusions (worker_packet_worker_job): at most
 // WorkerJobCallerExclusionsMax paths of at most
 // WorkerJobCallerExclusionPathMax Unicode characters each. The computation
 // owner refuses the dispatch on its error, and the continuity ready
@@ -102,7 +102,7 @@ func (r observedDeltaRunner) Run(_ context.Context, _ string, args ...string) ([
 // projection omits the whole set instead of failing the read.
 func TestWorkerJobCallerExclusionsAboveTheCountBound(t *testing.T) {
 	const workID = "caller-exclusions-count-bound"
-	f := oracleRepairFixtureFrom(t, workID, seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 34, "repair"))
+	f := oracleRepairFixtureFrom(t, workID, seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair"))
 	defer f.store.Close()
 	if !testWorkPinCallerCapable(t, f.store, workID) {
 		t.Fatal("the oracle repair fixture pinned no caller-capable definition")
@@ -225,7 +225,7 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 	}
 	seed := func(t *testing.T, workID string) oracleRepairFixture {
 		t.Helper()
-		f := oracleRepairFixtureFrom(t, workID, seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 34, "repair"))
+		f := oracleRepairFixtureFrom(t, workID, seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair"))
 		if !testWorkPinCallerCapable(t, f.store, workID) {
 			t.Fatal("the oracle repair fixture pinned no caller-capable definition")
 		}

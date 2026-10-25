@@ -116,7 +116,7 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?, 'project-1', ?, 'work/dispatch', ?, ?, 'repo-1', 'active', '2026-08-22T00:00:00Z', '{}')`, store.WorktreeSetID(workID), "claim-"+attemptID, strings.Repeat("a", 40), worktreePath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Definition.Version, entry.Digest, actorRef); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 1, ?)`, "dispatch-start-"+attemptID, workID, actorRef, []byte(startPayload)); err != nil {
@@ -145,7 +145,7 @@ FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE
 func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, attemptID string, lane store.LaneDefinition, readback, packetDigest string, pair [2]string, job *store.WorkerJobBinding) {
 	t.Helper()
 	payload := store.WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest,
 		CapabilityClass: lane.CapabilityClass, ReadbackModel: readback,
 		PacketSchemaVersion: pair[0], ReportSchemaVersion: pair[1],
 		PacketDigest: packetDigest,
@@ -173,8 +173,8 @@ func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, atte
 		eventID, store.WorkerDispatched, "work_item", workID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
 		t.Fatalf("seed pre-cutover dispatch event: %v", err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL,?,?,?,5,last_insert_rowid())`,
-		workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq) VALUES (?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL,?,?,?,5,last_insert_rowid())`,
+		workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
 		t.Fatalf("seed pre-cutover attempt row: %v", err)
 	}
 	// Migration 145 backfills this identity for an older binary's dispatch.
@@ -208,7 +208,7 @@ func retainedCardBearingPacket(t *testing.T, workID, attemptID string, lane stor
 	return map[string]any{
 		"schema_version": pair[0],
 		"attempt_id":     attemptID,
-		"lane_id":        lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id":        lane.ID, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": "execution",
 		"inputs": map[string]any{
 			"task":    "verify the retained change",
@@ -237,7 +237,7 @@ func retainedJobBoundPacket(t *testing.T, workID, attemptID string, lane store.L
 	return map[string]any{
 		"schema_version": pair[0],
 		"attempt_id":     attemptID,
-		"lane_id":        lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id":        lane.ID, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": "execution",
 		"inputs": map[string]any{
 			"task":    "repair the retained change",

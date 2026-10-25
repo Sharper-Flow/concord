@@ -52,7 +52,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -583,7 +583,7 @@ func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, starte
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

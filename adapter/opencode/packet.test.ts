@@ -198,8 +198,8 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe("step-1")
   expect(packet.lane_id).toBe("implement")
-  expect(packet.lane_version).toBe(1)
-  expect(packet.lane_digest).toBe("sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5")
+  expect(packet).not.toHaveProperty("lane_version")
+  expect(packet.lane_digest).toBe(agentLanes.find((lane) => lane.id === "implement")!.digest)
   expect(packet.inputs.task).toBe("Dispatch inputs are retyped rather than projected.")
   expect(packet.inputs.task).not.toContain(OUTCOME_KIND)
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
@@ -873,7 +873,7 @@ test("every registered lane packet projects only its serialized mandate", async 
     const packet = built.packet!
     expect(validateAgentLanePacket(packet)).toBe(true)
     expect(packet.lane_id).toBe(lane.id)
-    expect(packet.lane_version).toBe(lane.version)
+    expect(packet.lane_digest).toBe(lane.digest)
     expect(packet.lane_digest).toBe(lane.digest)
     expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
     assertNoMandateSplice(packet)
@@ -1022,7 +1022,7 @@ test("an admitted maximum BMP premise reaches inputs.task byte-for-byte", async 
 // packet the contract admits.
 test("packet string validation counts Unicode code points, not UTF-16 units", () => {
   const packet = (task: string) => ({
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task, binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" } },
@@ -1061,7 +1061,7 @@ test("the serialized typed predicate bound stays fail-closed at the capacity the
 
 test("the closed packet schema enforces the strict per-kind outcome payload field sets", () => {
   const packet = (predicate: Record<string, unknown>) => ({
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task: "t", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, outcome_predicates: [predicate] },
@@ -1309,7 +1309,7 @@ test("the synthetic full-contract fixture preserves all eight predicates, record
 // source demands its matching contract_version shape.
 test("strict binding rejection", () => {
   const valid = {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task: "t", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" } },

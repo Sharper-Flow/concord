@@ -167,7 +167,7 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 		inputs["correction"] = pin.Correction
 	}
 	packet := bindPacketToRecordedState(t, f.s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion,
-		"attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attempt, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"work_id": f.work, "step_id": snapshot.WorkflowStep, "inputs": inputs})
 	authorized := spineOK(t, oAgentAction(t, f, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet}))
 	var authorization struct {
@@ -182,7 +182,7 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 	}
 	dispatch := store.Event{EventID: "o-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
 		Actor: "worker:test", OccurredAt: f.service.Now(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{
-			AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+			AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 			PacketDigest: authorization.PacketDigest, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
 		pair, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, f.env.PrincipalRef, f.env.ClientRef)

@@ -820,10 +820,10 @@ func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, diges
 	}
 	opRef := worktreeVerifyOperationRef(leaseID)
 	if _, err := sqlTx.ExecContext(ctx, `INSERT INTO durable_operations
-			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-			VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
+			VALUES(?,1,?,'worktree.verify','','','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
 		opRef, workID, string(resultJSON), workflowJSON([]string{opRef}), startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
 		return 0, err
 	}

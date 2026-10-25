@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"sort"
 )
 
 // WorkflowAcceptedReview identifies the exact terminal report Main accepted.
@@ -123,106 +122,13 @@ func sameReviewDependencies(a, b WorkerReviewDependencies) bool {
 	return true
 }
 
-type workflowReviewRow struct {
-	seq              int64
-	kind, actor, ref string
-	raw              []byte
-}
-
-// This reader consumes the existing action/terminal owner. It adds no launch,
-// mutation route, or duplicate receipt. The storage cutover can retain these
-// same current descriptors without changing admission's input.
-func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, before int64) (WorkflowReviewState, error) {
-	state := WorkflowReviewState{Findings: []WorkerReviewFinding{}, PublicationOutstanding: true}
-	rows, err := q.QueryContext(ctx, `SELECT seq,kind,actor,event_id,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?) AND (?=0 OR seq<?) ORDER BY seq`, workID, WorkflowActionCompleted, WorkerCompleted, before, before)
+// Admission runs before the current effect updates Review facts. The former
+// before-sequence argument therefore denotes the current transaction prefix,
+// not an API for reconstructing an arbitrary historical Review.
+func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, _ int64) (WorkflowReviewState, error) {
+	state, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil {
 		return state, err
-	}
-	var records []workflowReviewRow
-	for rows.Next() {
-		var row workflowReviewRow
-		if err := rows.Scan(&row.seq, &row.kind, &row.actor, &row.ref, &row.raw); err != nil {
-			rows.Close()
-			return state, err
-		}
-		records = append(records, row)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return state, err
-	}
-	reports := map[string]workflowReviewRow{}
-	completions := map[string]WorkerCompletedPayload{}
-	dispatches := map[string]workflowActionCompletedPayload{}
-	findings := map[string]WorkerReviewFinding{}
-	for _, row := range records {
-		if row.kind == WorkerCompleted {
-			var result WorkerCompletedPayload
-			if err := json.Unmarshal(row.raw, &result); err != nil {
-				return state, err
-			}
-			completions[result.AttemptID] = result
-			if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
-				reports[result.AttemptID] = row
-				if state.Candidate != nil && *state.Candidate != result.Review.InputCandidate {
-					continue
-				}
-				for _, finding := range result.Review.Findings {
-					if previous, found := findings[finding.FindingID]; found {
-						if previous.Oracle != nil {
-							finding.Oracle = previous.Oracle
-						}
-						if previous.Status == "open" {
-							finding.InScope = finding.InScope || previous.InScope
-							finding.Blocking = finding.Blocking || previous.Blocking
-							finding.Status = "open"
-						}
-					}
-					// A report can introduce an evidenced closure, but only Main's
-					// exact acceptance below closes a previously open finding.
-					if finding.Status == "closed" {
-						finding.Status = "open"
-					}
-					findings[finding.FindingID] = finding
-				}
-			}
-			continue
-		}
-		var action workflowActionCompletedPayload
-		if err := json.Unmarshal(row.raw, &action); err != nil {
-			return state, err
-		}
-		if action.ActionID == "dispatch_worker" {
-			dispatches[action.WorkerAttemptID] = action
-			continue
-		}
-		if action.ActionID != "accept_worker_result" {
-			continue
-		}
-		result, found := completions[action.WorkerAttemptID]
-		if !found {
-			continue
-		}
-		candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, dispatches[result.AttemptID], result)
-		if err != nil {
-			return state, err
-		}
-		if candidate != nil {
-			state.Candidate = candidate
-		}
-		if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
-			reportRow := reports[action.WorkerAttemptID]
-			applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRow.ref, ReportDigest: reviewDigest(result.Review), ActorRef: row.actor, Report: *result.Review}, findings)
-		}
-	}
-	ids := make([]string, 0, len(findings))
-	for id := range findings {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		state.Findings = append(state.Findings, findings[id])
 	}
 	var hasContract bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_contracts WHERE work_id=?)`, workID).Scan(&hasContract); err != nil {
@@ -356,7 +262,7 @@ func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAd
 		if err != nil {
 			return err
 		}
-		correctionRef, err := workflowDeclaredReviewCorrection(ctx, q, workID, state.Step, workflowFieldStringDefault(fields, "attempt_id", ""), state.Review)
+		correctionRef, err := workflowDeclaredReviewCorrection(ctx, q, workID, workflowFieldStringDefault(fields, "attempt_id", ""), state.Review)
 		if err != nil {
 			return err
 		}

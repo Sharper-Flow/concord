@@ -25,80 +25,15 @@ const RecoveryWorkSizeRerun = "rerun the size model through revise_intent with s
 
 var workSizeProofSeverities = map[string]bool{"P0": true, "P1": true, "P2": true}
 
-// workSizeProofEvent is one recorded review acceptance in the proof window.
-type workSizeProofEvent struct {
-	seq       int64
-	eventID   string
-	kind      string
-	actionID  string
-	attemptID string
-	review    bool
-}
-
-// deriveWorkSizeProofsTx lists, in log order, the event IDs that prove the
-// item bigger since its latest size record. Without a larger effective size
-// it lists none. A positive before reads only the log before that sequence,
-// so a replayed size record sees the log its live fold saw.
-func deriveWorkSizeProofsTx(ctx context.Context, q queryer, workID string, before int64) ([]string, error) {
+// deriveWorkSizeProofsTx reads the current pre-write proof window. Admitted
+// writers advance the window only after validation has consumed this state.
+func deriveWorkSizeProofsTx(ctx context.Context, q queryer, workID string) ([]string, error) {
 	decision, sized, err := readEffectiveWorkSize(ctx, q, workID)
 	if err != nil || !sized || decision.Effective != WorkSizeLarger {
 		return nil, err
 	}
-	// The folded records bound the window, so a size record being folded
-	// reads the window its predecessor opened.
-	boundary, err := workSizeAssessmentFrontierTx(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.event_id, e.kind,
-		coalesce(json_extract(e.payload,'$.action_id'),''), coalesce(json_extract(e.payload,'$.worker_attempt_id'),''),
-		EXISTS(SELECT 1 FROM worker_attempts a WHERE a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
-			AND a.capability_class='review' AND a.lifecycle_state='completed')
-		FROM domain_events e
-		WHERE e.subject_type='work_item' AND e.subject_id=? AND e.seq>? AND (?<=0 OR e.seq<?) AND e.kind IN (?,?,?)
-		ORDER BY e.seq`, workID, boundary, before, before, WorkflowActionCompleted, WorkflowContractApproved, WorkflowContractSuperseded)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the review window", true, "retry once the event log is readable", err)
-	}
-	var events []workSizeProofEvent
-	for rows.Next() {
-		var event workSizeProofEvent
-		if err := rows.Scan(&event.seq, &event.eventID, &event.kind, &event.actionID, &event.attemptID, &event.review); err != nil {
-			rows.Close()
-			return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the review window", true, "retry once the event log is readable", err)
-		}
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the review window", true, "retry once the event log is readable", err)
-	}
-	rows.Close()
-
-	var proofs []string
-	// An accepted review opens a pass; a refine checkpoint after it arms
-	// the next accepted review; a contract change resets both.
-	accepted, refined := false, false
-	for _, event := range events {
-		switch {
-		case event.kind != WorkflowActionCompleted:
-			accepted, refined = false, false
-		case event.actionID == "checkpoint_refine":
-			refined = accepted
-		case event.review && (event.actionID == "accept_worker_evidence" || event.actionID == "accept_worker_result"):
-			if refined {
-				qualifies, err := workSizeReviewFindsInScopeTx(ctx, q, workID, event.attemptID, event.seq)
-				if err != nil {
-					return nil, err
-				}
-				if qualifies {
-					proofs = append(proofs, event.eventID)
-				}
-			}
-			accepted, refined = true, false
-		}
-	}
-	return proofs, nil
+	state, err := readWorkSizeProofFacts(ctx, q, workID)
+	return state.Proofs, err
 }
 
 func workSizeAssessmentFrontierTx(ctx context.Context, q queryer, workID string) (int64, error) {
@@ -115,12 +50,15 @@ func workSizeAssessmentFrontierTx(ctx context.Context, q queryer, workID string)
 func workSizeReviewFindsInScopeTx(ctx context.Context, q queryer, workID, attemptID string, accepted int64) (bool, error) {
 	var seq int64
 	var raw string
-	err := q.QueryRowContext(ctx, `SELECT seq, payload FROM domain_events
-		WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND seq<?
-		ORDER BY seq DESC LIMIT 1`, workID, WorkerCompleted, attemptID, accepted).Scan(&seq, &raw)
+	err := q.QueryRowContext(ctx, `SELECT terminal_seq, terminal_payload FROM worker_attempts
+		WHERE work_id=? AND attempt_id=? AND terminal_kind=? AND terminal_seq<?`, workID, attemptID, WorkerCompleted, accepted).Scan(&seq, &raw)
 	if err != nil {
-		return false, wrapFailure(KindUnavailable, "work_size", "cannot read the accepted review report", true, "retry once the event log is readable", err)
+		return false, wrapFailure(KindUnavailable, "work_size", "cannot read the accepted review report", true, "retry once the database is readable", err)
 	}
+	return workSizeReviewFindsInScope(raw, seq)
+}
+
+func workSizeReviewFindsInScope(raw string, seq int64) (bool, error) {
 	var report WorkerCompletedPayload
 	if err := json.Unmarshal([]byte(raw), &report); err != nil {
 		return false, newFailure(KindInvariantViolation, "work_size", "a stored review report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
@@ -181,10 +119,9 @@ func workSizeRecordedBasisTx(ctx context.Context, q queryer, workID string) ([]s
 
 // workSizeReviewBasisTx is the exact basis the next size record of the item
 // carries: every proof derived now and every proof recorded earlier on its
-// work item, sorted and distinct. A positive before bounds the derivation as
-// deriveWorkSizeProofsTx does.
-func workSizeReviewBasisTx(ctx context.Context, q queryer, workID string, before int64) ([]string, error) {
-	derived, err := deriveWorkSizeProofsTx(ctx, q, workID, before)
+// work item, sorted and distinct. The window is the current pre-write state.
+func workSizeReviewBasisTx(ctx context.Context, q queryer, workID string) ([]string, error) {
+	derived, err := deriveWorkSizeProofsTx(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}

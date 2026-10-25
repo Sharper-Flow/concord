@@ -53,7 +53,7 @@ func recordWorkflowAssignmentGroup(ctx context.Context, tx *sql.Tx, event Event,
 	if err != nil {
 		return err
 	}
-	correctionRef, err := workflowDeclaredReviewCorrection(ctx, tx, event.SubjectID, p.StepID, p.WorkerAttemptID, &state)
+	correctionRef, err := workflowDeclaredReviewCorrection(ctx, tx, event.SubjectID, p.WorkerAttemptID, &state)
 	if err != nil {
 		return err
 	}
@@ -75,20 +75,19 @@ func recordWorkflowAssignmentGroup(ctx context.Context, tx *sql.Tx, event Event,
 	return err
 }
 
-func workflowDeclaredReviewCorrection(ctx context.Context, q queryer, workID, step, attempt string, state *WorkflowReviewState) (string, error) {
+func workflowDeclaredReviewCorrection(ctx context.Context, q queryer, workID, attempt string, state *WorkflowReviewState) (string, error) {
 	if state == nil || state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent || state.Accepted.Report.Disposition != "correction_required" {
 		return "", nil
 	}
-	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, step, attempt)
+	correction, err := workflowCorrectionOpenRecord(ctx, q, workID, attempt, "workflow_correction")
 	if err != nil || correction == nil {
 		return "", err
 	}
-	var action string
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.action_id'),'') FROM domain_events WHERE event_id=? AND subject_id=?`, correction.SourceEventID, workID).Scan(&action); err != nil {
+	if _, err := workflowCorrectionContextForRecord(ctx, q, workID, "", correction); err != nil {
 		return "", err
 	}
-	if action == "request_correction" {
-		return correction.SourceEventID, nil
+	if correction.fields.ActionID == "request_correction" {
+		return correction.sourceID, nil
 	}
 	return "", nil
 }

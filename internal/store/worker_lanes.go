@@ -1338,6 +1338,9 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := writeWorkerDispatchFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
 			return err
 		}
+		if err := writeOracleFindingFactsTx(ctx, tx, event); err != nil {
+			return err
+		}
 		return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO worker_attempts
@@ -1350,6 +1353,9 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create worker attempt projection", true, "retry once the database is writable", err)
 	}
 	if err := writeWorkerDispatchFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	if err := writeOracleFindingFactsTx(ctx, tx, event); err != nil {
 		return err
 	}
 	return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
@@ -1628,7 +1634,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if !sameWorkerJob(dispatchedJob, payload.WorkerJob) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed worker_job does not name the worker-job revision the attempt was dispatched under", false, "report the worker_job the dispatch packet carried, or none when it carried none")
 	}
-	if err := validateWorkerCompletedOracleJoin(ctx, tx, event, attempt.WorkID, payload, dispatchedJob); err != nil {
+	if err := validateWorkerCompletedOracleJoin(ctx, tx, attempt.WorkID, payload, dispatchedJob); err != nil {
 		return err
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
@@ -1643,6 +1649,15 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	if err := writeOracleFindingFactsTx(ctx, tx, event); err != nil {
+		return err
+	}
+	if err := advanceWorkflowReviewCompletedTx(ctx, tx, event, payload); err != nil {
+		return err
+	}
+	if err := writeWorkContextFacts(ctx, tx, event); err != nil {
 		return err
 	}
 	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)
@@ -1664,7 +1679,7 @@ func validateWorkerCompletedOracleJob(payload WorkerCompletedPayload) error {
 // of an oracle-bound dispatch carries a classification, and every receipt,
 // finding tie, and closure claim joins that revision's recorded oracle and the
 // prior ranked-finding lineage. Oracle-free dispatches keep their legacy reviews.
-func validateWorkerCompletedOracleJoin(ctx context.Context, tx *sql.Tx, event Event, workID string, payload WorkerCompletedPayload, dispatchedJob *WorkerJobBinding) error {
+func validateWorkerCompletedOracleJoin(ctx context.Context, tx *sql.Tx, workID string, payload WorkerCompletedPayload, dispatchedJob *WorkerJobBinding) error {
 	if hasOracleReportContent(payload) || payload.Review != nil {
 		var oracle *AcceptanceOracle
 		if dispatchedJob != nil {
@@ -1678,7 +1693,7 @@ func validateWorkerCompletedOracleJoin(ctx context.Context, tx *sql.Tx, event Ev
 			return oracleFindingFailure(KindInvalidPayload, "a report carrying oracle content was dispatched under a job revision that records no oracle", "report oracle content only under an oracle-bearing revision")
 		}
 		if oracle != nil {
-			lineage, lineageErr := readWorkerOracleFindingLineageExcludingTx(ctx, tx, workID, event.Seq)
+			lineage, lineageErr := readWorkerOracleFindingLineageTx(ctx, tx, workID)
 			if lineageErr != nil {
 				return lineageErr
 			}
@@ -1836,6 +1851,9 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if err := writeWorkerTerminalFactsTx(ctx, tx, event, payload.AttemptID); err != nil {
+		return err
+	}
+	if err := writeWorkContextFacts(ctx, tx, event); err != nil {
 		return err
 	}
 	return advanceWorkflowCorrectionFactsTx(ctx, tx, event)

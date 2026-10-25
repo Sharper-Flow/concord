@@ -83,7 +83,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if p.ModelVersion >= 2 {
-		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID, event.Seq)
+		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID)
 		if err != nil {
 			return err
 		}
@@ -116,7 +116,7 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Seq, workflowJSON(sliceOrEmpty(p.ReviewBasis))); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size record", true, "retry once the database is writable", err)
 	}
-	return nil
+	return resetWorkSizeProofFactsTx(ctx, tx, event.SubjectID)
 }
 
 // checkWorkSizeFootprint holds the derived counts to the snapshot they were

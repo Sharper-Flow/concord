@@ -556,20 +556,33 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		// Projection-only reproduction of the supersession recovery
 		// inventory (TestOwnerOracleReceiptViewRecoversAfterContractSupersession):
 		// one synthetic reported receipt past the retained bound enters the
-		// log by direct insert, beside no dispatch and no attempt. This makes
-		// no live-terminal admission claim — the separate completed and
-		// failed custody tests prove the valid terminal route — and invokes
-		// no fold: the refusal under test is the reader's classification of
-		// the over-bound retained lineage, not a producer's admission.
+		// log by direct insert, beside no dispatch and no attempt, and feeds
+		// the current lineage writer in that transaction. This makes no
+		// live-terminal admission claim: the separate completed and failed
+		// custody tests prove the valid terminal route. The refusal under test
+		// is the reader's classification of over-bound retained lineage.
 		receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
-		payload := string(mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}}))
+		payload := mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
 		if err := s.Transact(context.Background(), func(tx *Transaction) error {
+			scope, err := beginFold(context.Background(), tx.tx)
+			if err != nil {
+				return err
+			}
 			for i := range oracleRetainedReceiptsMax + 1 {
-				if _, err := tx.tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor:fixture','2026-10-10T00:00:00Z',6,?)`, "receipt-history-"+itoa(i), WorkerCompleted, fixture.workID, payload); err != nil {
+				id := "receipt-history-" + itoa(i)
+				result, err := tx.tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor:fixture','2026-10-10T00:00:00Z',6,?)`, id, WorkerCompleted, fixture.workID, string(payload))
+				if err != nil {
+					return err
+				}
+				seq, err := result.LastInsertId()
+				if err != nil {
+					return err
+				}
+				if err := writeOracleFindingFactsTx(context.Background(), tx.tx, Event{Seq: seq, EventID: id, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Payload: payload}); err != nil {
 					return err
 				}
 			}
-			return nil
+			return scope.close(context.Background())
 		}); err != nil {
 			t.Fatal(err)
 		}

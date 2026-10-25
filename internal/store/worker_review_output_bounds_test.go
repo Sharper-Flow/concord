@@ -51,29 +51,18 @@ func TestReviewOracleOwnerIDBound(t *testing.T) {
 }
 
 func TestReviewReportRefPreservesUnboundedEventID(t *testing.T) {
-	db, appendEvent, _ := progressHistory(t)
-	for _, statement := range []string{
-		`CREATE TABLE workflow_contracts(work_id TEXT)`,
-		`CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT)`,
-	} {
-		if _, err := db.Exec(statement); err != nil {
-			t.Fatal(err)
-		}
-	}
-	report := reviewBlockFixture()
-	const attempt = "review:unbounded-ref"
-	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: "review", WorkerSubjectCommit: report.InputCandidate.Commit})
-	reportSeq := appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, Review: report})
-	acceptedSeq := appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: attempt})
-	if _, err := db.Exec(`UPDATE domain_events SET actor=? WHERE seq=?`, progressActorRecord(t, db, "main", "coordinator"), acceptedSeq); err != nil {
-		t.Fatal(err)
-	}
 	for _, length := range []int{512, 513, 4096} {
 		t.Run(fmt.Sprint(length), func(t *testing.T) {
+			db, appendEvent := g32ReviewFixture(t)
+			report := reviewBlockFixture()
+			const attempt = "review:unbounded-ref"
+			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: attempt, WorkerCapabilityClass: "review", WorkerSubjectCommit: report.InputCandidate.Commit})
+			appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: attempt, Review: report})
 			reportRef := strings.Repeat("e", length)
-			if _, err := db.Exec(`UPDATE domain_events SET event_id=? WHERE seq=?`, reportRef, reportSeq); err != nil {
+			if _, err := db.Exec(`UPDATE worker_attempts SET terminal_event_id=? WHERE work_id='work-history' AND attempt_id=?`, reportRef, attempt); err != nil {
 				t.Fatal(err)
 			}
+			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: attempt, ActorRef: progressActorRecord(t, db, "main", "coordinator")})
 			state, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
 			if err != nil {
 				t.Fatal(err)

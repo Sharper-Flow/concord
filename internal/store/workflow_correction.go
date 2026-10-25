@@ -1207,6 +1207,12 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 	if err != nil {
 		return nil, err
 	}
+	return workflowCorrectionContextForRecord(ctx, q, workID, stepID, record)
+}
+
+// A selected correction record owns both provenance and validation. Consumers
+// that already selected it must not reselect or skip malformed-attempt errors.
+func workflowCorrectionContextForRecord(ctx context.Context, q queryer, workID, stepID string, record *workflowCorrectionRecordState) (*WorkflowCorrectionContext, error) {
 	if record == nil {
 		return nil, nil
 	}

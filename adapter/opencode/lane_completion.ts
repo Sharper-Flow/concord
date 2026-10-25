@@ -355,8 +355,9 @@ function cancelledDetail(error: string, observations: HostFailureObservation[]):
 // terminal error for the exact host call that consumed the dispatch window.
 // A spawn that dies before any result or error part takes a third route: the
 // host publishes session.error, the tool part stays running, and neither the
-// completion hook nor an error part ever arrives. That event settles through
-// failSpawnWithoutPartEvent below.
+// completion hook nor an error part ever arrives. failSpawnWithoutPartEvent
+// below settles that event only when every earlier authorization in the
+// session reached its correlated Task terminal before this one opened.
 export async function failDispatchedWorker(event: unknown, deps: LaneCompletionDeps = {}): Promise<AgentResultEnvelope | null> {
   if (!object(event) || !object(event.properties)) return null
   // Transient observations stay separate until the exact child Task settles.

@@ -963,9 +963,10 @@ describe("host task failure", () => {
 
 // A spawn that dies before any result or error part fires neither the
 // completion hook nor an error part: the host publishes session.error on the
-// parent session and leaves the tool part running. That event is the settle
-// trigger, and the abandonment route is the settle path because the record
-// names no child session.
+// parent session and leaves the tool part running. That event settles the
+// attempt only when every earlier authorization reached its correlated Task
+// terminal first, and the abandonment route is the settle path because the
+// record names no child session.
 describe("spawn failure without a part event", () => {
   afterEach(() => hostControlPlane().bind(undefined))
 

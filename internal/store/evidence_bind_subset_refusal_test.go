@@ -12,11 +12,10 @@ import (
 // runBindAction submits one workflow action with an explicit top-level
 // evidence-ref list and its parallel per-entry evidence kinds, mirroring the
 // agent layer's evidenceLocators and evidenceKinds threading.
-func runBindAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, evidenceRefs []string, evidenceKinds ...string) error {
+func runBindAction(t *testing.T, s *Store, workID string, payload json.RawMessage, evidenceRefs []string, evidenceKinds ...string) error {
 	t.Helper()
-	if version == 0 {
-		version = readWorkVersion(t, s, workID)
-	}
+	const action = "bind_evidence"
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -49,7 +48,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 		thirdRef  = "ci:run/333"
 	)
 
-	err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{firstRef, secondRef, thirdRef})
+	err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{firstRef, secondRef, thirdRef})
 	if err == nil {
 		t.Fatal("bind_evidence admitted a call submitting several subjects while it can bind only one")
 	}
@@ -81,7 +80,7 @@ func TestBindEvidenceRefusesArraySubjectOutsideTheReferenceRule(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 	const invalidLocator = "go test ./internal/store/ -run TestThing"
 
-	err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{invalidLocator})
+	err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{invalidLocator})
 	if err == nil {
 		t.Fatalf("bind_evidence admitted an array-derived subject the verdict cannot name: %q", invalidLocator)
 	}
@@ -100,7 +99,7 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	const subject = "ci:run/777"
 	before := readWorkVersion(t, s, workID)
 
-	if err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{subject}, "verification", "review"); err != nil {
+	if err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{subject}, "verification", "review"); err != nil {
 		t.Fatalf("two-kind bind of one subject refused: %v", err)
 	}
 	if after := readWorkVersion(t, s, workID); after <= before {

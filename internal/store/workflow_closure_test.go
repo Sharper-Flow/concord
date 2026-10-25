@@ -292,6 +292,74 @@ func TestReviewedClosureOrdinaryRecoverySubjectIsNotJudgement(t *testing.T) {
 	}
 }
 
+func TestReviewedClosureEnvelopeOrdinaryKindCannotUseExemption(t *testing.T) {
+	for _, alreadyBound := range []bool{false, true} {
+		name := "no_outstanding"
+		if alreadyBound {
+			name = "already_bound"
+		}
+		t.Run(name, func(t *testing.T) {
+			workID := "closure-envelope-" + name
+			entry := mustBuiltinDefinition(t, "workflow.implementation")
+			f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, entry, "execution", []string{"verification"}, []string{"review", "artifact"}, map[string]any{
+				"predicate_id": "predicate:envelope", "ordinal": 0, "outcome_kind": "exists",
+				"outcome_payload": map[string]any{"kind": "exists", "subjects": []string{workID}, "surface": "work_items"},
+			})
+			verificationRef := "receipt:verified"
+			if alreadyBound {
+				verificationRef = closureTestHash
+			}
+			if err := closureBind(t, f, workID, "verification", verificationRef); err != nil {
+				t.Fatal(err)
+			}
+			actor, _ := WorkflowActorRef(f.owner)
+			if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "release", actor); err != nil {
+				t.Fatal(err)
+			}
+			outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(t.Context(), f.store.db, workID, entry.Definition)
+			if err != nil || len(outstanding) != 0 {
+				t.Fatalf("ordinary evidence debt=%v err=%v, want none", outstanding, err)
+			}
+			priorHash := "sha256:" + strings.Repeat("b", 64)
+			if err := closureBind(t, f, workID, "review", priorHash); err != nil {
+				t.Fatal(err)
+			}
+			payload := mustJSONValue(map[string]any{"evidence_kind": "review", "immutable_subject_ref": closureTestHash})
+			assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
+				return runBindAction(t, f.store, workID, payload, []string{closureTestHash}, "verification")
+			})
+			requireClosureHash(t, f.store, workID, priorHash)
+		})
+	}
+}
+
+func TestReviewedClosureEnvelopeClosureKindsRemainAdmitted(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		kinds []string
+		count int
+	}{
+		{"payload_only", nil, 1},
+		{"review", []string{"review"}, 1},
+		{"durable_note", []string{"durable_note"}, 2},
+		{"closure_duplicates", []string{"review", "durable_note", "review"}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workID := "closure-envelope-positive-" + tc.name
+			f := closureBindingFixture(t, workID, "release")
+			payload := mustJSONValue(map[string]any{"evidence_kind": "review", "immutable_subject_ref": closureTestHash})
+			if err := runBindAction(t, f.store, workID, payload, []string{closureTestHash}, tc.kinds...); err != nil {
+				t.Fatal(err)
+			}
+			requireClosureHash(t, f.store, workID, closureTestHash)
+			var count int
+			if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, closureTestHash).Scan(&count); err != nil || count != tc.count {
+				t.Fatalf("emitted binding count=%d err=%v, want %d", count, err, tc.count)
+			}
+		})
+	}
+}
+
 func TestReviewedClosureOrdinaryCompleteRequiresJudgement(t *testing.T) {
 	const workID = "closure-required-complete"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{

@@ -733,6 +733,10 @@ var cutoverEvidenceQueries = []struct {
 	{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
 	{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
 	{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
+	{"durable_knowledge", `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work ORDER BY home_project_id,home_locator_id,id`},
+	{"durable_knowledge_products", `SELECT home_project_id,home_locator_id,work_id,product_id FROM archived_work_products ORDER BY home_project_id,home_locator_id,work_id,product_id`},
+	{"durable_knowledge_projects", `SELECT home_project_id,home_locator_id,work_id,project_id FROM archived_work_projects ORDER BY home_project_id,home_locator_id,work_id,project_id`},
+	{"product_knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 }
 
 // mustOpenCutoverStore opens the store file directly, without either core's
@@ -1048,9 +1052,43 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	session := startAdapterSessionOperation(t, baselineAdapter, path, "/srv/cutover-baseline-session")
 	sessionPID := session.command.Process.Pid
 	seedCutoverLivingEvidence(t, path, sessionPID)
+	code, out, errText = runRelease(t, baselineBinary, path, "project-locator-add", mustJSON(t, map[string]any{
+		"project_id": "project", "locator_id": "cutover-knowledge", "kind": "canonical_path", "value": t.TempDir(), "expected_version": 1,
+	}))
+	if code != 0 {
+		t.Fatalf("register baseline knowledge locator: %d %s %s", code, out, errText)
+	}
+	code, out, errText = runRelease(t, baselineBinary, path, "product-knowledge-home-designate", `{"product_id":"cutover-product","project_id":"project","locator_id":"cutover-knowledge","expected_version":2}`)
+	if code != 0 {
+		t.Fatalf("designate baseline Product knowledge home: %d %s %s", code, out, errText)
+	}
+	// Seed the released index's durable lesson and explicit Product scope
+	// before cutover, not by reconstructing knowledge in the migrated store.
+	knowledgeTx, err := mustOpenCutoverStore(t, path).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer knowledgeTx.Rollback()
+	if _, err := knowledgeTx.Exec(`
+INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+VALUES('lesson-cutover','lesson','Preserve required research pins','2026-10-12T00:00:00Z','published','["cutover"]','completed',0,'A new research revision must not move an existing required consumer pin.','project','cutover-knowledge','.concord/docs/lessons/cutover.md','1f2e3d4c5b6a79887766554433221100ffeeddccb','sha256:` + strings.Repeat("a", 64) + `','explicit','1.0');
+INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id)
+VALUES('project','cutover-knowledge','lesson-cutover','cutover-product');
+INSERT INTO archived_work_projects(home_project_id,home_locator_id,work_id,project_id)
+VALUES('project','cutover-knowledge','lesson-cutover','project');
+DELETE FROM fold_guard;`); err != nil {
+		t.Fatalf("seed baseline durable Product knowledge: %v", err)
+	}
+	if err := knowledgeTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	want := captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["effect_receipts"]) != 13 {
-		t.Fatalf("seeded identities = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["effect_receipts"]))
+	if len(want["durable_knowledge"]) != 1 || len(want["durable_knowledge_products"]) != 1 || len(want["durable_knowledge_projects"]) != 1 || len(want["product_knowledge_homes"]) != 1 {
+		t.Fatalf("baseline must carry one durable lesson with Product and Project scope: %+v", want)
+	}
+	if len(want["effect_receipts"]) != 15 {
+		t.Fatalf("seeded identities = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, completion, Project locator, and Product knowledge home", len(want["effect_receipts"]))
 	}
 	if len(want["active_research_consumers"]) != 1 ||
 		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {
@@ -1234,6 +1272,70 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		t.Fatal("the baseline core's floor refusal changed the migrated store")
 	}
 	assertPreserved(t, captureCurrentCutoverEvidence)
+
+	// Continue the surviving owner's actual research through the current
+	// transactional API. A successful upgrade no-op alone proves no authoring.
+	ctx := context.Background()
+	current, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	assertActiveWithoutLog := func() {
+		t.Helper()
+		var logs, active int
+		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logs); err != nil {
+			t.Fatal(err)
+		}
+		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id IN ('cutover-owner','cutover-consumer') AND lifecycle='in_progress'`).Scan(&active); err != nil {
+			t.Fatal(err)
+		}
+		if logs != 0 || active != 2 {
+			t.Fatalf("continued work requires both surviving active items and no domain_events: logs=%d active=%d", logs, active)
+		}
+	}
+	assertActiveWithoutLog()
+	const continuedQuestion = "Can the surviving research owner publish a new revision without moving its required consumer?"
+	if err := current.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{
+			PackID: "pack-cutover-living", ExpectedVersion: 1,
+			Revision: store.ResearchRevisionInput{
+				Question: continuedQuestion, Method: "compare the new revision with the retained required consumer pin",
+				ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`),
+			},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("surviving active research must remain authorable without the log: %v", err)
+	}
+	if err := current.Close(); err != nil {
+		t.Fatal(err)
+	}
+	current, err = store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	continued, err := current.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: "pack-cutover-living", Limit: 100})
+	if err != nil {
+		t.Fatalf("read continued research after reopen: %v", err)
+	}
+	if continued.OwnerWorkID != "cutover-owner" || continued.CurrentRevision != 2 || continued.ExpectedVersion != 2 ||
+		len(continued.Revisions) != 2 || continued.Revisions[0].Question != "does the cutover preserve living evidence?" || continued.Revisions[1].Question != continuedQuestion ||
+		len(continued.Consumers) != 1 || continued.Consumers[0].ConsumerWorkID != "cutover-consumer" || continued.Consumers[0].Revision != 1 || !continued.Consumers[0].Required {
+		t.Fatalf("continued research must persist its new revision and retain the original required consumer pin: %+v", continued)
+	}
+	assertActiveWithoutLog()
+	afterContinuation := captureCurrentCutoverEvidence(t, current.DatabaseForTesting())
+	for name, expected := range want {
+		if name == "active_research_packs" || name == "active_research_revisions" {
+			continue // Only the owner's research revision and pack version advance.
+		}
+		got := afterContinuation[name]
+		if !reflect.DeepEqual(got, expected) {
+			t.Fatalf("continued work changed retained %s: got %v, want %v", name, got, expected)
+		}
+	}
 }
 
 // stampAdapterRuntime copies one source tree's adapter runtime into a

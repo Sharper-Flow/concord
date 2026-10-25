@@ -629,7 +629,11 @@ func TestNoKnowledgeChangeJudgementCompletesThroughClose(t *testing.T) {
 	before := readWorkVersion(t, s, workID)
 	err := complete()
 	assertFailureKind(t, err, KindMissingEvidence)
-	if !strings.Contains(err.Error(), "reviewed closure") || readWorkVersion(t, s, workID) != before {
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Detail != "workflow completion requires a reviewed closure content hash" || failure.RecoveryAction != "bind the reviewed receipt's exact sha256 content hash on the close step before complete" {
+		t.Fatalf("close exit did not name its missing requirement and admitted recovery: %v", err)
+	}
+	if readWorkVersion(t, s, workID) != before || readInstanceStep(t, s, workID) != "release" {
 		t.Fatalf("unbound completion did not refuse without effects: %v", err)
 	}
 	const receipt = "# Reviewed closure judgment\n\nNo knowledge change. The implementation changes no accepted Product law or reusable knowledge. Verification and Review evidence cover the delivered outcome.\n"

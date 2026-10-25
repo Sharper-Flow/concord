@@ -132,6 +132,12 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("pending-question refusal=%v, want missing evidence", err)
 		}
+		if failure.Detail != "contract approval requires a research pack revision for recorded pending questions" || !strings.Contains(failure.RecoveryAction, "add research_bindings to the approving action") {
+			t.Fatalf("planning exit did not name its missing requirement and admitted recovery: %+v", failure)
+		}
+		if readWorkVersion(t, s, workID) != version || readInstanceStep(t, s, workID) != "planning" {
+			t.Fatal("missing research advanced the planning exit")
+		}
 	}
 	if err := applyInvestigationGateApproval(t, s, workID, version, "same-action-approval", actor, approval, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}); err != nil {
 		t.Fatalf("approve_contract with same-action research_bindings refused: %v", err)
@@ -142,6 +148,9 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	}
 	if consumers != 1 {
 		t.Fatalf("same-action research binding count=%d, want 1", consumers)
+	}
+	if readInstanceStep(t, s, workID) != "execution" {
+		t.Fatal("the refusal's same-action research recovery did not admit the planning exit")
 	}
 }
 

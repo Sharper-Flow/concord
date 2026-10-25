@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,15 +50,12 @@ func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	scope, err := beginWrite(ctx, tx)
-	if err != nil {
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
+	seedHistoricalLocatorParents(t, tx, events[:3])
 	for _, e := range events {
 		if e.Kind != "project.locator_added" {
-			if err := applyEffect(ctx, tx, e, scope); err != nil {
-				t.Fatal(err)
-			}
 			continue
 		}
 		var p projectLocatorPayload
@@ -70,11 +66,11 @@ func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...
 		if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, p.LocatorID, p.ProjectID, p.Kind, p.Value, p.NormalizedValue, stamp, stamp); err != nil {
 			t.Fatal(err)
 		}
-		if err := bumpVersion(ctx, tx, "projects", e, p.ExpectedVersion, p.ResultingVersion, "Project"); err != nil {
+		if _, err := tx.Exec(`UPDATE projects SET version=?,updated_at=? WHERE id=? AND version=?`, p.ResultingVersion, stamp, p.ProjectID, p.ExpectedVersion); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := scope.close(ctx); err != nil {
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -86,7 +82,11 @@ func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...
 func remoteUpgradeSnapshot(t *testing.T, s *Store, guard string) string {
 	t.Helper()
 	var b strings.Builder
-	for _, table := range []string{"schema_migrations", "domain_events", "projects", "project_locators"} {
+	identityTable := "domain_events"
+	if guard == "write_guard" {
+		identityTable = "effect_receipts"
+	}
+	for _, table := range []string{"schema_migrations", identityTable, "projects", "project_locators"} {
 		b.WriteString(readTableSQL(t, context.Background(), s.db, table))
 		b.WriteString(cutoverTableSnapshot(t, s, table))
 	}
@@ -122,25 +122,20 @@ func TestRemoteLocatorUpgradeRecordedCutover(t *testing.T) {
 			t.Fatalf("wrong identity: %+v", l)
 		}
 	}
-	after := histEventRows(t, s)
-	if len(after) != len(old)+4 || !reflect.DeepEqual(old, after[:len(old)]) {
-		t.Fatal("corrections missing or old journal changed")
+	assertHistoricalReceipts(t, s.db, old)
+	for i, id := range []string{"file", "ftp", "https", "scp"} {
+		p := projectLocatorPayload{ProjectID: "project-a", LocatorID: id, ExpectedVersion: int64(6 + i), ResultingVersion: int64(7 + i)}
+		kind, version := "project.locator_removed", 1
+		if i >= 2 {
+			kind, version = "project.locator_updated", 2
+			p.Kind, p.NormalizedValue = LocatorGitRemote, want[id]
+			p.Value = map[string]string{"https": "https://github.com/o/r", "scp": "git@github.com:o/r"}[id]
+		}
+		payload, _ := json.Marshal(p)
+		assertHistoricalReceipts(t, s.db, []histEventRow{{Seq: int64(len(old) + i + 1), EventID: remoteLocatorUpgradeName + ":" + id, Kind: kind, SubjectType: string(SubjectProject), SubjectID: "project-a", Actor: "operator", Version: version, Payload: string(payload)}})
 	}
-	for i, event := range after[len(old):] {
-		var p projectLocatorPayload
-		if err := json.Unmarshal([]byte(event.Payload), &p); err != nil {
-			t.Fatal(err)
-		}
-		if p.ExpectedVersion != int64(6+i) || p.ResultingVersion != int64(7+i) {
-			t.Fatalf("nonconsecutive correction versions: %+v", p)
-		}
-		if i < 2 {
-			if event.Kind != "project.locator_removed" || event.Version != 1 || p.Value != "" || p.NormalizedValue != "" || p.Kind != "" {
-				t.Fatalf("removal copied remote data or wrong event: %+v", event)
-			}
-		} else if event.Kind != "project.locator_updated" || event.Version != 2 {
-			t.Fatalf("wrong update event: %+v", event)
-		}
+	if got := countRows(t, s, "effect_receipts"); got != len(old)+4 {
+		t.Fatalf("receipt count=%d, want %d", got, len(old)+4)
 	}
 	var marked int
 	if err := s.db.QueryRow(`SELECT count(*) FROM project_locators WHERE kind='git_remote' AND normalization_version=2`).Scan(&marked); err != nil || marked != 2 {
@@ -184,9 +179,11 @@ func TestRemoteLocatorUpgradeIncompleteURLRelinquishment(t *testing.T) {
 			if err != nil || len(rows) != 1 || rows[0].ID != "path" {
 				t.Fatalf("surviving rows=%+v err=%v", rows, err)
 			}
-			after := histEventRows(t, s)
-			if len(after) != len(before)+1 || !reflect.DeepEqual(before, after[:len(before)]) || after[len(before)].Kind != "project.locator_removed" {
-				t.Fatalf("expected one recorded removal, events=%+v", after)
+			assertHistoricalReceipts(t, s.db, before)
+			payload, _ := json.Marshal(projectLocatorPayload{ProjectID: "project-a", LocatorID: "remote", ExpectedVersion: 3, ResultingVersion: 4})
+			assertHistoricalReceipts(t, s.db, []histEventRow{{Seq: int64(len(before) + 1), EventID: remoteLocatorUpgradeName + ":remote", Kind: "project.locator_removed", SubjectType: string(SubjectProject), SubjectID: "project-a", Actor: "operator", Version: 1, Payload: string(payload)}})
+			if got := countRows(t, s, "effect_receipts"); got != len(before)+1 {
+				t.Fatalf("expected one recorded removal, receipts=%d", got)
 			}
 		})
 	}
@@ -279,7 +276,7 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 				}
 			}
 			if mode == "mid-append" {
-				if _, err := s.db.Exec(`CREATE TRIGGER fail_remote_update BEFORE INSERT ON domain_events WHEN NEW.kind='project.locator_updated' BEGIN SELECT RAISE(ABORT,'injected remote update failure'); END`); err != nil {
+				if _, err := s.db.Exec(`CREATE TRIGGER fail_remote_update BEFORE UPDATE ON project_locators WHEN NEW.locator_id='a' BEGIN SELECT RAISE(ABORT,'injected remote update failure'); END`); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -311,7 +308,7 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 func TestRemoteLocatorUpgradeKeyOrderingAndLaterDDL(t *testing.T) {
 	original := migrations
 	t.Cleanup(func() { migrations = original })
-	migrations = append(append([]migration(nil), migrations...), migration{Version: CurrentSchemaVersion() + 1, Name: "remote_cutover_order_witness", SQL: `CREATE TABLE remote_cutover_witness(n INTEGER CHECK(n=0)); INSERT INTO remote_cutover_witness SELECT count(*) FROM domain_events WHERE event_id LIKE 'project_locator_remote_identity_v2:%';`})
+	migrations = append(append([]migration(nil), migrations...), migration{Version: CurrentSchemaVersion() + 1, Name: "remote_cutover_order_witness", SQL: `CREATE TABLE remote_cutover_witness(n INTEGER CHECK(n=0)); INSERT INTO remote_cutover_witness SELECT count(*) FROM effect_receipts WHERE event_id LIKE 'project_locator_remote_identity_v2:%';`})
 	s := remoteUpgradeFixture(t,
 		ProjectLocator{ID: "a-dependent", Kind: LocatorGitRemote, Value: "ssh://https/host/o/r"},
 		ProjectLocator{ID: "z-occupant", Kind: LocatorGitRemote, Value: "https://host/o/r"})
@@ -344,14 +341,13 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	scope, err := beginWrite(ctx, tx)
-	if err != nil {
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyEffect(ctx, tx, e, scope); err != nil {
+	if _, err := tx.Exec(`DELETE FROM project_locators WHERE locator_id='gone'; UPDATE projects SET version=4 WHERE id='project-a'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := scope.close(ctx); err != nil {
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

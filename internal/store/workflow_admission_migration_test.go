@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -397,10 +398,12 @@ func TestWorkflowAdmissionMigration149RejectsMissingCompletedClass(t *testing.T)
 		`{"step_id":null,"action_id":"record_report"}`,
 	} {
 		t.Run(payload, func(t *testing.T) {
-			s := openTemp(t)
-			seedWork(t, s, "admission-invalid-source")
+			path := filepath.Join(t.TempDir(), "admission-invalid-148.db")
+			s := &Store{db: openMigratedTo(t, path, 148), path: path}
+			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('admission-invalid-source','task','Invalid completion fixture','needed',0,1,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
 			insertHistoricalEvent(t, s, Event{EventID: "admission-invalid-completion", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "admission-invalid-source", Actor: "actor/legacy", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(payload)})
-			admissionMigrationDrop149(t, s)
 			tx, err := s.db.BeginTx(t.Context(), nil)
 			if err != nil {
 				t.Fatal(err)
@@ -429,7 +432,10 @@ func TestWorkflowAdmissionMigration149RejectsMissingCompletedClass(t *testing.T)
 			if tables != 0 || manifest != 0 || source != 1 {
 				t.Fatalf("failed migration left tables=%d manifest=%d source=%d; want 0,0,1", tables, manifest, source)
 			}
-			assertFoldGuardEmpty(t, s)
+			var guards int
+			if err := s.db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil || guards != 0 {
+				t.Fatalf("refusal leaked historical guard: %d, %v", guards, err)
+			}
 		})
 	}
 }

@@ -2,7 +2,7 @@ package store
 
 import (
 	"context"
-	"database/sql"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -105,12 +105,11 @@ ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
 `
 
 func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
-	db, err := sql.Open(driverName, ":memory:")
-	if err != nil {
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "effect-frontier.db"), 142)
+	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY,effect_seq INTEGER NOT NULL DEFAULT 0,last_progress_at TEXT NOT NULL DEFAULT ''); INSERT INTO work_items(id) VALUES('work')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work','task','Frontier fixture','needed',0,1,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -125,7 +124,14 @@ func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
+		scope, err := beginWrite(ctx, tx)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, Event{Seq: seq, EventID: "effect", SubjectType: SubjectWorkItem, SubjectID: "work", Kind: kind, OccurredAt: at}); err != nil {
+			t.Fatal(err)
+		}
+		if err := scope.close(ctx); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

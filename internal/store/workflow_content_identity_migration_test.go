@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -69,20 +70,63 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 	}
 	wantSchema := contentIdentity152Schema(t, s.db)
 
-	// Start with the actual current writers, then reverse only the input
-	// columns consumed by 152, as the CLI upgrade fixture does. No old writer
-	// or parallel migration implementation supplies the preservation oracle.
-	if _, err := s.db.Exec(contentIdentity152Reversal); err != nil {
+	// The current route supplies a complete data oracle. The historical store
+	// has the actual immutable 151 schema, not a reconstructed current schema.
+	path := filepath.Join(t.TempDir(), "content-identity-151.db")
+	db := openMigratedTo(t, path, 151)
+	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard') ORDER BY rowid`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Historical JSON is opaque retained evidence, including retired keys and
-	// whitespace. These changes model old payloads, not new authoring inputs.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-UPDATE worker_attempts SET dispatch_payload='{ "lane_version": 19, '||substr(dispatch_payload,2),
- terminal_payload='{ "workflow_definition_version": 26, '||substr(terminal_payload,2);
-DELETE FROM fold_guard;`); err != nil {
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
+	oldValues := map[string]map[string]string{
+		"durable_operations":           {"workflow_type_version": "26"},
+		"workflow_contracts":           {"definition_version": "26"},
+		"workflow_instances":           {"definition_version": "26"},
+		"workflow_context_checkpoints": {"workflow_definition_version": "26"},
+		"workflow_context_boundaries":  {"workflow_definition_version": "26"},
+		"worker_attempts": {
+			"lane_version":     "19",
+			"dispatch_payload": `'{ "lane_version": 19, '||substr(dispatch_payload,2)`,
+			"terminal_payload": `'{ "workflow_definition_version": 26, '||substr(terminal_payload,2)`,
+		},
+		"runtime_state_writers": {"version": "CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END"},
+	}
+	// Historical payloads include retired keys and whitespace. Their receipts
+	// must bind those exact inputs at INSERT, without updating immutable receipts.
+	rows, err = s.db.Query(`SELECT dispatch_event_id,'{ "lane_version": 19, '||substr(dispatch_payload,2) FROM worker_attempts WHERE dispatch_event_id IS NOT NULL
+UNION ALL SELECT terminal_event_id,'{ "workflow_definition_version": 26, '||substr(terminal_payload,2) FROM worker_attempts WHERE terminal_event_id IS NOT NULL`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestCase := "CASE event_id"
+	for rows.Next() {
+		var id, payload string
+		if err := rows.Scan(&id, &payload); err != nil {
+			t.Fatal(err)
+		}
+		digestCase += " WHEN '" + strings.ReplaceAll(id, "'", "''") + "' THEN '" + historicalFixturePayloadDigest(t, payload) + "'"
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldValues["effect_receipts"] = map[string]string{"payload_digest": digestCase + " ELSE payload_digest END"}
+	copyFixtureDataToPrefix(t, s, db, tables, oldValues, "write_guard")
+	s = &Store{db: db, path: path, Clock: s.Clock}
 	want := contentIdentity152Snapshot(t, s.db, true)
 	for table, rows := range want {
 		if len(rows) == 0 {
@@ -317,18 +361,3 @@ func contentIdentity152AssertSchema(t *testing.T, db *sql.DB) {
 		t.Fatalf("foreign key violations=%d, err=%v", violations, err)
 	}
 }
-
-const contentIdentity152Reversal = `
-ALTER TABLE durable_operations ADD COLUMN workflow_type_version INTEGER NOT NULL DEFAULT 26;
-ALTER TABLE durable_operations DROP COLUMN workflow_type_digest;
-ALTER TABLE workflow_contracts ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 26;
-ALTER TABLE workflow_instances ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 26 CHECK(definition_version>0);
-ALTER TABLE workflow_context_checkpoints ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 26 CHECK(workflow_definition_version>0);
-ALTER TABLE workflow_context_boundaries ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 26 CHECK(workflow_definition_version>0);
-ALTER TABLE worker_attempts ADD COLUMN lane_version INTEGER NOT NULL DEFAULT 19 CHECK(lane_version>0);
-CREATE TABLE runtime_state_writers_old(surface TEXT NOT NULL,definition_ref TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0),digest TEXT NOT NULL,binary_version TEXT NOT NULL,PRIMARY KEY(surface,definition_ref,version,digest));
-INSERT INTO runtime_state_writers_old SELECT surface,definition_ref,CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END,digest,binary_version FROM runtime_state_writers;
-DROP TABLE runtime_state_writers;
-ALTER TABLE runtime_state_writers_old RENAME TO runtime_state_writers;
-DELETE FROM schema_migrations WHERE version=152;
-`

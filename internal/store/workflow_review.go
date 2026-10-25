@@ -95,15 +95,25 @@ func workflowReviewDependencies(ctx context.Context, q queryer, workID string) (
 	if err != nil {
 		return result, err
 	}
-	if design == nil {
-		result.ArchitectureNotApplicable = true
-	} else {
-		result.ArchitectureDigest = reviewDigest(struct {
-			Approach    string                   `json:"approach"`
-			Decisions   []WorkflowDesignDecision `json:"decisions"`
-			TouchedRefs []string                 `json:"touched_refs"`
-		}{design.Approach, design.Decisions, design.TouchedRefs})
+	// The architecture basis is the design plus the law the active contract
+	// pins (CD-0242 D10), so a changed pin stales an accepted Review.
+	pins, err := readWorkflowLawRevisions(ctx, q, workID, version)
+	if err != nil {
+		return result, err
 	}
+	if design == nil && len(pins) == 0 {
+		result.ArchitectureNotApplicable = true
+		return result, nil
+	}
+	if design == nil {
+		design = &WorkflowDesignRecord{}
+	}
+	result.ArchitectureDigest = reviewDigest(struct {
+		Approach    string                   `json:"approach"`
+		Decisions   []WorkflowDesignDecision `json:"decisions"`
+		TouchedRefs []string                 `json:"touched_refs"`
+		LawPins     []WorkflowLawRevision    `json:"law_pins,omitempty"`
+	}{design.Approach, design.Decisions, design.TouchedRefs, pins})
 	return result, nil
 }
 

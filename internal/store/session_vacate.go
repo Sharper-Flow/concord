@@ -95,23 +95,17 @@ func validateSessionVacatedPayload(event Event, p sessionVacatedPayload) error {
 	return nil
 }
 
-// CountWorkSessionVacatesTx returns how many vacate operations the
-// projection already records for one work item and session. A recorded event
-// is the durable record of one vacate the core accepted, written before the
-// adapter moves the host session; it is not proof the session landed. The
-// count is therefore the ordinal of the next relocation request, not a count
-// of confirmed host moves. Read-only work resume writes no event and no
-// session-directory binding, so the recorded vacate history is the only
-// projection that distinguishes repeated vacates of the same work item
-// by the same session. It runs inside the caller's transaction so the read
-// observes the caller's own uncommitted events.
+// CountWorkSessionVacatesTx returns the number of accepted vacate requests
+// for one work item and session, not confirmed host moves. The current counter
+// supplies the next relocation identity's ordinal, including requests that
+// replaced an earlier request. The caller's transaction sees its own writes.
 func CountWorkSessionVacatesTx(ctx context.Context, transaction *Transaction, workID, sessionRef string) (int, error) {
 	tx, err := transactionSQL(transaction, "session_vacate")
 	if err != nil {
 		return 0, err
 	}
 	var count int
-	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT vacate_count FROM session_relocation_counts WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "session_vacate", "cannot count the recorded vacate events", true, "retry once the database is readable", err)
 	}
@@ -437,12 +431,11 @@ func latestSessionVacateRequestTx(ctx context.Context, q queryer, workID, sessio
 	return request, nil
 }
 
-// countSessionVacateLandingsTx returns how many vacate landing events the
-// log records for one work item and session: the ordinal of the next
-// landing event's identity. It runs inside the caller's transaction.
+// countSessionVacateLandingsTx reads the current count of accepted vacate
+// landings for one work item and session: the next landing identity's ordinal.
 func countSessionVacateLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT vacate_landing_count FROM session_relocation_counts WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "vacate-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
 	}

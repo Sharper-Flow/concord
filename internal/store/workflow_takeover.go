@@ -60,23 +60,25 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 		}
 		return nil, workflowProjectionError(err, "cannot read the current workflow step for the takeover")
 	}
-	var startSeq int64
-	var raw string
-	if err := q.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, step).Scan(&startSeq, &raw); err != nil {
+	startEvent, err := readWorkflowActionStartTx(ctx, q, workID, step, false)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, workflowProjectionError(err, "cannot inspect the latest workflow action start for the takeover")
 	}
+	startSeq := startEvent.Seq
 	var start workflowActionStartedPayload
-	if err := json.Unmarshal([]byte(raw), &start); err != nil {
+	if err := json.Unmarshal(startEvent.Payload, &start); err != nil {
 		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
-	var left int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?) AND seq>? AND json_extract(payload,'$.step_id')<>?`, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, startSeq, step).Scan(&left); err != nil {
+	var left bool
+	if err := q.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND step_id<>? AND latest_start_seq>?) OR
+		EXISTS(SELECT 1 FROM workflow_step_completions WHERE work_id=? AND step_id<>? AND completion_seq>?)`, workID, step, startSeq, workID, step, startSeq).Scan(&left); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect whether the held attempt's step was left")
 	}
-	if left > 0 {
+	if left {
 		return nil, nil
 	}
 	if action.RequiredCapability == WorkerDispatchCapability {
@@ -95,13 +97,12 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	if holder == "" || holder == callerActorRef {
 		return nil, nil
 	}
-	var vacated int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=?
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind='work.session_vacated' AND e.seq>?
-		AND json_extract(e.payload,'$.session_ref')=a.session_ref`, holder, string(SubjectWorkItem), workID, max(since, startSeq)).Scan(&vacated); err != nil {
+	var vacated bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_vacate_requests r JOIN workflow_actors a ON a.actor_ref=?
+		WHERE r.work_id=? AND r.request_seq>? AND r.session_ref=a.session_ref)`, holder, workID, max(since, startSeq)).Scan(&vacated); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect the holder's session vacates")
 	}
-	if vacated > 0 {
+	if vacated {
 		return nil, nil
 	}
 	return &WorkflowStartTakeover{HeldEpoch: start.AttemptEpoch, HolderActorRef: holder}, nil
@@ -116,21 +117,21 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 		return false, nil
 	}
 	var attemptID string
-	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.attempt_epoch')=? AND json_extract(payload,'$.worker_attempt_id') IS NOT NULL ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq, step, start.AttemptEpoch).Scan(&attemptID)
+	err := q.QueryRowContext(ctx, `SELECT attempt_id FROM worker_authorizations WHERE work_id=? AND seq>? AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.attempt_epoch')=? ORDER BY seq LIMIT 1`, workID, startSeq, step, start.AttemptEpoch).Scan(&attemptID)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
 	if err != nil {
 		return false, workflowProjectionError(err, "cannot inspect the held lane attempt for the takeover")
 	}
-	var ended int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? AND (
-		(kind=? AND json_extract(payload,'$.action_id') IN (`+workerAttemptDisposalActions+`) AND json_extract(payload,'$.worker_attempt_id')=?)
-		OR (kind=? AND json_extract(payload,'$.attempt_id')=?)
-		OR (kind=? AND json_extract(payload,'$.attempt_id')=? AND json_extract(payload,'$.terminal')='failed'))`, string(SubjectWorkItem), workID, startSeq, WorkflowActionCompleted, attemptID, WorkerFailed, attemptID, WorkerDispatched, attemptID).Scan(&ended); err != nil {
+	var ended bool
+	if err := q.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND seq>?) OR
+		EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND attempt_id=? AND
+		 ((terminal_seq>? AND terminal_kind=?) OR (dispatch_seq>? AND json_extract(dispatch_payload,'$.terminal')='failed')))`, workID, attemptID, startSeq, workID, attemptID, startSeq, WorkerFailed, startSeq).Scan(&ended); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect whether the held lane attempt ended")
 	}
-	return ended == 0, nil
+	return !ended, nil
 }
 
 // guardStartTakeover rereads the held attempt inside the action transaction.

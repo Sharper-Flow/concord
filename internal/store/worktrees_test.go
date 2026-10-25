@@ -1035,28 +1035,6 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	}
 }
 
-func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	event := Event{
-		EventID: "legacy-worktree-reclaim",
-		Kind:    "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "principal-1", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
-		Payload: jsonRaw(`{"expected_version":3,"resulting_version":4,"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","git_facts":{}}`),
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 3}}); err != nil {
-		t.Fatalf("version-one reclaim replay failed: %v", err)
-	}
-	entries, err := s.WorktreeEntries(context.Background(), "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryReclaimed {
-		t.Fatalf("entries after version-one replay=%+v err=%v", entries, err)
-	}
-}
-
 // TestReclaimUndecodableGitFactsRefuseTheFold pins the debt-preserving
 // refusal for corrupted reclamation facts: the append-time surfaces always
 // record facts the fold can decode, so a payload whose git_facts cannot

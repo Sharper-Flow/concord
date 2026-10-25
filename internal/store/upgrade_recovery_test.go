@@ -173,7 +173,7 @@ ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
 	if err := undoMigration124(t, context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments; DROP TABLE store_revision; DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments; DROP TABLE store_revision; DROP TABLE session_vacate_requests; DROP TABLE session_claim_landings; DROP TABLE session_relocation_counts;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
 	if err := dropMigration120Objects(context.Background(), db); err != nil {

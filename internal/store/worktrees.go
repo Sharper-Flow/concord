@@ -287,41 +287,14 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if err != nil {
 		return err
 	}
-	claimOpID := p.ClaimOpID
-	if claimOpID == "" {
-		// Payload version 1 events predate the claim generation field. They are
-		// safe to replay only while no later generation has replaced the row.
-		if event.Seq > 0 {
-			var currentClaimCreatedAt sql.NullInt64
-			if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events WHERE kind='work.worktree_created' AND subject_type=? AND subject_id=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.claim_op_id')=?`, string(SubjectWorkItem), event.SubjectID, p.ProjectID, currentClaim).Scan(&currentClaimCreatedAt); err != nil {
-				return err
-			}
-			if currentClaimCreatedAt.Valid && currentClaimCreatedAt.Int64 > event.Seq {
-				return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and targets a later worktree claim", false, "emit a reclaim event for the active claim generation")
-			}
-		}
-		// A fresh append cannot be disambiguated by ordering: the sequence is
-		// assigned before the fold runs, so it always sorts after every
-		// recorded claim, and a payload with no generation cannot prove which
-		// generation it targets. When an earlier generation sits reclaimed
-		// beside an active entry, refuse the append.
-		var reclaimedClaims int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE set_id=? AND project_id=? AND state=?`, p.SetID, p.ProjectID, worktreeStateReclaimed).Scan(&reclaimedClaims); err != nil {
-			return err
-		}
-		if reclaimedClaims > 0 && state == worktreeEntryActive {
-			return newFailure(KindProjectionConflict, "fold_event", "reclaim event has no claim generation and cannot target the active worktree", false, "emit a reclaim event for the active claim generation")
-		}
-		claimOpID = currentClaim
-	}
-	if currentClaim != claimOpID {
+	if currentClaim != p.ClaimOpID {
 		return newFailure(KindProjectionConflict, "fold_event", "reclaim event targets a stale worktree claim generation", false, "reclaim the active claim generation")
 	}
 	if state == worktreeEntryReclaimed {
 		return nil
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed', reclaimed_at=?, git_facts=? WHERE set_id=? AND project_id=? AND claim_op_id=? AND state='active'`,
-		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID, claimOpID)
+		event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts), p.SetID, p.ProjectID, p.ClaimOpID)
 	if err != nil {
 		return err
 	}
@@ -332,11 +305,11 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	// claim generation: every retained ref and every deletion the recorded
 	// plan owes holds one row, so the retention and the debt survive
 	// directory removal and later claims (CD-0212 D3-D4).
-	if err := recordReclaimedRefOutcomesTx(ctx, tx, p, claimOpID, entryPath, event.OccurredAt); err != nil {
+	if err := recordReclaimedRefOutcomesTx(ctx, tx, p, p.ClaimOpID, entryPath, event.OccurredAt); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=? AND state=?`,
-		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), claimOpID, worktreeStateVerified); err != nil {
+		worktreeStateReclaimed, event.OccurredAt.Format(time.RFC3339Nano), p.ClaimOpID, worktreeStateVerified); err != nil {
 		return err
 	}
 	if !advanceVersion {
@@ -422,7 +395,17 @@ func foldWorktreeRemovalSettled(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := decodePayload(event, &p); err != nil {
 		return err
 	}
-	return applyWorktreeRefOutcomeTx(ctx, tx, p, event.OccurredAt.Format(time.RFC3339Nano))
+	if err := applyWorktreeRefOutcomeTx(ctx, tx, p, event.OccurredAt.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	// Only identities minted by this ref's settlement owner consume its
+	// invocation sequence. Other effect identities do not share that prefix.
+	base := worktreeRefSettlementEventBase(event.SubjectID, p.ProjectID, p.ClaimOpID, p.Branch)
+	if !strings.HasPrefix(event.EventID, base) {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE worktree_ref_outcomes SET settlement_count=settlement_count+1 WHERE set_id=? AND project_id=? AND claim_op_id=? AND claim_incarnation=? AND branch=?`, p.SetID, p.ProjectID, p.ClaimOpID, p.ClaimIncarnation, p.Branch)
+	return err
 }
 
 // applyWorktreeRefOutcomeTx is the durable phase owner's admission and
@@ -1617,12 +1600,10 @@ func (s *Store) settleWorktreeNativeOutcomes(ctx context.Context, removal *Workt
 }
 
 // settleWorktreeRefOutcomeTx records one per-ref native outcome through the
-// durable owner. The row is fold state of the settlement log: a settlement
-// the row already holds — same phase, tip, and reason — converges with no
-// new event and no mutation, and every other record is one fresh
-// chronological settlement event whose identity derives from the durable
-// per-ref predecessor and the event sequence the log holds, appended and
-// folded atomically in this SQL-only transaction. A move the transition
+// durable owner. A settlement the row already holds — same phase, tip, and
+// reason — converges with no mutation. Every other record derives its identity
+// from the durable per-ref predecessor and invocation count, and advances
+// that count atomically in this SQL-only transaction. A move the transition
 // table refuses from the row's current phase refuses typed before anything
 // is appended, so a phase some earlier attempt recorded — or a stale probe
 // carried — never authorizes an effect against a different predecessor
@@ -1658,7 +1639,7 @@ func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *Worktr
 		fromPhase = currentPhase.String
 	}
 	base := worktreeRefSettlementEventBase(removal.WorkID, removal.ProjectID, removal.ClaimOpID, outcome.Branch)
-	sequence, err := worktreeRefSettlementSequence(ctx, tx, base)
+	sequence, err := worktreeRefSettlementSequence(ctx, tx, removal.WorkID, removal.ProjectID, removal.ClaimOpID, outcome.Branch)
 	if err != nil {
 		return err
 	}
@@ -1674,19 +1655,17 @@ func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *Worktr
 // worktreeRefSettlementEventBase derives the one per-ref settlement event
 // identity prefix from the raw work identity the event records: the claim
 // generation and the branch every settlement event for this ref shares,
-// whatever phase it holds. The same owner derives the invocation sequence
-// and the event identity, so a count can never range over keys the append
-// never wrote.
+// whatever phase it holds.
 func worktreeRefSettlementEventBase(workID, projectID, claimOpID, branch string) string {
 	return fmt.Sprintf("%s:%s:%s:worktree-removal-settled:%s:", workID, projectID, claimOpID, branch)
 }
 
-// worktreeRefSettlementSequence derives the next per-ref settlement
-// invocation from the durable log: the count of settlement events this
-// claim generation's branch already holds.
-func worktreeRefSettlementSequence(ctx context.Context, tx *sql.Tx, base string) (int, error) {
+// worktreeRefSettlementSequence counts this ref's owned settlement identities
+// across claim incarnations. Reclaiming or re-recording an identical outcome
+// does not consume an invocation.
+func worktreeRefSettlementSequence(ctx context.Context, tx *sql.Tx, workID, projectID, claimOpID, branch string) (int, error) {
 	var sequence int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM domain_events WHERE event_id >= ? AND event_id < ?`, base, base+"\xff").Scan(&sequence); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(settlement_count),0) FROM worktree_ref_outcomes WHERE set_id=? AND project_id=? AND claim_op_id=? AND branch=?`, WorktreeSetID(workID), projectID, claimOpID, branch).Scan(&sequence); err != nil {
 		return 0, wrapFailure(KindUnavailable, "worktree_native_removal", "cannot derive the settlement sequence", true, "retry the same operation", err)
 	}
 	return sequence, nil
@@ -3356,13 +3335,11 @@ func sessionHoldsOccupancyTx(ctx context.Context, tx *sql.Tx, worktreeID, sessio
 	return held > 0, nil
 }
 
-// countSessionClaimLandingsTx returns how many landing events the log records
-// for one work item and session. It runs inside the caller's
-// transaction so the read observes the caller's own uncommitted events, and
-// the count is the ordinal of the next transfer event.
+// countSessionClaimLandingsTx reads the current count of accepted claim
+// landings for one work item and session: the next transfer identity's ordinal.
 func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (int, error) {
 	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT claim_landing_count FROM session_relocation_counts WHERE work_id=? AND session_ref=?),0)`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
 	}

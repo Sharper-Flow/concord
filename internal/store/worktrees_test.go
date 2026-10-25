@@ -578,7 +578,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 					}
 				}
 				modelHistoricalInitiative(t, s, req.WorkID)
-				before := planningEventCount(t, s.db)
+				before := countRows(t, s, "effect_receipts")
 				git.calls = nil
 				var err error
 				switch entry {
@@ -615,7 +615,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 						t.Error("retired entry left a native branch")
 					}
 				}
-				if after := planningEventCount(t, s.db); after != before {
+				if after := countRows(t, s, "effect_receipts"); after != before {
 					t.Errorf("retired entry appended events: before=%d after=%d", before, after)
 				}
 				assertRetiredPlanningRefusal(t, err)

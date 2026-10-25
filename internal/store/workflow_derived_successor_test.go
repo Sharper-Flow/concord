@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -109,19 +108,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				}
 			}
 			assertSuccessor()
-			var payload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&payload); err != nil {
-				t.Fatal(err)
-			}
-			var event struct {
-				Successor map[string]json.RawMessage `json:"successor_contract"`
-			}
-			if err := json.Unmarshal([]byte(payload), &event); err != nil {
-				t.Fatal(err)
-			}
-			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
-				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
-			}
 		})
 	}
 }

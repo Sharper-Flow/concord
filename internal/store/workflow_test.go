@@ -884,15 +884,16 @@ DELETE FROM fold_guard`); err != nil {
 	if err := db.QueryRowContext(ctx, `SELECT display_name FROM products WHERE id='v14-product'`).Scan(&name); err != nil || name != "V14" {
 		t.Fatalf("preserved v14 product = %q, error=%v", name, err)
 	}
-	var workTitle, relationKind, eventPayload string
+	var workTitle, relationKind, payloadDigest string
 	if err := db.QueryRowContext(ctx, `SELECT title FROM work_items WHERE id='v14-work'`).Scan(&workTitle); err != nil || workTitle != "V14 work" {
 		t.Fatalf("preserved v14 work = %q, error=%v", workTitle, err)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT kind FROM relations WHERE work_id_from='v14-work' AND work_id_to='v14-work-2'`).Scan(&relationKind); err != nil || relationKind != "blocks" {
 		t.Fatalf("preserved v14 relation = %q, error=%v", relationKind, err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE event_id='v14-event'`).Scan(&eventPayload); err != nil || eventPayload != `{"work_kind":"task","title":"V14 work","priority":1}` {
-		t.Fatalf("preserved v14 event = %q, error=%v", eventPayload, err)
+	wantDigest := historicalFixturePayloadDigest(t, `{"work_kind":"task","title":"V14 work","priority":1}`)
+	if err := db.QueryRowContext(ctx, `SELECT payload_digest FROM effect_receipts WHERE event_id='v14-event' AND effect_seq=1 AND kind='work.created' AND subject_type='work_item' AND subject_id='v14-work' AND actor='operator' AND payload_version=2`).Scan(&payloadDigest); err != nil || payloadDigest != wantDigest {
+		t.Fatalf("preserved v14 receipt digest = %q, error=%v, want %q", payloadDigest, err, wantDigest)
 	}
 	if got, err := readSchemaManifestVersion(ctx, db); err != nil || got != CurrentSchemaVersion() {
 		t.Fatalf("schema version = %d, error=%v, want %d", got, err, CurrentSchemaVersion())

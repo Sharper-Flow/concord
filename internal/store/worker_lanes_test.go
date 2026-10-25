@@ -721,8 +721,19 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-start-"+attemptID, WorkflowActionStarted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)}))
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	scope, err := beginWrite(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := Event{EventID: "dispatch-authorization-start-" + attemptID, Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)})}
+	startSeq, err := appendPreparedEvent(ctx, tx, started)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -736,16 +747,18 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	if predicateIDs != nil {
 		payload["worker_packet_predicate_ids"] = predicateIDs
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
+	completed := Event{EventID: "dispatch-authorization-" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	completionSeq, err := appendPreparedEvent(ctx, tx, completed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,json_extract(completion.payload,'$.worker_attempt_id'),completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?;
-DELETE FROM write_guard;`, "dispatch-authorization-start-"+attemptID, "dispatch-authorization-"+attemptID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,?,?,?,?,?,?)`, workID, attemptID, completionSeq, string(completed.Payload), completed.EventID, startSeq, string(started.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }

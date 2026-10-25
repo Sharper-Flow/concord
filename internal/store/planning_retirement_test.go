@@ -18,15 +18,6 @@ func insertHistoricalEvents(t *testing.T, db *sql.DB, events []Event) {
 	}
 }
 
-func planningEventCount(t *testing.T, db *sql.DB) int64 {
-	t.Helper()
-	var count int64
-	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
 func assertRetiredPlanningRefusal(t *testing.T, err error) {
 	t.Helper()
 	var failure *Failure

@@ -6,15 +6,17 @@ import (
 	"io"
 	"os"
 
+	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 type workResumeInput struct {
-	ProductID  string `json:"product_id"`
-	ProjectID  string `json:"project_id"`
-	WorkID     string `json:"work_id"`
-	IssueKey   string `json:"issue_key"`
-	SessionRef string `json:"session_ref"`
+	ProductID    string              `json:"product_id"`
+	ProjectID    string              `json:"project_id"`
+	WorkID       string              `json:"work_id"`
+	IssueKey     string              `json:"issue_key"`
+	SessionRef   string              `json:"session_ref"`
+	CallEnvelope *agent.CallEnvelope `json:"call_envelope,omitempty"`
 }
 
 type workResumeOutput struct {
@@ -103,6 +105,11 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
+	ctx, member, err := workResumeCaller(ctx, s, input, cwd)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
+		return storeFailureExit(err)
+	}
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
@@ -126,6 +133,10 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
 			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
+		}
+		if member != nil {
+			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(&store.Failure{Kind: store.KindUnauthorized, Op: "work_resume", Detail: "member worktree has not been claimed", RecoveryAction: "use worktree_claim as the authenticated bound member caller"}))
+			return workResumeRefusalExit
 		}
 		// A missing active tree may bootstrap; removed execution may not.
 		if _, err := s.ReadWorkItemSummary(ctx, input.WorkID); err != nil {
@@ -213,4 +224,43 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		}
 	}
 	return writeJSON(out, output, errOut)
+}
+
+// Resume reuses invoke's envelope and authorizer. Only the verified tuple may
+// select a member tree; the raw session selector never supplies that authority.
+func workResumeCaller(ctx context.Context, s *store.Store, input workResumeInput, cwd string) (context.Context, *store.WorkflowMemberCaller, error) {
+	if input.CallEnvelope == nil {
+		return ctx, nil, s.RequireUnrestrictedBootstrapSession(ctx, input.SessionRef)
+	}
+	env := *input.CallEnvelope
+	refuse := func(detail string) (context.Context, *store.WorkflowMemberCaller, error) {
+		return ctx, nil, &store.Failure{Kind: store.KindUnauthorized, Op: "work_resume", Detail: detail, RecoveryAction: "resume with the original authenticated call_envelope"}
+	}
+	if env.SchemaVersion != "1.0" || env.RequestID == "" || env.ClientRef == "" || env.AgentRef == "" || env.SessionRef == "" || env.ScopeVersion == "" {
+		return refuse("call_envelope is missing the invoke identity or context")
+	}
+	if env.SessionRef != input.SessionRef || env.AmbientProjectID != input.ProjectID || env.SelectedProductID != input.ProductID || !samePath(env.Directory, cwd) || !samePath(env.Worktree, cwd) {
+		return refuse("resume selectors differ from the authenticated call_envelope")
+	}
+	service := agent.NewService(s)
+	service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
+		return store.ResolveProjectHost(ctx, directory, worktree, store.ExecGitRunner{})
+	}
+	service.ProjectHostMatcher = func(ctx context.Context, _ *store.Transaction, host store.ResolvedProjectHost) (store.ProjectResolution, error) {
+		return s.MatchResolvedProjectHost(ctx, host)
+	}
+	grant, err := service.Authorize(ctx, agent.Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: "product_read", ProductID: input.ProductID, ProjectID: input.ProjectID})
+	if err != nil {
+		var failure *store.Failure
+		if errors.As(err, &failure) {
+			return ctx, nil, err
+		}
+		return refuse(err.Error())
+	}
+	member, err := store.ReadWorkflowMemberCaller(ctx, s, store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent})
+	if err != nil {
+		return ctx, nil, err
+	}
+	ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
+	return ctx, member, nil
 }

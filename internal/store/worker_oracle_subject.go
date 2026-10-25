@@ -95,7 +95,7 @@ const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		AND EXISTS (SELECT 1 FROM worktree_entries e
 			WHERE e.set_id=? AND e.project_id=l.project_id AND e.path=l.path
 			AND e.branch=json_extract(l.result_json,'$.branch')
-			AND e.state='active')
+			AND e.state='active' AND e.member_id=?)
 		ORDER BY d.rowid DESC LIMIT 1`
 
 func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {
@@ -107,8 +107,26 @@ func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (st
 }
 
 func readCurrentOracleSubjectReceipt(ctx context.Context, q queryer, workID string) (*WorktreeVerifyResult, error) {
+	memberID := ""
+	owner := sessionWorktreeOwnerFromContext(ctx)
+	if owner != (SessionWorktreeOwner{}) {
+		actor, err := workflowMemberOwnerActor(ctx, q, owner)
+		if err != nil {
+			return nil, err
+		}
+		member, err := readWorkflowMemberCallerQ(ctx, q, actor)
+		if err != nil {
+			return nil, err
+		}
+		if member != nil {
+			memberID, err = workflowMemberClaimScope(ctx, q, workID, member.ProjectID, owner)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	var raw string
-	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
+	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID), memberID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -355,7 +355,9 @@ type workflowActionCompletedPayload struct {
 	// so the correction window closes on the dispatched job's own recorded
 	// disposition and never on a name match against another job. Absent on
 	// every acceptance whose attempt was dispatched without a job binding.
-	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
+	WorkerJob       *WorkerJobBinding      `json:"worker_job,omitempty"`
+	AssignmentGroup *workflowMemberGroup   `json:"assignment_group,omitempty"`
+	MemberBinding   *workflowMemberBinding `json:"member_binding,omitempty"`
 	// WorkerCallerExclusions is the caller_exclusions set the core computed
 	// and bound to a size-capable implementation dispatch's packet (CD-0227
 	// D1). The packet bytes are not retained, so acceptance reads the
@@ -2624,6 +2626,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		return err
 	}
 	if err := advanceWorkflowReviewAcceptanceTx(ctx, tx, event, p); err != nil {
+		return err
+	}
+	if err := writeWorkflowMemberCompletionTx(ctx, tx, event, p); err != nil {
 		return err
 	}
 	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {

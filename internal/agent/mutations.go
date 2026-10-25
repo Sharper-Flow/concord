@@ -5131,6 +5131,9 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return err
 		}
+		if err := store.CheckMemberOperationTx(ctx, tx, memberWorkflowActor(grant), memberOperationScope(raw, r.Envelope, contractOp)); err != nil {
+			return err
+		}
 		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
 		if err != nil {
 			return err

@@ -40,6 +40,7 @@ func reviewFailure(kind FailureKind, detail, next string) *Failure {
 }
 
 func workflowRequireMain(ctx context.Context, q queryer, workID, actor string) error {
+	if err := requireNonMemberMain(ctx, q, actor); err != nil { return err }
 	worker, err := workflowRecordedEvaluationFacts(ctx, q, workID, actor, int64(1)<<62)
 	if err != nil {
 		return err

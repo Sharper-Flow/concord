@@ -949,7 +949,11 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	defs := payloadSchemaDefs(t)
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
-		union := defs["mutation_result"]["properties"].(map[string]any)["retry_worker_packet"].(map[string]any)
+		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
+		union := map[string]any{"anyOf": []any{
+			map[string]any{"$ref": "#/$defs/worker_packet"},
+			map[string]any{"type": "null"},
+		}}
 		if _, typed := union["type"]; typed {
 			t.Fatal("retry_worker_packet stopped being a typeless union; this subtest no longer exercises the typeless rule")
 		}
@@ -958,8 +962,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("worker_packet2", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet2: %v", err)
+		if err := payloadschema.Validate("worker_packet", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {

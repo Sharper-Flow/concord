@@ -7444,6 +7444,66 @@ INSERT INTO runtime_state_writers_v152
       FROM runtime_state_writers;
 DROP TABLE runtime_state_writers;
 ALTER TABLE runtime_state_writers_v152 RENAME TO runtime_state_writers;
+CREATE TABLE worker_attempts_v152 (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('in_flight','dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    dispatch_payload TEXT CHECK(dispatch_payload IS NULL OR json_valid(dispatch_payload)),
+    dispatch_event_id TEXT,
+    dispatch_actor TEXT,
+    dispatch_payload_version INTEGER,
+    dispatch_seq INTEGER,
+    terminal_payload TEXT CHECK(terminal_payload IS NULL OR json_valid(terminal_payload)),
+    terminal_event_id TEXT,
+    terminal_payload_version INTEGER,
+    terminal_kind TEXT CHECK(terminal_kind IS NULL OR terminal_kind IN ('worker.completed','worker.failed')),
+    failure_recorded INTEGER NOT NULL DEFAULT 0 CHECK(failure_recorded>=0),
+    terminal_seq INTEGER NOT NULL DEFAULT 0,
+    terminal_occurred_at TEXT NOT NULL DEFAULT '',
+    failure_recorded_seq INTEGER NOT NULL DEFAULT 0,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version IN ('1.0','1.1','2.0')),
+    CHECK(report_schema_version IN ('1.0','1.1','2.0')),
+    CHECK((lifecycle_state='in_flight' AND completed_at IS NULL AND failed_at IS NULL AND readback_model='' AND failure_kind='' AND failure_detail='') OR
+          (lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            (length(readback_model) >= 3 OR failure_kind IN ('model_readback_missing','model_readback_ambiguous','abandoned'))))
+);
+INSERT INTO worker_attempts_v152
+    (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,
+     lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,
+     dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_seq,
+     terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind,failure_recorded,
+     terminal_seq,terminal_occurred_at,failure_recorded_seq)
+SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,
+       lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,
+       dispatch_payload,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_seq,
+       terminal_payload,terminal_event_id,terminal_payload_version,terminal_kind,failure_recorded,
+       terminal_seq,terminal_occurred_at,failure_recorded_seq
+  FROM worker_attempts;
+DROP TABLE worker_attempts;
+ALTER TABLE worker_attempts_v152 RENAME TO worker_attempts;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TABLE workflow_instances_v152 (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,

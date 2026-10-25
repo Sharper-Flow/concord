@@ -51,9 +51,8 @@ type WorkflowContractSnapshot struct {
 
 // WorkflowInstanceDefinition carries the instance's stored definition metadata.
 type WorkflowInstanceDefinition struct {
-	DefinitionRef     string
-	DefinitionVersion int64
-	DefinitionDigest  string
+	DefinitionRef    string
+	DefinitionDigest string
 }
 
 // DurableOperationRecord identifies the newest pending attempt for a work item.

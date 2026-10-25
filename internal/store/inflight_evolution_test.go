@@ -111,7 +111,7 @@ func TestInFlightWorkflowSurvivesDefinitionContentChange(t *testing.T) {
 	if resolved.Digest != latest.Digest || !slices.Contains(resolved.Definition.RequiredEvidenceKinds, EvidenceDurableNote) {
 		t.Fatalf("engine did not resolve current definition content: %+v", resolved)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Digest: pinnedDigest}); !hasFailureKind(err, KindDefinitionDigestMismatch) {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Digest: pinnedDigest}); !hasFailureKind(err, KindInvariantViolation) {
 		t.Fatalf("obsolete explicit digest refusal = %v", err)
 	}
 

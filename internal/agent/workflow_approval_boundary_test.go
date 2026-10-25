@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,8 +121,27 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				if challenges != 0 || approvals != 0 {
 					t.Fatalf("routine record_proposal minted consent state: challenges=%d approvals=%d, want none", challenges, approvals)
 				}
-				if versionAfter != version+1 {
-					t.Fatalf("routine record_proposal work version=%d, want %d after its advance-mode completion", versionAfter, version+1)
+				if versionAfter != version+2 {
+					t.Fatalf("routine record_proposal work version=%d, want %d after proposal and advance-mode completion", versionAfter, version+2)
+				}
+				rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY seq`, store.WorkflowProposalRecorded, store.WorkflowActionCompleted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var effects []string
+				for rows.Next() {
+					var effect string
+					if err := rows.Scan(&effect); err != nil {
+						t.Fatal(err)
+					}
+					effects = append(effects, effect)
+				}
+				if err := rows.Err(); err != nil {
+					t.Fatal(err)
+				}
+				rows.Close()
+				if want := []string{store.WorkflowProposalRecorded, store.WorkflowActionCompleted}; !slices.Equal(effects, want) {
+					t.Fatalf("routine record_proposal effects=%v, want exactly %v", effects, want)
 				}
 				var started int
 				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {

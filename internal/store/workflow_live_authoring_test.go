@@ -559,8 +559,8 @@ func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 			}
 		}
 	}
-	if packetRef != "worker_packet3" {
-		t.Fatalf("canonical research dispatch packet ref = %q, want the research-context packet3 closure", packetRef)
+	if packetRef != "worker_packet" {
+		t.Fatalf("canonical research dispatch packet ref = %q, want the current packet closure", packetRef)
 	}
 	// The canonical authoring gate reads the definition's own registry
 	// content: the batch-only record_verdict payload every current head

@@ -357,6 +357,60 @@ func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
 	}
 }
 
+func TestWorkflowCapabilityVocabularyMatchesPublicSchema(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "workflow-definition.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties struct {
+			Capabilities struct {
+				UniqueItems bool `json:"uniqueItems"`
+				MaxItems    int  `json:"maxItems"`
+				Items       struct {
+					Enum []WorkflowCapability `json:"enum"`
+				} `json:"items"`
+			} `json:"capabilities"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := schema.Properties.Capabilities
+	if !slices.Equal(capabilities.Items.Enum, workflowCapabilityNames) || !capabilities.UniqueItems || capabilities.MaxItems != len(workflowCapabilityNames) {
+		t.Fatalf("public capability vocabulary/bounds differ from the canonical registry: %+v", capabilities)
+	}
+}
+
+func TestWorkerPacketSchemaMatchesCurrentDispatchFormat(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-surface-payloads.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]json.RawMessage `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	var packet struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema.Defs["worker_packet"], &packet); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(packet.Properties["schema_version"].Enum, []string{WorkerPacketSchemaVersion}) {
+		t.Fatalf("current packet schema differs from dispatch format %q", WorkerPacketSchemaVersion)
+	}
+	if _, exists := packet.Properties["lane_version"]; exists {
+		t.Fatal("current packet carries a retired lane counter")
+	}
+}
+
 func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 	t.Parallel()
 	valid := []byte(`{"kind":"exists","surface":"git:tree","subjects":["path:cmd/concord"]}`)

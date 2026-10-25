@@ -13,7 +13,7 @@ import (
 )
 
 // Boundary tests for the shared packet-bounds guard on the dispatch-time
-// caller exclusions (worker_packet5_worker_job): at most
+// caller exclusions (worker_packet_worker_job): at most
 // WorkerJobCallerExclusionsMax paths of at most
 // WorkerJobCallerExclusionPathMax Unicode characters each. The computation
 // owner refuses the dispatch on its error, and the continuity ready

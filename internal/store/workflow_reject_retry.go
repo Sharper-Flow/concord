@@ -202,19 +202,13 @@ func workflowInstanceStateTx(ctx context.Context, tx *sql.Tx, workID string) (st
 
 // workerPacketSchemaIdentity resolves the packet schema version and the
 // report protocol from the generated worker-packet contract, so the derived
-// packet reads the live published identity instead of restating it. The
-// packet2 and packet3 closures share the same schema_version and report
-// protocol, so reading the identity through the packet2 definition is
-// generation-neutral. The pinned dispatch admission owns the generation
-// closure — packet2 on the retained heads, packet3 on the research heads —
-// and the combined response returns exactly the bytes that admission
-// produced.
+// packet reads the current published format instead of restating it.
 func workerPacketSchemaIdentity() (string, string, error) {
 	doc := payloadschema.Document()
 	defs, _ := doc["$defs"].(map[string]any)
-	def, _ := defs["worker_packet2"].(map[string]any)
+	def, _ := defs["worker_packet"].(map[string]any)
 	if def == nil {
-		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no versioned worker packet definition", false, "regenerate the payload contracts")
+		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no current worker packet definition", false, "regenerate the payload contracts")
 	}
 	properties, _ := def["properties"].(map[string]any)
 	schemaVersion, err := payloadSchemaLastEnumString(properties, "schema_version")

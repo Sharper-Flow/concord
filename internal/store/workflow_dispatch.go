@@ -737,9 +737,29 @@ func dedupeWorkflowRefs(values []string) []string {
 	return out
 }
 
+// workflowDeclaresDocument checks the pinned payload against the required
+// document members owned by the action schema, not the definition's identity.
+func workflowDeclaresDocument(definition WorkflowDefinition, actionID string) (bool, error) {
+	action, err := workflowDeclaredActionDefinition(definition, actionID)
+	if err != nil {
+		return false, err
+	}
+	for _, member := range builtinActionPolicies[actionID].Payload.Fields {
+		if member.Required && !slices.ContainsFunc(action.Payload.Fields, func(field WorkflowPayloadField) bool {
+			return field.Name == member.Name
+		}) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // workflowProposalRecordedEvents builds the typed proposal event. An omitted
 // optional list stays absent, so it never reads back as an empty one.
-func workflowProposalRecordedEvents(request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
+func workflowProposalRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	if declared, err := workflowDeclaresDocument(definition, "record_proposal"); err != nil || !declared {
+		return nil, err
+	}
 	proposal, err := decodeWorkflowProposalContent(raw)
 	if err != nil {
 		return nil, err
@@ -773,9 +793,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_work_context":
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "record_design":
-		return workflowDesignRecordedEvents(request, actor, raw, eventID, expected)
+		return workflowDesignRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "record_proposal":
-		return workflowProposalRecordedEvents(request, actor, raw, eventID, expected)
+		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
 		return workflowApproveContractEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "revise_candidates":

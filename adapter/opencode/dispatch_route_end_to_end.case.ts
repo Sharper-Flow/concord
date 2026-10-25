@@ -821,7 +821,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>): Promise<JSONRecord> => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
     await driveWorkflowToContract(workID, invoke, context, APPROVED_OBJECTIVE, [predicate], ["verification", "review"])
-    const definitionVersion = dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version as number
+    const definitionDigest = dbValue(dbPath, `SELECT definition_digest FROM workflow_instances WHERE work_id='${workID}'`).definition_digest as string
 
     let response: JSONRecord
     for (const reportFailure of ["missing", "malformed"] as const) {
@@ -1049,7 +1049,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "checkpoint_refine", "e2e-start-refine", {})
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(definitionVersion)
+    expect(dbValue(dbPath, `SELECT definition_digest FROM workflow_instances WHERE work_id='${workID}'`).definition_digest).toBe(definitionDigest)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")

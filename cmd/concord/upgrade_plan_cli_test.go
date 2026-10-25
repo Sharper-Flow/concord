@@ -297,6 +297,7 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE workflow_instances ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 1 CHECK(definition_version > 0 AND definition_version <= 2147483647)`,
 		`ALTER TABLE workflow_context_checkpoints ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 1 CHECK(workflow_definition_version > 0)`,
 		`ALTER TABLE workflow_context_boundaries ADD COLUMN workflow_definition_version INTEGER NOT NULL DEFAULT 1 CHECK(workflow_definition_version > 0)`,
+		`ALTER TABLE worker_attempts ADD COLUMN lane_version INTEGER NOT NULL DEFAULT 1 CHECK(lane_version > 0)`,
 		`CREATE TABLE runtime_state_writers_old(surface TEXT NOT NULL,definition_ref TEXT NOT NULL,version INTEGER NOT NULL CHECK(version>0),digest TEXT NOT NULL,binary_version TEXT NOT NULL,PRIMARY KEY(surface,definition_ref,version,digest))`,
 		`INSERT INTO runtime_state_writers_old SELECT surface,definition_ref,CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 1 END,digest,binary_version FROM runtime_state_writers`,
 		`DROP TABLE runtime_state_writers`,

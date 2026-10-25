@@ -99,15 +99,15 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 
 ### 2.1 Go-side shape
 
-The registry is a process-owned, immutable-after-registration map keyed by
-`(ref, version)`. The value is equivalent to the strict manifest in
+The process-owned registry holds one current definition per stable `ref`.
+Identity is the `ref` and content digest ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). The value is equivalent to the strict manifest in
 [`workflow-definition.schema.json`](../../contracts/workflow-definition.schema.json):
 
 ```go
 type WorkflowDefinition struct {
     Ref                   string
-    Version               int64
     WorkKind              WorkKind
+    Capabilities          []WorkflowCapability
     StepGraph             StepGraph
     AvailableActions      []ActionID
     RequiredEvidenceKinds []EvidenceKind
@@ -123,8 +123,8 @@ type RegisteredDefinition struct {
 }
 type DefinitionRegistry interface {
     Register(WorkflowDefinition) (RegisteredDefinition, error)
-    Lookup(ref string, version int64) (RegisteredDefinition, bool)
-    Verify(ref string, version int64, digest Digest) error
+    Current(ref string) (RegisteredDefinition, bool)
+    Verify(ref string, digest Digest) error
 }
 ```
 
@@ -145,22 +145,17 @@ Registration refuses:
 | Refusal | Condition |
 |---|---|
 | `invalid_definition` | schema, graph, action, evidence, predicate, or composition validation fails |
-| `definition_version_conflict` | `(ref, version)` exists with another digest |
-| `definition_version_not_monotonic` | a new version is not greater than the highest registered version for `ref` |
 | `definition_digest_mismatch` | supplied digest differs from recomputed digest |
 | `definition_action_or_step_unknown` | graph references an action not in `available_actions` |
 
-The selected `ref`, `version`, and `digest` are written to the work item at
-planning. Active work never adopts a
-newer version. Idle work may adopt the newest version only through an explicit
-planning operation that writes the new selection.
+The selected `ref` and `digest` are written to the work item at planning.
 
 ### 2.3 Availability and drift check
 
 `WorkflowActionAvailable(work_id)` performs this sequence before authorizing any
 action:
 
-1. Read the instance's pinned `(ref, version, digest)`.
+1. Read the instance's pinned `(ref, digest)`.
 2. Look up exactly that registry entry.
 3. Recompute its canonical digest and compare it with both the registered digest
    and the pinned digest.
@@ -171,7 +166,7 @@ action:
 Missing registration, unsupported definition, or any digest mismatch returns
 `false` and the existing closed `invariant_violation` refusal with recovery action
 `reread_entities`. No new refusal kind is introduced for registry availability or
-drift. No fallback definition, newer version, or response-wording path is accepted.
+drift. No fallback definition or response-wording path is accepted.
 
 ## 3. Workflow instance state machine
 
@@ -258,10 +253,12 @@ existing `work_items(id)` key; actor references point to `workflow_actors`.
 
 ### 5.1 Tables
 
+Definition identity in these rows is the stable `ref` and content digest ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+
 | Table | Columns (types) | Keys, foreign keys, and closed checks |
 |---|---|---|
-| `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_version INTEGER`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks positive version, digest, state enum |
-| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_version INTEGER`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract approval records the exact selected definition pin |
+| `workflow_instances` | `work_id TEXT`, `definition_ref TEXT`, `definition_digest TEXT`, `current_step TEXT`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks digest, state enum |
+| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `outcome_kind TEXT`, `outcome_payload TEXT`, `consequence_class TEXT`, `required_evidence TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `definition_ref TEXT`, `definition_digest TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract; checks nonempty premise, closed outcome/evidence/consequence; every contract approval records the exact selected definition pin |
 | `workflow_contract_law_revisions` | `work_id TEXT`, `contract_version INTEGER`, `law_id TEXT`, `content_hash TEXT` | PK `(work_id,contract_version,law_id)`; FK contract; reverse index by law ID; current rows written only by the contract-approval mutation ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
 | `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |

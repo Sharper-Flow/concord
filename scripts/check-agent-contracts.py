@@ -342,6 +342,9 @@ def _validate_instance(schema_path: Path, value: object) -> str | None:
     return None
 
 def _validate_definition_semantics(definition: dict) -> str | None:
+    capabilities = definition.get("capabilities", [])
+    if capabilities != sorted(set(capabilities)):
+        return "definition capabilities must be sorted and unique"
     graph = definition["step_graph"]
     step_ids = [step["id"] for step in graph["steps"]]
     if len(step_ids) != len(set(step_ids)):
@@ -465,7 +468,7 @@ def check_workflow_contracts() -> list[str]:
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             findings.append(f"{schema_path.relative_to(ROOT)}: unsupported or invalid schema keyword: {exc}")
     findings += _check_closed_schema(ROOT / "contracts/workflow-definition.schema.json", {
-        "schema_version", "ref", "version", "digest", "work_kind", "step_graph",
+        "schema_version", "ref", "digest", "work_kind", "capabilities", "step_graph",
         "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules",
         "staleness_rules", "composition_rules", "evaluator_independence",
     })

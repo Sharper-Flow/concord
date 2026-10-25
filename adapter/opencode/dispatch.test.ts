@@ -26,6 +26,8 @@ hostControlPlane().bind(undefined)
 import { DispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import type { CredentialStore } from "./credentials"
+import { dispatchRetriedWorker } from "./dispatch"
+import { armTurnMoveBoundary, clearTurnMoveBoundary, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
@@ -195,6 +197,25 @@ test("packet validation is closed before any runner call", async () => {
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
+})
+
+// A moved turn's tool context still resolves its pre-move directory, so the
+// retry launch must answer with the turn-move boundary before the context
+// preflight reports that directory mismatch.
+test("a retry launch in a moved turn refuses at the turn-move boundary before its directory preflights", async () => {
+  const premove = await mkdtemp(path.join(os.tmpdir(), "concord-retry-premove-"))
+  const windows = new DispatchWindows()
+  armTurnMoveBoundary(SESSION)
+  try {
+    const result = await dispatchRetriedWorker(packet(), { credentials: testCredentials, packetDigest: PACKET_DIGEST, sessionID: SESSION, windows, workerDirectory: WORKER_DIRECTORY, contextDirectory: premove })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.details?.boundary).toBe("turn_move")
+    expect(result.error?.details?.committed_dispatch).toBe(true)
+    expect(result.error?.message).toContain(TURN_MOVE_DISPATCH_REFUSAL)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    clearTurnMoveBoundary(SESSION)
+  }
 })
 
 test("an omitted or nonexistent worker directory refuses before authorization", async () => {

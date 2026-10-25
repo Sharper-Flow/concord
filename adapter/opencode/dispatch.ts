@@ -2659,6 +2659,12 @@ export async function dispatchRetriedWorker(packet: unknown, options: { signal?:
   const validated = validatedRetryPacket(packet)
   if ("envelope" in validated) return validated.envelope
   const { lane, packet: retryPacket } = validated
+  // The turn-move boundary refuses before the directory preflights below: a
+  // moved turn's tool context still resolves its pre-move directory, so those
+  // preflights would otherwise answer first and drop the boundary.
+  if (options.sessionID && dispatchRequiresNextTurn(options.sessionID)) {
+    return committedRetryRefusal(lane, retryPacket, TURN_MOVE_DISPATCH_REFUSAL, { boundary: "turn_move" })
+  }
   // The host session route is the source for the claimed directory (CD-0104
   // D1), read per launch rather than stored. The durable gate in the launch
   // owner compares it with the claimed worktree the core's response named.
@@ -2697,7 +2703,7 @@ export async function dispatchRetriedWorker(packet: unknown, options: { signal?:
     packetDigest: options.packetDigest,
   })
   if (envelope.outcome === "ok") return envelope
-  return committedRetryRefusal(lane, retryPacket, envelope.error?.message ?? "the retry launch was refused", { boundary: envelope.error?.details?.boundary as string | undefined })
+  return committedRetryRefusal(lane, retryPacket, envelope.error?.message ?? "the retry launch was refused", {})
 }
 
 // validatedRetryPacket checks the closed packet schema and lane registry over

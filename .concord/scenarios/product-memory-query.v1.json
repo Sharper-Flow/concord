@@ -670,27 +670,24 @@
       "query_id": "PM1.Q7",
       "input": {
         "work": "work-done",
+        "record_kinds": ["lifecycle"],
         "direction": "oldest_first"
       },
       "expected": {
         "authority": "authoritative",
         "assertions": [
           {
-            "path": "$.events[*].seq",
+            "path": "$.entries[0].entry_kind",
             "op": "eq",
-            "value": [
-              1,
-              2,
-              3
-            ]
+            "value": "lifecycle"
           },
           {
-            "path": "$.events[2].to",
+            "path": "$.entries[0].lifecycle",
             "op": "eq",
             "value": "completed"
           },
           {
-            "path": "$.events[2].evidence_refs",
+            "path": "$.entries[0].evidence_refs",
             "op": "contains",
             "value": "evidence-done"
           }

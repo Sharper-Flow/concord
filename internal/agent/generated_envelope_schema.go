@@ -2782,19 +2782,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             ]
           },
           "maxProperties": 20,
-          "properties": {
-            "admitted_event_kinds": {
-              "items": {
-                "maxLength": 256,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 128,
-              "minItems": 1,
-              "type": "array",
-              "uniqueItems": true
-            }
-          },
           "type": "object"
         },
         "domain_overlap": {

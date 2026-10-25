@@ -294,7 +294,7 @@ func TestReviewCorrectionConsumptionWithoutLog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := workerDisposalCurrentDB(t)
 			if tc.action != "" {
-				if _, err := db.Exec(`INSERT INTO workflow_phase_exits VALUES('work',?,?)`, tc.action, tc.seq); err != nil {
+				if _, err := db.Exec(`INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES('work',?,?)`, tc.action, tc.seq); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := db.Exec(`DELETE FROM domain_events WHERE seq=?`, tc.seq); err != nil {

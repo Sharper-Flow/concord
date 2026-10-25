@@ -12,6 +12,7 @@ INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
 DROP TRIGGER domain_events_advance_effect_sequence;
 DROP TABLE work_version_actions;
 DROP TABLE store_sequences;
+DROP INDEX IF EXISTS effect_receipts_relation_seq;
 ALTER TABLE effect_receipts DROP COLUMN relation_seq;
 ALTER TABLE work_items DROP COLUMN version_actions_floor;
 ALTER TABLE work_size_assessments DROP COLUMN effect_seq;

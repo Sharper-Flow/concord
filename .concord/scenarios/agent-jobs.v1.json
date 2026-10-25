@@ -551,7 +551,7 @@
   {
    "id": "AJ4-history-of-a-superseded-contract",
    "job_id": "AJ4",
-   "instruction": "Work-1's contract was corrected. Show what contract version 1 required and which approval and correction events made each version.",
+    "instruction": "Work-1's contract was corrected. Show what contract version 1 required, its current successor, and the current lifecycle record without reconstructing an event trace.",
    "initial_state": {
     "fixture": "workflow"
    },
@@ -577,11 +577,10 @@
      },
      {
       "target": "result",
-      "path": "contract_events",
+       "path": "entry_kinds",
       "op": "set_eq",
       "value": [
-       "workflow.contract_approved:1",
-       "workflow.contract_superseded:2<-1"
+        "lifecycle"
       ]
      },
      {

@@ -1112,7 +1112,7 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.resource_claims":      {"claims"},
 	"concord_work_browse.messages":             {"messages"},
 	"concord_work_browse.worktree_audit":       {"drift"},
-	"concord_work_trace.history":               {"events"},
+	"concord_work_trace.history":               {"entries"},
 	"concord_work_trace.observations":          {"observations"},
 	"concord_work_trace.external_observations": {"external_observations"},
 	"concord_work_trace.relations":             {"edges"},

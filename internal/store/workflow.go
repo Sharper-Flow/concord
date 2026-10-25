@@ -1821,7 +1821,12 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 		return err
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE work_items SET
+	transition_from=lifecycle,transition_reason=COALESCE(json_extract(?,'$.reason'),''),transition_actor=?,
+	transition_evidence_refs=COALESCE(json_extract(?,'$.evidence_refs'),'[]'),transition_seq=?,
+	transition_version=COALESCE(json_extract(?,'$.resulting_version'),version),
+	lifecycle='in_progress',updated_at=? WHERE id=? AND lifecycle='needed'`,
+		string(event.Payload), event.Actor, string(event.Payload), event.Seq, string(event.Payload), now, event.SubjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot start the work item lifecycle", true,
 			"retry once the database is writable", err)
@@ -2648,7 +2653,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	// A local job or held Review acceptance holds its phase. Every other action keeps one
 	// current exit coordinate; the pinned definition chooses advancing actions.
 	if p.ActionID != "accept_worker_result" || (!p.ReviewAdvanceHeld && (p.WorkerJob == nil || p.DeliveryState != "")) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,?,?) ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq`, event.SubjectID, p.ActionID, event.Seq); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq,actor,step_id,contract_version,record_version)
+		VALUES(?,?,?,?,?,COALESCE((SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL),0),?)
+		ON CONFLICT(work_id,action_id) DO UPDATE SET exit_seq=excluded.exit_seq,actor=excluded.actor,step_id=excluded.step_id,contract_version=excluded.contract_version,record_version=excluded.record_version`, event.SubjectID, p.ActionID, event.Seq, event.Actor, p.StepID, event.SubjectID, *p.ResultingVersion); err != nil {
 			return workflowProjectionError(err, "cannot record the workflow phase exit")
 		}
 	}

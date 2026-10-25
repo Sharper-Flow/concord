@@ -324,7 +324,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), EventKinds: in.EventKinds, ContractVersion: in.ContractVersion, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
+	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), RecordKinds: in.RecordKinds, ContractVersion: in.ContractVersion, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

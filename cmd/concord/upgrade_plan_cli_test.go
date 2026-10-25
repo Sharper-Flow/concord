@@ -287,6 +287,21 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 }
 
 var migrationTailReversals = map[int][]string{
+	150: {
+		`ALTER TABLE workflow_phase_exits DROP COLUMN record_version`,
+		`ALTER TABLE workflow_phase_exits DROP COLUMN contract_version`,
+		`ALTER TABLE workflow_phase_exits DROP COLUMN step_id`,
+		`ALTER TABLE workflow_phase_exits DROP COLUMN actor`,
+		`ALTER TABLE relations DROP COLUMN record_version`,
+		`ALTER TABLE relations DROP COLUMN reason`,
+		`DROP INDEX effect_receipts_relation_seq`,
+		`ALTER TABLE work_items DROP COLUMN transition_version`,
+		`ALTER TABLE work_items DROP COLUMN transition_seq`,
+		`ALTER TABLE work_items DROP COLUMN transition_evidence_refs`,
+		`ALTER TABLE work_items DROP COLUMN transition_actor`,
+		`ALTER TABLE work_items DROP COLUMN transition_reason`,
+		`ALTER TABLE work_items DROP COLUMN transition_from`,
+	},
 	146: {
 		`DROP TRIGGER domain_events_advance_effect_sequence`,
 		`DROP TABLE work_version_actions`,

@@ -378,7 +378,7 @@ func TestQuerySpecializedResultsCarryUniversalPayload(t *testing.T) {
 	}{
 		{name: "Q1", value: mustQueryQ1(t, s), field: "products"},
 		{name: "Q6-work", value: mustQueryQ6(t, s), field: "work"},
-		{name: "Q7", value: mustQueryQ7(t, s), field: "events"},
+		{name: "Q7", value: mustQueryQ7(t, s), field: "entries"},
 		{name: "Q8", value: mustQueryQ8(t, s), field: "edges"},
 	}
 	for _, tc := range cases {

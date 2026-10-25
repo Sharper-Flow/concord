@@ -206,6 +206,10 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range historical {
+		if event.Kind == "work.created" {
+			seedPreQ7WorkCreated(t, tx, event)
+			continue
+		}
 		// The pre-retirement schema has no effect receipt allocator. Seed its
 		// retained relation below rather than invoke a current-schema writer.
 		if event.Kind == "relation.added" {

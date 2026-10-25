@@ -306,7 +306,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
@@ -350,7 +350,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatalf("the fold guard, not the old approval_ref check, refused the prefix probe: %v", err)
 	}
 
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -495,7 +495,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = foldTx.Rollback() }()
-	if err := enterFold(ctx, foldTx); err != nil {
+	if err := enterWrite(ctx, foldTx); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks} {
@@ -520,7 +520,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 			"probe-"+kind, toSeq, "overlap-authority-product", "overlap-from", "overlap-to", 1, 1, kind, "probe of the destructive empty-claim refusal", "", "2026-10-15T00:00:00Z", nil)
 		requireSchemaRefusal(t, err, "an empty "+kind+" approval_ref claim")
 	}
-	if err := leaveFold(ctx, foldTx); err != nil {
+	if err := leaveWrite(ctx, foldTx); err != nil {
 		t.Fatal(err)
 	}
 	if err := foldTx.Commit(); err != nil {

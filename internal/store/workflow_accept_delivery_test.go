@@ -39,7 +39,7 @@ func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, p
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-accept-delivery-" + workID + "-" + fmt.Sprint(version), RequestID: "request:accept-delivery-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),

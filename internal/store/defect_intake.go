@@ -160,7 +160,7 @@ func admitDefectIntakeTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
 		return wrapFailure(KindInvariantViolation, "defect_intake", "stored work intent is not readable", false,
-			"rebuild the work item projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	if intent.Defect == nil {
 		return nil
@@ -342,7 +342,7 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 	var snapshot []string
 	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
 		return wrapFailure(KindInvariantViolation, "defect_intake", "root cause sibling snapshot is not readable", false,
-			"rebuild the root cause projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	covered := make(map[string]bool, len(snapshot))
 	for _, sibling := range snapshot {

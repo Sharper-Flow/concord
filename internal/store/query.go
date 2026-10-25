@@ -846,7 +846,7 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	for rows.Next() {
 		var id, intentJSON string
 		if err := rows.Scan(&id, &intentJSON); err != nil {
-			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "repair the live projection from its event log", err)
+			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "restore the current rows from a verified snapshot", err)
 		}
 		if i, ok := byID[id]; ok {
 			if err := decodeRecordedIntent(&items[i], intentJSON); err != nil {
@@ -885,7 +885,7 @@ func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
 func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
-		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "repair the live projection from its event log", err)
+		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	item.Task = intent.Task
 	item.ValueStatement = intent.ValueStatement
@@ -927,7 +927,7 @@ func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) (
 	for rows.Next() {
 		var w WorkItem
 		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Version, &w.Priority, &w.Urgency, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
-			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "repair the live projection from its event log", err)
+			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "restore the current rows from a verified snapshot", err)
 		}
 		w.Terminal = terminalState(w.Lifecycle)
 		w.Active = w.Lifecycle == "in_progress"
@@ -1585,14 +1585,14 @@ type q7Cursor struct {
 func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payloadVersion int64, payload []byte) (TimelineEvent, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
-		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
+		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "restore a verified snapshot before reading current state")
 	}
 	e := TimelineEvent{EventID: eventID, GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
 	switch kind {
 	case WorkerDispatched, WorkerCompleted, WorkerFailed:
 		if raw, ok := fields["attempt_id"]; ok {
 			if err := json.Unmarshal(raw, &e.AttemptID); err != nil || e.AttemptID == "" {
-				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event worker attempt identity is malformed", false, "repair the event log before reading history")
+				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event worker attempt identity is malformed", false, "restore a verified snapshot before reading current state")
 			}
 		}
 	}
@@ -1600,19 +1600,19 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 		if raw, ok := fields[name]; ok && string(raw) != "null" {
 			var v string
 			if json.Unmarshal(raw, &v) != nil {
-				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event lifecycle field is malformed", false, "repair the event log before reading history")
+				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event lifecycle field is malformed", false, "restore a verified snapshot before reading current state")
 			}
 			*dst = &v
 		}
 	}
 	if raw, ok := fields["reason"]; ok {
 		if err := json.Unmarshal(raw, &e.Reason); err != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event reason is malformed", false, "repair the event log before reading history")
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event reason is malformed", false, "restore a verified snapshot before reading current state")
 		}
 	}
 	if raw, ok := fields["evidence_refs"]; ok {
 		if err := json.Unmarshal(raw, &e.EvidenceRefs); err != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event evidence references are malformed", false, "repair the event log before reading history")
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event evidence references are malformed", false, "restore a verified snapshot before reading current state")
 		}
 	}
 	versions := map[string]**int64{}
@@ -1625,14 +1625,14 @@ func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred str
 	case WorkConflictApplied:
 		var application ConflictApplication
 		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{PayloadVersion: int(payloadVersion)}, application) != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside its closed payload shape", false, "repair the event log before reading history")
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside its closed payload shape", false, "restore a verified snapshot before reading current state")
 		}
 		e.ConflictApplication = &application
 	}
 	for name, dst := range versions {
 		var version int64
 		if raw, ok := fields[name]; !ok || json.Unmarshal(raw, &version) != nil || version < 1 {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "workflow contract event names no contract version", false, "repair the event log before reading history")
+			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "workflow contract event names no contract version", false, "restore a verified snapshot before reading current state")
 		}
 		*dst = &version
 	}

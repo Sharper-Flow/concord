@@ -119,14 +119,14 @@ func recordRoutineSelfRepairActor(t *testing.T, s *Store, actor WorkflowActor) s
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef, string(actor.ActorClass), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

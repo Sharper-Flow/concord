@@ -411,7 +411,7 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 		var fields map[string]any
 		_ = json.Unmarshal(payload, &fields)
 		invalid := workflowTypedEvent(req.EventID, WorkflowOutsideRepairReconciled, work, operator.ref, req.OccurredAt, 6, fields)
-		_, err = applyWorkflowOperationTx(context.Background(), tx.tx, Operation{Events: []Event{actor, invalid}, ExpectedVersions: workVersion(work, 5)}, newFoldScope(tx.tx))
+		_, err = applyWorkflowOperationTx(context.Background(), tx.tx, Operation{Events: []Event{actor, invalid}, ExpectedVersions: workVersion(work, 5)}, newWriteScope(tx.tx))
 		return err
 	})
 	assertFailureKind(t, err, KindInvalidPayload)
@@ -494,7 +494,7 @@ func dropMigration121Objects(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return err
 	}
 	for _, stmt := range []string{
@@ -542,7 +542,7 @@ SELECT work_id, definition_ref, definition_version, definition_digest, current_s
 			return err
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()

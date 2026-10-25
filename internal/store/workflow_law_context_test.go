@@ -34,7 +34,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}

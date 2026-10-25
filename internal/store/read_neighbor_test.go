@@ -59,7 +59,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		scope, err := beginFold(ctx, tx.tx)
+		scope, err := beginWrite(ctx, tx.tx)
 		if err != nil {
 			return err
 		}

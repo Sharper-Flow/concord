@@ -56,7 +56,7 @@ func undoMigration124(t *testing.T, ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DROP TABLE linear_issue_links`); err != nil {
@@ -211,7 +211,7 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 		if event.Kind == "relation.added" {
 			continue
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := applyEffect(ctx, tx, event); err != nil {
 			t.Fatalf("fold %s: %v", event.Kind, err)
 		}
 	}

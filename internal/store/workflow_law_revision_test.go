@@ -161,7 +161,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope, err := beginFold(context.Background(), tx)
+			scope, err := beginWrite(context.Background(), tx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatal(err)
@@ -227,7 +227,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			scope2, err := beginFold(context.Background(), tx)
+			scope2, err := beginWrite(context.Background(), tx)
 			if err != nil {
 				tx.Rollback()
 				t.Fatal(err)
@@ -377,7 +377,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			cutoverErr <- beginErr
 			return
 		}
-		if foldErr := enterFold(context.Background(), tx); foldErr != nil {
+		if foldErr := enterWrite(context.Background(), tx); foldErr != nil {
 			tx.Rollback()
 			cutoverErr <- foldErr
 			return
@@ -389,7 +389,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 		}
 		close(locked)
 		<-release
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		cutoverErr <- tx.Commit()
 	}()
 	select {
@@ -410,7 +410,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 			acceptanceDone <- beginErr
 			return
 		}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: crossVersion, ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-accept", OperationID: "cross-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-accept", RequestID: "request:cross-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		if actionErr == nil {
 			tx.Rollback()
 			acceptanceDone <- nil
@@ -521,7 +521,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), tx); err != nil {
+		if err := enterWrite(context.Background(), tx); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -534,7 +534,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if err := leaveFold(context.Background(), tx); err != nil {
+		if err := leaveWrite(context.Background(), tx); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -549,7 +549,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: acceptancePayload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		tx.Rollback()
 		var failure *Failure
 		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {
@@ -676,7 +676,7 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := beginFold(context.Background(), tx)
+	scope, err := beginWrite(context.Background(), tx)
 	if err != nil {
 		tx.Rollback()
 		t.Fatal(err)

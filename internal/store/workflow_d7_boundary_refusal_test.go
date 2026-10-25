@@ -60,7 +60,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload jso
 	}
 	defer tx.Rollback()
 	operationID := "supersede-recovery-" + workID + "-" + strconv.FormatInt(version, 10)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,

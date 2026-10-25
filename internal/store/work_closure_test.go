@@ -175,7 +175,7 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:out-of-scope", IdempotencyIdentity: "out-of-scope", OperationID: "out-of-scope",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "out-of-scope",

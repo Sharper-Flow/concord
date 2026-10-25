@@ -17,7 +17,7 @@ import (
 // the core-owned identity from that citation alone. The caller supplies no
 // population, no commit, and no sequence: the run's subject comes from the
 // lease's retained immutable result, and the accepted input population
-// comes from the event log through the acquire-time event watermark.
+// comes from current acceptance rows through the acquire-time effect watermark.
 //
 // The reader is information only. It never requires the green durable
 // producer join, never mints verification evidence, and never turns the
@@ -264,7 +264,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 	}
 	rows, err := q.QueryContext(ctx, workerFailureIntegrationAcceptQuery, workID, watermark.Int64)
 	if err != nil {
-		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the event log is readable", err)
+		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the current rows are readable", err)
 	}
 	type acceptance struct {
 		eventID  string
@@ -279,7 +279,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 		var revision sql.NullInt64
 		if err := rows.Scan(&eventID, &jobID, &revision, &digest); err != nil {
 			_ = rows.Close()
-			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot scan the accepted input history", true, "retry once the event log is readable", err)
+			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot scan the accepted input history", true, "retry once the current rows are readable", err)
 		}
 		if !eventID.Valid || eventID.String == "" {
 			_ = rows.Close()
@@ -294,7 +294,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the event log is readable", err)
+		return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the accepted input history", true, "retry once the current rows are readable", err)
 	}
 	// The rows are fully read and closed before the per-revision recording
 	// join runs: no nested query executes while rows are open.
@@ -312,7 +312,7 @@ func workerFailureIntegrationInputs(ctx context.Context, q queryer, workID strin
 		}
 		var recorded int
 		if err := q.QueryRowContext(ctx, workerFailureIntegrationJobRecordedQuery, workID, entry.jobID, entry.revision, entry.digest).Scan(&recorded); err != nil {
-			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the recorded job revision of "+key, true, "retry once the event log is readable", err)
+			return nil, false, wrapFailure(KindUnavailable, "worker_failure_integration", "cannot read the recorded job revision of "+key, true, "retry once the current rows are readable", err)
 		}
 		if recorded != 1 {
 			return nil, false, newFailure(KindInvariantViolation, "worker_failure_integration", "the accepted revision "+key+" of "+workID+" names no retained worker.job_recorded recording with that digest; the acceptance join is corrupt", false, "reconcile_operation")

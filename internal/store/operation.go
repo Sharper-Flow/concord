@@ -69,7 +69,7 @@ type Project struct {
 }
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
-type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *foldScope) error
+type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *writeScope) error
 
 // operationObserver is an unexported white-box measurement surface. It is
 // passed through the operation call graph rather than stored globally, so
@@ -120,7 +120,7 @@ type EventKindRegistration struct {
 }
 
 func registerEventKind[T any](currentVersion int, authority EventAppendAuthority, fold projectionMutation, semantic eventPayloadSemantic[T]) EventKindRegistration {
-	return registerScopedEventKind(currentVersion, authority, func(ctx context.Context, tx *sql.Tx, event Event, _ *foldScope) error {
+	return registerScopedEventKind(currentVersion, authority, func(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope) error {
 		return fold(ctx, tx, event)
 	}, semantic)
 }
@@ -313,12 +313,12 @@ func validateRegisteredEvent(event Event) error {
 	return err
 }
 
-func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event, scopes ...*foldScope) error {
+func applyEffect(ctx context.Context, tx *sql.Tx, event Event, scopes ...*writeScope) error {
 	prepared, err := prepareRegisteredEvent(event)
 	if err != nil {
 		return attributeFailure(err, event, prepared.stage)
 	}
-	var scope *foldScope
+	var scope *writeScope
 	if len(scopes) == 1 {
 		scope = scopes[0]
 	}
@@ -354,13 +354,13 @@ func unsupportedEventVersion(event Event, registration EventKindRegistration) *F
 		"emit the current payload version")
 }
 
-// ApplyOperation appends and folds one operation in one transaction.
+// ApplyOperation records and applies one operation in one transaction.
 func ApplyOperation(ctx context.Context, s *Store, operation Operation) error {
 	_, err := ApplyOperationWithResult(ctx, s, operation)
 	return err
 }
 
-// ApplyOperationWithResult appends and folds one operation in one transaction,
+// ApplyOperationWithResult records and applies one operation in one transaction,
 // returning the bounded impact of any Product↔Project membership change.
 func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation) (ApplyOperationResult, error) {
 	return applyOperationWithResult(ctx, s, operation, nil)
@@ -369,16 +369,16 @@ func ApplyOperationWithResult(ctx context.Context, s *Store, operation Operation
 // ApplyOperationTx applies one domain operation within the opaque store-owned
 // transaction supplied by Transact. It is the mutation seam used when
 // authorization, approval consumption, idempotency, and the domain effect must
-// share one transaction. The transaction's fold scope is reused when a fold
+// share one transaction. The transaction's write scope is reused when a write
 // region already owns it, so nesting stays depth-counted on one scope.
 func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation Operation) (ApplyOperationResult, error) {
 	tx, err := transactionSQL(transaction, "apply_operation")
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyOperationTx(ctx, tx, operation, scope, false)
 }
@@ -386,18 +386,18 @@ func ApplyOperationTx(ctx context.Context, transaction *Transaction, operation O
 // applyWorkflowOperationTx is the private append route used by the workflow
 // dispatcher and initialization path. Generic callers cannot acquire this
 // authority through ApplyOperation or ApplyOperationTx. The caller passes the
-// fold scope its region owns; enter and close stay paired inside.
-func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope) (ApplyOperationResult, error) {
+// write scope its region owns; enter and close stay paired inside.
+func applyWorkflowOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *writeScope) (ApplyOperationResult, error) {
 	return applyOperationTx(ctx, tx, operation, scope, true)
 }
 
-func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, workflowAuthority bool) (ApplyOperationResult, error) {
+func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scope *writeScope, workflowAuthority bool) (ApplyOperationResult, error) {
 	var output ApplyOperationResult
 	if tx == nil {
 		return output, newFailure(KindUnavailable, "apply_operation", "transaction is not open", false, "open a mutation transaction")
 	}
 	if scope == nil {
-		return output, newFailure(KindInvalidOperation, "apply_operation", "fold scope is required", false, "open the fold scope with beginFold")
+		return output, newFailure(KindInvalidOperation, "apply_operation", "write scope is required", false, "open the write scope with beginWrite")
 	}
 	if len(operation.Events) == 0 {
 		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
@@ -461,7 +461,7 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		}
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+		if err := applyEffect(ctx, tx, event, scope); err != nil {
 			return output, err
 		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
@@ -522,7 +522,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		_ = tx.Rollback()
 		return cause
 	}
-	scope, err := beginFold(ctx, tx.Tx)
+	scope, err := beginWrite(ctx, tx.Tx)
 	if err != nil {
 		return output, rollback(err)
 	}
@@ -571,7 +571,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := foldRegisteredEvent(ctx, tx.Tx, event, scope); err != nil {
+		if err := applyEffect(ctx, tx.Tx, event, scope); err != nil {
 			return output, rollback(err)
 		}
 		if err := advanceWorkEffectSeqTx(ctx, tx.Tx, event); err != nil {
@@ -604,23 +604,19 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	return output, nil
 }
 
-func enterFold(ctx context.Context, tx *sql.Tx) error {
-	// A committed fold_guard row is always a strand, never a live fold:
-	// enterFold and leaveFold share one transaction, so any guard row that
-	// survives its transaction's commit belongs to a process that died
-	// mid-fold. Ignore it rather than wedge every later fold; SQLite's
-	// single-writer locking still serializes concurrent folds. The
-	// migrations arm the guard the same way.
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard (active) VALUES (1)`); err != nil {
-		return wrapFailure(KindUnavailable, "fold", "cannot enable projection fold guard", true,
+func enterWrite(ctx context.Context, tx *sql.Tx) error {
+	// Direct current-row writers share this transaction's guard until
+	// leaveWrite. Store open refuses a committed guard before ordinary writes.
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO write_guard (active) VALUES (1)`); err != nil {
+		return wrapFailure(KindUnavailable, "fold", "cannot enable current-row write guard", true,
 			"retry once the database is writable", err)
 	}
 	return nil
 }
 
-func leaveFold(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard WHERE active = 1`); err != nil {
-		return wrapFailure(KindUnavailable, "fold", "cannot disable projection fold guard", true,
+func leaveWrite(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard WHERE active = 1`); err != nil {
+		return wrapFailure(KindUnavailable, "fold", "cannot disable current-row write guard", true,
 			"retry once the database is writable", err)
 	}
 	return nil
@@ -628,7 +624,7 @@ func leaveFold(ctx context.Context, tx *sql.Tx) error {
 
 func unknownEventKind(kind string) *Failure {
 	return newFailure(KindUnknownEventKind, "fold_event", "no projection mutation is registered for "+kind,
-		false, "install a binary that recognizes the event or repair the log")
+		false, "install a binary that recognizes the event or restore a verified snapshot")
 }
 
 // absentSubject refuses an expected version named against a subject that has
@@ -834,7 +830,7 @@ func checkSubject(event Event, want SubjectType) error {
 	}
 	if event.SubjectID == "" {
 		return newFailure(KindInvalidEvent, "fold_event", "event subject ID is empty", false,
-			"repair the event log before rebuilding")
+			"restore the current rows from a verified snapshot")
 	}
 	return nil
 }

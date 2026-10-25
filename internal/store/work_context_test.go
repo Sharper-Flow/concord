@@ -50,7 +50,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

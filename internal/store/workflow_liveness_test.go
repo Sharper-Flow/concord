@@ -839,7 +839,7 @@ func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, diges
 	if _, err := appendEvent(ctx, sqlTx, binding, true); err != nil {
 		return 0, err
 	}
-	if err := foldRegisteredEvent(ctx, sqlTx, binding); err != nil {
+	if err := applyEffect(ctx, sqlTx, binding); err != nil {
 		return 0, err
 	}
 	if err := sqlTx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
@@ -1104,7 +1104,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -1133,7 +1133,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

@@ -54,7 +54,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -580,7 +580,7 @@ func TestContinuityRefusesDomainBindingWithoutRegistryProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys=ON; DELETE FROM domain_registries WHERE product_id='product'`); err != nil {

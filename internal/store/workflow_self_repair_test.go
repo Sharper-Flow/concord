@@ -195,7 +195,7 @@ func seedSelfRepairOperator(t *testing.T, s *Store) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func seedSelfRepairOperator(t *testing.T, s *Store) string {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

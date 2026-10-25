@@ -244,7 +244,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		_ = tx.Rollback()
 		return workflowObservation{}, err
@@ -791,7 +791,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}

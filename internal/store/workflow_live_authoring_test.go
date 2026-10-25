@@ -455,7 +455,7 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, tx2, newFoldScope(tx2), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx2, newWriteScope(tx2), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: encoded, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

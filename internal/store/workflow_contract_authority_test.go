@@ -38,11 +38,11 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	err = foldWorkflowContractApproved(context.Background(), tx, event, nil)
-	_ = leaveFold(context.Background(), tx)
+	_ = leaveWrite(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil || !strings.Contains(err.Error(), "requires no active workflow contract") {
 		t.Fatalf("duplicate active approval error = %v", err)
@@ -192,15 +192,15 @@ DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), tx); err != nil {
+		if err := enterWrite(context.Background(), tx); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
 		payload := workflowContractSupersededPayload{PreviousContractVersion: 1, NewContractVersion: 3, PredecessorContractVersions: predecessors}
 		event := Event{EventID: "impact-predecessor-order-parent", Kind: WorkflowContractSuperseded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt}
-		scope := newFoldScope(tx)
+		scope := newWriteScope(tx)
 		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version, scope)
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)

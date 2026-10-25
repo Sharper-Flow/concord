@@ -224,10 +224,10 @@ func readWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeRecord
 	}
 	record.Size = WorkSize(size)
 	if err := json.Unmarshal([]byte(inputs), &record.Inputs); err != nil {
-		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored size inputs are not readable", false, "repair the live projection from its event log", err)
+		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored size inputs are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	if err := json.Unmarshal([]byte(footprint), &record.Footprint); err != nil {
-		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored footprint snapshot is not readable", false, "repair the live projection from its event log", err)
+		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored footprint snapshot is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	return record, true, nil
 }

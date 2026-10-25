@@ -393,11 +393,11 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), writeTx); err != nil {
+		if err := enterWrite(context.Background(), writeTx); err != nil {
 			t.Fatal(err)
 		}
 		writeErr := workflowPremiseConfirmedWriteTx(context.Background(), writeTx, definition, confirmed, workflowPremiseConfirmedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: workID, ExpectedVersion: &expectedV, ResultingVersion: &resultingV}, ContractVersion: 1, ConfirmingActorRef: coordinatorRef, ConfirmationAuthority: "coordinator"})
-		if leaveErr := leaveFold(context.Background(), writeTx); writeErr == nil {
+		if leaveErr := leaveWrite(context.Background(), writeTx); writeErr == nil {
 			writeErr = leaveErr
 		}
 		if writeErr != nil {

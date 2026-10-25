@@ -15,7 +15,7 @@ func seedContextFactTerminal(t *testing.T, f workContextFixture, kind string, fi
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(t.Context(), tx); err != nil {
+	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	var frontier int64
@@ -34,7 +34,7 @@ func seedContextFactTerminal(t *testing.T, f workContextFixture, kind string, fi
 	if err := advanceWorkEffectSeqTx(t.Context(), tx, event); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(t.Context(), tx); err != nil {
+	if err := leaveWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -71,7 +71,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`DELETE FROM work_context_findings; DELETE FROM work_context_state`); err != nil {
@@ -80,7 +80,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if err := backfillWorkContextFacts(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -127,7 +127,7 @@ func TestWorkContextFactsGuardAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(t.Context(), tx); err != nil {
+	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	event := Event{Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "context-facts-guard", EventID: "rolled-back", Seq: 200, Payload: jsonRaw(workflowJSON(map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}}))}

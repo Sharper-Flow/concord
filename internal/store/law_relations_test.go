@@ -281,7 +281,7 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: workVersion(workID, 4)}, newFoldScope(tx)); err != nil {
+		if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: workVersion(workID, 4)}, newWriteScope(tx)); err != nil {
 			return err
 		}
 		return tx.Commit()

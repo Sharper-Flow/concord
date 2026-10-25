@@ -27,7 +27,7 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 			continue
 		}
 		if event.Kind != "work.worktree_created" {
-			if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+			if err := applyEffect(ctx, tx, event); err != nil {
 				t.Fatal(err)
 			}
 			continue

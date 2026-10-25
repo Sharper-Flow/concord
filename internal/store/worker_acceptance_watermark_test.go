@@ -82,13 +82,13 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 		t.Fatalf("original acceptance source no longer verifies after repeated acceptance: %v", err)
 	}
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {
-		if err := enterFold(t.Context(), tx.tx); err != nil {
+		if err := enterWrite(t.Context(), tx.tx); err != nil {
 			return err
 		}
 		if _, err := tx.tx.ExecContext(t.Context(), `DELETE FROM effect_receipts WHERE effect_seq=?`, firstSeq); err != nil {
 			return err
 		}
-		return leaveFold(t.Context(), tx.tx)
+		return leaveWrite(t.Context(), tx.tx)
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ func TestWorkSizeRefusesAnInheritedReviewBasis(t *testing.T) {
 	event := Event{Seq: 1, EventID: "successor-model", Kind: WorkSized, SubjectType: SubjectWorkItem, SubjectID: "sized-successor", Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: raw}
 	tx := lawChangeTx(t, s)
 	defer func() { _ = tx.Rollback() }()
-	if _, err := beginFold(context.Background(), tx); err != nil {
+	if _, err := beginWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	requireFailureKind(t, foldWorkSized(context.Background(), tx, event), KindInvariantViolation, "live inherited proof")

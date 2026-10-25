@@ -262,12 +262,12 @@ func TestResearchPackOwnerWorkIDsTxReadsUncommittedPackAndProducts(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := beginFold(ctx, raw)
+	scope, err := beginWrite(ctx, raw)
 	if err != nil {
 		_ = raw.Rollback()
 		t.Fatal(err)
 	}
-	transaction := &Transaction{tx: raw, fold: scope}
+	transaction := &Transaction{tx: raw, write: scope}
 	if _, err := ApplyOperationTx(ctx, transaction, Operation{Events: []Event{
 		workCreatedEvent("owner-uncommitted", "owner-ids-tx-work"),
 		operationEvent("owner-ids-tx-membership", "work_project.added", SubjectWorkItem, "owner-uncommitted", map[string]any{

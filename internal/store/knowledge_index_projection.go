@@ -588,7 +588,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return err
 	}
 	// CD-0159 D2/D5: every declared legislative reference in the manifest
@@ -684,7 +684,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	if err := recordRuntimeStateWriter(ctx, tx, "knowledge", "", knowledgeProjectionVersion, ""); err != nil {
 		return err
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return err
 	}
 	return nil

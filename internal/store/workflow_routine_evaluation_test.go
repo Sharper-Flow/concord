@@ -134,7 +134,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator, OperatorActor: &operator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: routinePolicyDefinition(t)}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "consequence_v1 takes no operator substitution") {
 			t.Fatalf("consequence_v1 completion with an operator actor returned %v, want the no-substitution refusal", err)
@@ -290,7 +290,7 @@ func TestRoutineEvaluation(t *testing.T) {
 			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
 			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
 		}
-		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: workflowFixtureDefinition(t, 2).Definition}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
+		_, err = applyCompleteWorkflowActionTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), RegisteredDefinition{Definition: workflowFixtureDefinition(t, 2).Definition}, execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict is missing") {
 			t.Fatalf("completion without a verdict returned %v, want the missing-verdict clause refusal", err)

@@ -115,7 +115,7 @@ func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	foldErr := foldRegisteredEvent(ctx, tx, event)
+	foldErr := applyEffect(ctx, tx, event)
 	_ = tx.Rollback()
 	if foldErr == nil {
 		t.Fatal("current workflow.successor_linked accepted an empty definition_ref")
@@ -153,7 +153,7 @@ func executeCompositionLink(ctx context.Context, s *Store, sourceID, successorID
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: sourceID, ExpectedVersion: version, ActionID: "link_successor",
 		Payload: json.RawMessage(`{"successor_work_id":"` + successorID + `"}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "composition-link",

@@ -134,7 +134,7 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	result, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
@@ -153,7 +153,7 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, Event{SubjectID: workID, Seq: seq, Actor: operatorRef}, action); err != nil {
 		t.Fatalf("record current Review acceptance of %s: %v", attemptID, err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

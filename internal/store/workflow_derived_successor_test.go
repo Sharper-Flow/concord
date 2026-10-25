@@ -68,7 +68,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor,
 				AcceptedInputsDigest: "sha256:derived-successor", IdempotencyIdentity: "supersede-derived", OperationID: "supersede-derived",
 				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-derived",

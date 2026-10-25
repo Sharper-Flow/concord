@@ -252,20 +252,20 @@ func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, regist
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
 }
 
-func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if tx == nil {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
 	}
 	if scope == nil {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "fold scope is required", false, "open the fold scope with beginFold")
+		return result, newFailure(KindInvalidOperation, "workflow_action", "write scope is required", false, "open the write scope with beginWrite")
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -428,7 +428,7 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 
 // appendRejectRetryDispatchTx records the combined rejection's retry dispatch
 // into result and returns the admitted retry record.
-func appendRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, rejectRetry *rejectRetryIntent, result *WorkflowActionExecutionResult) (retryDispatchRecord, error) {
+func appendRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, rejectRetry *rejectRetryIntent, result *WorkflowActionExecutionResult) (retryDispatchRecord, error) {
 	retryResult, retryRecord, err := applyRejectRetryDispatchTx(ctx, tx, scope, registry, request, entry, rejectRetry)
 	if err != nil {
 		return retryDispatchRecord{}, err

@@ -227,7 +227,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot begin removal preparation", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	stored, replayed, readErr := readStoredRemovalOperationTx(ctx, tx, req, requestedLinearJSON, digest)
@@ -250,7 +250,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared','',?,?)`, req.OperationID, req.IdempotencyKey, req.WorkID, req.ExpectedVersion, req.Reason, req.Actor, req.ProductID, linearJSON, string(handoffJSON), digest, now, now); err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot persist removal operation", true, "retry the same idempotency key", err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -294,7 +294,7 @@ func readStoredRemovalOperationTx(ctx context.Context, tx *sql.Tx, req WorkRemov
 			return WorkRemovalReceipt{}, false, err
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -386,14 +386,14 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	if err != nil {
 		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "handoff cannot be encoded", false, "supply a JSON-encodable handoff")
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared','',?,?)`, req.OperationID, req.IdempotencyKey, req.WorkID, req.ExpectedVersion, req.Reason, req.Actor, req.ProductID, linearJSON, string(handoffJSON), digest, now, now); err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot persist removal operation", true, "retry the same idempotency key", err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	return WorkRemovalReceipt{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, Actor: req.Actor, ProductID: req.ProductID, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: digest, State: "prepared"}, nil

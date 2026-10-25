@@ -112,7 +112,7 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 	for _, target := range []string{"completed", "cancelled", "superseded", "in_progress"} {
 		event := workTransitionEvent("outside-writer-"+target, work, "needed", target, version, version+1)
 		err := s.Transact(context.Background(), func(tx *Transaction) error {
-			scope, err := beginFold(context.Background(), tx.tx)
+			scope, err := beginWrite(context.Background(), tx.tx)
 			if err != nil {
 				return err
 			}
@@ -125,7 +125,7 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 		assertFailureKind(t, err, KindOutsideRepairActive)
 	}
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
-		scope, err := beginFold(context.Background(), tx.tx)
+		scope, err := beginWrite(context.Background(), tx.tx)
 		if err != nil {
 			return err
 		}
@@ -335,7 +335,7 @@ func TestOutsideRepairContinuityDoesNotReadBrokenWorkflow(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := s.Transact(context.Background(), func(tx *Transaction) error {
-				scope, err := beginFold(context.Background(), tx.tx)
+				scope, err := beginWrite(context.Background(), tx.tx)
 				if err != nil {
 					return err
 				}

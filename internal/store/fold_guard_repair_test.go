@@ -59,7 +59,7 @@ func TestFoldScopeNestingKeepsGuardUntilOuterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	outer, err := beginFold(ctx, tx)
+	outer, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +100,12 @@ func TestFoldScopeNestsThroughTransactionSeam(t *testing.T) {
 	seedRepairProduct(t, s)
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		scope, err := beginFold(ctx, tx.tx)
+		scope, err := beginWrite(ctx, tx.tx)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = scope.close(ctx) }()
-		tx.fold = scope
+		tx.write = scope
 		if _, err := ApplyOperationTx(ctx, tx, Operation{
 			Events:           []Event{operationEvent("repair-nested", "product.renamed", SubjectProduct, "prod", map[string]any{"display_name": "Nested"})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "prod"): 2},
@@ -135,11 +135,11 @@ func TestFoldScopeRollbackLeavesNoCommittedGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ApplyOperationTx(ctx, &Transaction{tx: tx, fold: scope}, Operation{
+	if _, err := ApplyOperationTx(ctx, &Transaction{tx: tx, write: scope}, Operation{
 		Events:           []Event{operationEvent("repair-rollback", "product.renamed", SubjectProduct, "prod", map[string]any{"display_name": "Rolled"})},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "prod"): 2},
 	}); err != nil {
@@ -171,10 +171,10 @@ func TestFoldGuardCollisionIsInvariantFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	_, err = beginFold(ctx, tx)
+	_, err = beginWrite(ctx, tx)
 	var failure *Failure
 	if !errors.As(err, &failure) {
-		t.Fatalf("beginFold error = %v, want a typed failure", err)
+		t.Fatalf("beginWrite error = %v, want a typed failure", err)
 	}
 	if failure.Kind != KindInvariantViolation {
 		t.Fatalf("collision kind = %s, want %s", failure.Kind, KindInvariantViolation)

@@ -51,13 +51,13 @@ func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range events {
 		if e.Kind != "project.locator_added" {
-			if err := foldRegisteredEvent(ctx, tx, e, scope); err != nil {
+			if err := applyEffect(ctx, tx, e, scope); err != nil {
 				t.Fatal(err)
 			}
 			continue
@@ -344,11 +344,11 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := foldRegisteredEvent(ctx, tx, e, scope); err != nil {
+	if err := applyEffect(ctx, tx, e, scope); err != nil {
 		t.Fatal(err)
 	}
 	if err := scope.close(ctx); err != nil {

@@ -143,7 +143,7 @@ func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemp
 		return sample, nil
 	case errors.Is(err, sql.ErrNoRows):
 	default:
-		return sample, wrapFailure(KindUnavailable, workerTerminalObservationOp, "cannot read the existing terminal event identity", true, "retry once the event log is readable", err)
+		return sample, wrapFailure(KindUnavailable, workerTerminalObservationOp, "cannot read the existing terminal event identity", true, "retry once the current rows are readable", err)
 	}
 	attempt, err := workerAttemptByIDCore(ctx, q, attemptID)
 	if err != nil {

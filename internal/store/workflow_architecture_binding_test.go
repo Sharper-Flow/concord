@@ -71,7 +71,7 @@ func architectureValidationFixtureWithProductKey(t *testing.T, workID, productKe
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func architectureValidationFixtureWithProductKey(t *testing.T, workID, productKe
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -197,13 +197,13 @@ func TestArchitectureBindingRelationTupleMembership(t *testing.T) {
 			}
 			defer tx.Rollback()
 			if testCase.update != "" {
-				if err := enterFold(ctx, tx); err != nil {
+				if err := enterWrite(ctx, tx); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := tx.ExecContext(ctx, testCase.update); err != nil {
 					t.Fatal(err)
 				}
-				if err := leaveFold(ctx, tx); err != nil {
+				if err := leaveWrite(ctx, tx); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -231,7 +231,7 @@ func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) 
 		tx.Rollback()
 		t.Fatal("addition accepted a product mismatching its architecture binding")
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}

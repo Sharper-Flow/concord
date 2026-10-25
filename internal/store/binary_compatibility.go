@@ -282,7 +282,7 @@ func (s *Store) cancelCutoverPinnedWork(ctx context.Context) (*CutoverDispositio
 			SubjectType: SubjectWorkItem, SubjectID: work.WorkID, Actor: "operator",
 			OccurredAt: s.now(), PayloadVersion: 1, Payload: payload,
 		}
-		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx), false); err != nil {
+		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{event}}, newWriteScope(tx), false); err != nil {
 			return nil, fmt.Errorf("cutover cancellation of work %s refused: %w", work.WorkID, err)
 		}
 	}

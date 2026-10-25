@@ -1,5 +1,5 @@
-// Package store holds Concord's local SQLite authority: the append-only domain
-// event log and, in later slices, the typed projections folded from it.
+// Package store holds Concord's local SQLite authority: current domain rows,
+// effect receipts, and transactional write guards.
 //
 // One database file is the whole live authority for an operator installation.
 // Product and Project scope are domain concepts inside that file, never
@@ -382,11 +382,11 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 }
 
 // finishOpen runs the post-migration steps every opener shares: the stranded
-// fold-guard refusal, private file permissions, the installation key, and the
-// membership invariants. A committed fold_guard row means a fold scope never
+// write-guard refusal, private file permissions, the installation key, and the
+// membership invariants. A committed write_guard row means a write scope never
 // closed cleanly, so ordinary use stays refused until offline recovery runs.
 func (s *Store) finishOpen(ctx context.Context) error {
-	if err := refuseStrandedFoldGuard(ctx, s.db); err != nil {
+	if err := refuseStrandedWriteGuard(ctx, s.db); err != nil {
 		return err
 	}
 	if err := s.checkBinaryCompatibility(ctx); err != nil {
@@ -402,20 +402,20 @@ func (s *Store) finishOpen(ctx context.Context) error {
 	return validateMembershipInvariants(ctx, s.db)
 }
 
-// refuseStrandedFoldGuard refuses an open whose database carries a committed
-// fold_guard row. The row is not retryable state: current rows may be
+// refuseStrandedWriteGuard refuses an open whose database carries a committed
+// write_guard row. The row is not retryable state: current rows may be
 // inconsistent, so the operator must restore a verified backup into a new path.
-func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
+func refuseStrandedWriteGuard(ctx context.Context, db *sql.DB) error {
 	var stranded int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard`).Scan(&stranded); err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot inspect the fold guard", true,
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM write_guard`).Scan(&stranded); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot inspect the write guard", true,
 			"confirm the database is readable", err)
 	}
 	if stranded == 0 {
 		return nil
 	}
 	return newFailure(KindInvariantViolation, "open",
-		fmt.Sprintf("%d committed fold_guard row(s) guard the projections, and no fold scope owns them", stranded), false,
+		fmt.Sprintf("%d committed write_guard row(s) guard the current rows, and no write scope owns them", stranded), false,
 		"stop concord processes and run concord restore from a verified backup into a new path, then swap the restored database into place")
 }
 

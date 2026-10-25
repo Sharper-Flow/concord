@@ -564,7 +564,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
 		payload := mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
 		if err := s.Transact(context.Background(), func(tx *Transaction) error {
-			scope, err := beginFold(context.Background(), tx.tx)
+			scope, err := beginWrite(context.Background(), tx.tx)
 			if err != nil {
 				return err
 			}

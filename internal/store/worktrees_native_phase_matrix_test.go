@@ -801,7 +801,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer tx.Rollback()
-				if err := enterFold(context.Background(), tx); err != nil {
+				if err := enterWrite(context.Background(), tx); err != nil {
 					t.Fatal(err)
 				}
 				payload, _ := json.Marshal(worktreeRemovalSettledPayload{
@@ -814,7 +814,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: payload,
 				})
 				if foldErr != nil {
-					if err := leaveFold(context.Background(), tx); err != nil {
+					if err := leaveWrite(context.Background(), tx); err != nil {
 						t.Fatal(err)
 					}
 					if wantAdmitted {
@@ -837,7 +837,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					}
 					return
 				}
-				if err := leaveFold(context.Background(), tx); err != nil {
+				if err := leaveWrite(context.Background(), tx); err != nil {
 					t.Fatal(err)
 				}
 				if err := tx.Commit(); err != nil {

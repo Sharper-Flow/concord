@@ -196,7 +196,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
@@ -1116,7 +1116,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 		defer tx.Rollback()
 		operationID := "complete-correction-no-approval"
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -1142,7 +1142,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 		defer tx.Rollback()
 		operationID := "complete-correction-stale-version"
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version + 1, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner, OperatorActor: &fixture.operator,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -1199,7 +1199,7 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},

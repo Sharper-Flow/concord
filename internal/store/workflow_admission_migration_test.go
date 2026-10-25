@@ -127,7 +127,7 @@ func admissionMigrationAppend(t *testing.T, s *Store, work, actor, kind, payload
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	var next int64
@@ -160,7 +160,7 @@ func admissionMigrationAppend(t *testing.T, s *Store, work, actor, kind, payload
 	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -326,7 +326,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(t.Context(), tx); err != nil {
+	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	// The fixture's Project membership independently restricts work deletion.
@@ -336,7 +336,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 	if _, err := tx.Exec(`DELETE FROM work_items WHERE id=?`, supplement); err != nil {
 		t.Fatalf("cascade admission facts: %v", err)
 	}
-	if err := leaveFold(t.Context(), tx); err != nil {
+	if err := leaveWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

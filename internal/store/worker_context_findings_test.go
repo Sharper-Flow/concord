@@ -186,8 +186,8 @@ func withWorkerFailureObservation(t *testing.T, event Event) Event {
 // stored event payload retains the findings bytes verbatim.
 func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	t.Parallel()
-	if got := CurrentEventPayloadVersion(WorkerCompleted); got != workerCompletedJobSizeVersion {
-		t.Fatalf("worker.completed current payload version = %d, want %d", got, workerCompletedJobSizeVersion)
+	if got := CurrentEventPayloadVersion(WorkerCompleted); got != 8 {
+		t.Fatalf("worker.completed current payload version = %d, want 8", got)
 	}
 	if got := CurrentEventPayloadVersion(WorkerFailed); got != 4 {
 		t.Fatalf("worker.failed current payload version = %d, want 4", got)

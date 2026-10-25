@@ -185,7 +185,7 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		scope, err := beginFold(ctx, tx)
+		scope, err := beginWrite(ctx, tx)
 		if err != nil {
 			t.Fatal(err)
 		}

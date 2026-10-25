@@ -25,7 +25,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
@@ -188,7 +188,7 @@ func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	hash := "sha256:" + strings.Repeat("b", 64)
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

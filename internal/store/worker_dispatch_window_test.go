@@ -732,7 +732,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -740,7 +740,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -809,7 +809,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	if err != nil {
 		return err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -833,7 +833,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 		_ = tx.Rollback()
 		return err
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1054,7 +1054,7 @@ func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
 			"pre-cutover-completed", WorkflowActionCompleted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 2, []byte(completionPayload)); err != nil {
 			return err
 		}
-		if err := enterFold(ctx, sqlTx); err != nil {
+		if err := enterWrite(ctx, sqlTx); err != nil {
 			return err
 		}
 		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
@@ -1062,7 +1062,7 @@ SELECT completion.subject_id,?,completion.seq,completion.payload,completion.even
 FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, "attempt-pre-cd0067", "pre-cutover-start", "pre-cutover-completed"); err != nil {
 			return err
 		}
-		return leaveFold(ctx, sqlTx)
+		return leaveWrite(ctx, sqlTx)
 	}); err != nil {
 		t.Fatalf("seed pre-CD-0067 window: %v", err)
 	}

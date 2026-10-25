@@ -743,7 +743,7 @@ func TestLawChangeFoldRequiresDeclarationAndConsumedApproval(t *testing.T) {
 		candidate.Payload = mustJSONValue(fields)
 		tx := lawChangeTx(t, s)
 		defer tx.Rollback()
-		scope, err := beginFold(context.Background(), tx)
+		scope, err := beginWrite(context.Background(), tx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1291,7 +1291,7 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 	if err != nil {
 		t.Fatalf("construct completion: %v", err)
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, newFoldScope(tx)); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, completion, newWriteScope(tx)); err != nil {
 		t.Fatalf("complete the non-Product-changing item over another item's registry edit: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

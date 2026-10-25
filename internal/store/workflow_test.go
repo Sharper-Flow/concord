@@ -540,7 +540,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newFoldScope(tx))
+	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newWriteScope(tx))
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
@@ -985,7 +985,7 @@ func TestWorkflowImpactTargetKindRejectsProductAndProject(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := enterFold(context.Background(), tx); err != nil {
+			if err := enterWrite(context.Background(), tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}

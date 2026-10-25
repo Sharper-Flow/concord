@@ -59,7 +59,7 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 	if actionID == "record_proposal" && len(fields) == 0 {
 		payload = json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
 	}
-	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 	if actionErr != nil {
 		_ = tx.Rollback()
 		return 0, actionErr

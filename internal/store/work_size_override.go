@@ -116,7 +116,7 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 		return WorkSizeRevisionResult{}, wrapFailure(KindInvalidPayload, "work_size_override", "cannot encode the size override", false, "supply the bounded override fields", err)
 	}
 	override := Event{EventID: request.EventID, Kind: WorkSizeOverridden, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: operator.ref, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}
-	applied, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(tx))
+	applied, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newWriteScope(tx))
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}

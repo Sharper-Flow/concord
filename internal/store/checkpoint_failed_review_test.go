@@ -285,7 +285,7 @@ func confirmCheckpointPremise(t *testing.T, s *Store, workID string, coordinator
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", SelectedChoice: "confirm", Payload: json.RawMessage(`{"contract_version":1}`), Actor: coordinator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: coordinator.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,

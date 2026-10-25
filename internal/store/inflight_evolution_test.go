@@ -296,7 +296,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		}),
 		selection,
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		if event.EventID == selection.EventID {
 			continue
 		}
-		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+		if err := applyEffect(ctx, tx, event, scope); err != nil {
 			t.Fatal(err)
 		}
 	}

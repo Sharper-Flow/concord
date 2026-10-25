@@ -93,10 +93,6 @@ request = json.load(sys.stdin)
 db = sqlite3.connect(os.environ["CONCORD_DB_PATH"])
 db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
 db.execute("INSERT OR IGNORE INTO schema_migrations VALUES (7)")
-db.execute("CREATE TABLE IF NOT EXISTS domain_events (seq INTEGER PRIMARY KEY, event_id TEXT, kind TEXT NOT NULL, payload_version INTEGER, payload TEXT NOT NULL, subject_type TEXT, subject_id TEXT)")
-if sys.argv[1] != "invoke":
-    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload) VALUES (?, ?, 1, ?)",
-               (sys.argv[1] + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), sys.argv[1], json.dumps(request, sort_keys=True)))
 for table, key, subject in (("products", "id", "gate-product"), ("projects", "id", "gate-project"), ("managed_resources", "resource_id", "gate-resource")):
     db.execute(f"CREATE TABLE IF NOT EXISTS {{table}} ({{key}} TEXT PRIMARY KEY, display_name TEXT, version INTEGER)")
     db.execute(f"INSERT INTO {{table}} ({{key}}, version) VALUES (?, 1) ON CONFLICT({{key}}) DO UPDATE SET version = version + 1", (subject,))
@@ -124,9 +120,7 @@ if sys.argv[1] == "invoke":
         n = db.execute("SELECT COUNT(*) FROM work_items").fetchone()[0] + 1
         work_id = "gate-work-" + str(n)
         db.execute("INSERT INTO work_items VALUES (?, 2, ?, 'needed')", (work_id, request["input"]["title"]))
-        kind, payload_version = "work.created", 2
         refs = [{{"entity_kind": "work_item", "id": work_id, "version": "2"}}]
-        payload = {{"operation": operation}} | refs[0]
     elif operation == "message_send":
         inp = request["input"]
         sender = db.execute("SELECT version FROM work_items WHERE id=?", (inp["work_id"],)).fetchone()
@@ -136,9 +130,7 @@ if sys.argv[1] == "invoke":
         db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
         db.execute("INSERT INTO work_messages VALUES (?, ?, ?, ?, 'sent')",
                    ("msg:" + format(inp["expected_version"], "032x"), inp["work_id"], inp["recipient_work_id"], inp["body"]))
-        kind, payload_version = "work.message_sent", 1
         refs = [{{"entity_kind": "work_item", "id": inp["work_id"], "version": str(inp["expected_version"] + 1)}}]
-        payload = {{"operation": operation, "recipient_work_id": inp["recipient_work_id"], "body": inp["body"]}} | refs[0]
     elif operation == "message_withdraw":
         inp = request["input"]
         state = db.execute("SELECT state FROM work_messages WHERE message_id=?", (inp["message_id"],)).fetchone()
@@ -147,9 +139,7 @@ if sys.argv[1] == "invoke":
         assert sender and sender[0] == inp["expected_version"], "withdraw version must come from the send's changed refs"
         db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
         db.execute("UPDATE work_messages SET state='withdrawn' WHERE message_id=?", (inp["message_id"],))
-        kind, payload_version = "work.message_withdrawn", 1
         refs = [{{"entity_kind": "work_item", "id": inp["work_id"], "version": str(inp["expected_version"] + 1)}}]
-        payload = {{"operation": operation, "message_id": inp["message_id"]}} | refs[0]
     elif operation == "resource_claim":
         inp = request["input"]
         current = db.execute("SELECT version FROM work_items WHERE id=?", (inp["work_id"],)).fetchone()
@@ -157,11 +147,8 @@ if sys.argv[1] == "invoke":
         db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
         db.execute("INSERT INTO resource_claims VALUES (?, ?, ?, ?, ?, 'held')",
                    (inp["resource_key"], inp["work_id"], request["call_envelope"]["agent_ref"], request["call_envelope"]["session_ref"], inp["reason"]))
-        kind, payload_version = "work.resource_claimed", 1
         carrier = ("work_item", inp["work_id"]) if MODE == "current-resource-ref" else ("resource_claim", inp["resource_key"])
         refs = [{{"entity_kind": carrier[0], "id": carrier[1], "version": str(inp["expected_version"] + 1)}}]
-        payload = {{"operation": operation, "work_id": inp["work_id"], "resource_key": inp["resource_key"],
-                    "expected_version": inp["expected_version"], "resulting_version": inp["expected_version"] + 1}} | refs[0]
     elif operation == "resource_release":
         inp = request["input"]
         current = db.execute("SELECT version FROM work_items WHERE id=?", (inp["work_id"],)).fetchone()
@@ -171,11 +158,8 @@ if sys.argv[1] == "invoke":
         db.execute("UPDATE work_items SET version=? WHERE id=?", (inp["expected_version"] + 1, inp["work_id"]))
         if MODE != "held-resource-projection":
             db.execute("UPDATE resource_claims SET state='released' WHERE resource_key=?", (inp["resource_key"],))
-        kind, payload_version = "work.resource_claim_released", 1
         carrier = ("work_item", inp["work_id"]) if MODE == "current-resource-ref" else ("resource_claim", inp["resource_key"])
         refs = [{{"entity_kind": carrier[0], "id": carrier[1], "version": str(inp["expected_version"] + 1)}}]
-        payload = {{"operation": operation, "work_id": inp["work_id"], "resource_key": inp["resource_key"],
-                    "expected_version": inp["expected_version"], "resulting_version": inp["expected_version"] + 1}} | refs[0]
     elif operation == "observation_record":
         inp = request["input"]
         # The v0.31.0 fold serialized omitted lists to JSON null against array
@@ -183,16 +167,10 @@ if sys.argv[1] == "invoke":
         # contract so only a recipe sending explicit lists can pass.
         db.execute("INSERT INTO work_observations VALUES (?, ?, ?, ?, ?)",
                    (inp["observation_id"], inp["work_id"], inp["statement"], json.dumps(inp.get("refs")), json.dumps(inp.get("tags"))))
-        kind, payload_version = "work.observation_recorded", 1
         refs = [{{"entity_kind": "observation", "id": inp["observation_id"], "version": "1"}}]
-        payload = {{"operation": operation, "observation_id": inp["observation_id"], "statement": inp["statement"]}} | refs[0]
     else:
         print(json.dumps({{"outcome": "error", "error": {{"message": "unknown operation " + operation}}}}))
         sys.exit(1)
-    subject = work_id if operation == "capture" else inp["work_id"]
-    db.execute("INSERT INTO domain_events (event_id, kind, payload_version, payload, subject_type, subject_id) VALUES (?, ?, ?, ?, 'work_item', ?)",
-               (operation + "-" + str(db.execute("SELECT COUNT(*) FROM domain_events").fetchone()[0]), kind, payload_version,
-                json.dumps(payload), subject))
     db.commit()
     if MODE == "bad-resource-ref" and operation == "resource_claim":
         refs[0]["version"] = int(refs[0]["version"])
@@ -227,9 +205,6 @@ source = sqlite3.connect("file:" + request["source"] + "?mode=ro", uri=True)
 target = sqlite3.connect(request["destination"])
 source.backup(target)
 source.close()
-has_history = target.execute("SELECT 1 FROM sqlite_schema WHERE name='domain_events'").fetchone()
-if has_history and not second:
-    target.execute("INSERT INTO domain_events (kind, payload) VALUES ('migration.appended', '{{}}')")
 if MODE == "lose-resource-effect":
     target.execute("UPDATE resource_claims SET state='held'")
 if MODE == "rebuild-resource-effect" and second:
@@ -240,14 +215,11 @@ if MODE == "lose-work" or (MODE == "second-lose-work" and second):
     target.execute("DELETE FROM work_items WHERE id='gate-work-1'")
 if MODE == "lose-message" or (MODE == "second-lose-message" and second):
     target.execute("UPDATE work_messages SET state='sent'")
-if MODE == "retire-history" and has_history:
-    target.execute("DROP TABLE domain_events")
 target.commit()
-watermark = target.execute("SELECT MAX(seq) FROM domain_events").fetchone()[0] if MODE != "retire-history" else 0
 schema = target.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
 target.close()
 checksum = hashlib.sha256(open(request["destination"], "rb").read()).hexdigest()
-inventory = {{"schema_version": schema, "event_watermark": watermark, "db_checksum": checksum}}
+inventory = {{"schema_version": schema, "db_checksum": checksum}}
 if MODE == "wrong-source":
     manifest["db_checksum"] = "0" * 64
 if MODE == "wrong-snapshot-id":
@@ -346,8 +318,21 @@ class CaseTests(unittest.TestCase):
         self.assertFalse((self.fixture.root / "work" / "v1.0.0").exists())
 
     def test_current_effects_survive_both_restores_without_history(self) -> None:
-        row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate("retire-history"))
+        real_effects = gate.effects
+        checked = []
+
+        def logless_effects(path, deadline):
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+                self.assertIsNone(db.execute("SELECT 1 FROM sqlite_schema WHERE name='domain_events'").fetchone())
+            checked.append(path.name)
+            return real_effects(path, deadline)
+
+        with patch.object(gate, "effects", logless_effects):
+            row = self.case(self.fixture.publish("v1.0.0"), self.fixture.candidate())
         self.assertCase(row, "pass", "complete")
+        self.assertEqual(checked, ["snapshot.db", "restored.db", "restored-again.db"])
+        for phase in ("source", "restored", "restored_again"):
+            self.assertNotIn("event_watermark", row[phase])
 
     def test_a_passing_case_binds_writer_recipe_and_snapshot_provenance(self) -> None:
         writer = self.fixture.publish("v1.0.0")
@@ -607,7 +592,7 @@ class CaseTests(unittest.TestCase):
         return gate.run_gate(self.args(candidate), releases, tag_map(*(writer.tag for writer in writers)))
 
     def test_gate_passes_when_every_writer_passes(self) -> None:
-        report, status = self.gate_run(self.fixture.candidate("retire-history"), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
+        report, status = self.gate_run(self.fixture.candidate(), self.fixture.publish("v1.0.0"), self.fixture.publish("v1.1.2"))
         self.assertEqual((status, report["result"]), (0, "pass"))
         self.assertNotIn("coverage", report)
         self.assertEqual([row["tag"] for row in report["rows"]], ["v1.0.0", "v1.1.2"])
@@ -640,8 +625,8 @@ class CaseTests(unittest.TestCase):
     def test_snapshot_work_stops_at_the_deadline_and_on_a_signal(self) -> None:
         store = self.fixture.root / "store.db"
         db = sqlite3.connect(store)
-        db.execute("CREATE TABLE domain_events (seq INTEGER PRIMARY KEY, kind TEXT, payload TEXT)")
-        db.executemany("INSERT INTO domain_events (kind, payload) VALUES ('k', ?)", [("x" * 4000,)] * 2000)
+        db.execute("CREATE TABLE current_effects (id INTEGER PRIMARY KEY, state TEXT)")
+        db.executemany("INSERT INTO current_effects (state) VALUES (?)", [("x" * 4000,)] * 2000)
         db.commit()
         db.close()
         with self.assertRaisesRegex(gate.CaseFailure, "budget exhausted"):

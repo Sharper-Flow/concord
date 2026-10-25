@@ -73,7 +73,7 @@ func TestFrontierOperationLogBlind(t *testing.T) {
 					t.Fatal(beginErr)
 				}
 				defer tx.Rollback()
-				result, err = applyOperationTx(t.Context(), tx, Operation{Events: []Event{e}}, newFoldScope(tx), false)
+				result, err = applyOperationTx(t.Context(), tx, Operation{Events: []Event{e}}, newWriteScope(tx), false)
 			} else {
 				result, err = ApplyOperationWithResult(t.Context(), s, Operation{Events: []Event{e}})
 			}

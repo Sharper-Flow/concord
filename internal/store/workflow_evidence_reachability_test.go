@@ -110,7 +110,7 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 			AcceptedInputsDigest: "sha256:reachability", IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

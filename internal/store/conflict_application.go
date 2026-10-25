@@ -239,15 +239,15 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		}
 		return "", err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	if err := scope.enter(ctx); err != nil {
 		return "", err
 	}
 	event.Seq = seq
-	if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+	if err := applyEffect(ctx, tx, event, scope); err != nil {
 		return "", err
 	}
 	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {

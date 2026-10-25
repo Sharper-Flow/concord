@@ -74,7 +74,7 @@ func workflowRegistration[T workflowPayload](currentVersion int, fold projection
 }
 
 // workflowScopedRegistration registers a workflow event kind whose fold reads
-// the transaction's verified definition source from the fold scope, so one
+// the transaction's verified definition source from the write scope, so one
 // caller-selected registry carries selection, contract, action, confirmation,
 // and terminal folds.
 func workflowScopedRegistration[T workflowPayload](currentVersion int, fold scopedProjectionMutation) EventKindRegistration {
@@ -908,7 +908,7 @@ func workflowDigest(value string) bool {
 	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
 
-func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	} else if active {
@@ -1018,7 +1018,7 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 	return nil
 }
 
-func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowContractApprovedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1277,7 +1277,7 @@ func requireWorkflowDuplicateRecoveryApprovalTx(ctx context.Context, tx *sql.Tx,
 	}, contractRecoveryApprovalSubject)
 }
 
-func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowContractSupersededPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1468,7 +1468,7 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
 }
 
-func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *foldScope) error {
+func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope) error {
 	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, event.SubjectID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot inspect hard dependents")
@@ -1588,7 +1588,7 @@ func overlap(a, b []string) bool {
 	return false
 }
 
-// foldWorkflowBacklogAlignmentRecorded writes the CD-0156 fold-only alignment
+// foldWorkflowBacklogAlignmentRecorded writes the CD-0156 write-seam-only alignment
 // projection: one declaration row and, when the search found related work,
 // one row per named work id. It does not reuse workflow_candidate_sets, whose
 // foreign key binds to workflow_contracts(work_id, contract_version) and
@@ -1631,7 +1631,7 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
 }
 
-// writeWorkflowBacklogAlignmentRowsTx writes the CD-0156 fold-only alignment
+// writeWorkflowBacklogAlignmentRowsTx writes the CD-0156 write-seam-only alignment
 // projection rows for one recorded search: the declaration row and, when the
 // search found related work, one row per named work id. The CD-0198 D2
 // diagnosis fold reuses it, so the merged record writes exactly the rows the
@@ -1734,7 +1734,7 @@ func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) err
 	return nil
 }
 
-func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowActionStartedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1833,7 +1833,7 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 	return nil
 }
 
-func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowActionCheckpointedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -2481,7 +2481,7 @@ func foldWorkflowWorkerAttemptCompletionTx(ctx context.Context, tx *sql.Tx, even
 	return nil
 }
 
-func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -2865,7 +2865,7 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	// past still governs the reads that recover results and corrections.
 	query := `SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND exit_seq>? AND action_id IN (` + placeholders + `)`
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
-		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
+		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the current workflow rows are readable", err)
 	}
 	if workflowDerivedStepStartActive(definition) {
 		// A successor contract opens fresh work at the held step. Its typed
@@ -2875,7 +2875,7 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 		// callable-start pins keep their original pass-boundary rule.
 		var supersededSeq int64
 		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(supersession_seq),0) FROM workflow_contracts WHERE work_id=? AND supersession_seq>?`, workID, startSeq).Scan(&supersededSeq); err != nil {
-			return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's contract entry", true, "retry once the workflow event log is readable", err)
+			return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's contract entry", true, "retry once the current workflow rows are readable", err)
 		}
 		entrySeq = max(entrySeq, supersededSeq)
 	}
@@ -3380,7 +3380,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	return workflowNextStep(definition, current), nil
 }
 
-func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowActionFailedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -3614,7 +3614,7 @@ func foldWorkflowVerdictRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
-func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowPremiseConfirmedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -3970,7 +3970,7 @@ func foldWorkflowConditionCancelled(ctx context.Context, tx *sql.Tx, event Event
 	}
 	return nil
 }
-func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err

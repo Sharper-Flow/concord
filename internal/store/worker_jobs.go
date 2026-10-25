@@ -14,7 +14,7 @@ import (
 // WorkerJobRecorded is the event kind that records one immutable worker-job
 // revision under its owning work aggregate (CD-0205). The work aggregate owns
 // the job; attempt IDs and lane result tokens keep owning identity and
-// evidence. Recording is fold-only: the projection row derives from this
+// evidence. Recording is write-seam-only: the current row derives from this
 // event, and a second recording of the same (job_id, revision) must carry
 // byte-identical content or the fold refuses.
 const WorkerJobRecorded = "worker.job_recorded"

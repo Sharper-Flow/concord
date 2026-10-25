@@ -143,7 +143,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 	seedWork(t, s, "research-owner")
 	seedWork(t, s, "research-consumer")
 	err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
+		if err := enterWrite(ctx, tx.tx); err != nil {
 			return err
 		}
 		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('pack-owner','research-owner',1,'current',2,'now','now')`); err != nil {
@@ -155,7 +155,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES('pack-owner',1,'research-consumer','context',1,'now')`); err != nil {
 			return err
 		}
-		return leaveFold(ctx, tx.tx)
+		return leaveWrite(ctx, tx.tx)
 	})
 	if err != nil {
 		t.Fatal(err)

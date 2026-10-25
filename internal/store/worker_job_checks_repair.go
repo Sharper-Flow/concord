@@ -112,7 +112,7 @@ func workerChecksRepairWalkTx(ctx context.Context, q queryer, workID string, pre
 func workerChecksRepairWatermarkTx(ctx context.Context, q queryer, workID string) (int64, error) {
 	watermark, err := readWorkEffectSeq(ctx, q, workID)
 	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "worker_job", "cannot read the event watermark", true, "retry once the event log is readable", err)
+		return 0, wrapFailure(KindUnavailable, "worker_job", "cannot read the event watermark", true, "retry once the current rows are readable", err)
 	}
 	return watermark, nil
 }

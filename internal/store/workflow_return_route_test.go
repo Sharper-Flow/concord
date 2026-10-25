@@ -365,7 +365,7 @@ func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowA
 	}
 	defer tx.Rollback()
 	op := "correction-without-operator-" + workID
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "request_correction", Payload: payload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: op, OperationID: op, PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: op, RequestID: "request:" + op, ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC()})
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "request_correction", Payload: payload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: op, OperationID: op, PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: op, RequestID: "request:" + op, ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC()})
 	return err
 }
 

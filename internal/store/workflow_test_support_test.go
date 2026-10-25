@@ -255,7 +255,7 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	if err != nil {
 		return err
 	}
-	_, err = applyWorkflowOperationTx(ctx, tx, operation, newFoldScope(tx))
+	_, err = applyWorkflowOperationTx(ctx, tx, operation, newWriteScope(tx))
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -362,7 +362,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
 	}
 	defer tx.finish(&retErr)
-	scope, err := beginFold(ctx, tx.Tx)
+	scope, err := beginWrite(ctx, tx.Tx)
 	if err != nil {
 		return err
 	}

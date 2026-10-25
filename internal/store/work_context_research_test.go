@@ -146,7 +146,7 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 		if err != nil {
 			return err
 		}
-		if _, err := applyWorkflowOperationTx(ctx, rawTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}, newFoldScope(rawTx)); err != nil {
+		if _, err := applyWorkflowOperationTx(ctx, rawTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}, newWriteScope(rawTx)); err != nil {
 			return err
 		}
 		// The production post-append view check, invoked exactly where the

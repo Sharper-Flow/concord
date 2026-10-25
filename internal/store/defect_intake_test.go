@@ -137,7 +137,7 @@ func forceWorkLifecycleTransition(t *testing.T, s *Store, workID, to, reason str
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	at := time.Unix(3, 0).UTC().Format(time.RFC3339Nano)
@@ -147,7 +147,7 @@ func forceWorkLifecycleTransition(t *testing.T, s *Store, workID, to, reason str
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=? WHERE work_id=?`, to, at, workID); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -213,14 +213,14 @@ func seedUnclassifiedBug(t *testing.T, s *Store, workID, projectID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	// Migrated pre-CD-0211 bugs have no classification in their current row.
 	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect') WHERE id=?`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

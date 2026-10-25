@@ -478,7 +478,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newFoldScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
 		Payload: json.RawMessage(mustJSONValue(map[string]any{
 			"required_reading":      []map[string]any{},

@@ -4,6 +4,11 @@
   "summary": "Authority declarations for vocabulary-like columns in the live storage schema.",
   "entries": [
     {
+      "table": "worktree_claim_native_fences",
+      "column": "resource_kind",
+      "authority": "check"
+    },
+    {
       "table": "active_research_consumers",
       "column": "use_role",
       "authority": "check"

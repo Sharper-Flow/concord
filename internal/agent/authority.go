@@ -514,7 +514,14 @@ func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host s
 	if client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
-	return s.authorizeResolved(ctx, tx, host, in, client)
+	grant, err := s.authorizeResolved(ctx, tx, host, in, client)
+	if err != nil {
+		return Authority{}, err
+	}
+	if err := store.CheckMemberMutationTx(ctx, tx, memberWorkflowActor(grant), in.RequiredOperation); err != nil {
+		return Authority{}, err
+	}
+	return grant, nil
 }
 
 // trustedClientRefusalFor maps an absent or inactive client to the caller's

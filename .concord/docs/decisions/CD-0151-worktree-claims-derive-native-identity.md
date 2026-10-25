@@ -21,6 +21,11 @@ work identity. The branch is `work/<work_id>`. The path is
 `<data-root>/worktrees/<project_id>/<work_id>`. The claim request carries no
 caller-supplied branch or path.
 
+A member claim under CD-0242 D5 derives its branch as `work/<work_id>--<member_id>` and its path as
+`<data-root>/worktrees/<project_id>/<work_id>--<member_id>`, where the core derives `<member_id>` from the
+recorded group member. The integration claim keeps the branch and path above. The claim request still
+carries no caller-supplied branch, path, or member identity.
+
 ### D2. Active native identity is unique
 
 The pinned path is globally unique: the store permits at most one pending or

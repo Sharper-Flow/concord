@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,31 +30,37 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// correction obtains a fresh refine epoch on the second leg.
 			pinned := legacyApprovalPolicyDefinitionForRef(t)
 			grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-			ownerRef, ownerRefErr := store.WorkflowActorRef(grantActor)
-			if ownerRefErr != nil {
-				t.Fatal(ownerRefErr)
-			}
 			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 				return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: pinned, Actor: grantActor, Now: fixedTime()})
 			}); err != nil {
 				t.Fatal(err)
 			}
-			// The fixture parks the instance at the producer step under the
-			// approved contract and predicate the independent verdict answers
-			// to, the fold-guarded fixture pattern for fold-only tables.
+			seedCurrentWorkflowDomainOnce(t, s)
+			approvalStep := ""
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "approve_contract") {
+					approvalStep = step.ID
+					break
+				}
+			}
+			if approvalStep == "" {
+				t.Fatal("verify-identity fixture definition has no contract approval step")
+			}
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-				UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-2';
-				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES('work-2',1,'approved verify objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal','[]');
-				INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-2',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:verify-identity","immutable_subject_ref":"commit:verify-identity","expected_result":"pass"}');
-				DELETE FROM write_guard`, ownerRef); err != nil {
+				UPDATE workflow_instances SET current_step=? WHERE work_id='work-2';
+				DELETE FROM write_guard`, approvalStep); err != nil {
 				t.Fatal(err)
 			}
+			fields := workflowContractFieldsFixture()
+			fields["premise"] = "approved verify objective"
+			fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:verify-identity", "immutable_subject_ref": "commit:verify-identity", "expected_result": "pass"}}}
+			fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+			verifyIdentityAction(t, s, "approve_contract", fields, grantActor, now)
 			// The producer pass opens with its fenced start, and its declared
 			// delivery enters refine, so the refinement step opens with no
 			// start of its own and the verdict route reads the execution
 			// production it needs.
 			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, now)
-			seedCurrentWorkflowDomainOnce(t, s)
 			reviewService, _, reviewGrant := newAuthorizedService(t, s, "client-o-review", grant.PrincipalRef, []Capability{"work_transition", "worker_dispatch"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			reviewService.Now = func() time.Time { return now }
 			fixture := oAgentFixture(t, s, reviewService, mutationEnvelope(reviewGrant, mustScopeVersion(t, s)), "work-2")

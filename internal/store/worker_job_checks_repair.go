@@ -367,7 +367,8 @@ func admitWorkerChecksRepairReviewDispatchTx(ctx context.Context, q queryer, wor
 	}
 	var digest, state string
 	var contractVersion int64
-	rowErr := q.QueryRowContext(ctx, `SELECT digest, state, contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state, &contractVersion)
+	var dependenciesCurrent bool
+	rowErr := q.QueryRowContext(ctx, `SELECT digest,state,contract_version,CASE WHEN `+workerJobDependenciesCurrentPredicate+` THEN 1 ELSE 0 END FROM worker_job_revisions j WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &state, &contractVersion, &dependenciesCurrent)
 	if rowErr == sql.ErrNoRows {
 		return false, nil
 	}
@@ -377,11 +378,7 @@ func admitWorkerChecksRepairReviewDispatchTx(ctx context.Context, q queryer, wor
 	if digest != binding.Digest || state != "satisfied" {
 		return false, nil
 	}
-	active, err := activeWorkflowContractVersion(ctx, q, workID, "worker_job")
-	if err != nil {
-		return false, err
-	}
-	if contractVersion != active {
+	if !dependenciesCurrent {
 		return false, nil
 	}
 	oracle, err := readWorkerJobOracle(ctx, q, workID, binding)

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"slices"
 )
 
@@ -62,7 +63,7 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	if err := ValidateRecoveryPacket(req.Packet, window.PacketDigest, req.WorkID, req.AttemptID); err != nil {
 		return err
 	}
-	entry, err := activeWorktreeEntryForProject(ctx, q, "worker_control", req.WorkID, req.ProjectID)
+	entry, err := activeDispatchWorktreeEntry(ctx, q, req.WorkID, req.ProjectID, window.WorktreeIdentity)
 	if err != nil {
 		return err
 	}
@@ -104,4 +105,36 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 	}
 	*plan = WorkerControlPlan{Oracle: oracle, SubjectCommit: window.SubjectCommit, WorktreePath: entry.Path}
 	return nil
+}
+
+// The authorized attempt already pins its native claim identity. A lane child
+// executes there, without borrowing its member caller's authenticated tuple.
+func activeDispatchWorktreeEntry(ctx context.Context, q queryer, workID, projectID, identity string) (WorktreeEntry, error) {
+	entries, err := worktreeEntriesCore(ctx, q, workID)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	for _, entry := range entries {
+		if entry.ProjectID != projectID || entry.State != worktreeEntryActive {
+			continue
+		}
+		if workerWorktreeIdentity(filepath.Clean(entry.Path)) == identity {
+			return entry, nil
+		}
+		if canonical, err := canonicalWorkerWorktreePath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == identity {
+			return entry, nil
+		}
+	}
+	return WorktreeEntry{}, workerControlUnauthorized()
+}
+
+func worktreeVerifyEntry(ctx context.Context, q queryer, req WorktreeVerifyRequest) (WorktreeEntry, error) {
+	if req.NativeAuthorization == nil {
+		return activeWorktreeEntryForProject(ctx, q, "worktree_verify", req.WorkID, req.ProjectID)
+	}
+	window, err := findAuthorizedDispatchWindowBefore(ctx, q, req.WorkID, req.Oracle.AttemptID, 0)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	return activeDispatchWorktreeEntry(ctx, q, req.WorkID, req.ProjectID, window.WorktreeIdentity)
 }

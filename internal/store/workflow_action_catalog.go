@@ -121,7 +121,7 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"record_report":          nil,
 		"record_verdict":         {canonicalVerdictPayload},
 		"record_work_context":    {researchContextSelection},
-		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision, withAppendedPayloadFields(workerJobCallerScopeActionFields)},
+		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision, withAppendedPayloadFields(workerJobCallerScopeActionFields), memberGroupActionPayload},
 		"request_correction":     {workTransitionAction, openFindingsCorrection, failureAttributionCorrection},
 		"revise_candidates":      nil,
 		"start_execution":        nil,
@@ -137,4 +137,30 @@ func workerJobCallerScopeActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionObjectField("direct_caller_allowance", false, "worker_job_direct_caller_allowance"),
 	}
+}
+
+func memberGroupActionPayload(action WorkflowActionDefinition) WorkflowActionDefinition {
+	action.Payload.Fields = slices.Clone(action.Payload.Fields)
+	for i := range action.Payload.Fields {
+		if slices.Contains(workerJobOrdinaryGroup, action.Payload.Fields[i].Name) {
+			// The ordinary alternative requires the complete group; these are
+			// not unconditional requirements on the two member variants.
+			action.Payload.Fields[i].Required = false
+		}
+	}
+	action.Payload.Fields = append(action.Payload.Fields,
+		actionObjectField("assignment_group", false, "workflow_assignment_group_input"),
+		actionObjectField("member_binding", false, "workflow_member_binding_input"))
+	return action
+}
+
+func memberGroupActionAlternatives() WorkflowActionCrossField {
+	// Optional ordinary fields cannot ride on a roster or binding. Required
+	// ordinary fields already belong to the disjoint ordinary group.
+	ordinary := []string{"path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "readiness_evidence", "acceptance_oracle", "repair_revisions", "repair_reason", "direct_caller_allowance"}
+	return WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{
+		{Fields: slices.Clone(workerJobOrdinaryGroup)},
+		{Fields: []string{"assignment_group"}, Forbids: slices.Clone(ordinary)},
+		{Fields: []string{"member_binding"}, Forbids: slices.Clone(ordinary)},
+	}}
 }

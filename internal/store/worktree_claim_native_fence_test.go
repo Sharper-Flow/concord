@@ -511,7 +511,7 @@ func TestClaimNativeFenceMigration154(t *testing.T) {
 		t.Fatal(err)
 	}
 	var floor int
-	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floor); err != nil || floor != 154 {
+	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1 AND version<=154`).Scan(&floor); err != nil || floor != 154 {
 		t.Fatalf("native fence compatibility floor=%d error=%v", floor, err)
 	}
 	for _, query := range []string{

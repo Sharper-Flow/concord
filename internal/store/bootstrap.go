@@ -200,6 +200,9 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
 	}
+	if err := authorizeMemberWorkScope(ctx, s.db, workID, projectID); err != nil {
+		return entry, err
+	}
 	// Removed execution authorizes Product and Project membership from its
 	// frozen outcome scope before any locator is exposed.
 	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, workID, productID, projectID, "work_resume"); err != nil {

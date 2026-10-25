@@ -14,17 +14,11 @@ func seedAuthorizedFailedWorker(t *testing.T, workID string) (*Store, WorkflowAc
 
 func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry RegisteredDefinition) (*Store, WorkflowActor, string) {
 	t.Helper()
-	s := openTemp(t)
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, entry, "execution", []string{}, []string{})
+	s := fixture.store
 	t.Cleanup(func() { _ = s.Close() })
-	seed := seedDispatchFixture(t, s, workID)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=?,definition_digest=? WHERE work_id=?; DELETE FROM write_guard`, entry.Definition.Ref, entry.Digest, workID); err != nil {
-		t.Fatalf("pin test definition: %v", err)
-	}
 	attemptID := "attempt:" + workID
-	if workflowWorkerJobsActive(entry.Definition) {
-		seedActiveContract(t, s, workID, 1, "Recover a failed worker authorization.\n")
-	}
-	job := readyWorkerJobForTest(t, s, workID, entry.Definition, seed.ownerActor, "job:authorized-failure")
+	job := readyWorkerJobForTest(t, s, workID, entry.Definition, fixture.owner, "job:authorized-failure")
 	packet := dispatchWorkerPacket(t, s, workID, "execution", attemptID)
 	if job != nil {
 		packet["schema_version"] = WorkerPacketSchemaVersion
@@ -33,10 +27,10 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
 		Payload:         mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": packet}),
-		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: seed.ownerActor,
+		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: fixture.owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		IdempotencyIdentity:  "authorize:" + workID, OperationID: "authorize:" + workID,
-		PrincipalRef: seed.ownerActor.PrincipalRef, Tool: "concord_work_transition",
+		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: "authorize:" + workID, RequestID: "request:" + workID,
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
 	})
@@ -48,7 +42,7 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 		t.Fatalf("abandon authorized worker: %v", err)
 	}
 	// Failure disposition keeps the existing distinct-coordinator authority.
-	owner := seed.ownerActor
+	owner := fixture.owner
 	owner.AgentRef = "agent/recovery-owner"
 	owner.SessionRef = "session/recovery-" + workID
 	ownerRef, err := WorkflowActorRef(owner)

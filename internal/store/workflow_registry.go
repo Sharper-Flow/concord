@@ -1516,7 +1516,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadField{Name: "ready", ValueType: PayloadBoolean, Required: true},
 		actionListField("readiness_evidence", false, 0, 16),
 	),
-		WorkflowPayloadAlternative{Fields: workerJobOrdinaryGroup},
+		memberGroupActionAlternatives().Alternatives...,
 	),
 }
 

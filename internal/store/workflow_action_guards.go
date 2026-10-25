@@ -1616,6 +1616,15 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	if jobErr != nil {
 		return jobErr
 	}
+	// Selected-job readiness keeps its specific refusal. No new authorization
+	// may commit while an earlier own worker can still affect this assignment.
+	assignment := workerRestartAssignment{stepID: in.currentStep, laneID: lane.ID}
+	if job != nil {
+		assignment.jobID = job.JobID
+	}
+	if err := guardWorkerDispatchRestart(in.ctx, in.tx, in.request.WorkID, in.eventActor, assignment, in.request.SessionWorktreeIdentity); err != nil {
+		return err
+	}
 	// A confirming review binds its exact repairing revision and accepted
 	// result. This records the review assignment, not another launch authority.
 	if repairReview != nil {

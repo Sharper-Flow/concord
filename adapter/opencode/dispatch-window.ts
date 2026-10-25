@@ -80,6 +80,17 @@ interface MutableToolArgs {
   [key: string]: unknown
 }
 
+interface AuthorizationRecord extends DispatchRecord {
+  readonly generation: number
+  readonly priorCorrelatedGeneration: number
+}
+
+interface AuthorizationGenerations {
+  latest: number
+  correlatedThrough: number
+  pending: Map<number, { callID?: string; attemptID: string; promptDigest: string; settled: boolean; terminal: boolean }>
+}
+
 // The authorized `dispatch_worker` path opens a window and the plugin's
 // `tool.execute.before` hook consumes it, so both reach the same instance
 // through this module. The plugin module graph is per OpenCode instance, which
@@ -90,15 +101,18 @@ export class DispatchWindows {
   // One window per session. A session that already holds one cannot open a
   // second, because two open windows would let one authorized dispatch start
   // whichever worker the next call happens to name.
-  readonly #open = new Map<string, DispatchRecord>()
+  readonly #open = new Map<string, AuthorizationRecord>()
   // An attempt the host is running now. The Task call consumed its window, and
   // completion still needs the packet and the digest the core recorded.
-  readonly #inFlight = new Map<string, DispatchRecord>()
-  readonly #settling = new Set<string>()
+  readonly #inFlight = new Map<string, AuthorizationRecord>()
+  readonly #settling = new Set<DispatchRecord>()
   // A refused after-hook retains its record. Only an explicit authenticated
   // recovery or a confirmed no-report abandonment releases it; repeated host
   // notifications cannot silently re-attempt settlement.
-  readonly #refused = new Set<string>()
+  readonly #refused = new Set<DispatchRecord>()
+  // A core completion can precede the host terminal part. Only both facts
+  // retire a generation as a possible source of a later session-only error.
+  readonly #generations = new Map<string, AuthorizationGenerations>()
 
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string, provenance?: HostProvenance): void {
     const running = this.#inFlight.get(sessionID)
@@ -131,12 +145,21 @@ export class DispatchWindows {
     if (workerDirectoryIdentity === null) {
       throw new DispatchWindowError("worker dispatch requires a resolvable worker directory identity")
     }
-    this.#open.set(sessionID, { packet, packetDigest, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity, provenance })
+    let generations = this.#generations.get(sessionID)
+    if (!generations) {
+      generations = { latest: 0, correlatedThrough: 0, pending: new Map() }
+      this.#generations.set(sessionID, generations)
+    }
+    const generation = ++generations.latest
+    generations.pending.set(generation, { attemptID: packet.attempt_id, promptDigest: createHash("sha256").update(serializeLanePacket(packet)).digest("hex"), settled: false, terminal: false })
+    this.#open.set(sessionID, { generation, priorCorrelatedGeneration: generations.correlatedThrough, packet, packetDigest, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity, provenance })
   }
 
   // close discards a window whose dispatch failed before the worker started, so
   // a refused attempt does not leave an authorization the next call can consume.
   close(sessionID: string): void {
+    const record = this.#open.get(sessionID)
+    if (record) this.#settled(sessionID, record)
     this.#open.delete(sessionID)
   }
 
@@ -148,11 +171,10 @@ export class DispatchWindows {
   // completion for one dispatch finds nothing, so a result cannot be admitted
   // twice against a single authorization.
   takeInFlight(sessionID: string, callID?: string): DispatchRecord | null {
-    if (this.#settling.has(sessionID) || this.#refused.has(sessionID)) return null
     const record = this.#inFlight.get(sessionID)
-    if (!record) return null
+    if (!record || this.#settling.has(record) || this.#refused.has(record)) return null
     if (callID !== undefined && record.callID !== undefined && record.callID !== callID) return null
-    this.#inFlight.delete(sessionID)
+    this.finishSettlement(sessionID, callID, record)
     return record
   }
 
@@ -161,35 +183,33 @@ export class DispatchWindows {
     return record && (record.callID === undefined || record.callID === callID) ? record : null
   }
 
-  // The spawn-failure settle path observes the retained attempt by session
-  // alone: a host session.error names no tool call, and one session holds at
-  // most one attempt.
   inFlightAttempt(sessionID: string): DispatchRecord | null {
     return this.#inFlight.get(sessionID) ?? null
   }
 
   activeAttempt(sessionID: string): DispatchRecord | null {
-    return this.#settling.has(sessionID) || this.#refused.has(sessionID) ? null : this.inFlightAttempt(sessionID)
+    const record = this.inFlightAttempt(sessionID)
+    return record && !this.#settling.has(record) && !this.#refused.has(record) ? record : null
   }
 
   hasActiveAttempts(): boolean {
     return [...this.#inFlight.keys()].some((sessionID) => this.activeAttempt(sessionID) !== null)
   }
 
-  claimSettlement(sessionID: string, callID?: string): DispatchRecord | null {
-    if (this.#settling.has(sessionID) || this.#refused.has(sessionID)) return null
+  claimSettlement(sessionID: string, callID?: string, expected?: DispatchRecord): DispatchRecord | null {
     const record = callID === undefined ? this.#inFlight.get(sessionID) ?? null : this.inFlight(sessionID, callID)
-    if (!record) return null
-    this.#settling.add(sessionID)
+    if (!record || expected !== undefined && record !== expected || this.#settling.has(record) || this.#refused.has(record)) return null
+    this.#settling.add(record)
     return record
   }
 
-  finishSettlement(sessionID: string, callID?: string): void {
-    const record = callID === undefined ? this.#inFlight.get(sessionID) : this.inFlight(sessionID, callID)
-    if (!record) return
+  finishSettlement(sessionID: string, callID: string | undefined, expected: DispatchRecord): void {
+    const record = this.#inFlight.get(sessionID)
+    if (!record || record !== expected || callID !== undefined && record.callID !== undefined && record.callID !== callID) return
     this.#inFlight.delete(sessionID)
-    this.#settling.delete(sessionID)
-    this.#refused.delete(sessionID)
+    this.#settling.delete(record)
+    this.#refused.delete(record)
+    this.#settled(sessionID, record)
   }
 
   // unclaimSettlement releases a settlement claim without dropping the
@@ -197,16 +217,62 @@ export class DispatchWindows {
   // worker_abandon release route live for the coordinator. A later settle
   // attempt may run again; the spawn route relies on that for its idempotent
   // abandonment replay.
-  unclaimSettlement(sessionID: string): void {
-    this.#settling.delete(sessionID)
+  unclaimSettlement(sessionID: string, expected: DispatchRecord): void {
+    if (this.#inFlight.get(sessionID) === expected) this.#settling.delete(expected)
   }
 
   // refuseSettlement ends a settle attempt whose terminal write was refused.
   // The retained record stays and a repeat host notification cannot settle it.
   // The explicit recovery receipt releases only its matching attempt.
-  refuseSettlement(sessionID: string): void {
-    this.#settling.delete(sessionID)
-    this.#refused.add(sessionID)
+  refuseSettlement(sessionID: string, expected: DispatchRecord): void {
+    if (this.#inFlight.get(sessionID) !== expected) return
+    this.#settling.delete(expected)
+    this.#refused.add(expected)
+  }
+
+  // A session-only error carries no call identity. Prior session-only closes
+  // cannot certify this fence: prompt_async may publish their error again.
+  canSettleSessionError(sessionID: string, expected: DispatchRecord): boolean {
+    const record = this.#inFlight.get(sessionID)
+    const generations = this.#generations.get(sessionID)
+    return record === expected && this.activeAttempt(sessionID) === record && generations?.latest === record.generation
+      && record.priorCorrelatedGeneration === record.generation - 1
+      && [...generations.pending.values()].filter(entry => !entry.settled).length === 1
+  }
+
+  observeTerminalPart(sessionID: string, callID: string, partID: string | undefined, prompt: unknown): boolean {
+    const generations = this.#generations.get(sessionID)
+    if (!generations || typeof prompt !== "string") return false
+    const promptDigest = createHash("sha256").update(prompt).digest("hex")
+    // The host can retain the original selector or the rewritten packet.
+    // Either must identify this attempt even when a call selector is reused.
+    const matches = [...generations.pending.values()].filter(entry => entry.callID !== undefined
+      && (entry.callID === callID || entry.callID === partID)
+      && (entry.attemptID === prompt || entry.promptDigest === promptDigest))
+    if (matches.length !== 1) return false
+    const current = this.#inFlight.get(sessionID)
+    const matchesCurrent = current !== undefined && generations.pending.get(current.generation) === matches[0]
+    matches[0].terminal = true
+    this.#advanceCorrelated(generations)
+    return matchesCurrent
+  }
+
+  #settled(sessionID: string, record: AuthorizationRecord): void {
+    const generations = this.#generations.get(sessionID)
+    const entry = generations?.pending.get(record.generation)
+    if (!generations || !entry) return
+    entry.settled = true
+    this.#advanceCorrelated(generations)
+  }
+
+  #advanceCorrelated(generations: AuthorizationGenerations): void {
+    while (true) {
+      const next = generations.correlatedThrough + 1
+      const entry = generations.pending.get(next)
+      if (!entry?.settled || !entry.terminal) return
+      generations.pending.delete(next)
+      generations.correlatedThrough = next
+    }
   }
 
   // An accepted abandonment releases either an unused authorization window or
@@ -216,13 +282,13 @@ export class DispatchWindows {
   // identity or a settling attempt leaves the retention guard exactly as it
   // was.
   releaseRetained(sessionID: string, attemptID: string, laneID: string): boolean {
-    if (this.#settling.has(sessionID)) return false
     const record = this.#inFlight.get(sessionID) ?? this.#open.get(sessionID)
-    if (!record) return false
+    if (!record || this.#settling.has(record)) return false
     if (record.packet.attempt_id !== attemptID || record.packet.lane_id !== laneID) return false
     this.#open.delete(sessionID)
     this.#inFlight.delete(sessionID)
-    this.#refused.delete(sessionID)
+    this.#refused.delete(record)
+    this.#settled(sessionID, record)
     return true
   }
 
@@ -239,10 +305,11 @@ export class DispatchWindows {
     if (open) {
       return `the session holds an open dispatch window (${open.packet.lane_id} lane, attempt ${open.packet.attempt_id}); complete the authorized dispatch or close the window before retirement`
     }
-    if (this.#settling.has(sessionID)) {
+    const record = this.#inFlight.get(sessionID)
+    if (record && this.#settling.has(record)) {
       return "the session's worker attempt is still settling; the terminal record must land before retirement"
     }
-    if (this.#refused.has(sessionID)) {
+    if (record && this.#refused.has(record)) {
       return "the session's last settle was refused; the retained attempt needs the worker_abandon release before retirement"
     }
     const inFlight = this.#inFlight.get(sessionID)
@@ -319,6 +386,7 @@ export class DispatchWindows {
     }
     this.#open.delete(sessionID)
     record.callID = callID
+    this.#generations.get(sessionID)!.pending.get(record.generation)!.callID = callID
     this.#inFlight.set(sessionID, record)
     Object.assign(args, laneTaskArguments(record.packet))
   }

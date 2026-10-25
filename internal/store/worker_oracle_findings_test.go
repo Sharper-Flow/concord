@@ -780,14 +780,18 @@ func TestOwnerOracleFinding(t *testing.T) {
 	predicate := fixturePredicate(t, s, workID)
 
 	attempts := 0
-	// Each report lands on a fresh attempt: a completed attempt is
-	// terminal, and a refused report leaves its attempt dispatched for
-	// the corrected retry the fold would see.
+	// Validation variants reuse the outstanding attempt until a real terminal
+	// lands. Only a completed report permits another dispatch.
+	attemptID, completed := attempt, false
 	report := func(build func(payload *WorkerCompletedPayload)) error {
 		attempts++
-		attemptID := attempt + ":" + itoa(attempts)
-		oracleDispatchAttempt(t, f, workID, attemptID, nil, job)
-		return ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attemptID, "oracle-finding-"+itoa(attempts), build)}})
+		if completed {
+			attemptID = attempt + ":" + itoa(attempts)
+			oracleDispatchAttempt(t, f, workID, attemptID, nil, job)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attemptID, "oracle-finding-"+itoa(attempts), build)}})
+		completed = err == nil
+		return err
 	}
 	// A sound correction_required blocker folds: owner bound, predicate tie,
 	// reproducible evidence, and an unavailable receipt with the empty
@@ -1017,11 +1021,16 @@ func TestOwnerOracleReceipt(t *testing.T) {
 	oracleDispatchAttempt(t, f, workID, attempt, twoPathOracleFields(t, s, workID, nil), job)
 	recipe := WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}
 	attempts := 0
+	attemptID, completed := attempt, false
 	report := func(build func(payload *WorkerCompletedPayload)) error {
 		attempts++
-		attemptID := attempt + ":" + itoa(attempts)
-		oracleDispatchAttempt(t, f, workID, attemptID, nil, job)
-		return ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attemptID, "oracle-receipt-"+itoa(attempts), build)}})
+		if completed {
+			attemptID = attempt + ":" + itoa(attempts)
+			oracleDispatchAttempt(t, f, workID, attemptID, nil, job)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attemptID, "oracle-receipt-"+itoa(attempts), build)}})
+		completed = err == nil
+		return err
 	}
 
 	// A pass without a run_ref never reaches the fold: the shape refuses.

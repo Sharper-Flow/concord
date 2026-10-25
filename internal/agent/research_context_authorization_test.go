@@ -120,9 +120,31 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"sc-rc-declare-retained", store.WorkflowWorkContextRecorded, string(store.SubjectWorkItem), researchScopeConsumer, "operator", fixedTime().UTC().Format(time.RFC3339Nano), 1, raw); err != nil {
+	tx, err := f.store.DatabaseForTesting().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
+		"sc-rc-declare-retained", store.WorkflowWorkContextRecorded, string(store.SubjectWorkItem), researchScopeConsumer, "operator", fixedTime().UTC().Format(time.RFC3339Nano), 1, raw)
+	if err != nil {
 		t.Fatalf("retained declaration fixture refused: %v", err)
+	}
+	seq, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES(?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET source_frontier=excluded.source_frontier,declaration_seq=excluded.declaration_seq,declaration_id=excluded.declaration_id,declaration_payload=excluded.declaration_payload`, researchScopeConsumer, seq, seq, "sc-rc-declare-retained", string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 

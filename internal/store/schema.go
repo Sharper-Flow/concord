@@ -99,6 +99,18 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "delivery_assertion_receipts" {
 		return backfillWorkflowDeliveryAssertionReceipts(ctx, q)
 	}
+	if m.Name == "context_finding_review_facts" {
+		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
+			return err
+		}
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillOracleFindingFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+			if err := backfill(ctx, q); err != nil {
+				return err
+			}
+		}
+		_, err := q.ExecContext(ctx, `DELETE FROM fold_guard`)
+		return err
+	}
 	return nil
 }
 
@@ -7214,6 +7226,70 @@ ALTER TABLE effect_receipts ADD COLUMN delivery_assertion INTEGER NOT NULL DEFAU
 `,
 	},
 	{
+		Version:        148,
+		Name:           "context_finding_review_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE work_context_state (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ source_frontier INTEGER NOT NULL,
+ declaration_seq INTEGER NOT NULL DEFAULT 0,
+ declaration_id TEXT,
+ declaration_payload TEXT CHECK(declaration_payload IS NULL OR json_valid(declaration_payload))
+);
+CREATE TABLE work_context_findings (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ source_seq INTEGER NOT NULL,
+ ordinal INTEGER NOT NULL,
+ finding_class TEXT NOT NULL CHECK(finding_class IN ('generic','ranked')),
+ finding TEXT NOT NULL CHECK(json_valid(finding)),
+ PRIMARY KEY(work_id,source_seq,ordinal)
+);
+CREATE TRIGGER work_context_state_guard_insert BEFORE INSERT ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_state_guard_update BEFORE UPDATE ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_state_guard_delete BEFORE DELETE ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_insert BEFORE INSERT ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_update BEFORE UPDATE ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_delete BEFORE DELETE ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TABLE worker_oracle_finding_facts (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ oracle_capable INTEGER NOT NULL CHECK(oracle_capable IN (0,1)),
+ findings TEXT NOT NULL CHECK(json_valid(findings)),
+ receipts TEXT NOT NULL CHECK(json_valid(receipts))
+);
+CREATE TRIGGER worker_oracle_finding_facts_guard_insert BEFORE INSERT ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_oracle_finding_facts_guard_update BEFORE UPDATE ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_oracle_finding_facts_guard_delete BEFORE DELETE ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_review_state (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ state TEXT NOT NULL CHECK(json_valid(state))
+);
+CREATE TRIGGER workflow_review_state_fold_insert BEFORE INSERT ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TRIGGER workflow_review_state_fold_update BEFORE UPDATE ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TRIGGER workflow_review_state_fold_delete BEFORE DELETE ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TABLE work_size_proof_facts (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ state TEXT NOT NULL CHECK(json_valid(state))
+);
+CREATE TRIGGER work_size_proof_facts_fold_insert BEFORE INSERT ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
+CREATE TRIGGER work_size_proof_facts_fold_update BEFORE UPDATE ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
+CREATE TRIGGER work_size_proof_facts_fold_delete BEFORE DELETE ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
+`,
+	},
+	{
 		Version:        149,
 		Name:           "workflow_admission_facts",
 		Breaking:       true,
@@ -7263,6 +7339,81 @@ INSERT INTO workflow_coordinator_actions(work_id,actor_ref,last_effect_seq,last_
 CREATE TRIGGER workflow_coordinator_actions_guard_insert BEFORE INSERT ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_coordinator_actions_guard_update BEFORE UPDATE ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_coordinator_actions_guard_delete BEFORE DELETE ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:        150,
+		Name:           "q7_current_state_metadata",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+ALTER TABLE work_items ADD COLUMN transition_from TEXT;
+ALTER TABLE work_items ADD COLUMN transition_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_items ADD COLUMN transition_actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_items ADD COLUMN transition_evidence_refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(transition_evidence_refs) AND json_type(transition_evidence_refs)='array');
+ALTER TABLE work_items ADD COLUMN transition_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE work_items ADD COLUMN transition_version INTEGER NOT NULL DEFAULT 1;
+CREATE TEMP TABLE q7_transitions AS
+WITH explicit_effects AS (
+ SELECT seq,subject_id AS work_id,actor,payload,kind,
+ CASE kind WHEN 'work.created' THEN 'needed' WHEN 'work.transitioned' THEN json_extract(payload,'$.to')
+ WHEN 'workflow.outside_repair_reconciled' THEN 'completed' WHEN 'work.superseded' THEN 'superseded'
+ ELSE 'needed' END AS lifecycle
+ FROM domain_events WHERE subject_type='work_item' AND kind IN
+ ('work.created','work.transitioned','work.reopened','work.superseded','work.reopened_from_superseded','workflow.outside_repair_reconciled')
+ UNION ALL
+ SELECT seq,CASE json_extract(payload,'$.resolution_kind') WHEN 'supersedes' THEN json_extract(payload,'$.to_work_id') ELSE subject_id END,
+ actor,payload,kind,'superseded' FROM domain_events WHERE subject_type='work_item' AND kind='workflow.overlap_resolved'
+ AND json_extract(payload,'$.resolution_kind') IN ('supersedes','merged_into')
+), needed_intervals AS (
+ SELECT *,LEAD(seq,1,9223372036854775807) OVER(PARTITION BY work_id ORDER BY seq) AS next_seq FROM explicit_effects
+), workflow_starts AS (
+ SELECT e.seq,e.subject_id AS work_id,e.actor,e.payload,e.kind,'in_progress' AS lifecycle,
+ ROW_NUMBER() OVER(PARTITION BY w.work_id,w.seq ORDER BY e.seq) AS first_start
+ FROM needed_intervals w JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=w.work_id AND e.seq>w.seq AND e.seq<w.next_seq
+ WHERE w.lifecycle='needed' AND e.kind IN ('workflow.contract_superseded','workflow.action_started','workflow.action_checkpointed',
+ 'workflow.context_checkpointed','workflow.context_boundary_crossed','workflow.action_completed','workflow.work_context_recorded')
+), effects AS (
+ SELECT * FROM explicit_effects
+ UNION ALL
+ SELECT seq,work_id,actor,payload,kind,lifecycle FROM workflow_starts WHERE first_start=1
+), transitions AS (
+ SELECT *,LAG(lifecycle) OVER (PARTITION BY work_id ORDER BY seq) AS previous_lifecycle,
+ ROW_NUMBER() OVER (PARTITION BY work_id ORDER BY seq DESC) AS latest FROM effects
+)
+SELECT work_id,seq,actor,CASE WHEN kind='work.created' THEN NULL ELSE COALESCE(json_extract(payload,'$.from'),previous_lifecycle) END AS prior,
+ COALESCE(json_extract(payload,'$.reason'),'') AS reason,COALESCE(json_extract(payload,'$.evidence_refs'),'[]') AS evidence_refs,
+ CASE WHEN json_extract(payload,'$.resolution_kind')='supersedes' THEN json_extract(payload,'$.to_resulting_version')
+ ELSE COALESCE(json_extract(payload,'$.resulting_version'),1) END AS version
+FROM transitions WHERE latest=1;
+UPDATE work_items AS w SET
+ transition_from=(SELECT prior FROM q7_transitions t WHERE t.work_id=w.id),
+ transition_reason=COALESCE((SELECT reason FROM q7_transitions t WHERE t.work_id=w.id),''),
+ transition_actor=COALESCE((SELECT actor FROM q7_transitions t WHERE t.work_id=w.id),''),
+ transition_evidence_refs=COALESCE((SELECT evidence_refs FROM q7_transitions t WHERE t.work_id=w.id),'[]'),
+ transition_seq=COALESCE((SELECT seq FROM q7_transitions t WHERE t.work_id=w.id),0),
+ transition_version=COALESCE((SELECT version FROM q7_transitions t WHERE t.work_id=w.id),1);
+DROP TABLE q7_transitions;
+CREATE INDEX effect_receipts_relation_seq ON effect_receipts(relation_seq) WHERE relation_seq IS NOT NULL;
+ALTER TABLE relations ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE relations ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
+UPDATE relations AS r SET
+ reason=COALESCE((SELECT CASE WHEN e.kind='work.created' THEN 'capture acknowledges the colliding external reference'
+ ELSE json_extract(e.payload,'$.reason') END FROM effect_receipts f JOIN domain_events e ON e.event_id=f.event_id WHERE f.relation_seq=r.id),''),
+ record_version=COALESCE((SELECT CASE WHEN e.kind='work.created' THEN 1 ELSE json_extract(e.payload,'$.resulting_version') END FROM effect_receipts f JOIN domain_events e ON e.event_id=f.event_id WHERE f.relation_seq=r.id),0);
+ALTER TABLE workflow_phase_exits ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE workflow_phase_exits ADD COLUMN step_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE workflow_phase_exits ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workflow_phase_exits ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
+UPDATE workflow_phase_exits AS x SET
+ actor=COALESCE((SELECT actor FROM domain_events e WHERE e.seq=x.exit_seq),''),
+ step_id=COALESCE((SELECT json_extract(payload,'$.step_id') FROM domain_events e WHERE e.seq=x.exit_seq),''),
+ record_version=COALESCE((SELECT json_extract(payload,'$.resulting_version') FROM domain_events e WHERE e.seq=x.exit_seq),1),
+ contract_version=COALESCE((SELECT CASE kind WHEN 'workflow.contract_approved' THEN json_extract(payload,'$.contract_version') ELSE json_extract(payload,'$.new_contract_version') END
+ FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=x.work_id AND e.seq<x.exit_seq
+ AND e.kind IN ('workflow.contract_approved','workflow.contract_superseded') ORDER BY e.seq DESC LIMIT 1),0);
 DELETE FROM fold_guard;
 `,
 	},

@@ -11,14 +11,9 @@ import (
 	"strings"
 )
 
-// The store work-context surface. The record_work_context action appends
-// one typed declaration event onto the existing workflow-action route, and
-// one tx-scoped reader assembles the current view from that event log for
-// continuity and dispatch packets. The event log owns the declaration and
-// report-claim content, and the research authority owns the content behind
-// selected references; this surface adds no projection table, no export
-// command, and no cache, and nothing here promotes context content into
-// Git or knowledge.
+// Work context combines the current declaration and retained finding claims
+// for continuity and dispatch packets. Research content remains with its
+// authority. Context claims grant no Git or knowledge publication authority.
 
 // Closed bounds of the work-context surface. The action declares the full
 // current reading list (at most 32), selects at most 32 exact earlier
@@ -455,40 +450,14 @@ func parseWorkContextFindingRef(ref string) (seq int64, ordinal int, ok bool) {
 	return parsedSeq, parsedOrdinal, true
 }
 
-// workContextFindingsAtEvent reads the finding entries one referenced event
-// carries, refusing an event kind that never holds findings.
-func workContextFindingsAtEvent(event Event) ([]WorkerContextFinding, bool) {
-	switch event.Kind {
-	case WorkflowWorkContextRecorded:
-		var payload workflowWorkContextRecordedPayload
-		if json.Unmarshal(event.Payload, &payload) != nil {
-			return nil, false
-		}
-		return payload.ContextFindings, true
-	case WorkerCompleted:
-		var payload WorkerCompletedPayload
-		if json.Unmarshal(event.Payload, &payload) != nil {
-			return nil, false
-		}
-		return payload.ContextFindings, true
-	case WorkerFailed:
-		var payload WorkerFailedPayload
-		if json.Unmarshal(event.Payload, &payload) != nil {
-			return nil, false
-		}
-		return payload.ContextFindings, true
-	}
-	return nil, false
-}
-
 // validateWorkContextFindingRefs resolves every selected reference against
 // the events this work item already holds, inside the caller's transaction.
 // A reference must name a real earlier finding: a recorded sequence of a
 // findings-bearing kind with an in-range ordinal.
 func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID string, refs []string) error {
 	var frontier int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&frontier); err != nil {
-		return wrapFailure(KindUnavailable, "work_context", "cannot read the work event frontier", true, "retry once the event log is readable", err)
+	if err := tx.QueryRowContext(ctx, `SELECT effect_seq FROM work_items WHERE id=?`, workID).Scan(&frontier); err != nil {
+		return wrapFailure(KindUnavailable, "work_context", "cannot read the work event frontier", true, "retry once the database is readable", err)
 	}
 	seen := make(map[string]bool, len(refs))
 	for _, ref := range refs {
@@ -503,15 +472,18 @@ func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID stri
 		if seq > frontier {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names a finding no event has recorded", "select earlier findings by their exact ids")
 		}
-		var event Event
-		if err := tx.QueryRowContext(ctx, `SELECT event_id,kind,subject_type,subject_id,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, seq).Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &event.Payload); err != nil {
+		event, findings, ranked, err := readWorkContextFindingSource(ctx, tx, workID, seq)
+		if err != nil {
+			var failure *Failure
+			if failureAs(err, &failure) && failure.Kind == KindInvariantViolation {
+				return err
+			}
 			if err == sql.ErrNoRows {
 				return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names no recorded event", "select earlier findings by their exact ids")
 			}
-			return wrapFailure(KindUnavailable, "work_context", "cannot resolve a finding reference", true, "retry once the event log is readable", err)
+			return wrapFailure(KindUnavailable, "work_context", "cannot resolve a finding reference", true, "retry once the database is readable", err)
 		}
-		findings, ranked, decodes := workContextTerminalFindingsAtEvent(event)
-		if !decodes {
+		if !workContextSourceHoldsFindings(event.Kind) {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names an event kind that holds no findings", "select findings from declarations or terminal worker reports")
 		}
 		if ordinal >= len(findings)+len(ranked) {
@@ -602,11 +574,8 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	return []Event{workflowTypedEvent(eventID, WorkflowWorkContextRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
-// foldWorkflowWorkContextRecorded is the declaration fold. It enforces the
-// closed shape and the workflow bindings the replayed log carries, and
-// writes no projection row: the event log is the only context authority.
-// Registry state is never read here, so replaying a historical declaration
-// never requires today's registry.
+// foldWorkflowWorkContextRecorded validates the declaration's current workflow
+// bindings and maintains its anchor and selectable finding claims.
 func foldWorkflowWorkContextRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowWorkContextRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -641,7 +610,10 @@ func foldWorkflowWorkContextRecorded(ctx context.Context, tx *sql.Tx, event Even
 	if activeAttempt != p.AttemptEpoch {
 		return newFailure(KindStaleAttempt, "fold_event", "work context declaration does not bind the current attempt epoch", false, "reread the current workflow attempt")
 	}
-	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	return writeWorkContextFacts(ctx, tx, event)
 }
 
 // workContextFindingView derives one view finding from a stored finding and
@@ -672,8 +644,8 @@ func workContextOriginForKind(kind string) string {
 	return WorkContextOriginWorkerReport
 }
 
-// readWorkContextView assembles the current work context view from the
-// event log inside the caller's transaction: the latest declaration
+// readWorkContextView assembles the current work context view inside the
+// caller's transaction: the latest declaration
 // anchor's readings, the anchor's findings, the exact earlier findings its
 // references select, and the terminal-report findings recorded after the
 // anchor. The queries are bounded: the report scan reads at most 33
@@ -693,15 +665,16 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 		return nil, prepareErr
 	}
 	view.OraclePreparations = preparations
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&view.SourceEventFrontier); err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the event log is readable", err)
+	view.SourceEventFrontier, prepareErr = readWorkContextSourceFrontier(ctx, q, workID)
+	if prepareErr != nil {
+		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the database is readable", prepareErr)
 	}
 	var anchorSeq int64 = 0
 	var anchor Event
 	var anchorResearch []WorkContextResearchSelection
-	anchorErr := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowWorkContextRecorded).Scan(&anchorSeq, &anchor.EventID, &anchor.Kind, &anchor.SubjectType, &anchor.SubjectID, &anchor.Actor, &anchor.Payload)
+	anchorErr := q.QueryRowContext(ctx, `SELECT declaration_seq,declaration_id,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_seq>0`, workID).Scan(&anchorSeq, &anchor.EventID, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
-		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the event log is readable", anchorErr)
+		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the database is readable", anchorErr)
 	}
 	// One lineage read feeds the whole assembly — the ranked
 	// ordinals a declaration may select, the open findings the view can
@@ -722,7 +695,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if anchorErr == nil {
 		var payload workflowWorkContextRecordedPayload
 		if err := json.Unmarshal(anchor.Payload, &payload); err != nil {
-			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the latest work context declaration payload is malformed", "rebuild the projection from the event log")
+			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the latest work context declaration payload is malformed", "restore a verified backup into a new path with concord restore, then swap")
 		}
 		view.RequiredReading = append(view.RequiredReading, payload.RequiredReading...)
 		anchorResearch = payload.ResearchSelections
@@ -734,18 +707,21 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 		for _, ref := range payload.FindingRefs {
 			seq, ordinal, ok := parseWorkContextFindingRef(ref)
 			if !ok {
-				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration carries a malformed finding ref "+ref, "rebuild the projection from the event log")
+				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration carries a malformed finding ref "+ref, "restore a verified backup into a new path with concord restore, then swap")
 			}
-			var event Event
-			if err := q.QueryRowContext(ctx, `SELECT event_id,kind,subject_type,subject_id,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, seq).Scan(&event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &event.Payload); err != nil {
-				if err == sql.ErrNoRows {
-					return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" whose event is absent", "rebuild the projection from the event log")
+			event, generic, ranked, sourceErr := readWorkContextFindingSource(ctx, q, workID, seq)
+			if sourceErr != nil {
+				var failure *Failure
+				if failureAs(sourceErr, &failure) && failure.Kind == KindInvariantViolation {
+					return nil, sourceErr
 				}
-				return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot resolve a selected finding", true, "retry once the event log is readable", err)
+				if sourceErr == sql.ErrNoRows {
+					return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" whose event is absent", "restore a verified backup into a new path with concord restore, then swap")
+				}
+				return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot resolve a selected finding", true, "retry once the database is readable", sourceErr)
 			}
-			generic, ranked, decodes := workContextTerminalFindingsAtEvent(event)
-			if !decodes {
-				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" whose source event holds no findings", "rebuild the projection from the event log")
+			if !workContextSourceHoldsFindings(event.Kind) {
+				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" whose source event holds no findings", "restore a verified backup into a new path with concord restore, then swap")
 			}
 			switch {
 			case ordinal < len(generic):
@@ -755,7 +731,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 				// source kind, never into the generic claim notebook.
 				addFinding(rankedFindingView(ranked[ordinal-len(generic)], event.EventID, seq, ordinal, lineage))
 			default:
-				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" the source event does not hold", "rebuild the projection from the event log")
+				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" the source event does not hold", "restore a verified backup into a new path with concord restore, then swap")
 			}
 		}
 	}
@@ -763,11 +739,12 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	// view until a later declaration selects or drops them. The scan is
 	// bounded: every matched event carries at least one finding, so a full
 	// page of 33 proves the work-wide view past the 32-finding bound.
-	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,payload FROM domain_events
-		WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?) AND seq>? AND json_array_length(payload,'$.context_findings')>0
-		ORDER BY seq DESC LIMIT ?`, workID, WorkerCompleted, WorkerFailed, anchorSeq, workContextReportEventScanRows)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT f.source_seq,r.event_id,r.kind FROM work_context_findings f
+		JOIN effect_receipts r ON r.effect_seq=f.source_seq AND r.subject_type='work_item' AND r.subject_id=f.work_id
+		WHERE f.work_id=? AND r.kind IN (?,?) AND f.source_seq>? AND f.finding_class='generic'
+		ORDER BY f.source_seq DESC LIMIT ?`, workID, WorkerCompleted, WorkerFailed, anchorSeq, workContextReportEventScanRows)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read terminal-report findings", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read terminal-report findings", true, "retry once the database is readable", err)
 	}
 	type reportRow struct {
 		event Event
@@ -776,22 +753,26 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	reportRows := make([]reportRow, 0, workContextReportEventScanRows)
 	for rows.Next() {
 		var row reportRow
-		if err := rows.Scan(&row.seq, &row.event.EventID, &row.event.Kind, &row.event.Payload); err != nil {
+		if err := rows.Scan(&row.seq, &row.event.EventID, &row.event.Kind); err != nil {
 			rows.Close()
-			return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot decode a terminal-report finding event", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot decode a terminal-report finding event", true, "retry once the database is readable", err)
 		}
 		reportRows = append(reportRows, row)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot finish reading terminal-report findings", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot finish reading terminal-report findings", true, "retry once the database is readable", err)
 	}
 	rows.Close()
 	for i := len(reportRows) - 1; i >= 0; i-- {
 		row := reportRows[i]
-		findings, decodes := workContextFindingsAtEvent(row.event)
-		if !decodes {
-			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "a stored terminal report's findings are malformed", "rebuild the projection from the event log")
+		_, findings, _, sourceErr := readWorkContextFindingSource(ctx, q, workID, row.seq)
+		if sourceErr != nil {
+			var failure *Failure
+			if failureAs(sourceErr, &failure) && failure.Kind == KindInvariantViolation {
+				return nil, sourceErr
+			}
+			return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read terminal-report findings", true, "retry once the database is readable", sourceErr)
 		}
 		for ordinal, finding := range findings {
 			addFinding(workContextFindingView(finding, WorkContextOriginWorkerReport, row.event.EventID, row.seq, ordinal))
@@ -805,7 +786,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	// selection above.
 	projectWorkerOracleOpenFindings(lineage, addFinding)
 	if len(lineage.retainedReceipts) > oracleRetainedReceiptsMax {
-		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "supersede the active contract through its approved recovery route or stop the work; predecessor receipts remain in the event log")
+		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "supersede the active contract through its approved recovery route or stop the work")
 	}
 	if len(lineage.retainedReceipts) > 0 {
 		view.OracleReceipts = lineage.retainedReceipts
@@ -836,7 +817,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	// 64 KiB budget, and no second budget exists.
 	viewJSON, err := json.Marshal(view)
 	if err != nil {
-		return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the current work context cannot be measured", "rebuild the projection from the event log")
+		return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the current work context cannot be measured", "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if len(viewJSON) > WorkContextCombinedMaxBytes {
 		return nil, workContextFailure(KindLimitExceeded, "work_context_read",

@@ -54,6 +54,10 @@ func TestRecordedOccupancyMigration89BackfillAndReleasedRow(t *testing.T) {
 			continue
 		}
 		if event.Kind != "work.worktree_created" {
+			if event.Kind == "work.created" {
+				seedPreQ7WorkCreated(t, tx, event)
+				continue
+			}
 			if err := foldRegisteredEvent(ctx, tx, event); err != nil {
 				t.Fatal(err)
 			}

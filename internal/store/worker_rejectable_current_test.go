@@ -169,7 +169,7 @@ func TestRejectableWorkerResultsBoundaryWithoutLog(t *testing.T) {
 				if boundary == "request correction" {
 					action = "request_correction"
 				}
-				if _, err := db.Exec(`INSERT INTO workflow_phase_exits VALUES('work',?,5)`, action); err != nil {
+				if _, err := db.Exec(`INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES('work',?,5)`, action); err != nil {
 					t.Fatal(err)
 				}
 				rejectableEventForTest(t, db, 5, WorkflowActionCompleted, map[string]any{"action_id": action, "step_id": "elsewhere"})

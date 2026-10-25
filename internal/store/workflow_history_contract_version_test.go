@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var historyContractEvents = []string{WorkflowContractApproved, WorkflowContractSuperseded}
+var historyRecordKinds = []string{"lifecycle", "phase_exit"}
 
 // historyContractFixture is a work item whose contract v1 was superseded by
 // v2 through the folded supersession event.
@@ -48,7 +48,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	s, workID := historyContractFixture(t, "history-contract-version")
 	ctx := context.Background()
 
-	active, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents})
+	active, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 		t.Fatalf("active history workflow = %+v, want contract v2 with its Product-truth flag", active.Workflow)
 	}
 
-	selected, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1})
+	selected, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,24 +109,9 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 		t.Fatalf("instance fields = %s/%s/%+v, want the current %s/%s/%+v", workflow.State, workflow.CurrentStep, workflow.Definition, active.Workflow.State, active.Workflow.CurrentStep, active.Workflow.Definition)
 	}
 
-	type made struct {
-		kind              string
-		version, previous int64
-	}
-	var got []made
-	for _, event := range selected.Events {
-		entry := made{kind: event.Kind}
-		if event.ContractVersion != nil {
-			entry.version = *event.ContractVersion
-		}
-		if event.PreviousContractVersion != nil {
-			entry.previous = *event.PreviousContractVersion
-		}
-		got = append(got, entry)
-	}
-	want := []made{{WorkflowContractSuperseded, 2, 1}, {WorkflowContractApproved, 1, 0}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("contract events = %+v, want %+v", got, want)
+	// CD-0242 D2 retires approval traces; selecting a contract only changes the summary.
+	if !reflect.DeepEqual(selected.Entries, active.Entries) {
+		t.Fatalf("contract selector changed the current entry population")
 	}
 }
 
@@ -140,15 +125,15 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 	_, err := s.QueryQ7(ctx, Q7Request{Work: workID, ContractVersion: 9})
 	assertFailureKind(t, err, KindUnknownScope)
 
-	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1, Limit: 1})
+	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1})
 	if err != nil || page.NextCursor == nil {
 		t.Fatalf("first selected page = %+v, %v; want a next cursor", page.NextCursor, err)
 	}
-	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
+	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
 		t.Fatalf("the cursor must continue its own selector: %v", err)
 	}
 	for _, other := range []int64{0, 2} {
-		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
+		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
 		assertFailureKind(t, err, KindInvalidCursor)
 	}
 

@@ -406,13 +406,13 @@
       "operation": "concord_work_trace.history",
       "result_invalid_cases": [
         {
-          "events": [],
+          "entries": [],
           "unknown": true
         }
       ],
       "result_schema": "work_event_page",
       "result_valid": {
-        "events": []
+        "entries": []
       }
     },
     {
@@ -3287,5 +3287,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:f31b1f3e54eab4dbe77cc8c45cfc1c4008951d0efe93cfed66fa049c5791e4e7"
+  "manifest_digest": "sha256:18faa6bbabc4ca2044064879d47ad0f34d36052501a691ee7634d784dcf5997e"
 }

@@ -300,6 +300,10 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if event.Kind == "work.created" {
+			seedPreQ7WorkCreated(t, tx, event)
+			continue
+		}
 		if event.EventID == selection.EventID {
 			continue
 		}

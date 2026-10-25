@@ -292,7 +292,7 @@ func TestReviewDescendantLaterCorrectiveAnchor(t *testing.T) {
 				return
 			}
 			reviewSubjectAccept(t, j.s, j.workID, "corrective")
-			state, err := loadWorkflowReviewState(context.Background(), j.s.db, j.workID, 0)
+			state, err := loadWorkflowReviewState(context.Background(), j.s.db, j.workID)
 			if err != nil {
 				t.Fatal(err)
 			}

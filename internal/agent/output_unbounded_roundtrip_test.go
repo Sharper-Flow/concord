@@ -213,7 +213,7 @@ type unboundedWorkflowMembers struct {
 }
 
 type unboundedReadPage struct {
-	Events   []json.RawMessage         `json:"events"`
+	Entries  []json.RawMessage         `json:"entries"`
 	Workflow *unboundedWorkflowMembers `json:"workflow"`
 }
 
@@ -267,8 +267,8 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if err := json.Unmarshal(envelope.Result, &page); err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Events) != 1 {
-			t.Fatalf("events = %d, want the one limit-1 page event with the workflow member intact", len(page.Events))
+		if len(page.Entries) != 1 {
+			t.Fatalf("entries = %d, want the one limit-1 page entry with the workflow member intact", len(page.Entries))
 		}
 		if page.Workflow == nil {
 			t.Fatal("history page omitted the workflow member")
@@ -306,8 +306,8 @@ func TestWorkflowReadRoundTripsClassifiedConditionsAndWarningsWhole(t *testing.T
 		if err := json.Unmarshal(envelope.Result, &page); err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Events) != 1 {
-			t.Fatalf("events = %d, want the one limit-1 page event with the complete workflow member", len(page.Events))
+		if len(page.Entries) != 1 {
+			t.Fatalf("entries = %d, want the one limit-1 page entry with the complete workflow member", len(page.Entries))
 		}
 		if page.Workflow == nil {
 			t.Fatal("history page omitted the workflow member")

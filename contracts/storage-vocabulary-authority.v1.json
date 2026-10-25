@@ -278,6 +278,11 @@
       "authority": "check"
     },
     {
+      "table": "work_context_findings",
+      "column": "finding_class",
+      "authority": "check"
+    },
+    {
       "table": "work_items",
       "column": "kind",
       "authority": "registry_trigger",
@@ -315,6 +320,12 @@
       "column": "size_class",
       "authority": "contract",
       "validator": "scripts/check-work-sizes.py"
+    },
+    {
+      "table": "work_size_proof_facts",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores the current review-proof window as JSON, not an enum; its CHECK requires valid JSON."
     },
     {
       "table": "worker_attempts",
@@ -476,6 +487,12 @@
       "table": "workflow_overlap_resolutions",
       "column": "resolution_kind",
       "authority": "check"
+    },
+    {
+      "table": "workflow_review_state",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores current candidate, accepted Review and finding state as JSON, not an enum; its CHECK requires valid JSON."
     },
     {
       "table": "workflow_staleness_observations",

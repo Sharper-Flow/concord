@@ -107,7 +107,7 @@ func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
 func TestConjunctiveVerdictForAnUnapprovedPredicateIsRefusedAtTheFold(t *testing.T) {
 	t.Parallel()
 	f := qBuildAcceptance(t, "unapproved-conjunct", "", false)
-	state, err := loadWorkflowReviewState(t.Context(), f.store.db, f.workID, 0)
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}

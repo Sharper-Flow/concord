@@ -100,7 +100,7 @@ func TestWorkflowVerdictWriterSnapshotsPriorCorrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_phase_exits VALUES(?,'request_correction',?); DELETE FROM fold_guard`, work, prior); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM fold_guard`, work, prior); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, work, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {

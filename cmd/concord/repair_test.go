@@ -168,7 +168,7 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 				// A nested override changes the manifest root, so test its stat error directly.
 				var out bytes.Buffer
 				errOut = &bytes.Buffer{}
-				code = backupBeforeRepair(&out, errOut, fixture.dataRoot, "v9.9.9")
+				_, code = backupBeforeRepair(&out, errOut, fixture.dataRoot, "v9.9.9")
 			} else {
 				code, _, errOut = runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
 			}
@@ -189,7 +189,7 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 func TestRepairSnapshotDoesNotMigratePendingBreakingStore(t *testing.T) {
 	path, root, before := snapshotUpgradeFixture(t)
 	var out, errOut bytes.Buffer
-	if code := backupBeforeRepair(&out, &errOut, root, "v-test"); code != 0 {
+	if _, code := backupBeforeRepair(&out, &errOut, root, "v-test"); code != 0 {
 		t.Fatalf("backup of pending-breaking source failed: %s", &errOut)
 	}
 	destination := strings.TrimSpace(strings.TrimPrefix(out.String(), "repair: database backup at "))

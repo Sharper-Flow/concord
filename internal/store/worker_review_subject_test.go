@@ -108,11 +108,9 @@ func reviewSubjectRecordOperator(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// reviewSubjectAccept records the accept action that binds one completed
-// implementation attempt, exactly as the accept completion the fold records
-// carries the binding the review join reads. An accept completion
-// legitimately advances the delivery-gate step, so the recorded-history
-// route lands the event directly: the join reads the event, not the step.
+// reviewSubjectAccept seeds acceptance of one completed implementation attempt
+// without advancing the fixture's delivery-gate step. Its current Review facts
+// use the same maintaining writer as an admitted acceptance.
 func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
@@ -139,9 +137,21 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 	if err := enterFold(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
-		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw)); err != nil {
+	result, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
+		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw))
+	if err != nil {
 		t.Fatalf("record acceptance of %s: %v", attemptID, err)
+	}
+	seq, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var action workflowActionCompletedPayload
+	if err := json.Unmarshal(raw, &action); err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, Event{SubjectID: workID, Seq: seq, Actor: operatorRef}, action); err != nil {
+		t.Fatalf("record current Review acceptance of %s: %v", attemptID, err)
 	}
 	if err := leaveFold(context.Background(), tx); err != nil {
 		t.Fatal(err)

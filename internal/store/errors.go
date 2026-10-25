@@ -225,10 +225,9 @@ type Failure struct {
 	// RecoveryRefs carries the ordered workflow actions of a declared-route
 	// remedy. It pairs with RecoveryUseDeclaredRoute and stays empty for
 	// every other RecoveryAction value.
-	RecoveryRefs       []string `json:"recovery_refs,omitempty"`
-	CandidateIDs       []string `json:"candidate_ids,omitempty"`
-	UnavailableKinds   []string `json:"unavailable_kinds,omitempty"`
-	AdmittedEventKinds []string `json:"-"`
+	RecoveryRefs     []string `json:"recovery_refs,omitempty"`
+	CandidateIDs     []string `json:"candidate_ids,omitempty"`
+	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
 	// CurrentVersions carries the typed current version for each subject whose
 	// version conflict produced this failure. Higher layers surface this
 	// structurally so callers do not have to regex the human detail string.

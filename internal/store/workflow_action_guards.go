@@ -1381,7 +1381,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// job's window by name.
 	var acceptedJob *WorkerJobBinding
 	if in.request.ActionID == "accept_worker_result" {
-		if err := validateReviewAcceptance(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), in.eventActor, 0); err != nil {
+		if err := validateReviewAcceptance(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), in.eventActor); err != nil {
 			return events, "", err
 		}
 		job, jobErr := workflowDispatchedJobForAttempt(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))

@@ -564,7 +564,7 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 	if receipt == nil || receipt.SubjectRef != "commit:"+subject || workerWorktreeIdentity(receipt.Path) != worktreeIdentity {
 		return reviewFailure(KindMissingEvidence, "Review input is not the qualified candidate on its claimed worktree", "qualify the clean current candidate through worktree-verify, then dispatch Review")
 	}
-	state, err := loadWorkflowReviewState(ctx, tx, workID, 0)
+	state, err := loadWorkflowReviewState(ctx, tx, workID)
 	if err != nil {
 		return err
 	}

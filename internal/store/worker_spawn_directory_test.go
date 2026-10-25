@@ -21,6 +21,7 @@ func TestWorkerCompletionRequiresObservedDirectory(t *testing.T) {
 			t.Run(route+"/"+name, func(t *testing.T) {
 				s := openTemp(t)
 				workID, attemptID := "work-directory-required", "attempt-directory-required"
+				seedWork(t, s, workID)
 				insertWorkerWorktreeEntry(t, s, workID, t.TempDir())
 				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
 					t.Fatal(err)
@@ -76,6 +77,7 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		}
 		workID := "work-worker-directory-mismatch"
 		attemptID := "attempt-worker-directory-mismatch"
+		seedWork(t, s, workID)
 		insertWorkerWorktreeEntry(t, s, workID, claimed)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
 			t.Fatal(err)

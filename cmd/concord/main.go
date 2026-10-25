@@ -451,6 +451,12 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
 			return 1
 		}
+		release, err := lockManagedSnapshotRestore(request.Source)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		defer release()
 		report, err := store.RestoreBackup(context.Background(), request.Source, request.Destination)
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))

@@ -1579,14 +1579,29 @@ func TestOwnerOracleReceiptViewRecoversAfterContractSupersession(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := s.Transact(ctx, func(tx *Transaction) error {
-			_, err := tx.tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-w','actor:fixture','2026-10-10T00:00:00Z',6,?)`, id, kind, string(raw))
-			return err
+			scope, err := beginFold(ctx, tx.tx)
+			if err != nil {
+				return err
+			}
+			result, err := tx.tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-w','actor:fixture','2026-10-10T00:00:00Z',6,?)`, id, kind, string(raw))
+			if err != nil {
+				return err
+			}
+			seq, err := result.LastInsertId()
+			if err != nil {
+				return err
+			}
+			if err := writeOracleFindingFactsTx(ctx, tx.tx, Event{Seq: seq, EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work-w", Payload: raw}); err != nil {
+				return err
+			}
+			return scope.close(ctx)
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Ledger fixtures isolate projection lifetime. Native producer and terminal
-	// admission tests separately establish receipt execution and authority.
+	// Projection fixtures feed the current lineage writer in the same transaction
+	// as the retained log insert. Native producer and terminal admission tests
+	// separately establish receipt execution and authority.
 	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
 	for i := range oracleRetainedReceiptsMax + 1 {
 		appendEvent("receipt-history-"+itoa(i), WorkerCompleted, WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})

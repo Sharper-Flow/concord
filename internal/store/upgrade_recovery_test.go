@@ -108,8 +108,14 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// the planning mirror, so undoMigration124 restores the pre-step schema
 	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
+	if _, err := db.ExecContext(context.Background(), q7CurrentMetadataFixtureReversal); err != nil {
+		t.Fatalf("cannot restore the pre-150 history metadata: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), `DROP TABLE workflow_completed_exits; DROP TABLE workflow_coordinator_actions;`); err != nil {
 		t.Fatalf("cannot restore the pre-admission-facts schema: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE work_context_findings; DROP TABLE work_context_state; DROP TABLE worker_oracle_finding_facts; DROP TABLE workflow_review_state; DROP TABLE work_size_proof_facts;`); err != nil {
+		t.Fatalf("cannot restore the pre-context-facts schema: %v", err)
 	}
 	if _, err := db.ExecContext(context.Background(), reverseFrontiersMigration); err != nil {
 		t.Fatalf("cannot restore the pre-frontier schema: %v", err)

@@ -1,14 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestProductKnowledgeHomeDesignationPersists"
-    }
-  ],
   "id": "PM6",
-  "state": "satisfied"
+  "reason": "Canonical discovery does not require settled publication and does not itself authorize cleanup. internal/store.TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag and internal/store.TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes are candidate discovery witnesses; internal/agent.TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote is a recovery witness. Q10-not-compacted, executed by internal/store.TestAcceptedQ1ToQ10Corpus, covers work with no verified note. Existing internal/store.TestArchiveFailureBeforeGitProofLeavesPackIntact and internal/store.TestProductKnowledgeHomeDesignationPersists cover narrower boundaries. Reviewed content and home, settled publication and cleanup eligibility still require integrated evidence. Coverage remains unmeasured.",
+  "state": "unmeasured"
 }

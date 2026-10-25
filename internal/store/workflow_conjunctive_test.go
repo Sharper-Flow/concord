@@ -46,6 +46,10 @@ func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*St
 	if err != nil {
 		return f.store, Event{}, err
 	}
+	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "release", actor); err != nil {
+		return f.store, Event{}, err
+	}
+	bindCompletionClosure(t, f.store, workID, f.owner)
 	version := f.version(t.Context(), t)
 	completion := workflowEventWithActor("conjunctive-completion", WorkflowCompleted, workID, actor, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,

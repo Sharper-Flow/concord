@@ -4632,7 +4632,11 @@ finally:
     connection.close()
 
 
-# Workflow content identity (152) sets the live compatibility floor.
+# Member-scoped claims and sole group admission ownership (155) set the live
+# compatibility floor; current writers no longer use the dropped job columns.
+# Native claim generations (154) also require current writers.
+# Terminal execution cleanup (153) also requires current writers.
+# Workflow content identity (152) also requires current writers.
 # Q7 current-state metadata (150) also requires current writers.
 # Admission facts (149), effect sequences and version-action retention (146),
 # per-effect receipt and observation tables (145), and
@@ -4653,7 +4657,7 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

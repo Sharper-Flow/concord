@@ -200,6 +200,14 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
 	}
+	if err := authorizeMemberWorkScope(ctx, s.db, workID, projectID); err != nil {
+		return entry, err
+	}
+	// Removed execution authorizes Product and Project membership from its
+	// frozen outcome scope before any locator is exposed.
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, workID, productID, projectID, "work_resume"); err != nil {
+		return entry, err
+	}
 	var lifecycle, kind string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle,kind FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &kind); err != nil {
 		if err == sql.ErrNoRows {
@@ -259,6 +267,9 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	}
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
+		return BootstrapResult{}, err
+	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, req.ProductID, req.ProjectID, "work_resume"); err != nil {
 		return BootstrapResult{}, err
 	}
 	identity, found, crossProject, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)

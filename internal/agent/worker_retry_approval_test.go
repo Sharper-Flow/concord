@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,18 +140,27 @@ func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Author
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	ownerRef, err := store.WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
+	approvalStep := ""
+	for _, step := range registered.Definition.StepGraph.Steps {
+		if slices.Contains(step.Actions, "approve_contract") {
+			approvalStep = step.ID
+			break
+		}
+	}
+	if approvalStep == "" {
+		t.Fatal("retry fixture definition has no contract approval step")
 	}
 	path := t.TempDir()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:retry-objective',0,'check','{"kind":"check","check_ref":"check:retry-objective","immutable_subject_ref":"commit:retry-objective","expected_result":"pass"}');
-		DELETE FROM write_guard`, ownerRef); err != nil {
+		UPDATE workflow_instances SET current_step=? WHERE work_id='work-1';
+		DELETE FROM write_guard`, approvalStep); err != nil {
 		t.Fatalf("seed retry projections: %v", err)
 	}
+	fields := workflowContractFieldsFixture()
+	fields["premise"] = "approved retry objective"
+	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:retry-objective", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:retry-objective", "immutable_subject_ref": "commit:retry-objective", "expected_result": "pass"}}}
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "retry-fixture")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:retry", "retry", strings.Repeat("a", 40), path, "repo:retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -201,7 +211,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"start_execution","idempotency_key":"retry-start"}`)}, mutationEnvelope(grant, scopeVersion))
+	start := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": workOneVersion(t, s), "action_id": "start_execution", "idempotency_key": "retry-start"})}, mutationEnvelope(grant, scopeVersion))
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}

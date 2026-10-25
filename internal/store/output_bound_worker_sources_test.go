@@ -27,6 +27,10 @@ import (
 )
 
 func init() {
+	registerOutputBound("/$defs/workflow_assignment_group_result/properties/members/maxItems",
+		inputBound("/$defs/workflow_assignment_group_input/properties/members/maxItems"))
+	registerOutputBound("/$defs/workflow_assignment_group_result/properties/members/items/properties/digest/maxLength",
+		inputBound("/$defs/workflow_member_job_binding/properties/digest/maxLength"))
 	// Guard constants cited by more than one row.
 	oracleDescription := goConstantBound("internal/store/worker_oracle.go", "oracleDescriptionMaxBytes", boundBytes)
 	repoPathBytes := goConstantBound("internal/store/work_context.go", "workContextPathMaxBytes", boundBytes)

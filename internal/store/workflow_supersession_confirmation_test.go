@@ -83,6 +83,10 @@ func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		_ = s.db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step)
 		t.Fatalf("successor criterion association at %s: %v", step, err)
 	}
+	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", actor); err != nil {
+		t.Fatal(err)
+	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	version = f.version(t.Context(), t)
 	completion := workflowCompletedFixtureEvent("cd31-terminal", workID, actor, actor, version)
 	err = CompleteWorkflow(t.Context(), s, completion)

@@ -70,19 +70,11 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimDir := t.TempDir()
-	grantActorRef, err := store.WorkflowActorRef(grantActor)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'the replay journey delivers its checked change','internal_sqlite','[]','[]','now',?1,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:replay-journey","immutable_subject_ref":"commit:replay-journey","expected_result":"pass"}');
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?2,'project-1','claim:replay-journey','replay-journey',?3,?4,'repo:replay-journey','active',?5);
+		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?1,'project-1','claim:replay-journey','replay-journey',?2,?3,'repo:replay-journey','active',?4);
 		DELETE FROM write_guard`,
-		grantActorRef,
 		store.WorktreeSetID("work-1"), strings.Repeat("a", 40), claimDir, fixedTime().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
-		t.Fatalf("seed contract and claim: %v", err)
+		t.Fatalf("seed claim: %v", err)
 	}
 	grant.Worktree = claimDir
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -99,6 +91,15 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		return response
 	}
 	version := func() int64 { return workVersion(t, s, "work-1") }
+
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "replay-journey")
+	contractFields := workflowContractFieldsFixture()
+	contractFields["premise"] = "the replay journey delivers its checked change"
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:replay-journey", "immutable_subject_ref": "commit:replay-journey", "expected_result": "pass"}}}
+	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	if approved := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "replay-journey-contract"}); approved.Outcome != OutcomeOK {
+		t.Fatalf("approve_contract: %+v", approved.Error)
+	}
 
 	if start := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "start_execution",

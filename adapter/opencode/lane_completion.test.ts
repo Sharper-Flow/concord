@@ -10,7 +10,7 @@ import { configureHostLease } from "./host-lease"
 import { configureCiWatch } from "./ci-watch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
-import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { DispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { cancellationFailureObservation, completeDispatchedWorker, failDispatchedWorker, HostFailureObservations, spawnFailureObservation, type LaneCompletionDeps } from "./lane_completion"
 import { hostControlPlane, SESSION_LIST_ROUTE, type SessionReader } from "./move-session"
@@ -456,7 +456,7 @@ describe("host task failure", () => {
   const failedEvent = (callID = "call-cancel", sessionID = SESSION, metadata: unknown = { sessionId: WORKER_SESSION }, error = "Task cancelled") => ({
     type: "message.part.updated",
     properties: { part: { type: "tool", tool: "task", sessionID, callID,
-      state: { status: "error", error, metadata } } },
+      state: { status: "error", error, metadata, input: { prompt: packet().attempt_id } } } },
   })
 
   test("a native after-hook with no result leaves settlement to the terminal part event", async () => {
@@ -963,9 +963,10 @@ describe("host task failure", () => {
 
 // A spawn that dies before any result or error part fires neither the
 // completion hook nor an error part: the host publishes session.error on the
-// parent session and leaves the tool part running. That event is the settle
-// trigger, and the abandonment route is the settle path because the record
-// names no child session.
+// parent session and leaves the tool part running. That event settles the
+// attempt only when every earlier authorization reached its correlated Task
+// terminal first, and the abandonment route is the settle path because the
+// record names no child session.
 describe("spawn failure without a part event", () => {
   afterEach(() => hostControlPlane().bind(undefined))
 
@@ -990,6 +991,143 @@ describe("spawn failure without a part event", () => {
     await windows.bind(TASK_TOOL_ID, SESSION, windowArgs(), callID, async () => process.cwd(), process.cwd())
   }
 
+  const bindReplacement = async (windows: DispatchWindows, callID = "call-replacement", attemptID = "attempt-replacement") => {
+    const replacement = { ...packet(), attempt_id: attemptID }
+    windows.open(SESSION, replacement, PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, { ...windowArgs(), prompt: replacement.attempt_id }, callID, async () => process.cwd(), process.cwd())
+    return windows.inFlight(SESSION, callID)!
+  }
+
+  const completedPart = (callID: string, id = "part-completed", prompt = packet().attempt_id) => ({
+    type: "message.part.updated",
+    properties: { part: { type: "tool", tool: TASK_TOOL_ID, sessionID: SESSION, callID, id,
+      state: { status: "completed", output: "original Task completed", input: { prompt } } } },
+  })
+
+  test("a late session error cannot abandon a successor after session-only abandonment", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-original")
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual(["worker-abandon"])
+    const replacement = await bindReplacement(windows)
+    const result = await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual(["worker-abandon"])
+    expect(windows.inFlightAttempt(SESSION)).toBe(replacement)
+    expect(result?.error?.details?.effect_state).toBe("unknown")
+    expect(result?.error?.recovery_action).toBe("reconcile_operation")
+    expect(JSON.stringify(result?.error?.details)).toContain('Agent not found: \\"concord-verify\\"')
+  })
+
+  test("a settled after hook without its host terminal does not certify the next generation", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-original")
+    const original = windows.claimSettlement(SESSION, "call-original")!
+    windows.finishSettlement(SESSION, "call-original", original)
+    const replacement = await bindReplacement(windows)
+    const verbs: string[] = []
+    const result = await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
+    expect(verbs).toEqual([])
+    expect(windows.inFlightAttempt(SESSION)).toBe(replacement)
+    expect(result?.error?.details?.effect_state).toBe("unknown")
+  })
+
+  for (const nativePartIdentity of [false, true]) {
+    test(`sequential recovery remains admitted after a correlated ${nativePartIdentity ? "native part" : "call"} terminal`, async () => {
+      const windows = new DispatchWindows()
+      const callID = nativePartIdentity ? "part-original" : "call-original"
+      await withInFlightAttempt(windows, callID)
+      const original = windows.claimSettlement(SESSION, callID)!
+      windows.finishSettlement(SESSION, callID, original)
+      const verbs: string[] = []
+      const options = deps(verbs, windows)
+      await failDispatchedWorker(completedPart("call-original", "part-original", nativePartIdentity ? packet().attempt_id : serializeLanePacket(packet())), options)
+      await bindReplacement(windows)
+      await failDispatchedWorker(spawnFailureEvent(), options)
+      expect(verbs).toEqual(["worker-abandon"])
+      expect(windows.inFlightAttempt(SESSION)).toBeNull()
+    })
+  }
+
+  test("a foreign terminal cannot certify the next generation", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-original")
+    const original = windows.claimSettlement(SESSION, "call-original")!
+    windows.finishSettlement(SESSION, "call-original", original)
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    await failDispatchedWorker(completedPart("foreign-call", "foreign-part"), options)
+    const replacement = await bindReplacement(windows)
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual([])
+    expect(windows.inFlightAttempt(SESSION)).toBe(replacement)
+  })
+
+  test("a duplicate old terminal cannot certify a replacement that reuses its call selector", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "reused-call")
+    const original = windows.claimSettlement(SESSION, "reused-call")!
+    windows.finishSettlement(SESSION, "reused-call", original)
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    const oldTerminal = completedPart("reused-call")
+    await failDispatchedWorker(oldTerminal, options)
+    const replacement = await bindReplacement(windows, "reused-call")
+    await failDispatchedWorker(oldTerminal, options)
+    windows.finishSettlement(SESSION, "reused-call", replacement)
+    const next = await bindReplacement(windows, "next-call", "attempt-after-replacement")
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual([])
+    expect(windows.activeAttempt(SESSION)).toBe(next)
+  })
+
+  test("a duplicate old error cannot settle a replacement that reuses its call selector", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "reused-call")
+    const original = windows.claimSettlement(SESSION, "reused-call")!
+    windows.finishSettlement(SESSION, "reused-call", original)
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    const oldTerminal = completedPart("reused-call")
+    await failDispatchedWorker(oldTerminal, options)
+    const replacement = await bindReplacement(windows, "reused-call")
+    await failDispatchedWorker({ ...oldTerminal, properties: { part: { ...oldTerminal.properties.part,
+      state: { status: "error", error: "late old error", metadata: { sessionId: WORKER_SESSION }, input: oldTerminal.properties.part.state.input },
+    } } }, options)
+    expect(verbs).toEqual([])
+    expect(windows.activeAttempt(SESSION)).toBe(replacement)
+  })
+
+  test("a prior terminal arriving after authorization cannot retroactively certify it", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-original")
+    const original = windows.claimSettlement(SESSION, "call-original")!
+    windows.finishSettlement(SESSION, "call-original", original)
+    const replacement = await bindReplacement(windows)
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    await failDispatchedWorker(completedPart("call-original"), options)
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual([])
+    expect(windows.inFlightAttempt(SESSION)).toBe(replacement)
+  })
+
+  test("a malformed terminal cannot certify the next generation", async () => {
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-original")
+    const original = windows.claimSettlement(SESSION, "call-original")!
+    windows.finishSettlement(SESSION, "call-original", original)
+    const event = completedPart("call-original")
+    const verbs: string[] = []
+    const options = deps(verbs, windows)
+    await failDispatchedWorker({ ...event, properties: { part: { ...event.properties.part, state: { status: "completed" } } } }, options)
+    const replacement = await bindReplacement(windows)
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual([])
+    expect(windows.inFlightAttempt(SESSION)).toBe(replacement)
+  })
+
   test("settles the attempt by abandonment and releases the session", async () => {
     bindSessionList()
     const windows = new DispatchWindows()
@@ -1003,7 +1141,7 @@ describe("spawn failure without a part event", () => {
         abandonInput = JSON.parse(raw) as Record<string, unknown>
         expect((abandonInput.assertion as Record<string, unknown>).failure_kind).toBe("abandoned")
         expect((abandonInput.assertion as Record<string, unknown>).readback_model).toBe("")
-        expect(abandonInput.detail).toContain("spawn failed before any result or error part")
+        expect(abandonInput.detail).toContain("execution outcome unknown")
         expect(abandonInput.detail).toContain('Agent not found: "concord-verify"')
       }
       return { exitCode: 0, stdout: "", stderr: "" }
@@ -1011,15 +1149,15 @@ describe("spawn failure without a part event", () => {
     const result = await failDispatchedWorker(spawnFailureEvent(), options)
     expect(verbs).toEqual(["worker-abandon"])
     expect(result?.error?.retry_safe).toBe(false)
-    expect(result?.error?.message).toContain("spawn failed before any result or error part")
+    expect(result?.error?.message).toContain("execution outcome unknown")
     expect(windows.inFlightAttempt(SESSION)).toBeNull()
     expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
     windows.close(SESSION)
   })
 
   // abandonment sends a host observation for the session.error
-  // event that settled the attempt. No child session existed, so the host
-  // session id is the parent's, and the cause stays unknown.
+  // event that settled the attempt. The observation identifies the parent,
+  // not whether a child existed, and the cause stays unknown.
   test("attribution-abandonment: the abandonment carries the host session.error observation", async () => {
     bindSessionList()
     const windows = new DispatchWindows()

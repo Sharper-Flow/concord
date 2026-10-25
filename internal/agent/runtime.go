@@ -349,6 +349,9 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if actorErr != nil {
 			return failureEnvelope(base, actorErr), nil
 		}
+		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(actor), memberOperationScope(request.Input, env, op)); err != nil {
+			return failureEnvelope(base, err), nil
+		}
 		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
 		if availabilityErr != nil {
 			return failureEnvelope(base, availabilityErr), nil
@@ -405,6 +408,9 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if identityErr != nil {
 			return failureEnvelope(base, identityErr), nil
 		}
+		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(identityGrant), memberOperationScope(request.Input, env, op)); err != nil {
+			return failureEnvelope(base, err), nil
+		}
 		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
 			if replayErr != nil {
@@ -420,6 +426,10 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
+	if err := s.CheckMemberOperation(ctx, memberWorkflowActor(grant), memberOperationScope(request.Input, env, op)); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
 	if resolvedProject, ok := grant.ScopeSnapshot["project_id"].(string); ok && resolvedProject != env.AmbientProjectID {
 		return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil
 	}

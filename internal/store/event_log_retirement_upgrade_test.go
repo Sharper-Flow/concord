@@ -190,6 +190,14 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	if len(guards) == 0 {
 		t.Fatal("fixture has no guarded triggers")
 	}
+	advanceHistoricalPrefix(t, db, 151)
+	for _, guard := range guards {
+		got := retirementUpgradeRows(t, db, `SELECT sql FROM sqlite_schema WHERE type='trigger' AND name=?`, guard[0])
+		want := strings.ReplaceAll(strings.ReplaceAll(guard[1].(string), "fold_guard", "write_guard"), "fold-only", "write-seam-only")
+		if !reflect.DeepEqual(got, [][]any{{want}}) {
+			t.Errorf("guard %s changed beyond its rename: %v", guard[0], got)
+		}
+	}
 	retirementUpgradeMigrate(t, db)
 	for _, table := range tables {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
@@ -207,13 +215,6 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 	for name, want := range indexColumns {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM pragma_index_xinfo(?) ORDER BY seqno`, name); !reflect.DeepEqual(got, want) {
 			t.Errorf("index %s columns changed: before=%v after=%v", name, want, got)
-		}
-	}
-	for _, guard := range guards {
-		got := retirementUpgradeRows(t, db, `SELECT sql FROM sqlite_schema WHERE type='trigger' AND name=?`, guard[0])
-		want := strings.ReplaceAll(strings.ReplaceAll(guard[1].(string), "fold_guard", "write_guard"), "fold-only", "write-seam-only")
-		if !reflect.DeepEqual(got, [][]any{{want}}) {
-			t.Errorf("guard %s changed beyond its rename: %v", guard[0], got)
 		}
 	}
 	for table, want := range map[string][][]any{

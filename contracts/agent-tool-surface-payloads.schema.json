@@ -5,6 +5,156 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "workflow_member_job_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "revision",
+        "digest"
+      ],
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "description": "Bounds: 1..2147483647 value inclusive"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71,
+          "description": "Bounds: 71..71 code points inclusive"
+        }
+      }
+    },
+    "workflow_assignment_group_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members"
+      ],
+      "properties": {
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/workflow_member_job_binding"
+          },
+          "description": "Bounds: 2..8 items inclusive"
+        }
+      }
+    },
+    "workflow_member_binding_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "member_id",
+        "project_id",
+        "actor"
+      ],
+      "properties": {
+        "group_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "member_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "actor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "principal_ref",
+            "client_ref",
+            "agent_ref",
+            "session_ref"
+          ],
+          "properties": {
+            "principal_ref": {
+              "$ref": "#/$defs/reference",
+              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "client_ref": {
+              "$ref": "#/$defs/reference",
+              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "agent_ref": {
+              "$ref": "#/$defs/reference",
+              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "session_ref": {
+              "$ref": "#/$defs/reference",
+              "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            }
+          }
+        }
+      }
+    },
+    "workflow_assignment_group_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "members"
+      ],
+      "properties": {
+        "group_id": {
+          "$ref": "#/$defs/id"
+        },
+        "members": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "member_id",
+              "job_id",
+              "revision",
+              "digest",
+              "project_id"
+            ],
+            "properties": {
+              "member_id": {
+                "$ref": "#/$defs/id"
+              },
+              "job_id": {
+                "$ref": "#/$defs/id"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "minLength": 71,
+                "maxLength": 71
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        }
+      }
+    },
     "absolute_path": {
       "description": "Output readback absolute path. The store joins operator filesystem text with no length guard, so the readback carries no maximum.",
       "type": "string",
@@ -7763,6 +7913,9 @@
           "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
+        "assignment_group": {
+          "$ref": "#/$defs/workflow_assignment_group_result"
+        },
         "retry_attempt_id": {
           "$ref": "#/$defs/id",
           "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
@@ -9970,7 +10123,7 @@
         },
         "branch": {
           "type": "string",
-          "maxLength": 128
+          "maxLength": 256
         },
         "path": {
           "type": "string",
@@ -10020,7 +10173,7 @@
             "branch": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 256
             },
             "path": {
               "type": "string",
@@ -10067,7 +10220,7 @@
             },
             "branch": {
               "type": "string",
-              "maxLength": 128
+              "maxLength": 256
             },
             "path": {
               "type": "string",
@@ -10118,7 +10271,7 @@
         "branch": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 256
         },
         "path": {
           "type": "string",
@@ -20148,143 +20301,175 @@
           "description": "Bounds: 8..128 code points inclusive"
         },
         "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "job_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "objective": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "stopping_condition": {
-              "type": "string",
-              "maxLength": 2048,
-              "x-maxBytes": 2048,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
-            },
-            "path_scope": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "job_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "x-minBytes": 2,
+                  "x-maxBytes": 128,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                },
+                "objective": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "x-maxBytes": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+                },
+                "stopping_condition": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "x-maxBytes": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "Bounds: 1..2048 code points inclusive; <=2048 UTF-8 bytes inclusive"
+                },
+                "path_scope": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/reference",
+                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64,
+                  "description": "Bounds: 0..64 items inclusive"
+                },
+                "predicate_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/id",
+                    "description": "Bounds: 1..128 code points inclusive"
+                  },
+                  "minItems": 0,
+                  "maxItems": 8,
+                  "description": "Bounds: 0..8 items inclusive"
+                },
+                "checks": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text",
+                    "description": "Bounds: 1..256 code points inclusive"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64,
+                  "description": "Bounds: 0..64 items inclusive"
+                },
+                "prerequisites": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/worker_job_prerequisite"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64,
+                  "description": "Bounds: 0..64 items inclusive"
+                },
+                "unresolved_refs": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text",
+                    "description": "Bounds: 1..256 code points inclusive"
+                  },
+                  "minItems": 0,
+                  "maxItems": 64,
+                  "description": "Bounds: 0..64 items inclusive"
+                },
+                "reserved_integration": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "x-maxBytes": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "readiness_evidence": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/reference",
+                    "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+                  },
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "description": "Bounds: 0..16 items inclusive"
+                },
+                "acceptance_oracle": {
+                  "$ref": "#/$defs/worker_acceptance_oracle"
+                },
+                "repair_revisions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/worker_job_repair_revision",
+                    "description": "Bounds: 1..9223372036854775807 value inclusive"
+                  },
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "description": "Bounds: 1..64 items inclusive"
+                },
+                "repair_reason": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "x-maxBytes": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
+                },
+                "direct_caller_allowance": {
+                  "$ref": "#/$defs/worker_job_direct_caller_allowance"
+                }
               },
-              "minItems": 0,
-              "maxItems": 64,
-              "description": "Bounds: 0..64 items inclusive"
+              "required": [
+                "job_id",
+                "objective",
+                "stopping_condition",
+                "ready",
+                "acceptance_oracle"
+              ],
+              "description": "Bounds: <=32 properties inclusive"
             },
-            "predicate_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "assignment_group": {
+                  "$ref": "#/$defs/workflow_assignment_group_input"
+                }
               },
-              "minItems": 0,
-              "maxItems": 8,
-              "description": "Bounds: 0..8 items inclusive"
+              "required": [
+                "assignment_group"
+              ],
+              "description": "Bounds: <=32 properties inclusive"
             },
-            "checks": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/worker_job_text",
-                "description": "Bounds: 1..256 code points inclusive"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "member_binding": {
+                  "$ref": "#/$defs/workflow_member_binding_input"
+                }
               },
-              "minItems": 0,
-              "maxItems": 64,
-              "description": "Bounds: 0..64 items inclusive"
-            },
-            "prerequisites": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_job_prerequisite"
-              },
-              "minItems": 0,
-              "maxItems": 64,
-              "description": "Bounds: 0..64 items inclusive"
-            },
-            "unresolved_refs": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/worker_job_text",
-                "description": "Bounds: 1..256 code points inclusive"
-              },
-              "minItems": 0,
-              "maxItems": 64,
-              "description": "Bounds: 0..64 items inclusive"
-            },
-            "reserved_integration": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "ready": {
-              "type": "boolean"
-            },
-            "readiness_evidence": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Bounds: 0..16 items inclusive"
-            },
-            "acceptance_oracle": {
-              "$ref": "#/$defs/worker_acceptance_oracle"
-            },
-            "repair_revisions": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/worker_job_repair_revision",
-                "description": "Bounds: 1..9223372036854775807 value inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            },
-            "repair_reason": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "direct_caller_allowance": {
-              "$ref": "#/$defs/worker_job_direct_caller_allowance"
+              "required": [
+                "member_binding"
+              ],
+              "description": "Bounds: <=32 properties inclusive"
             }
-          },
-          "required": [
-            "job_id",
-            "objective",
-            "stopping_condition",
-            "ready",
-            "acceptance_oracle"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
+          ]
         }
       },
       "not": {

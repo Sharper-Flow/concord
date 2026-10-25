@@ -176,8 +176,7 @@ type acceptDeliveryCandidate struct {
 func acceptDeliveryCandidateAt(t *testing.T, workID, ref, step string, pending bool) acceptDeliveryCandidate {
 	t.Helper()
 	definition := mustBuiltinDefinition(t, ref)
-	// No verification binding is seeded: each case binds its own runs, so a
-	// refusal names that run's disqualifier.
+	// No verification binding is seeded; the producer receipt is still applicable.
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{"verification"}, []string{"review", "artifact"})
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
@@ -238,6 +237,36 @@ func acceptDeliveryCompleteReview(t *testing.T, c acceptDeliveryCandidate, attem
 func acceptDeliveryBindFresh(t *testing.T, c acceptDeliveryCandidate, id string) {
 	t.Helper()
 	c.j.bindVerification(t, c.j.observeRun(t, id))
+}
+
+// acceptDeliveryUnprovedCandidateAt lands a corrective Review of a new commit
+// without running verification on it. The earlier candidate's proof remains.
+func acceptDeliveryUnprovedCandidateAt(t *testing.T, workID, ref string, pending bool) acceptDeliveryCandidate {
+	t.Helper()
+	c := acceptDeliveryCandidateAt(t, workID, ref, "refine", false)
+	job := reviewSubjectReadyRevision(t, c.f)
+	attempt := "attempt:" + workID + ":unproved"
+	if err := descendantDispatch(t, c.j, "review", attempt, job, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.j.laneDispatch(t, attempt, "review", &job)
+	path := filepath.Join(c.j.repo, "internal", "store", job.JobID, "review.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("corrected candidate awaiting verification\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := c.j.commit(t, "reviewer@example.invalid", "corrective candidate")
+	report := currentReviewBlockForTest(t, c.f.store, workID, attempt, "ready_for_final_proof")
+	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, c.j.repo, output)}
+	c.j.completeReview(t, attempt, job, report)
+	if pending {
+		c.attempt, c.epoch = attempt, c.j.dispatchEpoch(t, attempt)
+	} else if err := c.j.acceptEvidence(t, attempt); err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
 // acceptDeliveryUnbindableRun runs one verify command that yields no passing
@@ -351,24 +380,25 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 				name       string
 				routes     []string
 				step       string
+				unproved   bool
 				seed       func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest
 				wantKind   FailureKind
 				wantDetail string
 			}{
-				{name: "no-verification-run", seed: func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil },
-					wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
-				{name: "stale-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
-					refineProofCandidateRun(t, c.f.store, c.f.workID, "other-candidate", strings.Repeat("b", 40), []string{"go", "vet", "./..."})
+				{name: "no-verification-run", unproved: true, seed: func(*testing.T, acceptDeliveryCandidate) *ProjectToolingManifest { return nil },
+					wantKind: KindMissingEvidence, wantDetail: "no passing producer verification covers the current integrated candidate"},
+				{name: "stale-run", unproved: true, seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+					c.j.bindVerification(t, c.early)
 					return nil
 				}, wantKind: KindMissingEvidence, wantDetail: "verification does not cover the current integrated candidate"},
-				{name: "failed-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+				{name: "failed-run", unproved: true, seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "failed", []string{"false"})
 					return nil
-				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
-				{name: "dirty-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
+				}, wantKind: KindMissingEvidence, wantDetail: "no passing producer verification covers the current integrated candidate"},
+				{name: "dirty-run", unproved: true, seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryUnbindableRun(t, c, "dirty", []string{"sh", "-c", "echo dirty >> seed.txt"})
 					return nil
-				}, wantKind: KindMissingEvidence, wantDetail: "no verification evidence is bound in the current refine epoch"},
+				}, wantKind: KindMissingEvidence, wantDetail: "no passing producer verification covers the current integrated candidate"},
 				{name: "undeclared-run", seed: func(t *testing.T, c acceptDeliveryCandidate) *ProjectToolingManifest {
 					acceptDeliveryBindFresh(t, c, "undeclared")
 					return refineProofTooling(ProjectDeclaredTool{ID: "go-test-race", Invocation: "go test -race ./..."})
@@ -401,7 +431,12 @@ func TestDeliveryAdmissionRefusalsMatchAcrossEntryRoutes(t *testing.T) {
 						// The record_delivery route has no pending attempt: an
 						// unaccepted job would refuse on the job population
 						// before the case's own disqualifier.
-						c := acceptDeliveryCandidateAt(t, workID, family.ref, step, route == "accept_worker_result")
+						var c acceptDeliveryCandidate
+						if testCase.unproved {
+							c = acceptDeliveryUnprovedCandidateAt(t, workID, family.ref, route == "accept_worker_result")
+						} else {
+							c = acceptDeliveryCandidateAt(t, workID, family.ref, step, route == "accept_worker_result")
+						}
 						s := c.f.store
 						tooling := testCase.seed(t, c)
 						payload := json.RawMessage(`{"delivery_artifact":"artifact:refine-exit-` + workID + `","delivery_state":"asserted"}`)

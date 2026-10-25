@@ -167,10 +167,29 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
 	lane := reviewGateLane(t, "implementation")
 	first, second := "attempt:"+workID+":1", "attempt:"+workID+":2"
-	// Both attempts launch the one assignment, so the second needs no
-	// intermediate Review (CD-0242 D6).
-	dispatchJobBoundAttempt(t, s, workID, "repair", first, nil, dispatcher, 0, "s2-skip-dispatch-1-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
-	dispatchJobBoundAttempt(t, s, workID, "repair", second, nil, dispatcher, 0, "s2-skip-dispatch-2-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
+	job := &WorkerJobBinding{JobID: "job:" + workID}
+	dispatchJobBoundAttempt(t, s, workID, "repair", first, nil, dispatcher, 0, "s2-skip-dispatch-1-"+workID, job)
+	// The original worker remains live. A different coordinator's exact
+	// approved takeover opens the newer epoch without fabricating its terminal.
+	taker := diagnosisS1Actor(workID, "takeover")
+	claim := dispatchSessionWorktree(t, s, workID)
+	approved, err := workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, mustActorRef(t, taker), workerRestartAssignment{jobID: job.JobID, stepID: "repair", laneID: lane.ID}, workerWorktreeIdentity(claim))
+	if err != nil || approved == nil {
+		t.Fatalf("read the exact foreign takeover: %+v, %v", approved, err)
+	}
+	packet := dispatchWorkerPacket(t, s, workID, "repair", second)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, lane.ID)
+	key := "s2-skip-dispatch-2-" + workID
+	if _, err := invokeWorkflowActionForCD0059(t.Context(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
+		Payload: mustJSONValue(map[string]any{"attempt_id": second, "worker_packet": packet}), Actor: taker, SessionWorktree: claim,
+		ApprovedTakeover: approved, AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: taker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("the approved foreign takeover refused: %v", err)
+	}
+	recordJobBoundWorkerDispatch(t, s, workID, second, job)
 	start := workflowCurrentStartAtStep(t, s, workID, "repair")
 	if start == nil || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
 		t.Fatalf("repair current start = %+v, want two receipts and current epoch 2", start)

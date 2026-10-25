@@ -204,7 +204,13 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	editing := workerLaneEdits(sample.attempt.LaneID, sample.attempt.LaneDigest)
 	reviewing := slices.Contains(lane.Capabilities, "inspect_diff")
 	if !editing && !reviewing {
-		return &WorkerTerminalPreparation{proof: proof}, nil
+		job, err := workflowDispatchedJobForAttempt(ctx, s.db, request.WorkID, request.AttemptID)
+		if err != nil {
+			return nil, err
+		}
+		if job == nil {
+			return &WorkerTerminalPreparation{proof: proof}, nil
+		}
 	}
 	if sample.window.WorktreeIdentity == "" {
 		// A missing historical binding remains explicit history, never
@@ -427,23 +433,28 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 }
 
 // enrichWorkerObservedDeliveryTx attaches the prepared delivery observation
-// to a completed editing or review payload, refusing when the preparation
+// to a completed worker payload, refusing when the preparation
 // is missing or any sampled identity changed under the probe.
 func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event, window WorkerDispatchWindow, payload *WorkerCompletedPayload) error {
 	attempt, err := workerAttemptByIDCore(ctx, tx, payload.AttemptID)
 	if err != nil {
 		return err
 	}
-	lane, err := workerAttemptLane(ctx, tx, payload.AttemptID)
-	if err != nil {
-		return err
-	}
-	if (!slices.Contains(lane.Capabilities, "edit_scoped_files") && !slices.Contains(lane.Capabilities, "inspect_diff")) || window.WorktreeIdentity == "" {
+	if window.WorktreeIdentity == "" {
 		return nil
+	}
+	if payload.WorkerJob == nil {
+		lane, err := workerAttemptLane(ctx, tx, payload.AttemptID)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(lane.Capabilities, "edit_scoped_files") && !slices.Contains(lane.Capabilities, "inspect_diff") {
+			return nil
+		}
 	}
 	preparation := workerTerminalPreparationFrom(ctx)
 	if preparation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed editing or review attempt reached the ingest seam without the core output observation", false, "record the completion through the authenticated worker evidence boundary")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the completed worker attempt reached the ingest seam without the core output observation", false, "record the completion through the authenticated worker evidence boundary")
 	}
 	proof := preparation.proof
 	if proof.replay {
@@ -485,12 +496,7 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the claimed worktree changed under the terminal observation", true, "prepare the same completion again against the current claim")
 	}
 	if proof.observation == nil {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared output proof carries no observation for an editing or review completion", false, "prepare the completion against a reachable claimed worktree")
-	}
-	// The observed delta is measured from the authorization's own subject
-	// commit, or recorded absent for a subject-less authorization.
-	if proof.observation.Base != "" && proof.observation.Base != liveWindow.SubjectCommit {
-		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared delivery observation names base "+proof.observation.Base+", not the dispatch's recorded subject commit", false, "prepare the completion against the recorded authorization")
+		return newFailure(KindInvariantViolation, workerTerminalObservationOp, "the prepared output proof carries no observation for a worker completion", false, "prepare the completion against a reachable claimed worktree")
 	}
 	payload.ObservedDelivery = proof.observation
 	return nil

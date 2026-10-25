@@ -230,6 +230,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	out.StepActions = []string{}
 	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
+	if err := publishedWorkAbsenceQ(ctx, tx, req.Work, "C19.Continuity"); err != nil {
+		return out, err
+	}
 	exists, err := workExistsCore(ctx, tx, req.Work)
 	if err != nil {
 		return out, err

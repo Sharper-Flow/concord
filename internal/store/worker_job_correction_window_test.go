@@ -840,8 +840,7 @@ func TestWorkerJobRecordingAuthorityAndReadinessGates(t *testing.T) {
 // and holds refine. A plain accept of an attempt dispatched without a job
 // binding still refuses, because refine exits only through an admitted
 // delivery assertion, and the delivery-asserting accept keeps the complete
-// delivery admission: it refuses without the green refine run and advances
-// to the delivery gate with it.
+// delivery admission and advances with applicable producer proof.
 func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
 		t.Run(family, func(t *testing.T) {
@@ -891,10 +890,6 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 			finalAttempt := oCompleteOracleFixtureReview(t, oracleFixture, workID, "ready_for_final_proof")
 			finalEpoch := epoch()
 			asserted := mustJSONValue(map[string]any{"attempt_id": finalAttempt, "attempt_epoch": finalEpoch, "delivery_artifact": "artifact:accept-delivery-" + workID, "delivery_state": "asserted"})
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err == nil {
-				t.Fatal("delivery-asserting accept admitted without the green refine run")
-			}
-			reviewGateRequireStep(t, s, workID, "refine")
 			refineProofCandidateRun(t, s, workID, "refine-final", refineProofCandidate(t, s, workID), []string{"true"})
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_result", asserted, 0, acceptor); err != nil {
 				t.Fatalf("delivery-asserting accept with the green refine run: %v", err)

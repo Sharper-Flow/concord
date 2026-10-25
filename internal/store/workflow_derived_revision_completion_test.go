@@ -71,6 +71,7 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
+	bindCompletionClosure(t, s, workID, owner)
 	complete := func() error {
 		t.Helper()
 		return runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner)

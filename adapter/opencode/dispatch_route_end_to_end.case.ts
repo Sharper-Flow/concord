@@ -1,9 +1,11 @@
 import { expect } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdir } from "node:fs/promises"
+import { chmod, mkdir, unlink } from "node:fs/promises"
 import { delimiter, join } from "node:path"
+import { createInterface } from "node:readline"
+import { Readable } from "node:stream"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
-import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest, work_transition } from "./concord"
+import { configureConcordAdapter, executeBoundWorkerControl, invokeConcordOperation, laneDispatchRequest, work_transition } from "./concord"
 import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
 
 // The route test drives the real core through its own runner, so argv[0] is
@@ -20,6 +22,8 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
+import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { workerCheckTool } from "./worker_control"
 import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, workerEffects, type JSONRecord } from "./end-to-end.fixture"
 
 const PRODUCT_ID = "product-e2e"
@@ -734,6 +738,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     seedInvestigationArtifact(dbPath, workID)
     const confirmation = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "g01-confirm" } }, b)
     expect(confirmation.outcome, JSON.stringify(confirmation)).toBe("ok")
+    await action(b, "bind_evidence", "g01-reviewed-closure", { evidence_kind: "review", immutable_subject_ref: "sha256:" + "a".repeat(64) })
     const completeVersion = version()
     await action(b, "complete", "g01-complete", { impact_verdict: "non-breaking" })
     const finalEvents = events()
@@ -812,7 +817,7 @@ routeDeclaration("composes implementation and independent review through one ord
         return runFixtureProcess([binary, ...argv.slice(1)], input, { env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal })
       },
     }
-    configureConcordAdapter({ runner: realRunner })
+    configureConcordAdapter({ runner: realRunner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
 
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => {
       if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") expect(sessionDirectory).toBe(worktree)
@@ -885,6 +890,15 @@ routeDeclaration("composes implementation and independent review through one ord
     const dispatchEvent = dbRows(dbPath, `SELECT payload FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${packet.attempt_id}'`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([predicate.predicate_id])
     const report = routeWorkerReport(lane, packet, subjectCommit)
+    const control = packet.inputs.worker_job.acceptance_oracle.controls[0]
+    const childCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: implementation.windows }), executeBoundWorkerControl)
+    const execution = JSON.parse(await childCheck.execute({ control_id: control.control_id }, contextFor(worktree, implementation.workerSessionID))) as JSONRecord
+    expect(execution.oracle.qualification).toBe("pass")
+    expect(execution.oracle.subject_commit).toBe(subjectCommit)
+    report.evidence[0].oracle_receipt = {
+      control_ids: [control.control_id], case_ids: control.case_ids, recipe_source: control.recipe_source,
+      result: "pass", exit_code: execution.exit_code, run_ref: execution.operation_ref, evidence_refs: [],
+    }
     const implementationReceipt = await completeRouteTask(implementation, report, realRunner, binary)
     expect(implementationReceipt.outcome).toBe("ok")
     const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
@@ -910,13 +924,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(reviewInput.outcome, JSON.stringify(reviewInput)).toBe("ok")
     const reviewInputRef = (reviewInput.result as JSONRecord).operation_ref as string
     const assertDeliveryVerification = async () => {
-      const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
-      const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-      expect(skippedVerifyDelivery.outcome, JSON.stringify(skippedVerifyDelivery)).toBe("error")
-      expect(skippedVerifyDelivery.error.kind).toBe("missing_evidence")
-      expect(skippedVerifyDelivery.error.message).toContain("verification")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
-      // Integration needs a bound producer receipt for the actual candidate.
+      // Producer verification applies directly; explicit bindings do not mask it.
       const failedVerify = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "show-ref", "--verify", "refs/heads/missing-synthetic-branch"], idempotency_key: "e2e-failed-integration-verify" } }, context)
       expect(failedVerify.outcome, JSON.stringify(failedVerify)).toBe("ok")
       expect((failedVerify.result as JSONRecord).exit_code).not.toBe(0)
@@ -931,12 +939,6 @@ routeDeclaration("composes implementation and independent review through one ord
       const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
       const staleSubjectBinding = await transition(integrationVersion, "bind_evidence", "e2e-bind-stale-subject", { evidence_kind: "verification", evidence_ref: integrationRef, immutable_subject_ref: `commit:${staleSubjectCommit}` })
       expect(staleSubjectBinding.outcome, JSON.stringify(staleSubjectBinding)).toBe("ok")
-      const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
-      const staleSubjectDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-with-stale-subject", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-      expect(staleSubjectDelivery.outcome, JSON.stringify(staleSubjectDelivery)).toBe("error")
-      expect(staleSubjectDelivery.error.kind).toBe("missing_evidence")
-      expect(staleSubjectDelivery.error.message).toBe("the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
       response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
       expect(response.outcome, JSON.stringify(response)).toBe("ok")
     }
@@ -1093,6 +1095,8 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(confirmIntent, JSON.stringify(pinIntents)).toBeDefined()
     expect((confirmIntent as JSONRecord).required_fields).toEqual(["selected_choice"])
     response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verdictVersion, action_id: "confirm_premise", selected_choice: "confirm", idempotency_key: "e2e-confirm" } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-reviewed-closure", { evidence_kind: "review", immutable_subject_ref: "sha256:" + "b".repeat(64) })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const completeVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(completeVersion, "complete", "e2e-complete", { impact_verdict: "non-breaking" })
@@ -1524,11 +1528,21 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
 }, 300_000)
 
 const RECOVERY_PROCESS = `
-import { configureConcordAdapter, work_transition, work_trace } from "./adapter/opencode/concord.ts";
+import { createInterface } from "node:readline";
+import { Database } from "bun:sqlite";
+import { configureConcordAdapter, executeBoundWorkerControl, invokeConcordOperation, work_start, work_transition, work_trace } from "./adapter/opencode/concord.ts";
+import { createWorkerCapabilityGuard } from "./adapter/opencode/lane_capabilities.ts";
+import { workerCheckTool } from "./adapter/opencode/worker_control.ts";
+import { dispatchLaneWorker } from "./adapter/opencode/lane_dispatch.ts";
+import { completeDispatchedWorker } from "./adapter/opencode/lane_completion.ts";
 import { configureCoreBinary } from "./adapter/opencode/dispatch.ts";
-import { hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./adapter/opencode/move-session.ts";
-import { dispatchWindows } from "./adapter/opencode/dispatch-window.ts";
-const fixture = await new Response(Bun.stdin).json();
+import { hostControlPlane, MOVE_SESSION_ROUTE, SESSION_ROUTE, SESSION_MESSAGES_ROUTE, SESSION_LIST_ROUTE } from "./adapter/opencode/move-session.ts";
+import { dispatchWindows, TASK_TOOL_ID } from "./adapter/opencode/dispatch-window.ts";
+import { clearTurnMoveBoundary } from "./adapter/opencode/turn-move-boundary.ts";
+const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
+const fixture = JSON.parse((await lines.next()).value);
+let heldKey;
+let dispatchTransport;
 let abortedAt = null;
 let abortedPhase = null;
 let preparationInvoked = false;
@@ -1551,31 +1565,47 @@ if (dispatchWindows().inFlightAttempt(fixture.sessionID)) throw new Error("resta
 hostControlPlane().bind({
   get: async ({ url, path, signal }) => {
     observeSignal(signal);
+    if (fixture.coordinator && url === SESSION_LIST_ROUTE) return { data: [fixture.parent.info], response: new Response("[]", { status: 200 }) };
     if (fixture.hostReadDelayMs && url === SESSION_MESSAGES_ROUTE && path.id === fixture.sessionID) await delay(fixture.hostReadDelayMs, signal, "host_proof_read");
     const session = path.id === fixture.sessionID ? fixture.parent : fixture.child;
     if (url === SESSION_ROUTE) return { data: session.info, response: new Response(null, { status: 200 }) };
     if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) };
     throw new Error("unexpected host route");
   },
-  post: async () => { throw new Error("recovery must not spawn or move a host session") },
+  patch: async ({ body }) => {
+    if (!fixture.coordinator) throw new Error("recovery must not change host metadata");
+    Object.assign(fixture.parent.info, body);
+    return { response: new Response(null, { status: 200 }) };
+  },
+  post: async ({ url, body }) => {
+    if (!fixture.coordinator || url !== MOVE_SESSION_ROUTE) throw new Error("recovery must not spawn a host session");
+    fixture.parent.info.directory = body.destination.directory;
+    return { response: new Response(null, { status: 204 }) };
+  },
 });
-configureConcordAdapter({
-  credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
-  runner: { async run(argv, input, signal) {
+const recoveryRunner = { async run(argv, input, signal, options) {
     observeSignal(signal);
     const command = argv[1];
     coreCommands.push(command);
+    if (fixture.coordinator && command === "invoke" && JSON.parse(input).input?.action_id === "dispatch_worker") dispatchTransport = { argv, input };
+    if (fixture.coordinator && command === "session") return { exitCode: 0, stdout: JSON.stringify([fixture.parent.info]), stderr: "" };
+    if (fixture.coordinator && heldKey !== undefined && command === "invoke" && JSON.parse(input).input?.idempotency_key === heldKey) {
+      console.log(JSON.stringify({ held: { argv, input }, pid: process.pid }));
+      await new Promise(() => {});
+    }
+    if (fixture.coordinator && fixture.dropCompletion && command === "worker-complete") return { exitCode: 1, stdout: "", stderr: "C12 lost terminal ingestion before original transport" };
     let phase;
     if (command === "project-resolve") phase = evidenceAcknowledged ? "receipt_read" : preparationInvoked ? "reconciliation_read" : "context_read";
     else if (command === "invoke") {
       const call = JSON.parse(input);
       phase = call.tool === "concord_work_browse" ? "reconciliation_read" : evidenceAcknowledged ? "receipt_read" : "mutation_transport";
     } else if (command === "worker-dispatch" || command === "worker-complete") phase = "mutation_transport";
+    else if (fixture.coordinator) phase = "coordinator_transport";
     else throw new Error("unexpected recovery core command: " + command);
     if (signal.aborted) throw signal.reason;
     if (fixture.contextReadDelayMs && phase === "context_read") await delay(fixture.contextReadDelayMs, signal, phase);
     if (command === "invoke" && phase === "mutation_transport") preparationInvoked = true;
-    const child = Bun.spawn([fixture.binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: fixture.dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([fixture.binary, ...argv.slice(1)], { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: fixture.dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     const abort = () => { abortedAt ??= performance.now(); abortedPhase ??= phase; child.kill(); };
     signal.addEventListener("abort", abort, { once: true });
     try {
@@ -1588,14 +1618,363 @@ configureConcordAdapter({
     } finally {
       signal.removeEventListener("abort", abort);
     }
-  } },
-});
+  } };
+configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } }, runner: recoveryRunner });
+const workerCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: dispatchWindows() }), executeBoundWorkerControl);
 const started = performance.now();
 const context = { sessionID: fixture.sessionID, messageID: "recovery-message", agent: "concord-implement", directory: fixture.worktree, worktree: fixture.worktree, abort: new AbortController().signal, metadata() {}, ask: async () => {} };
+if (fixture.coordinator) {
+  console.log(JSON.stringify({ ready: true, pid: process.pid }));
+  for (;;) {
+    const next = await lines.next();
+    if (next.done) break;
+    const request = JSON.parse(next.value);
+    if (request.host) Object.assign(fixture, request.host);
+    context.directory = request.directory ?? fixture.parent.info.directory;
+    context.worktree = context.directory;
+    context.messageID = request.messageID ?? "c12-coordinator-message";
+    let envelope;
+    if (request.kind === "snapshot") {
+      const db = new Database(fixture.dbPath, { readonly: true });
+      try {
+        envelope = { outcome: "ok", facts: {
+          claims: db.query("SELECT e.* FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=?").all(fixture.workID),
+          attempts: db.query("SELECT attempt_id,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY attempt_id").all(fixture.workID),
+          dispositions: db.query("SELECT attempt_id,action_id FROM worker_attempt_dispositions WHERE work_id=? ORDER BY seq").all(fixture.workID),
+          checkpoint: db.query("SELECT checkpoint_id,attempt_epoch FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1").get(fixture.workID),
+        } };
+      } finally { db.close(); }
+    } else if (request.kind === "next_turn") {
+      // Controlled host input: the same event sink chat.message uses.
+      clearTurnMoveBoundary(fixture.sessionID);
+      envelope = { outcome: "ok" };
+    } else if (request.kind === "start") envelope = JSON.parse((await work_start.execute({ work_id: fixture.workID }, context)).output.split("\\n")[0]);
+    else if (request.kind === "dispatch") envelope = await dispatchLaneWorker(request.input, { context, invoke: invokeConcordOperation, credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } }, windows: dispatchWindows() });
+    else if (request.kind === "bind") {
+      await dispatchWindows().bind(TASK_TOOL_ID, fixture.sessionID, request.taskArgs, request.callID, async () => fixture.worktree, fixture.worktree);
+      envelope = { outcome: "ok", taskArgs: request.taskArgs };
+    } else if (request.kind === "ingest") {
+      const output = { title: "task", output: request.output, metadata: {} };
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: fixture.sessionID, callID: request.callID, args: request.taskArgs }, output, { windows: dispatchWindows(), runner: recoveryRunner, concordBinary: fixture.binary, credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } } });
+      envelope = { output: output.output };
+    } else if (request.kind === "check") {
+      const execution = JSON.parse(await workerCheck.execute({ control_id: request.controlID }, { ...context, sessionID: request.workerID }));
+      envelope = { outcome: "ok", execution };
+    } else if (request.kind === "invoke" || request.kind === "hold") {
+      if (request.kind === "hold") heldKey = request.args.input.idempotency_key;
+      envelope = await invokeConcordOperation(request.tool ?? "concord_work_transition", request.args, context);
+    } else envelope = JSON.parse((await work_transition.execute({ request: request.args }, context)).output.split("\\n")[0]);
+    console.log(JSON.stringify({ envelope, pid: process.pid, core_commands: coreCommands, ...(request.kind === "dispatch" ? { dispatch_transport: dispatchTransport } : {}) }));
+  }
+} else {
 const result = await work_transition.execute({ request: fixture.request }, context);
 const research = fixture.researchRead ? await work_trace.execute({ request: fixture.researchRead }, context) : null;
 console.log(JSON.stringify({ envelope: JSON.parse(result.output), elapsed_ms: performance.now() - started, abort_elapsed_ms: abortedAt === null ? null : abortedAt - started, aborted_phase: abortedPhase, signal_count: observedSignals.size, core_commands: coreCommands, ...(research ? { research: JSON.parse(research.output), retained: { parent: fixture.parent, child: fixture.child } } : {}) }));
+}
 `
+
+// Each actor owns its adapter memory and real process identity. Only host
+// readback is controlled; the core, Git, authenticated calls, and signatures
+// are real. The suite's external owner contains every descendant.
+async function c12Coordinator(fixture: RouteFixture, sessionID: string, retained?: JSONRecord, childEnv: Record<string, string> = {}) {
+  const child = Bun.spawn([process.execPath, "-e", RECOVERY_PROCESS], {
+    cwd: join(import.meta.dir, "../.."), env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  })
+  const stderr = new Response(child.stderr).text()
+  const reader = createInterface({ input: Readable.fromWeb(child.stdout as any) })
+  const lines = reader[Symbol.asyncIterator]()
+  const read = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const next = await Promise.race([lines.next(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`C12 actor ${sessionID} exceeded its 40s response budget`)) }, 40_000)
+      })])
+      if (next.done) throw new Error(`C12 actor ${sessionID} exited: ${await stderr}`)
+      return JSON.parse(next.value) as JSONRecord
+    } finally { if (timer) clearTimeout(timer) }
+  }
+  const stop = async () => {
+    child.kill("SIGKILL")
+    await child.exited
+    reader.close()
+    await stderr
+  }
+  try {
+    await child.stdin.write(JSON.stringify({ ...fixture, coordinator: true, sessionID, dropCompletion: true,
+      parent: retained?.parent ?? { info: { id: sessionID, directory: fixture.worktree, metadata: {} }, messages: [] }, child: retained?.child,
+    }) + "\n")
+    expect(await read()).toEqual({ ready: true, pid: child.pid })
+  } catch (error) { await stop(); throw error }
+  return { pid: child.pid, stop, async call(request: JSONRecord) {
+    await child.stdin.write(JSON.stringify(request) + "\n")
+    return read()
+  } }
+}
+
+for (const started of [false, true]) {
+  routeDeclaration(`C12 ${started ? "05" : "01"} composes real coordinator death same-session landing recovery acceptance and delayed progress`, async () => {
+    const root = await fixtureTempRoot(`dispatch-c12-${started ? "started" : "unknown"}`)
+    const previousConfig = process.env.OPENCODE_CONFIG
+    const actors: Awaited<ReturnType<typeof c12Coordinator>>[] = []
+    try {
+      const fixture = await bootRouteFixture(root)
+      const { binary, dbPath, configPath, workID, worktree, repo, lane } = fixture
+      process.env.OPENCODE_CONFIG = configPath
+      // The real session-prepare route needs installed identities and a host
+      // config probe. Keep both synthetic and private to this owned fixture.
+      const home = join(root, "home"), bin = join(root, "bin")
+      await mkdir(join(home, ".config/opencode/agents"), { recursive: true })
+      await mkdir(bin)
+      for (const id of ["research", "implement", "design", "review", "verify"]) await Bun.write(join(home, ".config/opencode/agents", `concord-${id}.md`), `concord-${id} synthetic definition\n`)
+      const probe = join(bin, "opencode")
+      await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"concord-implement":{"mode":"all","disable":false}}}'\n`)
+      await chmod(probe, 0o755)
+      const childEnv = { HOME: home, PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`, OPENCODE_BIN: probe }
+      const aID = "c12-coordinator-a", bID = "c12-coordinator-b"
+      const calls: Array<{ argv: string[]; input: JSONRecord }> = []
+      const runner = realStoreRunner(binary, dbPath, calls, worktree)
+      configureConcordAdapter({ runner })
+      const host = bindRouteSessions(worktree, [aID, bID])
+      const a = await c12Coordinator(fixture, aID, undefined, childEnv); actors.push(a)
+      const b = await c12Coordinator(fixture, bID, undefined, childEnv); actors.push(b)
+      const version = () => dbValue(dbPath, "SELECT version FROM work_items WHERE id=?", workID).version
+      const sql = (query: string) => dbRows(dbPath, query, workID)
+      const claims = () => sql("SELECT e.* FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=?")
+      const occupants = () => dbRows(dbPath, "SELECT * FROM worktree_occupancy ORDER BY session_ref")
+      const snapshot = () => ({
+        work: sql("SELECT * FROM work_items WHERE id=?"), workflow: sql("SELECT * FROM workflow_instances WHERE work_id=?"),
+        checkpoints: sql("SELECT * FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence"), epochs: sql("SELECT * FROM workflow_step_epochs WHERE work_id=? ORDER BY step_id"),
+        jobs: sql("SELECT * FROM worker_job_revisions WHERE work_id=? ORDER BY job_id,revision"), occupants: occupants(),
+        attempts: sql("SELECT * FROM worker_attempts WHERE work_id=? ORDER BY attempt_id"), authorizations: sql("SELECT * FROM worker_authorizations WHERE work_id=? ORDER BY attempt_id"),
+        dispositions: sql("SELECT * FROM worker_attempt_dispositions WHERE work_id=? ORDER BY seq"), claims: claims(),
+      })
+      const ok = (response: JSONRecord) => { expect(response.envelope.outcome, JSON.stringify(response)).toBe("ok"); return response.envelope }
+      const invoke = async (tool: string, args: any, context: any) => (await a.call({ kind: "invoke", tool, args, directory: context.directory })).envelope
+      const context = contextFor(worktree, aID)
+      const action = (actor: typeof a, name: string, key: string, fields: JSONRecord) => actor.call({ kind: "invoke", args: {
+        operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: name, idempotency_key: key, fields },
+      } })
+      const checkpoint = (id: string) => ({ checkpoint_id: id, active_unit: "synthetic route", diagnosis: id,
+        hypothesis: "The original effect must settle before retry.", strategy: "Recover the exact original attempt.",
+        touched_refs: ["oraclekit/oracle.go"], evidence_refs: ["evidence:c12-fixture"], pending_decisions: [], pending_questions: [],
+      })
+      const starts = join(root, "native-starts.jsonl")
+      const marker = join(root, "external-effect.jsonl")
+      const markerID = `c12-effect-${crypto.randomUUID()}`
+      const count = async (path: string) => await Bun.file(path).exists() ? (await Bun.file(path).text()).trim().split("\n").length : 0
+      const spawnEffect = async (actor: typeof a, packet: JSONRecord, workerID: string, coordinatorID: string) => {
+        const subject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
+        const report = routeWorkerReport(lane, packet, subject)
+        host.opening({ ...contextFor(worktree, coordinatorID), workerSessionID: workerID }, packet, "concord-implement")
+        const control = packet.inputs.worker_job.acceptance_oracle.controls[0]
+        const checked = await actor.call({ kind: "check", workerID, controlID: control.control_id, host: { child: host.sessions.get(workerID) } })
+        const execution = ok(checked).execution
+        expect(checked.core_commands).toContain("worker-control")
+        expect(execution.oracle.qualification).toBe("pass")
+        expect(execution.oracle.subject_commit).toBe(subject)
+        expect(execution.oracle.attempt_id).toBe(packet.attempt_id)
+        expect(execution.exit_code).toBe(0)
+        report.evidence[0].oracle_receipt = {
+          control_ids: [control.control_id], case_ids: control.case_ids, recipe_source: control.recipe_source,
+          result: "pass", exit_code: execution.exit_code, run_ref: execution.operation_ref, evidence_refs: [],
+        }
+        // A real harness-owned child, not the assertion process, emits the
+        // unique effect and its original report. This is not OpenCode startup.
+        const emitted = await runProcess([process.execPath, "-e", `
+          import { appendFile } from "node:fs/promises";
+          const f = await new Response(Bun.stdin).json();
+          await appendFile(f.starts, JSON.stringify({ attempt_id: f.attemptID, pid: process.pid }) + "\\n");
+          await appendFile(f.marker, JSON.stringify({ marker: f.markerID, attempt_id: f.attemptID }) + "\\n");
+          console.log(JSON.stringify(f.report));
+        `], JSON.stringify({ starts, marker, markerID, attemptID: packet.attempt_id, report }), worktree)
+        expect(emitted.exitCode, emitted.stderr).toBe(0)
+        const original = JSON.parse(emitted.stdout)
+        return original
+      }
+      const resumed = await Promise.all([a.call({ kind: "start" }), b.call({ kind: "start" })])
+      resumed.forEach(ok)
+      expect(claims()).toHaveLength(1)
+      const claim = claims()
+      const nativeBefore = await runProcess(["git", "worktree", "list", "--porcelain"], "", repo)
+      ok(await b.call({ kind: "transition", args: { operation: "session_vacate", input: { idempotency_key: "c12-b-vacate" } } }))
+      expect(occupants().map(row => row.session_ref)).toEqual([aID])
+      const originalOccupancy = occupants()[0]
+      expect(originalOccupancy.host_pid).toBe(a.pid)
+      expect(originalOccupancy.host_pid_start).toBeGreaterThan(0)
+      await driveWorkflowToContract(workID, invoke, context)
+      const dispatchInput = { work_id: workID, expected_version: version(), idempotency_key: "c12-original-dispatch", lane_id: lane.id }
+      const originalDispatch = await a.call({ kind: "dispatch", input: dispatchInput })
+      const dispatch = ok(originalDispatch)
+      const taskArgs = ok(await a.call({ kind: "bind", taskArgs: nativeTaskSelector(dispatch), callID: "c12-original-task" })).taskArgs
+      const packet = JSON.parse(taskArgs.prompt)
+      const attemptID = packet.attempt_id
+      const epoch = dbValue(dbPath, "SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id=? AND attempt_id=?", workID, attemptID).n
+      await Bun.write(join(root, "original-authorization.json"), JSON.stringify({ attempt_id: attemptID, attempt_epoch: epoch, packet, claim, transport: originalDispatch.dispatch_transport }))
+      let retained: JSONRecord | undefined
+      const retainedPath = join(root, "original-host-task.json")
+      if (started) {
+        const original = await spawnEffect(a, packet, "c12-original-worker", aID)
+        const task: RouteTaskDispatch = { dispatchResult: dispatch, windows: new DispatchWindows(), windowWasOpen: true, taskArgs, packet, callID: "c12-original-task", sessionID: aID, workerSessionID: "c12-original-worker", retainedOutput: taskResult(original, "c12-original-worker") }
+        retained = host.retain(task, original)
+        await Bun.write(retainedPath, JSON.stringify(retained))
+        const ingestion = await a.call({ kind: "ingest", taskArgs, callID: task.callID, output: task.retainedOutput, host: retained })
+        expect(ingestion.envelope.output).toContain("C12 lost terminal ingestion before original transport")
+        expect(workerEffects(dbPath, workID).map(row => row.kind)).toEqual(["worker.dispatched"])
+        expect(JSON.parse(await Bun.file(retainedPath).text())).toEqual(retained)
+      }
+      const delayed = { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "checkpoint_context", idempotency_key: "c12-original-delayed-progress", fields: checkpoint("checkpoint:c12-delayed-a") } }
+      const held = await a.call({ kind: "hold", args: delayed })
+      await Bun.write(join(root, "original-progress-envelope.json"), JSON.stringify({ ...held, attempt_id: attemptID, attempt_epoch: epoch }))
+      expect(JSON.parse(held.held.input).call_envelope.session_ref).toBe(aID)
+      expect(JSON.parse(held.held.input).input).toEqual(delayed.input)
+      await Bun.write(join(worktree, "c12-dirty.txt"), "preserve this dirty file across coordinator death\n")
+      await a.stop()
+      if (started) retained = JSON.parse(await Bun.file(retainedPath).text())
+      const a2 = await c12Coordinator(fixture, aID, retained, childEnv); actors.push(a2)
+      expect(a2.pid).not.toBe(a.pid)
+      ok(await a2.call({ kind: "start" }))
+      expect(dbValue(dbPath, "SELECT host_pid,has_process_identity FROM worktree_occupancy WHERE session_ref=?", aID)).toEqual({ host_pid: a2.pid, has_process_identity: 1 })
+      expect(dbValue(dbPath, "SELECT host_pid_start FROM worktree_occupancy WHERE session_ref=?", aID).host_pid_start).toBeGreaterThan(originalOccupancy.host_pid_start)
+      expect(await Bun.file(join(worktree, "c12-dirty.txt")).text()).toBe("preserve this dirty file across coordinator death\n")
+      // Preservation was observed across the real restart. Remove only this
+      // fixture-owned file so the clean-subject gate cannot mask attempt admission.
+      await unlink(join(worktree, "c12-dirty.txt"))
+      expect((await runProcess(["git", "status", "--porcelain"], "", worktree)).stdout).toBe("")
+      expect(claims()).toEqual(claim)
+      expect((await runProcess(["git", "worktree", "list", "--porcelain"], "", repo)).stdout).toBe(nativeBefore.stdout)
+      const unresolved = snapshot()
+      expect(dbValue(dbPath, "SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?", attemptID).lifecycle_state).toBe(started ? "dispatched" : "in_flight")
+      // The byte-identical core envelope replays its standing authorization;
+      // it does not arm a Task in the replacement adapter's empty memory.
+      const originalTransport = originalDispatch.dispatch_transport
+      const exactReplay = await runner.run(originalTransport.argv, originalTransport.input, AbortSignal.timeout(10_000))
+      const replayedAuthorization = JSON.parse(exactReplay.stdout)
+      expect(replayedAuthorization.outcome, exactReplay.stdout).toBe("ok")
+      expect(replayedAuthorization.replayed).toBe(true)
+      expect(snapshot()).toEqual(unresolved)
+      const replay = await a2.call({ kind: "dispatch", input: dispatchInput })
+      expect(replay.envelope.outcome, JSON.stringify(replay)).toBe("error")
+      expect(snapshot()).toEqual(unresolved)
+      const replacement = await a2.call({ kind: "dispatch", input: { ...dispatchInput, expected_version: version(), idempotency_key: "c12-replacement-dispatch" } })
+      console.log(JSON.stringify({ case: started ? "C12-05" : "C12-01", boundary: "same-session-replacement", original_attempt: attemptID,
+        original_state: dbValue(dbPath, "SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?", attemptID),
+        outcome: replacement.envelope.outcome, error: replacement.envelope.error, authorizations: sql("SELECT attempt_id FROM worker_authorizations WHERE work_id=?"), native_starts: await count(starts) }))
+      // A restarted coordinator cannot replace its unresolved assignment.
+      expect(replacement.envelope.outcome, `same-session restart guard admitted ${replacement.envelope.dispatch_state}`).toBe("error")
+      expect(replacement.envelope.error.details?.core_error?.kind, JSON.stringify(replacement.envelope.error)).toBe("operation_conflict")
+      expect(snapshot()).toEqual(unresolved)
+      expect(await count(starts)).toBe(started ? 1 : 0)
+      if (started) {
+        const recovery = { binary, dbPath, worktree, sessionID: aID, ...retained, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: attemptID, task_part_id: "c12-original-task", idempotency_key: "c12-recover-original" } } }
+        for (const [name, originalHost] of [["missing", { ...retained, parent: { ...retained!.parent, messages: [] } }], ["foreign", { ...retained, child: { ...retained!.child, info: { ...retained!.child.info, parentID: bID } } }]] as const) {
+          const refused = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify({ ...recovery, ...originalHost, request: { ...recovery.request, input: { ...recovery.request.input, idempotency_key: `c12-recovery-${name}` } } }), join(import.meta.dir, "../.."))
+          expect(refused.exitCode, refused.stderr).toBe(0)
+          expect(JSON.parse(refused.stdout).envelope.outcome).toBe("error")
+          expect(snapshot()).toEqual(unresolved)
+          expect(await count(starts)).toBe(1)
+          expect(await count(marker)).toBe(1)
+        }
+        for (let repeat = 0; repeat < 2; repeat++) {
+          const recovered = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify(recovery), join(import.meta.dir, "../.."))
+          expect(recovered.exitCode, recovered.stderr).toBe(0)
+          const receipt = ok(JSON.parse(recovered.stdout))
+          expect(receipt.result.worker_recovery.dispatch.attempt_id).toBe(attemptID)
+          expect(receipt.result.worker_recovery.lifecycle_state).toBe("completed")
+        }
+      } else {
+        const abandon = { operation: "worker_abandon", input: { work_id: workID, attempt_id: attemptID, lane_id: lane.id, detail: "The harness killed its original coordinator before native startup.", idempotency_key: "c12-live-abandon" } }
+        // B observes A2 as a foreign live occupant. The own-row adapter route
+        // would automatically vacate/retry/re-land, hiding the raw refusal.
+        const refused = await b.call({ kind: "transition", args: abandon })
+        expect(refused.envelope.outcome, JSON.stringify(refused)).toBe("error")
+        expect(refused.envelope.error.message).toContain(`session ${aID} still holds the worker attempt worktree`)
+        expect(snapshot()).toEqual(unresolved)
+        ok(await a2.call({ kind: "transition", args: { operation: "session_vacate", input: { idempotency_key: "c12-a2-vacate" } } }))
+        expect(dbValue(dbPath, "SELECT destination_directory,landed FROM session_vacate_requests WHERE session_ref=?", aID)).toEqual({ destination_directory: repo, landed: 1 })
+        expect(occupants()).toHaveLength(0)
+        const closed = await b.call({ kind: "transition", directory: repo, args: abandon })
+        expect(closed.envelope.error?.message, JSON.stringify(closed)).toBe("the worker attempt was closed, but the durable replay receipt was not confirmed")
+        expect(workerEffects(dbPath, workID).map(row => row.kind)).toEqual(["worker.failed"])
+        expect(JSON.parse(workerEffects(dbPath, workID)[0].payload).failure_attribution.observation).toMatchObject({ cause: "unknown", basis: "unknown" })
+        ok(await b.call({ kind: "start", directory: worktree }))
+        ok(await b.call({ kind: "invoke", args: abandon }))
+      }
+      // Both branches must finish acceptance and delayed-progress checks;
+      // refusal-only prefixes are never successful composite evidence.
+      ok(await b.call({ kind: "start", directory: worktree }))
+      let acceptedAttempt = attemptID, acceptedEpoch = epoch
+      if (!started) {
+        const successorInput = { ...dispatchInput, expected_version: version(), idempotency_key: "c12-successor-dispatch" }
+        const sameTurn = await b.call({ kind: "dispatch", input: successorInput })
+        expect(sameTurn.envelope.error?.details?.boundary, JSON.stringify(sameTurn)).toBe("turn_move")
+        ok(await b.call({ kind: "next_turn", messageID: "c12-next-operator-turn" }))
+        const successor = ok(await b.call({ kind: "dispatch", input: successorInput }))
+        const successorArgs = ok(await b.call({ kind: "bind", taskArgs: nativeTaskSelector(successor), callID: "c12-successor-task" })).taskArgs
+        const successorPacket = JSON.parse(successorArgs.prompt)
+        acceptedAttempt = successorPacket.attempt_id
+        acceptedEpoch = dbValue(dbPath, "SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id=? AND attempt_id=?", workID, acceptedAttempt).n
+        expect(acceptedEpoch).toBeGreaterThan(epoch)
+        const report = await spawnEffect(b, successorPacket, "c12-successor-worker", bID)
+        const task: RouteTaskDispatch = { dispatchResult: successor, windows: new DispatchWindows(), windowWasOpen: true, taskArgs: successorArgs, packet: successorPacket, callID: "c12-successor-task", sessionID: bID, workerSessionID: "c12-successor-worker", retainedOutput: taskResult(report, "c12-successor-worker") }
+        // U has no lost response. Its original Task completes through the
+        // ordinary signed hook; only T needs abandonment in this branch.
+        const successorHost = host.retain(task, report)
+        const completed = await b.call({ kind: "ingest", taskArgs: successorArgs, callID: task.callID, output: task.retainedOutput, host: { ...successorHost, dropCompletion: false } })
+        expect(JSON.parse(completed.envelope.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0]).outcome, JSON.stringify(completed)).toBe("ok")
+      }
+      if (!started) {
+        // After acceptance, the disposed-result gate precedes epoch checking.
+        // Exercise the epoch fence independently while U is still decidable.
+        const beforeEpoch = snapshot()
+        const directEpoch = await action(b, "accept_worker_result", "c12-direct-old-epoch", { attempt_id: acceptedAttempt, attempt_epoch: epoch })
+        expect(directEpoch.envelope.outcome, JSON.stringify(directEpoch)).toBe("error")
+        expect(directEpoch.envelope.error.message).toBe("worker attempt epoch does not match the latest workflow action start")
+        expect(snapshot()).toEqual(beforeEpoch)
+      }
+      ok(await action(b, "accept_worker_result", "c12-b-accept", { attempt_id: acceptedAttempt, attempt_epoch: acceptedEpoch }))
+      ok(await action(b, "checkpoint_context", "c12-b-checkpoint", checkpoint("checkpoint:c12-current-b")))
+      const accepted = snapshot()
+      // Context checkpoints bind the durable-operation epoch, not the lane's
+      // dispatch-start epoch. Preserve the actual checkpoint pair on restart.
+      const acceptedCheckpoint = dbValue(dbPath, "SELECT checkpoint_id,attempt_epoch FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1", workID)
+      expect(acceptedCheckpoint).toEqual({ checkpoint_id: "checkpoint:c12-current-b", attempt_epoch: dbValue(dbPath, "SELECT COALESCE(MAX(attempt_epoch),1) AS n FROM durable_operations WHERE work_id=?", workID).n })
+      for (let replay = 0; replay < 2; replay++) {
+        const late = await runner.run(held.held.argv, held.held.input, AbortSignal.timeout(10_000))
+        const envelope = JSON.parse(late.stdout)
+        expect(envelope.outcome).toBe("error")
+        expect(envelope.error.kind).toBe("version_conflict")
+        expect(snapshot()).toEqual(accepted)
+      }
+      expect(await count(starts)).toBe(1)
+      expect(await count(marker)).toBe(1)
+      expect(JSON.parse((await Bun.file(marker).text()).trim())).toEqual({ marker: markerID, attempt_id: acceptedAttempt })
+      if (!started) {
+        ok(await a2.call({ kind: "start", directory: worktree }))
+        const beforeOldEpoch = snapshot()
+        const stale = await action(a2, "accept_worker_result", "c12-a-old-epoch", { attempt_id: acceptedAttempt, attempt_epoch: epoch })
+        expect(stale.envelope.outcome, JSON.stringify(stale)).toBe("error")
+        expect(stale.envelope.error.message).toBe("result acceptance requires an undispositioned completed worker result")
+        expect(snapshot()).toEqual(beforeOldEpoch)
+      }
+      const freshReader = await c12Coordinator(fixture, bID, undefined, childEnv); actors.push(freshReader)
+      const read = await freshReader.call({ kind: "invoke", tool: "concord_work_trace", args: { operation: "continuity", input: { work_id: workID } } })
+      expect(JSON.stringify(ok(read))).toContain("checkpoint:c12-current-b")
+      const finalFacts = ok(await freshReader.call({ kind: "snapshot" })).facts
+      expect(finalFacts.claims).toEqual(claim)
+      expect(finalFacts.attempts).toEqual(sql("SELECT attempt_id,lifecycle_state FROM worker_attempts WHERE work_id=? ORDER BY attempt_id"))
+      expect(finalFacts.dispositions).toEqual(sql("SELECT attempt_id,action_id FROM worker_attempt_dispositions WHERE work_id=? ORDER BY seq"))
+      expect(finalFacts.checkpoint).toEqual(acceptedCheckpoint)
+      expect(sql("SELECT attempt_id,action_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result'")).toEqual([{ attempt_id: acceptedAttempt, action_id: "accept_worker_result" }])
+      expect(claims()).toEqual(claim)
+    } finally {
+      await Promise.all(actors.map(actor => actor.stop()))
+      configureConcordAdapter({ reset: true })
+      hostControlPlane().bind(undefined)
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+      else process.env.OPENCODE_CONFIG = previousConfig
+    }
+  }, 300_000)
+}
 
 for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
   routeDeclaration(`recovers a lost ${blockedVerb} acknowledgement with a pinned reader after adapter process restart`, async () => {

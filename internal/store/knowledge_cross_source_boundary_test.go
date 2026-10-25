@@ -204,11 +204,6 @@ func TestRebuildKeepsOtherSourceScopeRows(t *testing.T) {
 	if _, err := s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "scope-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Reason: "scope fixture", ExpectedVersion: 1}); err != nil {
 		t.Fatal(err)
 	}
-	// Publication membership admits the shared work ID to the archive;
-	// each source still projects its own note and scope rows.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO compaction_publications(work_id) VALUES('scope-shared-work'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}

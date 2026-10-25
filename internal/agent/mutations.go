@@ -519,8 +519,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if enrichErr != nil {
 			return Envelope{}, false, enrichErr
 		}
-		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-		response := r.mutationResult(base, replayedPayload, refs, intents, pinless...)
+		response := r.finishPublishedCompaction(ctx, base, step.WorkID, replayedPayload, refs, intents, pinless)
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
@@ -987,11 +986,11 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // would take over and binds the held holder and epoch into the approval
 // challenge (CD-0013 criterion 25); the takeover stays a separate mandatory
 // exact approval beside the classified consent.
-func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
+func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, request store.WorkflowActionPreflightRequest, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
 	if !store.WorkflowActionOpensHeldAttempt(action) {
 		return nil, nil
 	}
-	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, request)
 	if err != nil || takeover == nil {
 		return nil, err
 	}
@@ -1145,10 +1144,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	case "request_correction":
 		versions["contract"] = contractVersion
 	}
-	takeover, err := r.supersededAttemptBindings(ctx, action, in.WorkID, grant, scope, versions)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
@@ -1164,13 +1159,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return coreError(base, "unauthorized", "worker actors cannot submit operator decisions or complete work", "contact_operator", false), nil
 		}
 	}
-	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
 		}
 		return replay, nil
 	}
+	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	// CD-0038 D3: budget admission for a mutation follows its idempotency
 	// lookup. A replay that matches the recorded digest returns the original
 	// result regardless of the ceiling, so a lowered ceiling can never strand
@@ -2614,7 +2613,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 		if plan.nativeCreation == nil {
 			return cause
 		}
-		return store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
+		return r.Store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
 	}
 	return Envelope{}, nil, false
 }
@@ -4371,22 +4370,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
 	claimScope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{workID}, "scope_version": r.Envelope.ScopeVersion}
 	var resolvedHome store.KnowledgeHome
-	if op.ID == "concord_work_compact.publish" {
-		var homeErr error
-		resolvedHome, homeErr = r.Store.ResolveCompactionHome(ctx, workID)
-		if homeErr != nil {
-			return failureEnvelope(base, homeErr), nil
-		}
-		if resolvedHome.HomeProjectID != publish.HomeProjectID || resolvedHome.HomeLocatorID != publish.HomeLocatorID {
-			return coreError(base, "ambiguous_scope", "caller home does not match the deterministic terminal-work home", "resolve_ambiguity", false), nil
-		}
-		claimScope["work_version"] = publish.ExpectedVersion
-		claimScope["content_digest"] = publish.ContentDigest
-		claimScope["home_project_id"] = resolvedHome.HomeProjectID
-		claimScope["home_locator_id"] = resolvedHome.HomeLocatorID
-		claimScope["head_ref"] = resolvedHome.HeadRef
-	}
-	acceptedScope, _ := json.Marshal(claimScope)
 	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: "work_compact", RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
@@ -4401,6 +4384,32 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
+	if op.ID == "concord_work_compact.publish" {
+		var homeErr error
+		resolvedHome, homeErr = r.Store.ResolveCompactionHome(ctx, workID)
+		if homeErr != nil {
+			return failureEnvelope(base, homeErr), nil
+		}
+		if resolvedHome.HomeProjectID != publish.HomeProjectID || resolvedHome.HomeLocatorID != publish.HomeLocatorID {
+			return coreError(base, "ambiguous_scope", "caller home does not match the deterministic terminal-work home", "resolve_ambiguity", false), nil
+		}
+		if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, publish.ContentDigest); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		contentHash := sha256.Sum256([]byte(publish.Content))
+		actualHash := "sha256:" + hex.EncodeToString(contentHash[:])
+		if actualHash != publish.ContentDigest {
+			if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, actualHash); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+		}
+		claimScope["work_version"] = publish.ExpectedVersion
+		claimScope["content_digest"] = publish.ContentDigest
+		claimScope["home_project_id"] = resolvedHome.HomeProjectID
+		claimScope["home_locator_id"] = resolvedHome.HomeLocatorID
+		claimScope["head_ref"] = resolvedHome.HeadRef
+	}
+	acceptedScope, _ := json.Marshal(claimScope)
 	var changed []ChangedRef
 	var resultPayload json.RawMessage
 	var retainedPinless []string
@@ -4477,8 +4486,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			if enrichErr != nil {
 				return failureEnvelope(base, enrichErr), nil
 			}
-			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-			return r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...), nil
+			return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, derivedIntents, pinless), nil
 		}
 		var committed store.CommittedNote
 		var verified store.VerifiedNote
@@ -4504,8 +4512,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
 		}
 		base.Replayed = complete.Replayed
-		result.Replayed = complete.Replayed
-		return result, nil
+		return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, *result.NextValidIntents, retainedPinless), nil
 	}
 	if reconcile.OperationID == "" && reconcile.WorkID != "" {
 		if reconcile.ExpectedWorkVersion <= 0 {
@@ -4549,8 +4556,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if enrichErr != nil {
 			return failureEnvelope(base, enrichErr), nil
 		}
-		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-		return r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...), nil
+		return r.finishPublishedCompaction(ctx, base, reconcile.WorkID, resultPayload, changed, derivedIntents, pinless), nil
 	}
 	claimScope = map[string]any{}
 	_ = json.Unmarshal([]byte(step.AcceptedScopeSnapshot), &claimScope)
@@ -4581,6 +4587,9 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if proofErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "git_proof", nil, proofErr), nil
 	}
+	if err := r.Store.CheckReviewedClosureContentHash(ctx, reconcile.WorkID, note.ContentHash); err != nil {
+		return failureEnvelope(base, err), nil
+	}
 	if workVersion <= 0 {
 		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
@@ -4598,8 +4607,45 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
 	}
 	base.Replayed = complete.Replayed
-	result.Replayed = complete.Replayed
-	return result, nil
+	return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, *result.NextValidIntents, retainedPinless), nil
+}
+
+// Cleanup follows settlement, never the link callback. A deferred cleanup does
+// not turn a committed publication into a failure. A cleaned execution cannot
+// return the saved live pin or its artifact references.
+func (r runtime) finishPublishedCompaction(ctx context.Context, base Envelope, workID string, payload json.RawMessage, changed []ChangedRef, intents []NextIntent, pinless []string) Envelope {
+	cleanupErr := r.Store.CleanupPublishedTerminalWork(ctx, workID)
+	omitPin := cleanupErr == nil
+	if err := cleanupErr; err != nil {
+		kind, message, recovery := "unreachable", err.Error(), "retry reconciliation after the cleanup blocker is resolved"
+		var failure *store.Failure
+		if errors.As(err, &failure) {
+			kind, message, recovery = mapFailureKind(failure.Kind), failure.Detail, failure.RecoveryAction
+		}
+		base.Warnings = append(base.Warnings, Notice{Kind: kind, SourceID: workID, Details: map[string]any{"message": message, "recovery_action": recovery}})
+		// Another collector may have completed after our preparation failed.
+		// Unknown or ambiguous absence must not revive a saved live pin.
+		if _, err := r.Store.ReadWorkItemSummary(ctx, workID); err != nil {
+			omitPin = true
+		}
+	}
+	if omitPin {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &object); err != nil {
+			return failureEnvelope(base, err)
+		}
+		object["work_pins"] = json.RawMessage(`[]`)
+		object["next_valid_intents"] = json.RawMessage(`[]`)
+		var encodeErr error
+		payload, encodeErr = json.Marshal(object)
+		if encodeErr != nil {
+			return failureEnvelope(base, encodeErr)
+		}
+		pinless = pinlessMutationWorkIDs(changed, nil)
+		intents = nil
+	}
+	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+	return r.mutationResult(base, payload, changed, intents, pinless...)
 }
 
 // publicationStep is one phase of the CD-0006/PM6 cross-authority publication
@@ -5083,6 +5129,9 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
+			return err
+		}
+		if err := store.CheckMemberOperationTx(ctx, tx, memberWorkflowActor(grant), memberOperationScope(raw, r.Envelope, contractOp)); err != nil {
 			return err
 		}
 		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)

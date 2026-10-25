@@ -400,6 +400,20 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	}
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}
 	resultMap := workflowActionResultMap(changedRef, request.OperationID, workerPacketDigest, resultMapRetryRecord, workerClaimedWorktree)
+	for _, event := range assembly.events {
+		if event.Kind == WorkflowActionCompleted {
+			var completed workflowActionCompletedPayload
+			if err := json.Unmarshal(event.Payload, &completed); err != nil {
+				return result, err
+			}
+			if completed.AssignmentGroup != nil {
+				resultMap["assignment_group"] = struct {
+					GroupID string                `json:"group_id"`
+					Members []workflowGroupMember `json:"members"`
+				}{completed.AssignmentGroup.GroupID, completed.AssignmentGroup.Members}
+			}
+		}
+	}
 	result.Result, _ = json.Marshal(resultMap)
 	durableChangedRef, _ := json.Marshal(changedRef)
 	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
@@ -523,7 +537,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	// request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
-		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action")
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action", request.EvidenceKinds...)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -548,11 +562,14 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 	if err := guardRecordedActorTuple(guards); err != nil {
 		return err
 	}
+	if err := guardWorkflowMemberAction(guards.ctx, guards.tx, request); err != nil {
+		return err
+	}
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
-		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
 			return err
 		}
 	}
@@ -807,6 +824,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "supersede_contract":
 		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
 	case "record_worker_job":
+		if workflowMemberVariant(fields) {
+			return nil, nil
+		}
 		return workflowRecordWorkerJobEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "accept_worker_result", "accept_worker_evidence":
 		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)

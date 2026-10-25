@@ -251,7 +251,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *testing.T) {
 	t.Parallel()
 	staleWork := "law-recovery-action-stale"
-	staleStore, _ := seedCompletionGateCase(t, staleWork, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	staleStore, _ := seedCompletionGateCase(t, staleWork, completionGateCase{requiredEvidence: []string{"verification", "review"}, omitClosure: true})
 	attachWorkflowLawPin(t, staleStore, staleWork, "sha256:"+strings.Repeat("a", 64))
 	cutoverLawProjection(t, staleStore)
 	_, action, err := WorkflowActionDefinitionFor(context.Background(), staleStore, BuiltinWorkflowRegistry(), staleWork, "supersede_contract")

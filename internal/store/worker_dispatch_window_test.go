@@ -1219,9 +1219,16 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 		t.Fatal(err)
 	}
 	assertWorkerAttemptState(t, s, workID, backendAttempt, "dispatched")
+	ownerRef, err := WorkflowActorRef(seed.ownerActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guardWorkerDispatchRestart(ctx, s.db, workID, ownerRef, workerRestartAssignment{stepID: "execution", laneID: "implement"}, workerWorktreeIdentity(claimed)); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("original caller can relaunch its unresolved started child: %v", err)
+	}
 	// Once A's launch is known, takeover still needs its exact held identity.
 	frontendDigest := cd781DispatchPacketDigest(t, s, workID, frontendAttempt)
-	takeover, err := workflowStartTakeover(ctx, s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, coordinatorBRef)
+	takeover, err := workflowStartTakeover(ctx, s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, coordinatorBRef, workerRestartAssignment{stepID: "execution", laneID: "implement"}, workerWorktreeIdentity(claimed))
 	if err != nil || takeover == nil || takeover.HeldEpoch != cd781WindowEpoch(t, s, workID, backendAttempt) {
 		t.Fatalf("materialized attempt has no exact takeover binding: %+v, %v", takeover, err)
 	}
@@ -1238,6 +1245,9 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 		t.Fatalf("coordinator B approved dispatch_worker was refused: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, frontendAttempt, "in_flight")
+	if err := guardWorkerDispatchRestart(ctx, s.db, workID, ownerRef, workerRestartAssignment{stepID: "execution", laneID: "implement"}, workerWorktreeIdentity(claimed)); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("a later coordinator start hid the original caller's unresolved child: %v", err)
+	}
 
 	// The packet check is intact on the attempt's own window: evidence
 	// quoting a foreign packet refuses even though the attempt matches.
@@ -1778,13 +1788,13 @@ func TestDispatchOverABornFailedAttemptTakesNothingOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	dispatchAction := WorkflowActionDefinition{ID: "dispatch_worker", ExecutionMode: ActionFenced, RequiredCapability: WorkerDispatchCapability}
-	takeover, err := workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef)
+	takeover, err := workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef, workerRestartAssignment{}, "")
 	if err != nil || takeover != nil {
 		t.Fatalf("another session's dispatch over the born-failed attempt = takeover %+v err %v, want none", takeover, err)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
 		"G33-born-failed-takeover": func() (any, error) {
-			return workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef)
+			return workflowStartTakeover(ctx, s.DatabaseForTesting(), dispatchAction, workID, otherRef, workerRestartAssignment{}, "")
 		},
 	})
 }

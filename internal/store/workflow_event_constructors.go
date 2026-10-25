@@ -410,8 +410,6 @@ func workflowAcceptWorkerResultEvents(ctx context.Context, tx *sql.Tx, request W
 // declared payload fields already enforce, so an array-derived subject cannot
 // mint evidence that no verdict or completion can name.
 func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	declaredRef := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
-	defaultKind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
 	producerID := workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef)
 	producerRunRef := workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID)
 	producerWatermark := workflowFieldStringDefault(fields, "producer_watermark", request.RequestID)
@@ -432,6 +430,22 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s binds one immutable subject per call; the call names %d distinct subjects (%s); split the submission into one bind per subject", request.ActionID, len(subjects), strings.Join(named, ", ")), false, "split the submission into one bind per subject")
 	}
 	subject := subjects[0]
+	kinds, err := workflowEvidenceBindingKinds(request.ActionID, request.EvidenceKinds, fields, subject)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(kinds))
+	for i, kind := range kinds {
+		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}))
+	}
+	return events, nil
+}
+
+// workflowEvidenceBindingKinds is the producer's ordered, distinct kind
+// inventory, shared with admission of reviewed closure bindings.
+func workflowEvidenceBindingKinds(actionID string, evidenceKinds []string, fields map[string]json.RawMessage, subject string) ([]string, error) {
+	declaredRef := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
+	defaultKind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
 	var kinds []string
 	seenKinds := make(map[string]bool)
 	addKind := func(kind string) error {
@@ -439,13 +453,13 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 			return nil
 		}
 		if !validEvidence(EvidenceKind(kind)) {
-			return newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s evidence kind %q is not a declared evidence kind", request.ActionID, kind), false, "use verification, review, approval, commit, durable_note, native_run, or artifact")
+			return newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("%s evidence kind %q is not a declared evidence kind", actionID, kind), false, "use verification, review, approval, commit, durable_note, native_run, or artifact")
 		}
 		seenKinds[kind] = true
 		kinds = append(kinds, kind)
 		return nil
 	}
-	for _, kind := range request.EvidenceKinds {
+	for _, kind := range evidenceKinds {
 		if err := addKind(kind); err != nil {
 			return nil, err
 		}
@@ -460,11 +474,7 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 			return nil, err
 		}
 	}
-	events := make([]Event, 0, len(kinds))
-	for i, kind := range kinds {
-		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(i), WorkflowEvidenceBound, request.WorkID, actor, request.Now, expected+int64(i), map[string]any{"evidence_kind": kind, "immutable_subject_ref": subject, "producer_id": producerID, "producer_run_ref": producerRunRef, "producer_watermark": producerWatermark, "observed_at": request.Now.UTC().Format(time.RFC3339Nano)}))
-	}
-	return events, nil
+	return kinds, nil
 }
 
 // workflowVerdictBatchEntry is one criterion's captured receipt association.

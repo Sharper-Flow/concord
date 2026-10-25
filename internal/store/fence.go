@@ -113,7 +113,7 @@ func Step(ctx context.Context, s *Store, opID string) (FenceResult, error) {
 	if err := preflightWorkflowOperation(ctx, s, opID); err != nil {
 		return FenceResult{}, err
 	}
-	return readStep(ctx, s.db, opID, false)
+	return readStep(ctx, s.db, opID)
 }
 
 // StepTx reads the newest durable attempt in the caller's transaction.
@@ -125,7 +125,7 @@ func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceRe
 	if opID == "" {
 		return FenceResult{}, newFailure(KindInvalidOperation, "step", "operation ID is empty", false, "supply a durable operation ID")
 	}
-	return readStep(ctx, tx, opID, true)
+	return readStep(ctx, tx, opID)
 }
 
 // ClaimStepAuthorized starts the next fenced attempt. The connection's
@@ -194,6 +194,9 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 		if err := authorize(tx.Tx); err != nil {
 			return FenceResult{}, err
 		}
+	}
+	if err := refusePublishedWorkTx(ctx, tx.Tx, req.WorkID, "claim_step"); err != nil {
+		return FenceResult{}, err
 	}
 	var epoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch), 0) + 1 FROM durable_operations WHERE op_id = ?`, req.OpID).Scan(&epoch); err != nil {
@@ -461,11 +464,11 @@ func touchIdempotency(ctx context.Context, tx *sql.Tx, row idempotencyRow, obser
 func readCurrentOperation(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string) (FenceResult, error) {
-	return readStep(ctx, q, opID, true)
+	return readStep(ctx, q, opID)
 }
 func readStep(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, opID string, txRead bool) (FenceResult, error) {
+}, opID string) (FenceResult, error) {
 	var result FenceResult
 	var kind, payload, evidence, changed, cursor, scope, contractDigest sql.NullString
 	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,step_id,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot,contract_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &result.StepID, &kind, &payload, &evidence, &changed, &cursor, &scope, &contractDigest)
@@ -494,14 +497,13 @@ func readStep(ctx context.Context, q interface {
 			result.ApprovalRef = approval
 		}
 	}
-	_ = txRead
 	return result, nil
 }
 
 func durableResult(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string, eventIDs []string) (FenceResult, error) {
-	result, err := readStep(ctx, q, opID, true)
+	result, err := readStep(ctx, q, opID)
 	if err != nil {
 		return result, err
 	}

@@ -5,7 +5,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "Salvage into bounded fields is proved by the payload the operator approves. The guarantee is carried by TestPublishCanonicalNoteCommitsOneNote and TestCompactionPayloadRequiresExplicitUniqueScopeArrays (internal/store/knowledge_index_test.go)."
+      "exemption": "Salvage and the authenticated publisher's summary attestation are publication properties, not query-corpus cases. TestPublishCanonicalNoteCommitsOneNote and TestCompactionPayloadRequiresExplicitUniqueScopeArrays in internal/store/knowledge_index_test.go are candidate witnesses; integrated attestation coverage remains unmeasured."
     },
     {
       "criterion": 2,
@@ -33,9 +33,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:87a64196df444cd1d17a16f444ff447d05d06ef0a8b10372971bb5ff688f602c",
+  "sha256": "sha256:c6ad9333bf9321cf3bf58862fa8ea78f4327063ba928cdbd0cb3930b76a6f79e",
   "status": "accepted",
-  "summary": "Declares no separate process-exhaust store, audit receipt, or deletion attestation; closure publishes one completion receipt (CD-0242 D9).",
+  "summary": "Keeps process exhaust producer-owned; authenticated publication attests to the reviewed useful summary without inventing operator attestation or research-deletion authority.",
   "tags": [
     "pm9",
     "process-exhaust",

@@ -597,7 +597,7 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 		return b, version, auth, err
 	}
 	defer tx.Rollback()
-	live, err := activeWorktreeEntryForProject(ctx, tx, "worktree_verify", req.WorkID, req.ProjectID)
+	live, err := worktreeVerifyEntry(ctx, tx, req)
 	if err != nil {
 		return b, version, auth, err
 	}
@@ -751,7 +751,7 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	entry, err := activeWorktreeEntryForProject(ctx, s.db, "worktree_verify", req.WorkID, req.ProjectID)
+	entry, err := worktreeVerifyEntry(ctx, s.db, req)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
@@ -1001,7 +1001,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 		return result, err
 	}
 	defer tx.Rollback()
-	live, scopeErr := activeWorktreeEntryForProject(ctx, tx, "worktree_verify", req.WorkID, req.ProjectID)
+	live, scopeErr := worktreeVerifyEntry(ctx, tx, req)
 	current, err := readNativeOracleReleaseStamp(ctx, tx, req)
 	if err != nil {
 		return result, err

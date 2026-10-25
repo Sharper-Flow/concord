@@ -401,8 +401,8 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		workflowJSON(nonNilPrerequisites(payload.Prerequisites)), workflowJSON(nonNilStrings(payload.UnresolvedRefs)), payload.ReservedIntegration, readinessColumn, payload.Digest, now); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record the worker-job revision", true, "retry once the database is writable", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET (group_permission,group_review_ref,correction_ref)=(SELECT group_permission,group_review_ref,correction_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>'') ORDER BY revision DESC LIMIT 1) WHERE work_id=? AND job_id=? AND revision=? AND EXISTS(SELECT 1 FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? AND (group_permission<>'' OR correction_ref<>''))`, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision); err != nil {
-		return workflowProjectionError(err, "cannot carry the assignment's admitted group to its new revision")
+	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET correction_ref=COALESCE((SELECT correction_ref FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision<? ORDER BY revision DESC LIMIT 1),'') WHERE work_id=? AND job_id=? AND revision=?`, event.SubjectID, payload.JobID, payload.Revision, event.SubjectID, payload.JobID, payload.Revision); err != nil {
+		return workflowProjectionError(err, "cannot carry the assignment's correction to its new revision")
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE worker_job_revisions SET recorded_payload=?,recorded_seq=?,recorded_event_id=? WHERE work_id=? AND job_id=? AND revision=?`, string(event.Payload), event.Seq, event.EventID, event.SubjectID, payload.JobID, payload.Revision)
 	if err != nil {
@@ -836,15 +836,15 @@ type WorkerJobRevisionView struct {
 // workerJobReadyPredicate is the one admission rule for selecting a revision
 // (CD-0205), evaluated over the worker_job_revisions row aliased j: the
 // revision is the latest recorded revision of its job, it is not yet
-// satisfied, its recorded parent authority is still the work's active
-// approved contract so a supersession strands old-authority revisions, its
-// coordinator readiness is asserted ready with evidence, its unresolved
+// satisfied, its named dependency content remains approved by the active
+// parent contract, its coordinator readiness is asserted ready with evidence,
+// its unresolved
 // references are empty, and every exact prerequisite revision is recorded and
 // satisfied — pinned, when the prerequisite names a result reference, to the
 // exact recorded acceptance that satisfied it.
 const workerJobReadyPredicate = `j.state='recorded'
   AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
-  AND j.contract_version=(SELECT MAX(contract.contract_version) FROM workflow_contracts contract WHERE contract.work_id=j.work_id AND contract.superseded_by IS NULL)
+  AND (` + workerJobDependenciesCurrentPredicate + `)
   AND j.readiness IS NOT NULL AND json_extract(j.readiness,'$.ready')=1 AND COALESCE(json_array_length(j.readiness,'$.evidence'),0)>0
   AND json_array_length(j.unresolved_refs)=0
   AND NOT EXISTS (SELECT 1 FROM json_each(j.prerequisites) prerequisite
@@ -921,13 +921,9 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 }
 
 // requireWorkerJobRevisionReadyTx is the dispatch-time admission of one
-// selected revision: it must be recorded under the named digest, carry the
-// work's active parent contract authority, and satisfy the one readiness
-// rule. Readiness depends on later dispositions, so the live dispatch
-// boundary owns it; the fold keeps the immutable facts. Parent authority is
-// compared explicitly so a stale assignment names the supersession, not a
-// generic unreadiness: a revision recorded under a superseded contract stays
-// undispatchable until a new revision is recorded under the active contract.
+// selected revision: it must be recorded under the named digest, retain its
+// approved dependency content, and satisfy the one readiness rule. Native
+// preparations remain bound to the exact recorded job and its source contract.
 func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) error {
 	if err := requireWorkerJobRevisionStateReadyTx(ctx, q, workID, binding); err != nil {
 		return err
@@ -950,9 +946,8 @@ func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID stri
 // prevalidated oracle metadata to unchanged event and preparation snapshots.
 func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) error {
 	var digest string
-	var contractVersion int64
-	var ready bool
-	err := q.QueryRowContext(ctx, `SELECT j.digest, j.contract_version, CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END FROM worker_job_revisions j WHERE j.work_id=? AND j.job_id=? AND j.revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &contractVersion, &ready)
+	var dependenciesCurrent, ready bool
+	err := q.QueryRowContext(ctx, `SELECT j.digest, CASE WHEN `+workerJobDependenciesCurrentPredicate+` THEN 1 ELSE 0 END, CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END FROM worker_job_revisions j WHERE j.work_id=? AND j.job_id=? AND j.revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &dependenciesCurrent, &ready)
 	if err == sql.ErrNoRows {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_job does not name a recorded worker-job revision", false, "record the job with record_worker_job before dispatching it")
 	}
@@ -962,15 +957,15 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 	if digest != binding.Digest {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_job digest does not match the recorded revision", false, "dispatch the recorded revision digest")
 	}
-	active, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	_, err = activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindInvalidOperation, "workflow_action", "dispatch_worker worker_job requires an approved parent contract", false, "approve the work contract before dispatching a worker job")
 		}
 		return err
 	}
-	if contractVersion != active {
-		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision carries contract authority of version "+fmt.Sprint(contractVersion)+" while the active parent contract is version "+fmt.Sprint(active), false, "record a new revision of the job under the active contract before dispatching it")
+	if !dependenciesCurrent {
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision's named predicates or oracle Domain/law bindings no longer match the active parent contract", false, "record a new revision of the job under the active contract before dispatching it")
 	}
 	if !ready {
 		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")

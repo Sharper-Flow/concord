@@ -101,9 +101,12 @@ func knowledge140Seed(t *testing.T) (*sql.DB, map[string][]string) {
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
+	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool {
+		return table == "archived_work_components"
+	})
 	copyFixtureDataToPrefix(t, s, db, append([]string{
 		"products", "projects", "product_projects", "project_locators", "domain_registries", "domains", "domain_architecture_relations",
-	}, knowledge140Tables...), nil, "fold_guard")
+	}, currentTables...), nil, "fold_guard")
 	knowledge140Exec(t, db, `INSERT INTO fold_guard(active) VALUES(1)`)
 	knowledge140Exec(t, db, `INSERT INTO law_subjects SELECT home_project_id,home_locator_id,'law-b','spec','accepted',path,'B',content_hash,scanned_commit_oid,'legislated','[{"criterion":1,"exemption":"Verified by the migration fixture."}]' FROM law_subjects WHERE law_id='CD-0001'`)
 	knowledge140Exec(t, db, `INSERT INTO law_subjects SELECT home_project_id,home_locator_id,'law-c','constitution','accepted',path,'C',content_hash,scanned_commit_oid,'derived','[]' FROM law_subjects WHERE law_id='CD-0001'`)
@@ -153,7 +156,9 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 	if err := Migrate(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if got := knowledge140Snapshot(t, db, knowledge140Tables); !reflect.DeepEqual(got, preserved) {
+	currentTables := slices.DeleteFunc(slices.Clone(knowledge140Tables), func(table string) bool { return table == "archived_work_components" })
+	delete(preserved, "archived_work_components")
+	if got := knowledge140Snapshot(t, db, currentTables); !reflect.DeepEqual(got, preserved) {
 		t.Fatalf("current projection changed:\ngot %v\nwant %v", got, preserved)
 	}
 	// Compare this step's schema changes in isolation; later migrations may

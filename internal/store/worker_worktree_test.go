@@ -337,3 +337,27 @@ SELECT set_id,'project-2','claim-2',branch,base_sha,?,'repo-2',state,verified_at
 	}
 	return own, other
 }
+
+// Dispatch records the canonical session identity, so a claim recorded
+// beneath a symlinked data root must still select its own entry.
+func TestActiveDispatchWorktreeEntryCanonicalizesSymlinkedRoot(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	root := t.TempDir()
+	claimed := filepath.Join(root, "claimed")
+	if err := os.Mkdir(claimed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(claimed, alias); err != nil {
+		t.Fatal(err)
+	}
+	insertWorkerWorktreeEntry(t, s, "work-symlink", alias)
+	canonical, err := canonicalWorkerWorktreePath(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, err := activeDispatchWorktreeEntry(context.Background(), s.db, "work-symlink", "project-1", workerWorktreeIdentity(canonical)); err != nil || entry.Path != alias {
+		t.Fatalf("symlinked claim lost its dispatch identity: %+v, %v", entry, err)
+	}
+}

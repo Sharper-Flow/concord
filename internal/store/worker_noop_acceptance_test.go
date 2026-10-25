@@ -170,10 +170,14 @@ func TestAcceptWorkerResultRefusesNoOpLaneReport(t *testing.T) {
 	}
 }
 
-func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt string, job WorkerJobBinding) string {
+func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt string, job WorkerJobBinding, capability ...string) string {
 	t.Helper()
 	s := f.store
-	lane := reviewGateLane(t, "implementation")
+	class := "implementation"
+	if len(capability) != 0 {
+		class = capability[0]
+	}
+	lane := reviewGateLane(t, class)
 	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, lane.ID)
 	view, err := readWorkContextView(context.Background(), s.db, workID)
@@ -195,6 +199,7 @@ func completeChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	t.Helper()
 	s := f.store
 	completion := oracleCompletionEvent(t, s, workID, attempt, "noop-completion", func(p *WorkerCompletedPayload) {
+		p.Review = nil
 		for _, build := range builds {
 			build(p)
 		}

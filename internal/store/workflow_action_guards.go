@@ -409,7 +409,9 @@ func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep stri
 }
 
 func workflowEvidenceRecoveryBindingStep(definition WorkflowDefinition, currentStep string) string {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
+	// Close declares the final reviewed judgement beside ordinary recovery;
+	// it does not reopen unrestricted binding from the earlier evidence step.
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") && !stepDeclaresAction(definition, currentStep, "complete") {
 		return ""
 	}
 	for _, step := range definition.StepGraph.Steps {
@@ -490,7 +492,7 @@ func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, 
 
 // guardRecoveryEvidenceBind admits an outstanding requirement or verification
 // of an unverdicted active check, without reopening an already bound tuple.
-func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
+func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string, evidenceKinds ...string) (bool, error) {
 	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return false, nil
@@ -502,6 +504,18 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
+	if stepDeclaresAction(definition, currentStep, "bind_evidence") && stepDeclaresAction(definition, currentStep, "complete") && reviewedClosureSubject(kind, reference) {
+		kinds, err := workflowEvidenceBindingKinds("bind_evidence", evidenceKinds, fields, reference)
+		if err != nil {
+			return false, err
+		}
+		for _, emittedKind := range kinds {
+			if !reviewedClosureSubject(emittedKind, reference) {
+				return false, newFailure(KindIllegalLifecycleTransition, subject, "reviewed closure binding cannot include ordinary evidence kinds", false, "bind ordinary evidence separately through recovery before binding reviewed closure")
+			}
+		}
+		return false, nil
+	}
 	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
@@ -1339,7 +1353,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if workflowActionOmitsGenericCompletion(in.request.ActionID) {
 		return events, "", nil
 	}
-	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	fields, fieldsErr := workflowActionObject(in.payload)
 	if fieldsErr != nil {
 		return events, "", fieldsErr
@@ -1347,6 +1360,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
+	}
+	if in.request.ActionID == "record_worker_job" {
+		var err error
+		events, err = appendWorkflowMemberCompletion(in, fields, events, completionValues)
+		if err != nil {
+			return events, "", err
+		}
 	}
 	if in.request.ActionID == "record_verdict" {
 		// The batched form declares its entry count on the completion, so the
@@ -1550,6 +1570,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 		}
 	}
+	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil
 }
@@ -1601,6 +1622,15 @@ func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDef
 	job, repairReview, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
 	if jobErr != nil {
 		return jobErr
+	}
+	// Selected-job readiness keeps its specific refusal. No new authorization
+	// may commit while an earlier own worker can still affect this assignment.
+	assignment := workerRestartAssignment{stepID: in.currentStep, laneID: lane.ID}
+	if job != nil {
+		assignment.jobID = job.JobID
+	}
+	if err := guardWorkerDispatchRestart(in.ctx, in.tx, in.request.WorkID, in.eventActor, assignment, in.request.SessionWorktreeIdentity); err != nil {
+		return err
 	}
 	// A confirming review binds its exact repairing revision and accepted
 	// result. This records the review assignment, not another launch authority.

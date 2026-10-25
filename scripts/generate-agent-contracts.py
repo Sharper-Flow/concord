@@ -1381,6 +1381,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     )}
     defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}
+    defs["worktree_verify_result"]["properties"]["branch"]["maxLength"] = 256
     page_properties = {
         "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
         "stream": {"type": "string", "enum": ["stdout", "stderr"]},
@@ -1398,6 +1399,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
               "properties": {name: copy.deepcopy(result["properties"][name]) for name in
                              ("work_id", "project_id", "branch", "path", "mode", "content", "truncated")}}
     legacy["required"] = list(legacy["properties"])
+    legacy["properties"]["branch"]["maxLength"] = 256
     legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
     output_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items()}
     output_properties["mode"] = {"type": "string", "const": "oracle_output"}

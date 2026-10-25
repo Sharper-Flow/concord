@@ -229,13 +229,38 @@ func (s *Store) readNativeVerifyOutput(ctx context.Context, req WorktreeInspectR
 	if req.WorkID == "" || req.ProjectID == "" || req.RunRef == "" || req.Path != "" || req.Offset < 0 || req.Length < 1 || req.Length > nativeOraclePageLimit || (req.Stream != "stdout" && req.Stream != "stderr") {
 		return out, oracleFailure(KindInvalidOperation, "oracle output requires a scoped run, stdout or stderr, nonnegative offset, and 1 to 16384 bytes", "supply a bounded output-page request")
 	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, "", req.ProjectID, "worker_oracle"); err != nil {
+		return out, err
+	}
+	var member *WorkflowMemberCaller
+	if owner := sessionWorktreeOwnerFromContext(ctx); owner != (SessionWorktreeOwner{}) {
+		actor, err := workflowMemberOwnerActor(ctx, s.db, owner)
+		if err != nil {
+			return out, err
+		}
+		member, err = readWorkflowMemberCallerQ(ctx, s.db, actor)
+		if err != nil {
+			return out, err
+		}
+		if member != nil && (member.WorkID != req.WorkID || member.ProjectID != req.ProjectID) {
+			return out, oracleFailure(KindUnauthorized, "member caller cannot read oracle output outside its retained work/Project scope", "use the recorded member assignment")
+		}
+	}
 	column := "stdout_blob"
 	if req.Stream == "stderr" {
 		column = "stderr_blob"
 	}
 	var blob []byte
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT `+column+`,result_json FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND state='released' AND native_plan_json IS NOT NULL AND json_extract(result_json,'$.operation_ref')=?`, req.WorkID, req.ProjectID, req.RunRef).Scan(&blob, &raw)
+	query := `SELECT ` + column + `,result_json FROM worktree_verify_leases l WHERE work_id=? AND project_id=? AND state='released' AND native_plan_json IS NOT NULL AND json_extract(result_json,'$.operation_ref')=?`
+	args := []any{req.WorkID, req.ProjectID, req.RunRef}
+	if member != nil {
+		// Claims retain their native path after reclaim. Read authority follows
+		// the retained member, not a live binding or the executing lane's owner.
+		query += ` AND EXISTS(SELECT 1 FROM worktree_claims c WHERE c.work_id=l.work_id AND c.project_id=l.project_id AND c.member_id=? AND c.pinned_path=l.path)`
+		args = append(args, member.MemberID)
+	}
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&blob, &raw)
 	if err == sql.ErrNoRows {
 		return out, oracleFailure(KindProjectionNotFound, "no retained oracle output exists in this work/Project scope", "use this work's native run reference")
 	}

@@ -119,10 +119,9 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 			// Publication is proof-backed archive, not destruction (CD-0217):
 			// an identical relink is idempotent and research is never a side
 			// effect. Only an explicit research_retire batch deletes packs.
-			if req.WithinTx != nil {
-				return s.Transact(ctx, req.WithinTx)
-			}
-			return nil
+			return s.Transact(ctx, func(tx *Transaction) error {
+				return replayCompactionLinkTx(ctx, tx, req, note.ContentHash)
+			})
 		}
 		return newFailure(KindCompactionConflict, "publish_compaction_link", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")
 	}
@@ -130,9 +129,6 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect existing compaction linkage", true, "retry once the database is readable", err)
 	}
 	scopeDomainIDs := append([]string{}, note.DomainIDs...)
-	if len(scopeDomainIDs) == 0 && note.HasComponentIDs {
-		scopeDomainIDs = append([]string{}, note.ComponentIDs...)
-	}
 	payload := compactionLinkPayload{
 		ID: note.ID, Type: note.Kind, Title: note.Title, CompletedAt: note.CompletedAt,
 		OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState,
@@ -151,9 +147,19 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return publishCompactionLinkTx(ctx, tx, req, operation)
+		return publishCompactionLinkTx(ctx, tx, req, operation, note.ContentHash)
 	}); err != nil {
 		return err
+	}
+	return nil
+}
+
+func replayCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, contentHash string) error {
+	if err := checkReviewedClosureContentHashQ(ctx, tx.tx, req.WorkID, contentHash); err != nil {
+		return err
+	}
+	if req.WithinTx != nil {
+		return req.WithinTx(tx)
 	}
 	return nil
 }
@@ -166,7 +172,10 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 // what can refuse here. That refusal keeps output authorized under a superseded
 // law revision out of Product truth when the cutover commits while the external
 // git write is still in flight.
-func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation) error {
+func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation, contentHash string) error {
+	if err := checkReviewedClosureContentHashQ(ctx, tx.tx, req.WorkID, contentHash); err != nil {
+		return err
+	}
 	if req.Boundary == CompactionBoundaryRevalidated {
 		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, req.WorkID); err != nil {
 			return err
@@ -207,9 +216,6 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO compaction_publications(work_id) VALUES(?) ON CONFLICT(work_id) DO NOTHING`, event.SubjectID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot record compaction publication", true, "retry once the database is writable", err)
 	}
 	var existing struct {
 		HomeProjectID string
@@ -428,7 +434,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 3
+const knowledgeProjectionVersion = 4
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -468,10 +474,6 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
-	linked, err := linkedCompactionWorkIDs(ctx, s.db)
-	if err != nil {
-		return err
-	}
 	notes := make([]VerifiedNote, 0, len(paths))
 	laws := make([]indexedLaw, 0)
 	seen := map[string]bool{}
@@ -485,9 +487,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "two valid canonical notes claim the same stable ID", false, "resolve duplicate canonical note identities")
 		}
 		seen[note.ID], seenPaths[note.NotePath] = true, true
-		if linked[note.ID] {
-			notes = append(notes, note)
-		}
+		notes = append(notes, note)
 	}
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home)
 	if err != nil {
@@ -603,7 +603,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			}
 		}
 	}
-	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
+	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		// Every scope row carries its own home pair: the same work id can
 		// project in more than one registered source, so the clear deletes
 		// only this home's rows. An unqualified work_id match erased another
@@ -820,23 +820,6 @@ func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, recor
 	return nil
 }
 
-func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, `SELECT work_id FROM compaction_publications`)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read compaction links", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	ids := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read a compaction link", true, "retry once the database is readable", err)
-		}
-		ids[id] = true
-	}
-	return ids, rows.Err()
-}
-
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,successor_work_id,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, note.ID, note.Kind, note.Title, note.CompletedAt, note.OutcomeTag, marshalStrings(note.LessonTags), note.TerminalState, note.Priority, note.Summary, nullableText(note.SuccessorID), home.HomeProjectID, home.HomeLocatorID, note.NotePath, note.CommitOID, note.ContentHash, note.ScopeMode, note.ManifestSchemaVersion); err != nil {
 		if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {
@@ -844,12 +827,8 @@ func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, no
 		}
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert an indexed note", true, "retry once the database is writable", err)
 	}
-	scopeTable, scopeColumn, scopeIDs := "archived_work_components", "component_id", note.ComponentIDs
-	if note.HasDomainIDs || len(note.DomainIDs) > 0 {
-		scopeTable, scopeColumn, scopeIDs = "archived_work_domains", "domain_id", note.DomainIDs
-	}
-	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, scopeTable: scopeIDs, "archived_work_tags": note.TagIDs} {
-		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_tags": "tag_id", scopeTable: scopeColumn}[table]
+	for table, values := range map[string][]string{"archived_work_products": note.ProductIDs, "archived_work_projects": note.ProjectIDs, "archived_work_domains": note.DomainIDs, "archived_work_tags": note.TagIDs} {
+		column := map[string]string{"archived_work_products": "product_id", "archived_work_projects": "project_id", "archived_work_domains": "domain_id", "archived_work_tags": "tag_id"}[table]
 		for _, value := range values {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO "+table+" (home_project_id, home_locator_id, work_id, "+column+") VALUES (?, ?, ?, ?)", home.HomeProjectID, home.HomeLocatorID, note.ID, value); err != nil { //nolint:gosec // table and column come from closed scope maps and all values stay parameter-bound.
 				if failure := indexedNoteConstraintFailure(home, note, err); failure != nil {

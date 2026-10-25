@@ -243,7 +243,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"attempt_id": "attempt:work-1:gate-review", "attempt_epoch": refineEpoch,
 		"diagnosis": "the review rejects the refined result", "strategy": "implement the review findings and resubmit",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
-	}, reviewer, nil, "gate-reject")
+	}, reviewer, "gate-reject")
 	dispatch("refine", "attempt:work-1:gate-repair", "implementation")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery repair accept: %+v", response.Error)
@@ -275,7 +275,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
-	}, grantActor, nil, "gate-recovery-successor")
+	}, grantActor, "gate-recovery-successor")
 	stale, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
 		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)

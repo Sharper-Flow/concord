@@ -160,7 +160,7 @@ func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Author
 	fields["premise"] = "approved retry objective"
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:retry-objective", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:retry-objective", "immutable_subject_ref": "commit:retry-objective", "expected_result": "pass"}}}
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	runVerificationStoreAction(t, s, "approve_contract", fields, owner, nil, "retry-fixture")
+	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "retry-fixture")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:retry", "retry", strings.Repeat("a", 40), path, "repo:retry", fixedTime().Format(time.RFC3339Nano)); err != nil {

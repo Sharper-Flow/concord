@@ -119,8 +119,8 @@ func authorizeMemberClaimLanding(ctx context.Context, q queryer, session, workID
 	return nil
 }
 
-// Read-only helper for the host bootstrap route, which has only a session
-// reference and cannot authenticate a member's complete registered tuple.
+// RequireUnrestrictedBootstrapSession checks the host bootstrap route, which has
+// only a session reference and cannot authenticate a member's complete tuple.
 func (s *Store) RequireUnrestrictedBootstrapSession(ctx context.Context, session string) error {
 	exists, err := memberCallerInSession(ctx, s.db, session)
 	if err != nil {

@@ -24,8 +24,8 @@ func CheckMemberOperationTx(ctx context.Context, tx *Transaction, actor Workflow
 	return checkMemberOperation(ctx, q, actor, request)
 }
 
-// Every mutation rechecks narrowing after acquiring its transaction, including
-// mutations with specialized envelopes outside the common effect planner.
+// CheckMemberMutationTx rechecks narrowing after acquiring the mutation's
+// transaction, including specialized envelopes outside the common effect planner.
 func CheckMemberMutationTx(ctx context.Context, tx *Transaction, actor WorkflowActor, operation string) error {
 	q, err := transactionSQL(tx, "member_scope")
 	if err != nil {

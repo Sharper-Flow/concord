@@ -105,16 +105,16 @@ func TestWorkflowMemberGroupAction(t *testing.T) {
 		t.Fatal("another Main actor rebound the controller's member")
 	}
 	for _, change := range []string{"project", "controller", "member"} {
-		copy := map[string]any{"group_id": descriptor.GroupID, "member_id": descriptor.Members[0].MemberID, "project_id": "project", "actor": target}
+		changed := map[string]any{"group_id": descriptor.GroupID, "member_id": descriptor.Members[0].MemberID, "project_id": "project", "actor": target}
 		switch change {
 		case "project":
-			copy["project_id"] = "foreign"
+			changed["project_id"] = "foreign"
 		case "controller":
-			copy["actor"] = map[string]any{"principal_ref": f.owner.PrincipalRef, "client_ref": f.owner.ClientRef, "agent_ref": f.owner.AgentRef, "session_ref": f.owner.SessionRef}
+			changed["actor"] = map[string]any{"principal_ref": f.owner.PrincipalRef, "client_ref": f.owner.ClientRef, "agent_ref": f.owner.AgentRef, "session_ref": f.owner.SessionRef}
 		case "member":
-			copy["member_id"] = descriptor.Members[1].MemberID
+			changed["member_id"] = descriptor.Members[1].MemberID
 		}
-		if _, err := memberGroupAction(t, f, f.owner, map[string]any{"member_binding": copy}); err == nil {
+		if _, err := memberGroupAction(t, f, f.owner, map[string]any{"member_binding": changed}); err == nil {
 			t.Fatalf("accepted %s binding escape", change)
 		}
 	}

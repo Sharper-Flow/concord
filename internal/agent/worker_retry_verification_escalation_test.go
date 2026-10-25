@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -143,19 +144,30 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	if got := workVersion(t, s, "work-1"); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
-	ownerRef, err := store.WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
+	approvalStep := ""
+	for _, step := range definition.Definition.StepGraph.Steps {
+		if slices.Contains(step.Actions, "approve_contract") {
+			approvalStep = step.ID
+			break
+		}
+	}
+	if approvalStep == "" {
+		t.Fatal("verification fixture definition has no contract approval step")
 	}
 	path := t.TempDir()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:verification","expected_result":"pass"}');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:secondary',1,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:verification","expected_result":"pass"}');
-		DELETE FROM write_guard`, ownerRef); err != nil {
+		UPDATE workflow_instances SET current_step=? WHERE work_id='work-1';
+		DELETE FROM write_guard`, approvalStep); err != nil {
 		t.Fatalf("seed verification projections: %v", err)
 	}
+	fields := workflowContractFieldsFixture()
+	fields["premise"] = "approved retry objective"
+	fields["outcome_predicates"] = []map[string]any{
+		{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verification", "expected_result": "pass"}},
+		{"predicate_id": "predicate:secondary", "ordinal": 1, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verification", "expected_result": "pass"}},
+	}
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "verification-fixture")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
 		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:verification", "verification", strings.Repeat("a", 40), path, "repo:verification", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -223,7 +235,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 			"strategy":      "repeat the implementation external effect",
 			"predicate_ids": requestPredicates,
 			"evidence_refs": []string{attemptID},
-		}, owner, nil, "correction-"+strconv.FormatInt(cycle, 10))
+		}, owner, "correction-"+strconv.FormatInt(cycle, 10))
 		pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
 		if err != nil {
 			t.Fatal(err)
@@ -340,7 +352,7 @@ func completeVerificationAttempt(t *testing.T, s *store.Store, grant Authority, 
 // runVerificationStoreAction applies one store-level workflow action so the
 // fixture can record verdict and correction records without minting operator
 // approval challenges on the mutation boundary.
-func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fields map[string]any, actor store.WorkflowActor, operator *store.WorkflowActor, suffix string) {
+func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fields map[string]any, actor store.WorkflowActor, suffix string) {
 	t.Helper()
 	version := workVersion(t, s, "work-1")
 	operationID := action + "-verification-" + suffix + "-" + strconv.FormatInt(version, 10)
@@ -349,7 +361,7 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fie
 		t.Fatal(err)
 	}
 	request := store.WorkflowActionExecutionRequest{
-		WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
+		WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: ManifestDigest, Now: fixedTime(),

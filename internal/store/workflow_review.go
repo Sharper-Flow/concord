@@ -122,9 +122,7 @@ func sameReviewDependencies(a, b WorkerReviewDependencies) bool {
 	return true
 }
 
-// Admission runs before the current effect updates Review facts. The former
-// before-sequence argument therefore denotes the current transaction prefix,
-// not an API for reconstructing an arbitrary historical Review.
+// Admission runs before the current effect updates Review facts.
 func loadWorkflowReviewState(ctx context.Context, q queryer, workID string) (WorkflowReviewState, error) {
 	state, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil {

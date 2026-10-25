@@ -1158,13 +1158,14 @@ func oracleReceiptCoversControl(receipt WorkerOracleReceipt, control OracleContr
 
 // Freshness comes from native execution order, not the order in which a model
 // repeats receipts. A later failure of this exact command on the same subject
-// prevents an earlier success from closing a finding, even if re-reported.
+// and retained claim path prevents an earlier success from closing a finding,
+// even if re-reported. Independent member claims never supersede each other.
 func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subject string, control OracleControl, producer *WorktreeVerifyResult) (bool, error) {
 	if producer.Oracle == nil {
 		return false, nil
 	}
 	var lease string
-	err := q.QueryRowContext(ctx, `SELECT lease_id FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND command_json=? AND state='released' AND json_valid(result_json) AND json_extract(result_json,'$.subject_ref')='commit:'||? AND json_extract(result_json,'$.oracle.phase')='execute' AND json_extract(result_json,'$.oracle.bundle_digest')=? AND json_extract(result_json,'$.oracle.logical_cwd')=? AND json_extract(result_json,'$.oracle.build_environment_digest')=? ORDER BY rowid DESC LIMIT 1`, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject, producer.Oracle.BundleDigest, control.Cwd, producer.Oracle.BuildEnvironmentDigest).Scan(&lease)
+	err := q.QueryRowContext(ctx, `SELECT l.lease_id FROM worktree_verify_leases l JOIN worktree_verify_leases p ON p.lease_id=? AND p.work_id=l.work_id AND p.project_id=l.project_id AND p.path=l.path WHERE l.work_id=? AND l.project_id=? AND l.command_json=? AND l.state='released' AND json_valid(l.result_json) AND json_extract(l.result_json,'$.subject_ref')='commit:'||? AND json_extract(l.result_json,'$.oracle.phase')='execute' AND json_extract(l.result_json,'$.oracle.bundle_digest')=? AND json_extract(l.result_json,'$.oracle.logical_cwd')=? AND json_extract(l.result_json,'$.oracle.build_environment_digest')=? ORDER BY l.rowid DESC LIMIT 1`, producer.LeaseID, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject, producer.Oracle.BundleDigest, control.Cwd, producer.Oracle.BuildEnvironmentDigest).Scan(&lease)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

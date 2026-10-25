@@ -108,6 +108,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// the planning mirror, so undoMigration124 restores the pre-step schema
 	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE workflow_completed_exits; DROP TABLE workflow_coordinator_actions;`); err != nil {
+		t.Fatalf("cannot restore the pre-admission-facts schema: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), reverseFrontiersMigration); err != nil {
 		t.Fatalf("cannot restore the pre-frontier schema: %v", err)
 	}

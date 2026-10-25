@@ -347,6 +347,13 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE work_items DROP COLUMN effect_seq`,
 	},
 	147: {`ALTER TABLE effect_receipts DROP COLUMN delivery_assertion`},
+	148: {
+		`DROP TABLE work_context_findings`,
+		`DROP TABLE work_context_state`,
+		`DROP TABLE worker_oracle_finding_facts`,
+		`DROP TABLE workflow_review_state`,
+		`DROP TABLE work_size_proof_facts`,
+	},
 	149: {`DROP TABLE workflow_completed_exits`, `DROP TABLE workflow_coordinator_actions`},
 	142: {
 		`DROP TABLE workflow_phase_exits`,

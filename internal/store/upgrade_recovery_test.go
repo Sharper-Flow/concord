@@ -114,6 +114,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `DROP TABLE workflow_completed_exits; DROP TABLE workflow_coordinator_actions;`); err != nil {
 		t.Fatalf("cannot restore the pre-admission-facts schema: %v", err)
 	}
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE work_context_findings; DROP TABLE work_context_state; DROP TABLE worker_oracle_finding_facts; DROP TABLE workflow_review_state; DROP TABLE work_size_proof_facts;`); err != nil {
+		t.Fatalf("cannot restore the pre-context-facts schema: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), reverseFrontiersMigration); err != nil {
 		t.Fatalf("cannot restore the pre-frontier schema: %v", err)
 	}

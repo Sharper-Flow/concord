@@ -17,7 +17,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			if err := runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 				t.Fatal(err)
 			}
-			before, err := loadWorkflowReviewState(t.Context(), s.db, f.workID, 0)
+			before, err := loadWorkflowReviewState(t.Context(), s.db, f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -33,7 +33,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			if err := runVerdictActionAs(t, s, f.workID, "supersede_contract", mustJSONValue(successor), 0, f.owner); err != nil {
 				t.Fatal(err)
 			}
-			after, err := loadWorkflowReviewState(t.Context(), s.db, f.workID, 0)
+			after, err := loadWorkflowReviewState(t.Context(), s.db, f.workID)
 			if err != nil || after.DependenciesCurrent == changed || *after.Candidate != *before.Candidate {
 				t.Fatalf("supersession dependency state = %+v, %v", after, err)
 			}
@@ -52,7 +52,7 @@ func TestArtifactSupersessionUsesRecordedProofDependencies(t *testing.T) {
 			if err := runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 				t.Fatalf("associate reassessed proof without repeated production: %v", err)
 			}
-			current, err := loadWorkflowReviewState(t.Context(), s.db, f.workID, 0)
+			current, err := loadWorkflowReviewState(t.Context(), s.db, f.workID)
 			if err != nil || !current.DependenciesCurrent || *current.Candidate != *before.Candidate {
 				t.Fatalf("reassessment changed candidate or left stale dependencies: %+v, %v", current, err)
 			}

@@ -171,6 +171,7 @@ func TestWorkerCompletionReviewBlockShapeIsClosed(t *testing.T) {
 			s := openTemp(t)
 			workID := "review-block-shape"
 			attemptID := "review-block-shape-attempt"
+			seedWork(t, s, workID)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}

@@ -173,6 +173,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("foreign completed subject", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-foreign-owner")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-owner", "terminal-foreign-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -183,6 +184,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("foreign failed subject", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-foreign-failed-owner")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-failed-owner", "terminal-foreign-failed-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -684,6 +686,7 @@ func TestWorkerHostProvenanceValidation(t *testing.T) {
 func TestWorkerDispatchCarriesProvenanceIntoDurableEvidence(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	seedWork(t, s, "work-prov")
 	lane := BuiltinLaneDefinitions()[0]
 	provenance := map[string]any{
 		"digest": "sha256:" + strings.Repeat("d", 64),

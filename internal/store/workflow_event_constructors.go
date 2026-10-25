@@ -597,7 +597,7 @@ func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID,
 		}
 	}
 	var associations []workflowVerdictRecordedPayload
-	state, stateErr := loadWorkflowReviewState(ctx, tx, workID, 0)
+	state, stateErr := loadWorkflowReviewState(ctx, tx, workID)
 	if stateErr != nil {
 		return nil, stateErr
 	}

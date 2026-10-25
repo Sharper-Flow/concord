@@ -25,7 +25,7 @@ func oDispatchJobBoundAttempt(t *testing.T, s *Store, workID, attemptID string, 
 	if job.Digest == "" {
 		recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	}
-	review, err := loadWorkflowReviewState(t.Context(), s.db, workID, 0)
+	review, err := loadWorkflowReviewState(t.Context(), s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

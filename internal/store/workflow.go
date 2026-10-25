@@ -1194,7 +1194,10 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 		}
 	}
 	if !inWorkflowContractSupersessionContext(ctx) {
-		return refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true)
+		if err := refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, p.ContractVersion, true); err != nil {
+			return err
+		}
+		return advanceWorkSizeProofFactsTx(ctx, tx, event)
 	}
 	return nil
 }
@@ -1416,6 +1419,12 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	}
 	// The successor was folded before this update so the contract foreign
 	// key remains valid; both writes commit or roll back together.
+	if err := writeOracleFindingFactsTx(ctx, tx, event); err != nil {
+		return err
+	}
+	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
+		return err
+	}
 	return appendWorkflowContractImpactNoticesTx(ctx, tx, event, p, *p.ResultingVersion, scope)
 }
 
@@ -2617,6 +2626,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := writeWorkflowCompletedExitTx(ctx, tx, event, p, entry.Definition.Ref); err != nil {
 		return err
 	}
+	if err := advanceWorkflowReviewAcceptanceTx(ctx, tx, event, p); err != nil {
+		return err
+	}
+	if err := advanceWorkSizeProofFactsTx(ctx, tx, event); err != nil {
+		return err
+	}
 	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
 		return err
 	}
@@ -3315,7 +3330,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		}
 	}
 	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef, event.Seq)
+		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
 	}
 	return nil
 }

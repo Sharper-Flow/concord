@@ -99,6 +99,18 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "delivery_assertion_receipts" {
 		return backfillWorkflowDeliveryAssertionReceipts(ctx, q)
 	}
+	if m.Name == "context_finding_review_facts" {
+		if _, err := q.ExecContext(ctx, `INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
+			return err
+		}
+		for _, backfill := range []func(context.Context, migrationRunner) error{backfillWorkContextFacts, backfillOracleFindingFacts, backfillWorkflowReviewFacts, backfillWorkSizeProofFacts} {
+			if err := backfill(ctx, q); err != nil {
+				return err
+			}
+		}
+		_, err := q.ExecContext(ctx, `DELETE FROM fold_guard`)
+		return err
+	}
 	return nil
 }
 
@@ -7211,6 +7223,70 @@ DELETE FROM fold_guard;
 		FoldMaintained: "advance",
 		SQL: `
 ALTER TABLE effect_receipts ADD COLUMN delivery_assertion INTEGER NOT NULL DEFAULT 0;
+`,
+	},
+	{
+		Version:        148,
+		Name:           "context_finding_review_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE work_context_state (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ source_frontier INTEGER NOT NULL,
+ declaration_seq INTEGER NOT NULL DEFAULT 0,
+ declaration_id TEXT,
+ declaration_payload TEXT CHECK(declaration_payload IS NULL OR json_valid(declaration_payload))
+);
+CREATE TABLE work_context_findings (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ source_seq INTEGER NOT NULL,
+ ordinal INTEGER NOT NULL,
+ finding_class TEXT NOT NULL CHECK(finding_class IN ('generic','ranked')),
+ finding TEXT NOT NULL CHECK(json_valid(finding)),
+ PRIMARY KEY(work_id,source_seq,ordinal)
+);
+CREATE TRIGGER work_context_state_guard_insert BEFORE INSERT ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_state_guard_update BEFORE UPDATE ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_state_guard_delete BEFORE DELETE ON work_context_state WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_state is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_insert BEFORE INSERT ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_update BEFORE UPDATE ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TRIGGER work_context_findings_guard_delete BEFORE DELETE ON work_context_findings WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1) BEGIN SELECT RAISE(ABORT,'work_context_findings is fold-only'); END;
+CREATE TABLE worker_oracle_finding_facts (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ oracle_capable INTEGER NOT NULL CHECK(oracle_capable IN (0,1)),
+ findings TEXT NOT NULL CHECK(json_valid(findings)),
+ receipts TEXT NOT NULL CHECK(json_valid(receipts))
+);
+CREATE TRIGGER worker_oracle_finding_facts_guard_insert BEFORE INSERT ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_oracle_finding_facts_guard_update BEFORE UPDATE ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_oracle_finding_facts_guard_delete BEFORE DELETE ON worker_oracle_finding_facts BEGIN SELECT RAISE(ABORT,'worker_oracle_finding_facts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_review_state (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ state TEXT NOT NULL CHECK(json_valid(state))
+);
+CREATE TRIGGER workflow_review_state_fold_insert BEFORE INSERT ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TRIGGER workflow_review_state_fold_update BEFORE UPDATE ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TRIGGER workflow_review_state_fold_delete BEFORE DELETE ON workflow_review_state
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'workflow_review_state is fold-only'); END;
+CREATE TABLE work_size_proof_facts (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+ state TEXT NOT NULL CHECK(json_valid(state))
+);
+CREATE TRIGGER work_size_proof_facts_fold_insert BEFORE INSERT ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
+CREATE TRIGGER work_size_proof_facts_fold_update BEFORE UPDATE ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
+CREATE TRIGGER work_size_proof_facts_fold_delete BEFORE DELETE ON work_size_proof_facts
+ WHEN NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1)
+ BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
 `,
 	},
 	{

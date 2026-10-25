@@ -30,18 +30,17 @@ type WorkPin struct {
 	// It stays nil when a question is open and when the step has none.
 	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
 	Watermark                string                            `json:"watermark"`
-	// WorkflowDefinitionVersion and WorkflowDefinitionDigest carry the
-	// identity of the pinned definition the registry verified for this pin.
+	// WorkflowType and WorkflowDefinitionDigest carry the identity of the
+	// pinned definition the registry verified for this pin.
 	// They come from the same instance-row read and the same
 	// verifyReadWorkflowDefinition call the pin's intents derive from, so a
 	// caller can cite the exact definition the admission collector used.
-	// The pointers are the typed absence CD-0210 holds open: nil means the
+	// The pointer is the typed absence CD-0210 holds open: nil means the
 	// pin's reader verified no definition — the outside-repair hold reads raw
-	// identity only and grants no managed pin authority — so the keys stay
+	// identity only and grants no managed pin authority — so the key stays
 	// absent on the wire instead of carrying a zero-value or fabricated
-	// definition identity. Only workPinReadInstanceForRegistryTx sets them.
-	WorkflowDefinitionVersion *int64  `json:"workflow_definition_version,omitempty"`
-	WorkflowDefinitionDigest  *string `json:"workflow_definition_digest,omitempty"`
+	// definition identity. Only workPinReadInstanceForRegistryTx sets it.
+	WorkflowDefinitionDigest *string `json:"workflow_definition_digest,omitempty"`
 	// Obligations lists the sorted exact evidence obligation IDs the pinned
 	// definition declares, collected from the same root, step, and rigor
 	// declarations the architecture-binding admission collector reads
@@ -358,7 +357,7 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, WorkflowReadDefinition, string, error) {
 	var definition WorkflowReadDefinition
 	var instanceState string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &pin.Step, &instanceState); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &pin.Step, &instanceState); err != nil {
 		if err == sql.ErrNoRows {
 			return RegisteredDefinition{}, WorkflowReadDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
@@ -368,9 +367,8 @@ func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID st
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
-	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
+	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: registered.Digest}
 	pin.WorkflowType = definition.Ref
-	pin.WorkflowDefinitionVersion = &definition.Version
 	pin.WorkflowDefinitionDigest = &definition.Digest
 	// The obligation list uses the verified registered definition — the same
 	// verification and the same collector the architecture-binding admission

@@ -61,8 +61,8 @@ func BuiltinWorkflowCanonicalRecoveryActionDefinitions() []WorkflowActionDefinit
 // a consequence_v1 live head validates against beyond its declared list: the
 // initial approve_contract and the canonical supersede_contract with the
 // selected decision fact. Publication offers them beside the declared
-// legacy shapes, and the store validates each call against the exact
-// definition version the work item pins, so a legacy pin keeps its answer.
+// legacy shapes, and the store validates each call against the current
+// definition of the family the work item pins.
 func BuiltinWorkflowDecisionFactActionDefinitions() []WorkflowActionDefinition {
 	var actions []WorkflowActionDefinition
 	for _, head := range BuiltinWorkflowDefinitions() {
@@ -71,7 +71,7 @@ func BuiltinWorkflowDecisionFactActionDefinitions() []WorkflowActionDefinition {
 		}
 		approve, err := workflowDecisionFactInitialActionDefinition(head)
 		if err != nil {
-			panic(fmt.Sprintf("built-in %s v%d declares no usable initial contract approval: %v", head.Ref, head.Version, err))
+			panic(fmt.Sprintf("built-in %s declares no usable initial contract approval: %v", head.Ref, err))
 		}
 		supersede := workflowDecisionFactRecoveryActionDefinition(head)
 		supersede.Payload = WorkflowPayloadDefinition{Closed: true, Fields: workflowCanonicalContractRecoveryPayloadFields(supersede.Payload.Fields)}

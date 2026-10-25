@@ -315,8 +315,8 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 	} else if !sameProduct {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is not in this capture's Product", classification, cluster)
 	}
-	var definition WorkflowDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, cause).Scan(&definition.Ref, &definition.Version)
+	var definitionRef string
+	err = tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, cause).Scan(&definitionRef)
 	if err == sql.ErrNoRows {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins no workflow family, not workflow.research", classification, cluster)
 	}
@@ -324,8 +324,8 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 		return wrapFailure(KindUnavailable, "defect_intake", "cannot read the root cause workflow family", true,
 			"retry once the database is readable", err)
 	}
-	if !workflowCapabilities(definition).has(WorkflowCapabilityRootCauseAnalysis) {
-		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins workflow family "+definition.Ref+", not workflow.research", classification, cluster)
+	if entry, ok := BuiltinWorkflowRegistry().Current(definitionRef); !ok || !workflowCapabilities(entry.Definition).has(WorkflowCapabilityRootCauseAnalysis) {
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins workflow family "+definitionRef+", not workflow.research", classification, cluster)
 	}
 	if lifecycle != "completed" {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is lifecycle "+lifecycle+", not completed", classification, cluster)

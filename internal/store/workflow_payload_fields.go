@@ -56,8 +56,6 @@ func checksRepairAuthoringRevision(action WorkflowActionDefinition) WorkflowActi
 	return withAppendedPayloadField(checksRepairReasonActionField)(action)
 }
 
-const checksRepairPacketSchema = "worker_packet4"
-
 func checksRepairRevisionsActionField() WorkflowPayloadField {
 	return WorkflowPayloadField{Name: "repair_revisions", ValueType: PayloadArray, Required: false, MinItems: workflowInt(1), MaxItems: workflowInt(64), ItemRef: "worker_job_repair_revision"}
 }

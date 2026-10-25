@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"sync"
 	"unicode"
 )
@@ -286,9 +285,11 @@ type WorkflowEvaluatorIndependence struct {
 
 type WorkflowDefinition struct {
 	Ref                 string   `json:"ref"`
-	Version             int64    `json:"version"`
 	WorkKind            WorkKind `json:"work_kind"`
 	ChangesProductTruth *bool    `json:"changes_product_truth,omitempty"`
+	// Capabilities is the canonical sorted union of the behaviors the
+	// definition's parts enable. It is digest-covered manifest content.
+	Capabilities []WorkflowCapability `json:"capabilities"`
 	// ApprovalPolicy is the definition-owned approval-policy discriminator.
 	// Absence selects the released legacy policy; the one explicit value is
 	// WorkflowApprovalPolicyConsequenceV1. It is digest-covered manifest
@@ -314,11 +315,12 @@ type RegisteredDefinition struct {
 	Digest     string             `json:"digest"`
 }
 
+// DefinitionRegistry holds one current definition per family. Identity is
+// the family ref plus the content digest of its canonical manifest.
 type DefinitionRegistry interface {
 	Register(WorkflowDefinition) (RegisteredDefinition, error)
-	Lookup(ref string, version int64) (RegisteredDefinition, bool)
 	Current(ref string) (RegisteredDefinition, bool)
-	Verify(ref string, version int64, digest string) error
+	Verify(ref string, digest string) error
 }
 
 type workflowDefinitionRegistry struct {
@@ -328,10 +330,6 @@ type workflowDefinitionRegistry struct {
 
 func NewWorkflowDefinitionRegistry() DefinitionRegistry {
 	return &workflowDefinitionRegistry{entries: make(map[string]RegisteredDefinition)}
-}
-
-func registryKey(ref string, version int64) string {
-	return ref + "\x00" + strconv.FormatInt(version, 10)
 }
 
 func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
@@ -365,16 +363,6 @@ func (r *workflowDefinitionRegistry) register(definition WorkflowDefinition) (Re
 	return registered, nil
 }
 
-func (r *workflowDefinitionRegistry) Lookup(ref string, version int64) (RegisteredDefinition, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.entries[ref]
-	if !ok || entry.Definition.Version != version {
-		return RegisteredDefinition{}, false
-	}
-	return cloneRegisteredDefinition(entry), true
-}
-
 func (r *workflowDefinitionRegistry) Current(ref string) (RegisteredDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -385,7 +373,7 @@ func (r *workflowDefinitionRegistry) Current(ref string) (RegisteredDefinition, 
 	return cloneRegisteredDefinition(entry), true
 }
 
-func (r *workflowDefinitionRegistry) Verify(ref string, _ int64, digest string) error {
+func (r *workflowDefinitionRegistry) Verify(ref string, digest string) error {
 	entry, ok := r.Current(ref)
 	if !ok {
 		return definitionFailure(KindDefinitionDigestMismatch, "current workflow definition is not registered")
@@ -412,8 +400,11 @@ func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(
 func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
 
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
-	if !validWorkflowRef(definition.Ref) || definition.Version < 1 || definition.Version > 2147483647 || !validWorkKind(definition.WorkKind) {
+	if !validWorkflowRef(definition.Ref) || !validWorkKind(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
+	}
+	if !validWorkflowCapabilities(definition.Capabilities) {
+		return definitionFailure(KindInvalidDefinition, "definition capabilities are not a canonical subset of the capability vocabulary")
 	}
 	if definition.ChangesProductTruth == nil {
 		return definitionFailure(KindInvalidDefinition, "definition product-truth classification is required")
@@ -568,9 +559,9 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	manifest := struct {
 		SchemaVersion         string                        `json:"schema_version"`
 		Ref                   string                        `json:"ref"`
-		Version               int64                         `json:"version"`
 		WorkKind              WorkKind                      `json:"work_kind"`
 		ChangesProductTruth   *bool                         `json:"changes_product_truth"`
+		Capabilities          []WorkflowCapability          `json:"capabilities"`
 		ApprovalPolicy        string                        `json:"approval_policy,omitempty"`
 		StepGraph             WorkflowStepGraph             `json:"step_graph"`
 		AvailableActions      []string                      `json:"available_actions"`
@@ -583,10 +574,10 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
 		RecoveryRoutes        []WorkflowRecoveryRoute       `json:"recovery_routes,omitempty"`
 	}{
-		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, Version: definition.Version, WorkKind: definition.WorkKind,
-		ChangesProductTruth: definition.ChangesProductTruth,
-		ApprovalPolicy:      definition.ApprovalPolicy,
-		StepGraph:           definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
+		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, WorkKind: definition.WorkKind,
+		ChangesProductTruth: definition.ChangesProductTruth, Capabilities: definition.Capabilities,
+		ApprovalPolicy: definition.ApprovalPolicy,
+		StepGraph:      definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
 		RecoveryRoutes: definition.RecoveryRoutes,
@@ -611,6 +602,9 @@ func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
 
 func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
+	if definition.Capabilities == nil {
+		definition.Capabilities = []WorkflowCapability{}
+	}
 	if definition.StepGraph.TerminalSteps == nil {
 		definition.StepGraph.TerminalSteps = []string{}
 	}
@@ -963,12 +957,12 @@ func validateEngineCrossFieldDeclarations() error {
 		// declaration binds; the released single-form payload never
 		// reaches the rule because its own closed field list refuses the
 		// batch before cross-field validation runs. Every other action
-		// binds the shape its latest action catalog declares.
+		// binds the shape the current action catalog declares.
 		fields := policy.Payload.Fields
 		if id == "record_verdict" {
 			fields = verdictBatchActionFields()
-		} else if latest, err := latestCatalogAction(id); err == nil {
-			fields = latest.Payload.Fields
+		} else if current, err := catalogAction(id); err == nil {
+			fields = current.Payload.Fields
 		}
 		if !validateCrossFieldDeclaration(fields, *policy.CrossField) {
 			return fmt.Errorf("engine cross-field declaration for %s does not match its payload fields", id)

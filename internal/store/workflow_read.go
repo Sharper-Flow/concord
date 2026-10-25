@@ -26,9 +26,8 @@ type WorkflowReadRequest struct {
 }
 
 type WorkflowReadDefinition struct {
-	Ref     string `json:"ref"`
-	Version int64  `json:"version"`
-	Digest  string `json:"digest"`
+	Ref    string `json:"ref"`
+	Digest string `json:"digest"`
 }
 
 type WorkflowReadContract struct {
@@ -59,7 +58,6 @@ type WorkflowReadContract struct {
 // was approved under. Verified reports whether the registry still verifies it.
 type WorkflowContractDefinitionPin struct {
 	Ref      string `json:"ref"`
-	Version  int64  `json:"version"`
 	Digest   string `json:"digest"`
 	Verified bool   `json:"verified"`
 }
@@ -85,7 +83,7 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	var supersededBy sql.NullInt64
 	var decisionDomains sql.NullString
 	var pin WorkflowContractDefinitionPin
-	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains,approved_at,approved_by,superseded_by,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Version, &pin.Digest)
+	err := q.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains,approved_at,approved_by,superseded_by,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass, &decisionDomains, &contract.ApprovedAt, &contract.ApprovedBy, &supersededBy, &pin.Ref, &pin.Digest)
 	if err == sql.ErrNoRows {
 		return contract, err
 	}
@@ -111,7 +109,7 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	}
 	contract.DefinitionPin.Read = true
 	if pin.Ref != "" {
-		registered, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Version: pin.Version, Digest: pin.Digest})
+		registered, verifyErr := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.Ref, Digest: pin.Digest})
 		pin.Verified = verifyErr == nil
 		contract.DefinitionPin.Pin = &pin
 		if pin.Verified {
@@ -259,7 +257,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		return out, newFailure(KindInvalidOperation, "workflow_read", "workflow read limit exceeds the bounded maximum", false, "reduce the read limit")
 	}
 	var activeActor sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT instance_state,current_step,definition_ref,definition_version,definition_digest,execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&out.State, &out.CurrentStep, &out.Definition.Ref, &out.Definition.Version, &out.Definition.Digest, &activeActor); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT instance_state,current_step,definition_ref,definition_digest,execution_actor_ref FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&out.State, &out.CurrentStep, &out.Definition.Ref, &out.Definition.Digest, &activeActor); err != nil {
 		if err == sql.ErrNoRows {
 			return out, nil
 		}
@@ -270,7 +268,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	if err != nil {
 		return out, err
 	}
-	out.Definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: registered.Digest}
+	out.Definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: registered.Digest}
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_read")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr

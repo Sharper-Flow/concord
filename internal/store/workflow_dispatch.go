@@ -641,7 +641,7 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 		return "", "", wrapFailure(KindUnavailable, "workflow_action", "cannot read successor work item", true, "retry once the database is readable", err)
 	}
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, successorID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, successorID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", newFailure(KindInvalidRelation, "workflow_action", "successor has no workflow instance, so its family is undetermined", false, "select a workflow definition for the successor before linking it")
 		}
@@ -737,14 +737,9 @@ func dedupeWorkflowRefs(values []string) []string {
 	return out
 }
 
-// workflowProposalRecordedEvents builds the typed proposal event for a
-// definition that declares the proposal document. A definition pinned before
-// the document keeps its generic completion and emits no typed event. An
-// omitted optional list stays absent, so it never reads back as an empty one.
-func workflowProposalRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if definition.Version < 7 {
-		return nil, nil
-	}
+// workflowProposalRecordedEvents builds the typed proposal event. An omitted
+// optional list stays absent, so it never reads back as an empty one.
+func workflowProposalRecordedEvents(request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	proposal, err := decodeWorkflowProposalContent(raw)
 	if err != nil {
 		return nil, err
@@ -778,9 +773,9 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_work_context":
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "record_design":
-		return workflowDesignRecordEvents(definition, request, actor, raw, eventID, expected)
+		return workflowDesignRecordedEvents(request, actor, raw, eventID, expected)
 	case "record_proposal":
-		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
+		return workflowProposalRecordedEvents(request, actor, raw, eventID, expected)
 	case "approve_contract":
 		return workflowApproveContractEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "revise_candidates":

@@ -74,8 +74,8 @@ func readWorkflowMemberCallerQ(ctx context.Context, q queryer, actor WorkflowAct
 	caller := &WorkflowMemberCaller{ActorRef: ref}
 	err = q.QueryRowContext(ctx, `SELECT work_id,project_id,group_id,member_id FROM workflow_member_callers WHERE actor_ref=?`, ref).Scan(&caller.WorkID, &caller.ProjectID, &caller.GroupID, &caller.MemberID)
 	if err == sql.ErrNoRows {
-		var narrowedSession bool
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_member_callers m JOIN workflow_actors a ON a.actor_ref=m.actor_ref WHERE a.session_ref=?)`, actor.SessionRef).Scan(&narrowedSession); err != nil {
+		narrowedSession, err := memberCallerInSession(ctx, q, actor.SessionRef)
+		if err != nil {
 			return nil, err
 		}
 		if narrowedSession {
@@ -133,7 +133,7 @@ func workflowMemberClaimScope(ctx context.Context, q queryer, workID, projectID 
 	if controller == caller.ActorRef {
 		return "", memberGroupFailure("member group controller cannot be its own member")
 	}
-	if err := workflowMemberRequireMain(ctx, q, workID, controller); err != nil {
+	if err := workflowRequireMain(ctx, q, workID, controller); err != nil {
 		return "", err
 	}
 	if err := workflowMemberGroupCurrent(ctx, q, workID, caller.GroupID); err != nil {
@@ -243,16 +243,12 @@ func confirmWorkflowMemberClaimTx(ctx context.Context, tx *sql.Tx, memberID stri
 	return nil
 }
 
-func workflowMemberRequireMain(ctx context.Context, q queryer, workID, ref string) error {
-	return workflowRequireMain(ctx, q, workID, ref)
-}
-
 func workflowMemberVariant(fields map[string]json.RawMessage) bool {
 	return fields["assignment_group"] != nil || fields["member_binding"] != nil
 }
 
 func deriveWorkflowMemberGroup(ctx context.Context, q queryer, workID, operationID, actor string, bindings []WorkerJobBinding) (*workflowMemberGroup, error) {
-	if err := workflowMemberRequireMain(ctx, q, workID, actor); err != nil {
+	if err := workflowRequireMain(ctx, q, workID, actor); err != nil {
 		return nil, err
 	}
 	if len(bindings) < 2 || len(bindings) > 8 {
@@ -334,7 +330,7 @@ func deriveWorkflowMemberGroup(ctx context.Context, q queryer, workID, operation
 }
 
 func validateWorkflowMemberBinding(ctx context.Context, q queryer, workID, controller string, binding workflowMemberBinding, operationID string) error {
-	if err := workflowMemberRequireMain(ctx, q, workID, controller); err != nil {
+	if err := workflowRequireMain(ctx, q, workID, controller); err != nil {
 		return err
 	}
 	actor := binding.Actor.actor()

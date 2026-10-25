@@ -52,8 +52,8 @@ func worktreeClaimMemberScope(ctx context.Context, q queryer, req WorktreeClaimR
 	if req.Owner == (SessionWorktreeOwner{}) {
 		// Legacy host routes lack the complete tuple. A known narrowed session
 		// must authenticate rather than silently selecting the integration tree.
-		var narrowed bool
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_member_callers m JOIN workflow_actors a ON a.actor_ref=m.actor_ref WHERE a.session_ref=?)`, req.SessionRef).Scan(&narrowed); err != nil {
+		narrowed, err := memberCallerInSession(ctx, q, req.SessionRef)
+		if err != nil {
 			return "", err
 		}
 		if narrowed {

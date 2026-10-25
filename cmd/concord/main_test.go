@@ -1142,7 +1142,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readbackModel, HostProvenanceDigest: provenanceDigest, PacketDigest: packetDigest, Nonce: nonce,
 	}
 	if mutate != nil {
@@ -1150,7 +1150,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	}
 	value := map[string]any{
 		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"readback_model":        readbackModel,
 		"packet_schema_version": packet, "report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest": packetDigest,

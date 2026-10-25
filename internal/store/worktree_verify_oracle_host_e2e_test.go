@@ -1125,13 +1125,13 @@ func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor Workf
 	canonical, _ := canonicalJSON(packetRaw)
 	digest := nativeDigest(canonical)
 	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification"}[laneID])
-	lv, ld := lane.Version, lane.Digest
+	ld := lane.Digest
 	var epoch int64
 	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-target-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-target-dispatch-" + id, "actor_ref": actorRef})
-	completion := workflowEventWithActor("native-target-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.dispatchSubject, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_version": lv, "worker_lane_digest": ld, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
+	completion := workflowEventWithActor("native-target-completion-"+id, WorkflowActionCompleted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version + 1, "resulting_version": version + 2, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{}, "worker_attempt_id": "attempt-" + id, "worker_packet_digest": digest, "worker_subject_commit": f.dispatchSubject, "worker_worktree_identity": workerWorktreeIdentity(f.repo), "worker_job": WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, "worker_lane_id": lane.ID, "worker_lane_digest": ld, "worker_capability_class": lane.CapabilityClass, "worker_packet_predicate_ids": b.Control.PredicateIDs})
 	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowActionCompleted)
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)

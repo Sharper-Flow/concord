@@ -16,7 +16,6 @@ func seedRegistryWorkPin(t *testing.T, s *Store, workID string) (DefinitionRegis
 	}
 	definition := current.Definition
 	definition.Ref = progressCustomRef
-	definition.Version = 1
 	registry := NewWorkflowDefinitionRegistry()
 	registered, err := registry.Register(definition)
 	if err != nil {
@@ -35,7 +34,7 @@ func seedRegistryWorkPin(t *testing.T, s *Store, workID string) (DefinitionRegis
 			"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent",
 		}),
 		workflowTypedEvent("progress-selection-"+workID, WorkflowDefinitionSelected, workID, ownerRef, time.Unix(9, 0).UTC(), version+1, map[string]any{
-			"ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest,
+			"ref": registered.Definition.Ref, "digest": registered.Digest,
 			"work_kind": string(registered.Definition.WorkKind),
 			"work_id":   workID, "expected_version": version, "resulting_version": version + 1,
 		}),
@@ -67,7 +66,7 @@ func TestCallerRegistryWorkPinKeepsVerifiedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest || pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != registered.Definition.Version {
+	if pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
 		t.Fatalf("caller registry pin lost its verified definition identity: %+v", pin)
 	}
 	if pin.Obligations == nil || len(pin.NextValidIntents) == 0 {

@@ -49,10 +49,10 @@ func agentSeedRefineProofRun(t *testing.T, s *store.Store, workID, digest string
 		t.Fatalf("seed the verify lease: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
-		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-		VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/fixture','request/verify','`+acquired+`','','completed',?,?,'[]',?)`,
+		VALUES(?,1,?,'worktree.verify','','','external_effect','sha256:`+digest+`','{}','principal/fixture','request/verify','`+acquired+`','','completed',?,?,'[]',?)`,
 		opRef, workID, string(resultJSON), `["`+opRef+`"]`, released); err != nil {
 		t.Fatalf("seed the verify authority: %v", err)
 	}
@@ -98,10 +98,10 @@ func agentSeedIntegrationVerifyRun(t *testing.T, s *store.Store, workID, digest 
 		t.Fatalf("seed the integration verify lease: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
-		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
-		VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/fixture','request/verify','`+acquired+`','','completed',?,?,'[]',?)`,
+		VALUES(?,1,?,'worktree.verify','','','external_effect','sha256:`+digest+`','{}','principal/fixture','request/verify','`+acquired+`','','completed',?,?,'[]',?)`,
 		opRef, workID, string(resultJSON), `["`+opRef+`"]`, released); err != nil {
 		t.Fatalf("seed the integration verify authority: %v", err)
 	}

@@ -14,8 +14,8 @@ func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 				t.Fatalf("%s action %s has invalid execution mode %q", definition.Ref, action.ID, action.ExecutionMode)
 			}
 		}
-		if _, ok := registry.Lookup(definition.Ref, definition.Version); !ok {
-			t.Fatalf("%s version %d is not registered", definition.Ref, definition.Version)
+		if _, ok := registry.Current(definition.Ref); !ok {
+			t.Fatalf("%s is not registered", definition.Ref)
 		}
 	}
 }

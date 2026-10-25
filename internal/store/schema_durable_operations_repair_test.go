@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 )
 
@@ -36,7 +37,7 @@ func tableColumns(t *testing.T, db *sql.DB, table string) map[string]bool {
 // into durable_operations with "no such column".
 func TestMigrationRepairsDurableOperationsContractDigest(t *testing.T) {
 	t.Parallel()
-	db := openMigrated(t)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v66.db"), 66)
 	ctx := context.Background()
 
 	// Reproduce a database built from migration 7's earlier text: the table
@@ -64,7 +65,6 @@ func TestMigrationRepairsDurableOperationsContractDigest(t *testing.T) {
     completed_at TEXT,
     PRIMARY KEY(op_id, attempt_epoch)
 )`,
-		`DELETE FROM schema_migrations WHERE version = 67`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("stage earlier history (%s): %v", statement, err)
@@ -83,18 +83,15 @@ func TestMigrationRepairsDurableOperationsContractDigest(t *testing.T) {
 // must not discard the digests such a database recorded.
 func TestDurableOperationsRepairPreservesRecordedDigests(t *testing.T) {
 	t.Parallel()
-	db := openMigrated(t)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v66.db"), 66)
 	ctx := context.Background()
 
 	if !tableColumns(t, db, "durable_operations")["contract_digest"] {
-		t.Fatal("a fresh database is missing durable_operations.contract_digest")
+		t.Fatal("the historical database is missing durable_operations.contract_digest")
 	}
 
 	if _, err := db.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest) VALUES('op-1',1,'work-1','workflow.implementation',1,'proposal','internal_sqlite','sha256:a','{}','principal','request','2026-01-01T00:00:00Z','sha256:kept')`); err != nil {
 		t.Fatalf("seed durable operation: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 67`); err != nil {
-		t.Fatalf("clear repair marker: %v", err)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("repair migrate: %v", err)
@@ -106,5 +103,11 @@ func TestDurableOperationsRepairPreservesRecordedDigests(t *testing.T) {
 	}
 	if digest != "sha256:kept" {
 		t.Fatalf("repair rewrote a recorded digest: got %q", digest)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT workflow_type_digest FROM durable_operations WHERE op_id='op-1'`).Scan(&digest); err != nil {
+		t.Fatalf("read content identity after migration 152: %v", err)
+	}
+	if digest != "" || tableColumns(t, db, "durable_operations")["workflow_type_version"] {
+		t.Fatalf("migration 152 must retire the counter without inventing a definition digest: %q", digest)
 	}
 }

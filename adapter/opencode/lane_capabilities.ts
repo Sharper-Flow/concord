@@ -145,9 +145,9 @@ export function createWorkerCapabilityGuard(options: Options = {}) {
     }
     const mismatch = dispatchDirectoryIdentityMismatch(record.workerDirectoryIdentity, info.directory)
     if (mismatch) throw new WorkerCapabilityError(mismatch)
-    const registered = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
-    if (!registered) throw new WorkerCapabilityError("the authorized packet names an unregistered lane identity")
-    // A historical read-only packet cannot acquire edits from today's registry.
+    const registered = laneForIdentity(record.packet.lane_id, record.packet.lane_digest)
+    if (!registered) throw new WorkerCapabilityError("the authorized packet requires lane content revalidation; preserve its original identity and evidence")
+    // Review editing requires the exact current digest.
     const lane = (registered.capabilities as readonly string[]).includes("inspect_diff") && !repairingReview(registered, record.packet)
       ? { ...registered, capabilities: registered.capabilities.filter((c) => c !== "edit_scoped_files") } as unknown as AgentLane
       : registered

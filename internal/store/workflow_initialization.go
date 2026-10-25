@@ -95,7 +95,7 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Digest: request.Definition.Digest}); err != nil {
 		return err
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -115,8 +115,7 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	}
 	definitionPayload, _ := json.Marshal(map[string]any{
 		"work_id": request.WorkID, "expected_version": version, "resulting_version": version + 1,
-		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
-		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
+		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
 	scope := newWriteScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {
@@ -156,7 +155,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Version: request.Definition.Definition.Version, Digest: request.Definition.Digest}); err != nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Digest: request.Definition.Digest}); err != nil {
 		return err
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
@@ -182,8 +181,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	})
 	definitionPayload, _ := json.Marshal(map[string]any{
 		"work_id": request.WorkID, "expected_version": version + 1, "resulting_version": version + 2,
-		"ref": request.Definition.Definition.Ref, "version": request.Definition.Definition.Version,
-		"digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
+		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
 	scope := newWriteScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {

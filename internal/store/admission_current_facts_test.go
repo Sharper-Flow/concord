@@ -36,8 +36,8 @@ func TestAdmissionUnsettledWorkerLogBlind(t *testing.T) {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at)
-VALUES('admission-work','attempt','lane',1,?,'implementation','model','1.0','1.0','completed','now','now');
+INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at)
+VALUES('admission-work','attempt','lane',?,'implementation','model','1.0','1.0','completed','now','now');
 ALTER TABLE domain_events RENAME TO admission_hidden_log;`, "sha256:"+strings.Repeat("0", 64)); err != nil {
 		t.Fatal(err)
 	}

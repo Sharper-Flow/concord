@@ -194,8 +194,17 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
+	// Check migration 88's historical counter before migration 152 retires it.
+	for _, migration := range migrations {
+		if migration.Version != 88 {
+			continue
+		}
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration 88: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-16T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var ref, digest string
 	var version int
@@ -204,6 +213,18 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	}
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if ref != definitionRef || digest != historicalDefinitionDigest {
+		t.Fatalf("current contract content identity = %q, %q", ref, digest)
+	}
+	if tableColumns(t, db, "workflow_contracts")["definition_version"] {
+		t.Fatal("migration 152 retained the definition counter")
 	}
 }
 
@@ -712,7 +733,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 		t.Fatal("completed-with-empty-readback bypassed the lifecycle CHECK")
 	}
 	// The write-seam-only triggers must be reinstalled so direct INSERT is refused.
-	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',1,?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
 		t.Fatal("direct INSERT bypassed the write guard")
 	}
 }
@@ -1891,15 +1912,16 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	if replayReadback != "openai/gpt-5.6-luna" {
 		t.Fatalf("replay readback_model = %q, want openai/gpt-5.6-luna", replayReadback)
 	}
-	// The fold triggers must be reinstalled by migration 44: a direct INSERT
-	// with no write_guard row active must be rejected.
+	// The current write guard must reject direct INSERT after the full replay.
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		"replay-work", "replay-44-attempt", "research", 1,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		"replay-work", "replay-44-attempt", "research",
 		"sha256:"+strings.Repeat("a", 64), "research",
 		"openai/gpt-5.6-luna", "1.0", "1.0", "dispatched", appliedAt,
 	); err == nil {
-		t.Fatal("post-migration-44 INSERT bypassed the write guard")
+		t.Fatal("post-replay INSERT bypassed the write guard")
+	} else if !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("post-replay INSERT refused outside the write guard: %v", err)
 	}
 }
 

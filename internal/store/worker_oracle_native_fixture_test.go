@@ -253,7 +253,7 @@ DELETE FROM write_guard`, r.WorkID, recorded.JobID, recorded.Revision, recorded.
 	laneDigest := "sha256:" + strings.Repeat("a", 64)
 	start := workflowActionStartedPayload{StepID: step, ActionID: "dispatch_worker", AttemptEpoch: request.AttemptEpoch}
 	startSeq := insertEvent(eventID+"-start", WorkflowActionStarted, start)
-	dispatch := workflowActionCompletedPayload{StepID: step, ActionID: "dispatch_worker", WorkerAttemptID: request.AttemptID, AttemptEpoch: request.AttemptEpoch, WorkerLaneID: "implementation", WorkerLaneVersion: 1, WorkerLaneDigest: laneDigest, WorkerCapabilityClass: "implementation", WorkerPacketDigest: request.WorkerPacketDigest, WorkerSubjectCommit: subject, WorkerJob: &job}
+	dispatch := workflowActionCompletedPayload{StepID: step, ActionID: "dispatch_worker", WorkerAttemptID: request.AttemptID, AttemptEpoch: request.AttemptEpoch, WorkerLaneID: "implementation", WorkerLaneDigest: laneDigest, WorkerCapabilityClass: "implementation", WorkerPacketDigest: request.WorkerPacketDigest, WorkerSubjectCommit: subject, WorkerJob: &job}
 	seq := insertEvent(eventID, WorkflowActionCompleted, dispatch)
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worker_authorizations(work_id,attempt_id,seq,event_id,payload,start_seq,start_payload,contract_version) VALUES(?,?,?,?,?,?,?,?);
@@ -266,7 +266,7 @@ ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,
 DELETE FROM write_guard`, r.WorkID, step, request.AttemptEpoch, startSeq, eventID+"-start", string(mustJSONValue(start)), startSeq, eventID+"-start", string(mustJSONValue(start))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'implementation',1,?,'implementation','openai/gpt-5.6-luna','1.0','1.0','completed','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z');DELETE FROM write_guard`, r.WorkID, request.AttemptID, laneDigest); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'implementation',?,'implementation','openai/gpt-5.6-luna','1.0','1.0','completed','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z');DELETE FROM write_guard`, r.WorkID, request.AttemptID, laneDigest); err != nil {
 		t.Fatal(err)
 	}
 	cases := oracleFixtureCases(t, *control)
@@ -332,7 +332,7 @@ func nativeFixtureDispatch(t *testing.T, f *nativeOracleFixture, o NativeOracleR
 	if err != nil {
 		t.Fatal(err)
 	}
-	lane, err := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
+	lane, err := LookupLane(attempt.LaneID, attempt.LaneDigest)
 	if err != nil {
 		t.Fatal(err)
 	}

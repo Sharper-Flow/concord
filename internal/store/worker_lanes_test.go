@@ -32,17 +32,14 @@ func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
 		if got != definition.Digest {
 			t.Fatalf("lane %s digest = %s, generated %s", definition.ID, got, definition.Digest)
 		}
-		if _, err := LookupLane(definition.ID, definition.Version, definition.Digest); err != nil {
+		if _, err := LookupLane(definition.ID, definition.Digest); err != nil {
 			t.Fatalf("LookupLane(%s) error = %v", definition.ID, err)
 		}
 	}
-	if _, err := LookupLane("unknown", 1, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
+	if _, err := LookupLane("unknown", definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
 		t.Fatalf("unknown lane error = %v, want %s", err, KindLaneDefinitionNotRegistered)
 	}
-	if _, err := LookupLane(definitions[0].ID, 2, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
-		t.Fatalf("unknown lane version error = %v, want %s", err, KindLaneDefinitionNotRegistered)
-	}
-	if _, err := LookupLane(definitions[0].ID, definitions[0].Version, "sha256:"+strings.Repeat("0", 64)); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
+	if _, err := LookupLane(definitions[0].ID, "sha256:"+strings.Repeat("0", 64)); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
 		t.Fatalf("digest mismatch error = %v, want %s", err, KindLaneDefinitionDigestMismatch)
 	}
 	unpinned := definitions[0]
@@ -257,7 +254,7 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_digest=? AND capability_class=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Digest, lane.CapabilityClass, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -499,7 +496,7 @@ func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string
 func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides map[string]any) Event {
 	payload := map[string]any{
 		"attempt_id": eventID,
-		"lane_id":    lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id":    lane.ID, "lane_digest": lane.Digest,
 		"capability_class":      lane.CapabilityClass,
 		"readback_model":        preferredModelForLane(lane),
 		"packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
@@ -542,19 +539,18 @@ func workerCompleteEventForLane(workID, eventID, attemptID string, lane LaneDefi
 
 func workerProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
+	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var result strings.Builder
 	for rows.Next() {
-		var values [15]string
-		var version int64
-		if err := rows.Scan(&values[0], &values[1], &values[2], &version, &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13], &values[14]); err != nil {
+		var values [14]string
+		if err := rows.Scan(&values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13]); err != nil {
 			t.Fatal(err)
 		}
-		result.WriteString(strings.Join([]string{values[0], values[1], values[2], fmt.Sprintf("%d", version), values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14]}, "|"))
+		result.WriteString(strings.Join(values[:], "|"))
 		result.WriteByte('\n')
 	}
 	if err := rows.Err(); err != nil {
@@ -605,7 +601,7 @@ func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
 		if _, exists := registered[generic]; exists {
 			t.Fatalf("generic host agent %q is registered as a Concord lane", generic)
 		}
-		if _, err := LookupLane(generic, definitions[0].Version, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
+		if _, err := LookupLane(generic, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
 			t.Fatalf("LookupLane(%s) error = %v, want %s", generic, err, KindLaneDefinitionNotRegistered)
 		}
 		event := workerDispatchEvent("worker-generic", "dispatch-generic-"+generic, definitions[0], map[string]any{

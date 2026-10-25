@@ -54,7 +54,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // laneForId looks up a registered lane by id only. The full packet schema
-// also pins lane_version and lane_digest, but at the dispatch boundary we
+// also pins lane_digest, but at the dispatch boundary we
 // accept any lane the registry has admitted by id; buildAgentLanePacket
 // re-validates the full triple against the packet it produces and refuses
 // unregistered lanes up front.

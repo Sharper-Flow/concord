@@ -36,7 +36,6 @@ func legacyWorkerDispatchEvent(t *testing.T, eventID string, lane store.LaneDefi
 	payload := store.WorkerDispatchedPayload{
 		AttemptID:           "attempt-1",
 		LaneID:              lane.ID,
-		LaneVersion:         lane.Version,
 		LaneDigest:          lane.Digest,
 		CapabilityClass:     lane.CapabilityClass,
 		PacketSchemaVersion: store.WorkerPacketSchemaVersionLegacy,
@@ -112,8 +111,8 @@ func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Even
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
-				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
+				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
 				t.Fatalf("seed legacy attempt row %s: %v", payload.AttemptID, err)
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET dispatch_event_id=?,dispatch_actor=?,dispatch_payload_version=?,dispatch_payload=?,dispatch_seq=? WHERE work_id=? AND attempt_id=?`, event.EventID, event.Actor, event.PayloadVersion, string(event.Payload), seq, event.SubjectID, payload.AttemptID); err != nil {

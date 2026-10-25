@@ -51,7 +51,6 @@ type workerTerminalDeliveryProof struct {
 
 	attemptState string
 	laneID       string
-	laneVersion  int64
 	laneDigest   string
 
 	claimPath   string
@@ -191,18 +190,18 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 		return &WorkerTerminalPreparation{proof: proof}, nil
 	}
 	proof.attemptState = sample.attempt.LifecycleState
-	proof.laneID, proof.laneVersion, proof.laneDigest = sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest
+	proof.laneID, proof.laneDigest = sample.attempt.LaneID, sample.attempt.LaneDigest
 	proof.windowStartSeq = sample.window.StartSeq
 	proof.windowEpoch = sample.window.AttemptEpoch
 	proof.windowPacketDigest = sample.window.PacketDigest
 	proof.windowWorktreeIdentity = sample.window.WorktreeIdentity
 	proof.windowSubjectCommit = sample.window.SubjectCommit
 	proof.frontier, proof.frontierPresent = sample.window.ContextFrontier, sample.window.ContextFrontierPresent
-	lane, err := LookupLane(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	lane, err := LookupLane(sample.attempt.LaneID, sample.attempt.LaneDigest)
 	if err != nil {
 		return nil, err
 	}
-	editing := workerLaneEdits(sample.attempt.LaneID, sample.attempt.LaneVersion, sample.attempt.LaneDigest)
+	editing := workerLaneEdits(sample.attempt.LaneID, sample.attempt.LaneDigest)
 	reviewing := slices.Contains(lane.Capabilities, "inspect_diff")
 	if !editing && !reviewing {
 		return &WorkerTerminalPreparation{proof: proof}, nil
@@ -460,7 +459,7 @@ func enrichWorkerObservedDeliveryTx(ctx context.Context, tx *sql.Tx, event Event
 	if liveWindow.StartSeq != proof.windowStartSeq || liveWindow.AttemptEpoch != proof.windowEpoch || liveWindow.PacketDigest != proof.windowPacketDigest || liveWindow.WorktreeIdentity != proof.windowWorktreeIdentity || liveWindow.SubjectCommit != proof.windowSubjectCommit || liveWindow.ContextFrontier != proof.frontier || liveWindow.ContextFrontierPresent != proof.frontierPresent {
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the dispatch authorization changed under the terminal observation", true, "prepare the same completion again against the current authorization")
 	}
-	if attempt.LifecycleState != proof.attemptState || attempt.LaneID != proof.laneID || attempt.LaneVersion != proof.laneVersion || attempt.LaneDigest != proof.laneDigest {
+	if attempt.LifecycleState != proof.attemptState || attempt.LaneID != proof.laneID || attempt.LaneDigest != proof.laneDigest {
 		return newFailure(KindProjectionConflict, workerTerminalObservationOp, "the worker attempt changed under the terminal observation", true, "prepare the same completion again against the current attempt")
 	}
 	// The claim revalidation is SQL only: the durable entry is matched by

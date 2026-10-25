@@ -74,7 +74,7 @@ test("the worker reader transport uses only the held request and dispatched dire
     work_id: "read-work", attempt_id: "read-attempt", worktree_identity: "bound-identity",
     packet: {
       schema_version: "1.0", work_id: "read-work", attempt_id: "read-attempt", step_id: "verify",
-      lane_id: "verify", lane_version: 1, lane_digest: "bound-lane",
+      lane_id: "verify", lane_digest: "bound-lane",
       inputs: { task: "Read the declared source", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
     },
     ordinal: 0, offset: 0, length: 6,
@@ -172,7 +172,7 @@ test("the worker reader transport refuses failed, oversized, or non-single-objec
 
 function workerControlTransportFixture() {
   const context = { sessionID: "actual-child", messageID: "actual-message", agent: "concord-verify", directory: "/dispatched-worktree", abort: new AbortController().signal, ask: async () => {} }
-  const request: Parameters<typeof adapter.executeBoundWorkerControl>[0] = { work_id: "check-work", project_id: "check-project", attempt_id: "check-attempt", worktree_identity: "sha256:" + "b".repeat(64), control_id: "control:check", packet: { schema_version: "2.0", work_id: "check-work", attempt_id: "check-attempt", step_id: "verify", lane_id: "verify", lane_version: 1, lane_digest: "sha256:" + "c".repeat(64), inputs: { task: "Check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" } } } }
+  const request: Parameters<typeof adapter.executeBoundWorkerControl>[0] = { work_id: "check-work", project_id: "check-project", attempt_id: "check-attempt", worktree_identity: "sha256:" + "b".repeat(64), control_id: "control:check", packet: { schema_version: "2.0", work_id: "check-work", attempt_id: "check-attempt", step_id: "verify", lane_id: "verify", lane_digest: "sha256:" + "c".repeat(64), inputs: { task: "Check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" } } } }
   const digest = "sha256:" + "a".repeat(64)
   const ambient = { project_id: request.project_id, product_ids: ["check-product"], scope_version: "scope-check", main_worktree: false }
   return { context, request, digest, ambient }
@@ -1675,7 +1675,7 @@ test("worker recovery bounds a cooperative two-second host read with one caller 
     dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
     packet_schema_version: "1.0", report_schema_version: "1.0",
     dispatch: {
-      attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
+      attempt_id: "attempt-1", lane_id: lane.id,
       lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),
       capability_class: lane.capability_class, packet_schema_version: "1.0", report_schema_version: "1.0",
       readback_model: "openai/test-model",
@@ -4187,7 +4187,7 @@ test("an own-row recovery reports a refused retry without claiming closure", asy
   let abandonCalls = 0
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4254,7 +4254,6 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
     schema_version: "1.0" as const,
     attempt_id: "attempt-1",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4301,7 +4300,6 @@ test.each(["none", "possible", "unknown"] as const)("a missing-row worker_abando
     schema_version: "1.0" as const,
     attempt_id: "attempt-stranded",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4345,7 +4343,6 @@ test("a missing-row worker_abandon refusal preserves a foreign retained record",
     schema_version: "1.0" as const,
     attempt_id: "attempt-stranded",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4389,7 +4386,6 @@ test.each([
     schema_version: "1.0" as const,
     attempt_id: "attempt-1",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4465,7 +4461,7 @@ test("an own-row recovery reports a refused re-land without invoking a receipt f
   let abandonCalls = 0
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4550,7 +4546,7 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
   })
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4628,7 +4624,7 @@ test.each([false, true])("a terminal abandon releases only its authorization whe
   const sessionID = `session-abandon-receipt-failure-${foreign}`
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -5485,7 +5481,7 @@ const recoveryLane = ((await import("./generated-agent-lanes")).agentLanes as re
 const RECOVERY_SESSION = "parent-concord-913"
 const recoveryPacket: Parameters<typeof serializeLanePacket>[0] = {
   schema_version: "1.0", work_id: "work-concord-913", attempt_id: "attempt-concord-913",
-  lane_id: recoveryLane.id, lane_version: recoveryLane.version, lane_digest: recoveryLane.digest, step_id: "repair",
+  lane_id: recoveryLane.id, lane_digest: recoveryLane.digest, step_id: "repair",
   inputs: { task: "Verify a retained synthetic report.", binding: { objective_source: "contract_premise", work_version: 7, contract_version: 1, assigned_result: "exit_codes" } },
 }
 const recoveryReport = {
@@ -5498,7 +5494,7 @@ const recoveryContextFixture = {
   attempt_epoch: 23, dispatch_event_id: "historical-concord-913", lifecycle_state: "dispatched",
   packet_schema_version: "1.0", report_schema_version: "1.0",
   dispatch: {
-    attempt_id: recoveryPacket.attempt_id, lane_id: recoveryLane.id, lane_version: recoveryLane.version, lane_digest: recoveryLane.digest,
+    attempt_id: recoveryPacket.attempt_id, lane_id: recoveryLane.id, lane_digest: recoveryLane.digest,
     capability_class: recoveryLane.capability_class, packet_schema_version: "1.0", report_schema_version: "1.0",
     packet_digest: "sha256:" + "a".repeat(64), readback_model: "openai/test-model",
     host_provenance: { digest: "sha256:" + "b".repeat(64), sources: [{ kind: "agent_definition", path: "original-agent.md", sha256: "sha256:" + "c".repeat(64) }] },
@@ -5546,7 +5542,7 @@ test("CON-913 row 18: a stopped recovery composite reports an uncertain effect w
     throw new Error("no evidence may run past a stopped composite: " + argv.join(" "))
   } })
   expectTuple(result, M, "row 18")
-  expect(result.error.message).toContain("lane definition")
+  expect(result.error.message).toContain("the original dispatched lane requires content revalidation")
 })
 
 test("CON-913 row 17: a caller deadline during the recovery composite keeps the conflict tuple and the cause", async () => {

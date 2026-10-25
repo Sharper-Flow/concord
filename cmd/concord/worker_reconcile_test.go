@@ -238,10 +238,10 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 	}
 	for _, statement := range []string{
 		`INSERT INTO write_guard(active) VALUES(1)`,
-		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-1','attempt-1',?,?,?,'implementation','','1.0','1.0','in_flight','2026-01-01T00:00:00Z')`,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-1','attempt-1',?,?,'implementation','','1.0','1.0','in_flight','2026-01-01T00:00:00Z')`,
 		`DELETE FROM write_guard`,
 	} {
-		if _, err := seedTx.ExecContext(ctx, statement, lane.ID, lane.Version, lane.Digest); err != nil {
+		if _, err := seedTx.ExecContext(ctx, statement, lane.ID, lane.Digest); err != nil {
 			t.Fatalf("seed in-flight attempt: %v", err)
 		}
 	}

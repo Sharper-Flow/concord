@@ -17,7 +17,7 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	s := openTemp(t)
 	t.Cleanup(func() { _ = s.Close() })
 	seed := seedDispatchFixture(t, s, workID)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=?,definition_version=?,definition_digest=? WHERE work_id=?; DELETE FROM write_guard`, entry.Definition.Ref, entry.Definition.Version, entry.Digest, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=?,definition_digest=? WHERE work_id=?; DELETE FROM write_guard`, entry.Definition.Ref, entry.Digest, workID); err != nil {
 		t.Fatalf("pin test definition: %v", err)
 	}
 	attemptID := "attempt:" + workID
@@ -177,10 +177,10 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	// checkpoint review authorizes; the disposition assertion below stays
 	// scoped to this attempt's own dispatch population.
 	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	job := &WorkerJobBinding{JobID: "job:checkpoint-review", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
-	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("authorize checkpoint review: %v", err)
@@ -225,9 +225,9 @@ func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
 	breakFix := mustBuiltinDefinition(t, "workflow.break_fix")
 	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, breakFix, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
-	laneVersion, laneDigest := registeredLaneIdentity(t, "implement")
+	laneDigest := registeredLaneIdentity(t, "implement")
 	job := readyWorkerJobForTest(t, s, workID, breakFix.Definition, fixture.owner, "job:stale-registry-retry")
-	packet := joinPacketFor(t, s, workID, "repair", attemptID, "implement", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "repair", attemptID, "implement", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = job
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
 		t.Fatal("the work pin advertises a retry refused for registry staleness")
 	}
 	freshID := attemptID + ":fresh"
-	freshPacket := joinPacketFor(t, s, workID, "repair", freshID, "implement", laneVersion, laneDigest)
+	freshPacket := joinPacketFor(t, s, workID, "repair", freshID, "implement", laneDigest)
 	freshPacket["inputs"].(map[string]any)["worker_job"] = job
 	err = WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Actor: fixture.owner,

@@ -458,7 +458,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		}
 		var pin WorkflowDefinitionPin
 		var instanceState string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &instanceState)
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Digest, &instanceState)
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
@@ -527,7 +527,7 @@ func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string
 func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
 	var pin WorkflowDefinitionPin
 	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &currentStep); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest, &currentStep); err != nil {
 		if err == sql.ErrNoRows {
 			return nil
 		}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -247,17 +246,11 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := BuiltinWorkflowRegistry().Lookup(ref, current.Definition.Version-1); ok {
-			t.Fatalf("retired definition %s@%d remains executable", ref, current.Definition.Version-1)
-		}
-		for _, version := range []int64{current.Definition.Version} {
-			name := ref + "@" + strconv.FormatInt(version, 10)
+		{
+			name := ref
 			t.Run(name, func(t *testing.T) {
-				registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-				if !ok {
-					t.Fatalf("definition %s is not registered", name)
-				}
-				workID := "workpin-debt-" + ref + "-" + strconv.FormatInt(version, 10)
+				registered := current
+				workID := "workpin-debt-" + ref
 				var completionStep string
 				for _, step := range registered.Definition.StepGraph.Steps {
 					if slices.Contains(step.Actions, "complete") {

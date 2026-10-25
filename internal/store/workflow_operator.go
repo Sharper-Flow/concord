@@ -59,7 +59,6 @@ func ComputeWorkflowDecisionContextDigest(workID string, workVersion int64, defi
 		{"work_id", []byte(workID)},
 		{"work_version", []byte(fmt.Sprint(workVersion))},
 		{"definition_ref", []byte(definition.Ref)},
-		{"definition_version", []byte(fmt.Sprint(definition.Version))},
 		{"definition_digest", []byte(definition.Digest)},
 		{"contract_version", []byte(fmt.Sprint(contract.Version))},
 		{"action_id", []byte(actionID)},
@@ -328,7 +327,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 		return fastErr
 	}
 	pin := WorkflowDefinitionPin{}
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot read workflow question context", true, "retry once the database is readable", err)
 	}
 	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
@@ -443,7 +442,7 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")
 	}
-	definition := WorkflowReadDefinition{Ref: entry.Definition.Ref, Version: entry.Definition.Version, Digest: entry.Digest}
+	definition := WorkflowReadDefinition{Ref: entry.Definition.Ref, Digest: entry.Digest}
 	question, _, err := workflowOperatorQuestionForDefinitionTx(ctx, tx, request.WorkID, currentStep, workVersion, entry.Definition, definition, contract, confirmation)
 	if err != nil {
 		return err

@@ -47,18 +47,13 @@ func init() {
 		defFailureObs       = "/$defs/worker_failure_observation"
 		defFailureSource    = "/$defs/worker_failure_source"
 		defFailureSubject   = "/$defs/worker_failure_subject"
-		defPacket2          = "/$defs/worker_packet2"
-		defPacket3          = "/$defs/worker_packet3"
-		defPacket4          = "/$defs/worker_packet4"
-		defPacket5          = "/$defs/worker_packet5"
-		defPacket5Job       = "/$defs/worker_packet5_worker_job"
+		defPacket           = "/$defs/worker_packet"
 		defMeasuredPath     = "/$defs/worker_job_measured_path"
 		defMeasurementBasis = "/$defs/worker_job_measurement_basis"
-		defCallerAllowance  = "/$defs/worker_job_direct_caller_allowance"
+		defCallerAllowance  = "/$defs/worker_packet_worker_job/properties/direct_caller_allowance"
 		defPacketBinding    = "/$defs/worker_packet_binding"
 		defWorkRecord       = "/$defs/worker_packet_work_record"
 		defPacketJob        = "/$defs/worker_packet_worker_job"
-		defRepairJob        = "/$defs/worker_packet_checks_repair_job"
 		defChecksRepair     = "/$defs/worker_checks_repair"
 		defRecovery         = "/$defs/worker_recovery_context"
 	)
@@ -265,22 +260,21 @@ func init() {
 	// shape; the retry derivation never authors constraints of its own.
 	proposalConstraints := inputBound("/$defs/work_transition_action_variant_record_proposal/properties/fields/properties/constraints/maxItems")
 	proposalConstraintText := inputBound("/$defs/proposal_text/maxLength")
-	for _, packet := range []string{defPacket2, defPacket3, defPacket4, defPacket5} {
+	for _, member := range []string{"attempt_id", "lane_id", "lane_digest", "work_id", "step_id"} {
+		pointer := defPacket + "/properties/" + member + "/maxLength"
+		registerOutputBound(pointer, inputBound(pointer))
+	}
+	for _, packet := range []string{defPacket} {
 		registerOutputBound(packet+"/properties/inputs/properties/constraints/items/maxLength", proposalConstraintText)
 		registerOutputBound(packet+"/properties/inputs/properties/constraints/maxItems", proposalConstraints)
 	}
 	// Dispatch schema admission bounds task, and recovery preserves the
 	// already-admitted context (new dispatches refuse prose context).
-	// packet2 and packet4 reach only retained output; they carry packet3's
-	// task and legacy prose context, so packet3's admitted input bounds them.
-	for _, packet := range []string{defPacket2, defPacket3, defPacket4, defPacket5} {
-		source := packet
-		if packet == defPacket2 || packet == defPacket4 {
-			source = defPacket3
-		}
+	// CD-0242 D14 retains only the current packet closure.
+	for _, packet := range []string{defPacket} {
 		for _, member := range []string{"context", "task"} {
 			pointer := packet + "/properties/inputs/properties/" + member + "/maxLength"
-			registerOutputBound(pointer, inputBound(source+"/properties/inputs/properties/"+member+"/maxLength"))
+			registerOutputBound(pointer, inputBound(packet+"/properties/inputs/properties/"+member+"/maxLength"))
 		}
 	}
 
@@ -309,17 +303,9 @@ func init() {
 	// admitted through the authoring input that carries this same
 	// definition, so the admitted shape is the copied value's bound. The
 	// digest is core-derived over the content and re-derived equal at the
-	// fold, so it rides the recorded derivation bound. The packet5 job def
-	// is the size-capable mirror: the same shape under a versioned name,
-	// with the dispatch-time caller exclusions rows registered beside the
-	// loop below. The checks-repair mirror is output-only, but its common
-	// members copy the same packetJobFromView revision as the admitted job.
-	for _, job := range []string{defPacketJob, defRepairJob, defPacket5Job} {
+	// writer, so it rides the recorded derivation bound.
+	for _, job := range []string{defPacketJob} {
 		registerOutputBound(job+"/properties/digest/maxLength", recordedJobDigest)
-		source := job
-		if job == defRepairJob {
-			source = defPacketJob
-		}
 		for _, member := range []string{
 			"checks/items/maxLength", "checks/maxItems", "job_id/maxLength", "objective/maxLength",
 			"path_scope/items/maxLength", "path_scope/maxItems", "predicate_ids/items/maxLength", "predicate_ids/maxItems",
@@ -328,7 +314,7 @@ func init() {
 			"unresolved_refs/items/maxLength", "unresolved_refs/maxItems",
 		} {
 			pointer := job + "/properties/" + member
-			registerOutputBound(pointer, inputBound(source+"/properties/"+member))
+			registerOutputBound(pointer, inputBound(job+"/properties/"+member))
 		}
 	}
 
@@ -336,7 +322,7 @@ func init() {
 	// allowance ride the field guards validateWorkerJobSizeShape enforces
 	// on append and replay alike; the measured inventory paths and generator
 	// references ride the shared normalized-path grammar through their one
-	// routing site; and the packet5 job's dispatch-time caller exclusions
+	// routing site; and the packet job's dispatch-time caller exclusions
 	// are the core's own computed set.
 	registerOutputBound(defCallerAllowance+"/properties/project_id/maxLength",
 		goInlineBound("internal/store/worker_job_caller_scope.go", "validateWorkerJobAllowanceShape", "len(allowance.ProjectID)", boundBytes))
@@ -359,9 +345,9 @@ func init() {
 	// enforced by one shared guard both producing sites route through: the
 	// dispatch computation owner, and the continuity ready projection whose
 	// over-bound set is omitted whole so the read stays available.
-	registerOutputBound(defPacket5Job+"/properties/caller_exclusions/maxItems",
+	registerOutputBound(defPacketJob+"/properties/caller_exclusions/maxItems",
 		workerCallerExclusionGuardBound("len(paths)", boundItems))
-	registerOutputBound(defPacket5Job+"/properties/caller_exclusions/items/maxLength",
+	registerOutputBound(defPacketJob+"/properties/caller_exclusions/items/maxLength",
 		workerCallerExclusionGuardBound("utf8.RuneCountInString(path)", boundCharacters))
 
 	// Repair metadata is guarded on append and replay before a packet copies it.

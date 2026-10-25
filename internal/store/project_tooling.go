@@ -117,8 +117,7 @@ func ProjectToolingDeclaredText(tooling *ProjectToolingManifest) string {
 // manifest, so the caller must resolve it before the action's transaction
 // opens (CD-0192). record_delivery runs the guard wherever it is gated, and
 // accept_worker_result runs the same admission at the delivery-admitting
-// refinement step of workflow.implementation v21+ and workflow.break_fix
-// v19+ (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
+// refinement step (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
 // pin that holds a recorded split, so the automatic integration discharge
 // can keep only runs of declared tools. Every other action
 // resolves nothing.

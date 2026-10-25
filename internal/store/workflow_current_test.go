@@ -24,9 +24,6 @@ func TestCurrentDefinitionsHaveOneSourcePerLiveFamily(t *testing.T) {
 		if err != nil || !ok || entry.Digest != digest {
 			t.Fatalf("current %s differs from its source: %v", definition.Ref, err)
 		}
-		if _, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version-1); ok {
-			t.Fatalf("%s retains an earlier definition", definition.Ref)
-		}
 	}
 	for ref := range archivedWorkflowFamilies {
 		if _, ok := BuiltinWorkflowRegistry().Current(ref); ok {
@@ -46,12 +43,11 @@ func TestWorkItemUsesCurrentDefinitionWithoutInflightPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state)
-		VALUES('current-definition-work',?,?,?,'proposal','planned'); DELETE FROM write_guard`, first.Ref, first.Version, entry.Digest); err != nil {
+		INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state)
+		VALUES('current-definition-work',?,?,'proposal','planned'); DELETE FROM write_guard`, first.Ref, entry.Digest); err != nil {
 		t.Fatal(err)
 	}
 	next := cloneWorkflowDefinition(first)
-	next.Version++
 	next.RequiredEvidenceKinds = []EvidenceKind{EvidenceVerification}
 	current, err := registry.Register(next)
 	if err != nil {
@@ -61,14 +57,14 @@ func TestWorkItemUsesCurrentDefinitionWithoutInflightPin(t *testing.T) {
 	if err != nil || resolved.Digest != current.Digest {
 		t.Fatalf("work retained its old definition: %+v, %v", resolved, err)
 	}
-	if _, ok := registry.Lookup(first.Ref, first.Version); ok {
-		t.Fatal("old definition remains runnable")
+	if err := registry.Verify(first.Ref, entry.Digest); err == nil {
+		t.Fatal("old definition digest remains runnable")
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: first.Ref, Version: first.Version, Digest: entry.Digest}); err == nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: first.Ref, Digest: entry.Digest}); err == nil {
 		t.Fatal("explicit request admitted an obsolete definition digest")
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: first.Ref, Version: first.Version, Digest: current.Digest}); err != nil {
-		t.Fatalf("version metadata overrode the current content digest: %v", err)
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: first.Ref, Digest: current.Digest}); err != nil {
+		t.Fatalf("current content digest did not verify: %v", err)
 	}
 }
 
@@ -113,14 +109,14 @@ func pinnedDispatchPacketSchemaRef(t *testing.T, s *Store, workID string) string
 	return ""
 }
 
-func TestDefinitionDependencyCompatibilityUsesDigestsNotVersionNumbers(t *testing.T) {
+func TestDefinitionDependencyCompatibilityUsesDigests(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	pins := workflowContractDefinitionPinsData{
-		1: {definitionRef: "workflow.implementation", definitionVersion: 1, definitionDigest: digest},
-		2: {definitionRef: "workflow.implementation", definitionVersion: 99, definitionDigest: digest},
+		1: {definitionRef: "workflow.implementation", definitionDigest: digest},
+		2: {definitionRef: "workflow.implementation", definitionDigest: digest},
 	}
 	if !workflowContractDefinitionPinsCompatible(pins, 1, 2) {
-		t.Fatal("version alone invalidated an unchanged definition dependency")
+		t.Fatal("unchanged definition digest invalidated a dependency")
 	}
 	changed := pins[2]
 	changed.definitionDigest = "sha256:" + strings.Repeat("b", 64)

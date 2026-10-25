@@ -145,7 +145,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	// the live worker-evidence seam is the route the worker-fail CLI owns:
 	// the terminal fact and the derived workflow record commit together.
 	lane := preContractResearchLane(t)
-	laneDispatch := store.Event{EventID: "precontract-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	laneDispatch := store.Event{EventID: "precontract-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
 	// The failed terminal carries the recorded host observation the promoted
 	// definition requires; the store derives the identity from the attempt's
 	// own dispatch authorization.
@@ -177,7 +177,7 @@ func preContractRetryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 func preContractResearchLane(t *testing.T) store.LaneDefinition {

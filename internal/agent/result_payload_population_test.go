@@ -243,7 +243,7 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
@@ -363,7 +363,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex()},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + repeatHex()},
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
@@ -949,7 +949,11 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	defs := payloadSchemaDefs(t)
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
-		union := defs["mutation_result"]["properties"].(map[string]any)["retry_worker_packet"].(map[string]any)
+		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
+		union := map[string]any{"anyOf": []any{
+			map[string]any{"$ref": "#/$defs/worker_packet"},
+			map[string]any{"type": "null"},
+		}}
 		if _, typed := union["type"]; typed {
 			t.Fatal("retry_worker_packet stopped being a typeless union; this subtest no longer exercises the typeless rule")
 		}
@@ -958,8 +962,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("worker_packet2", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet2: %v", err)
+		if err := payloadschema.Validate("worker_packet", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {

@@ -4,33 +4,20 @@
   "title": "Concord agent lane registry",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "registry", "version", "lanes", "utilities"],
+  "required": ["schema_version", "registry", "lanes", "utilities"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "registry": {"const": "agent_lanes"},
-    "version": {"const": 1},
     "lanes": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/lane"}},
-    "legacy_lane_digests": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "minItems": 0,
-        "maxItems": 64,
-        "uniqueItems": true,
-        "items": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"}
-      },
-      "propertyNames": {"type": "string", "minLength": 3, "maxLength": 40, "pattern": "^[a-z][a-z0-9_-]{1,31}:[0-9]+$"}
-    },
     "utilities": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/utility"}}
   },
   "$defs": {
     "lane": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "required_report_blocks", "lifecycle_states"],
+      "required": ["id", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "required_report_blocks", "lifecycle_states"],
       "properties": {
         "id": {"type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-z][a-z0-9_-]*$"},
-        "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
         "purpose": {"type": "string", "minLength": 2, "maxLength": 512},
         "capability_class": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_-]*$"},
         "capabilities": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_-]*$"}},
@@ -45,10 +32,9 @@
     "utility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "purpose", "allowed_tools", "allowed_commands", "time_seconds_max"],
+      "required": ["id", "purpose", "allowed_tools", "allowed_commands", "time_seconds_max"],
       "properties": {
         "id": {"type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-z][a-z0-9_-]*$"},
-        "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
         "purpose": {"type": "string", "minLength": 2, "maxLength": 512},
         "allowed_tools": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_-]*$"}},
         "allowed_commands": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_.-]+(?: [a-zA-Z0-9_.-]+)*(?: \\*)?$"}},

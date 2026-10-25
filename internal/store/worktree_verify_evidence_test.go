@@ -152,13 +152,12 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	}
 
 	var definitionRef string
-	var definitionVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
 		t.Fatal(err)
 	}
-	pinned, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	pinned, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", definitionRef, definitionVersion)
+		t.Fatalf("pinned definition %s is not registered", definitionRef)
 	}
 	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.DatabaseForTesting(), workID, pinned.Definition)
 	if err != nil {
@@ -240,7 +239,7 @@ func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_version||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowBefore); err != nil {
+	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -253,7 +252,7 @@ func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_version||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowAfter); err != nil {
+	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore {

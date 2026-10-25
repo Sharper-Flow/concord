@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,18 +19,12 @@ type workflowReturnRouteFixture struct {
 
 func attributionInactiveWorkflowHeadForTest(t *testing.T, ref string) RegisteredDefinition {
 	t.Helper()
-	versions := map[string]int64{
-		"workflow.implementation": 30,
-		"workflow.break_fix":      27,
-		"workflow.research":       17,
-	}
-	version, ok := versions[ref]
-	if !ok {
-		t.Fatalf("no pre-attribution head is pinned for %s", ref)
-	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("workflow definition %s@%d is not registered", ref, version)
+	definition := cloneWorkflowDefinition(mustBuiltinDefinition(t, ref).Definition)
+	definition.Ref = "workflow.attribution_inactive_fixture"
+	definition.Capabilities = slices.DeleteFunc(definition.Capabilities, func(capability WorkflowCapability) bool { return capability == WorkflowCapabilityFailureAttribution })
+	registered, err := BuiltinWorkflowRegistry().Register(definition)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return registered
 }
@@ -44,11 +39,11 @@ func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, legacyApprovalPolicyDefinitionForRef(t, definitionRef), verdictStep, requiredEvidence, boundKinds)
 }
 
-func seedHistoricalWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef string, definitionVersion int64, verdictStep string) workflowReturnRouteFixture {
+func seedCurrentWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	registered, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 	if !ok {
-		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
+		t.Fatalf("workflow definition %s is not registered", definitionRef)
 	}
 	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
 }
@@ -261,8 +256,8 @@ func testPReviewCorrection(t *testing.T, id, family, effect string) {
 	if err != nil || correction == nil || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" {
 		t.Fatalf("correction context=%+v err=%v", correction, err)
 	}
-	version, digest := reviewGateInstancePin(t, j.s, id)
-	if version != entry.Definition.Version || digest != entry.Digest {
+	ref, digest := reviewGateInstancePin(t, j.s, id)
+	if ref != entry.Definition.Ref || digest != entry.Digest {
 		t.Fatal("correction changed the current definition pin")
 	}
 	before = j.effects(t)
@@ -348,9 +343,6 @@ func TestVerdictCorrectionUsesMainAcceptedReviewWithoutOperatorSubstitution(t *t
 // Only the current family definition can supply executable correction authority.
 func TestCurrentBreakFixPinSupportsReviewCorrection(t *testing.T) {
 	testPReviewCorrection(t, "return-route-current-break-fix", "workflow.break_fix", "repair")
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 7); ok {
-		t.Fatal("retired break-fix definition remains registered")
-	}
 }
 
 func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowActor, payload json.RawMessage) error {
@@ -438,9 +430,9 @@ func dispatchVerifyReviewAttempt(t *testing.T, f workflowReturnRouteFixture, id 
 	t.Helper()
 	seedCheckpointReviewAcceptedDelivery(t, f.store, id, f.owner, checkpointEffectStep(t, f.store, id, "verify"), "verify")
 	lane := reviewGateLane(t, "review")
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	attempt := "attempt:" + id + ":verify-review"
-	packet := joinPacketFor(t, f.store, id, "verify", attempt, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, f.store, id, "verify", attempt, "review", laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, f.store, id, readWorkVersion(t, f.store, id), f.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -448,7 +440,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, f workflowReturnRouteFixture, id 
 	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? ORDER BY seq DESC LIMIT 1`, id).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
-	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
+	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 	if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), tx, dispatch, f.owner.PrincipalRef, f.owner.ClientRef)
 		if err != nil {

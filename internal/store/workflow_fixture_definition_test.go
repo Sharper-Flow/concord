@@ -45,7 +45,7 @@ func workflowFixtureBase() WorkflowDefinition {
 			declarations[i] = currentActionDefinition(declarations[i].ID, true)
 		}
 	}
-	return WorkflowDefinition{Ref: workflowFixtureRef, Version: 1, WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &truth,
+	return WorkflowDefinition{Ref: workflowFixtureRef, WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &truth,
 		StepGraph: graph(steps, edges, "release"), AvailableActions: actions, ActionDefinitions: declarations,
 		RequiredEvidenceKinds: []EvidenceKind{EvidenceVerification, EvidenceReview},
 		OutcomeSchema:         WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}},

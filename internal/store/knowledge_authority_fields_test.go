@@ -15,24 +15,18 @@ import (
 	"testing"
 )
 
-// authorityFamilyDefinition pins the requested built-in family at its oldest
-// registered version. The registry is immutable, so the exact-version lookup
-// and its digest stay stable across promotions; no case here selects the
-// latest version of a family.
-func authorityFamilyDefinition(t *testing.T, ref string) (int64, string, bool) {
+// authorityFamilyDefinition reads the current built-in family's identity and
+// Product-truth classification.
+func authorityFamilyDefinition(t *testing.T, ref string) (string, bool) {
 	t.Helper()
-	for version := int64(1); version <= builtinWorkflowCurrentVersions[ref]; version++ {
-		registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-		if !ok {
-			continue
-		}
+	if registered, ok := BuiltinWorkflowRegistry().Current(ref); ok {
 		if registered.Definition.ChangesProductTruth == nil {
-			t.Fatalf("registered definition %s v%d carries no Product-truth classification", ref, version)
+			t.Fatalf("registered definition %s carries no Product-truth classification", ref)
 		}
-		return version, registered.Digest, *registered.Definition.ChangesProductTruth
+		return registered.Digest, *registered.Definition.ChangesProductTruth
 	}
 	t.Fatalf("no registered workflow definition for %s", ref)
-	return 0, "", false
+	return "", false
 }
 
 // seedAuthorityLawAdditions writes the write-seam-only projection chain one
@@ -77,11 +71,11 @@ func TestRebuildRefusesResearchPinLawModifiesLegislation(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8753", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	definitionVersion, digest, changesProductTruth := authorityFamilyDefinition(t, "workflow.research")
+	digest, changesProductTruth := authorityFamilyDefinition(t, "workflow.research")
 	if changesProductTruth {
 		t.Fatal("workflow.research must classify non-Product-changing for this case to be real")
 	}
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, "workflow.research", definitionVersion, digest, []string{"CD-8753"}, nil)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, "workflow.research", digest, []string{"CD-8753"}, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -97,8 +91,8 @@ func TestRebuildAdmitsDecisionAndConstitutionThroughLawAdditions(t *testing.T) {
 	)
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, definitionVersion, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, definitionVersion, digest, nil, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, nil)
 	seedAuthorityLawAdditions(t, s, authoritySyntheticWork, 1, "authority-product", "CD-8755", "CD-8756")
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatalf("law additions admit the decision and constitution records: %v", err)
@@ -112,8 +106,8 @@ func TestRebuildRefusesSpecThroughLawAdditionsOnly(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "SPEC-8755", Kind: "spec", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, definitionVersion, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, definitionVersion, digest, nil, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, nil)
 	seedAuthorityLawAdditions(t, s, authoritySyntheticWork, 1, "authority-product", "SPEC-8755")
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)

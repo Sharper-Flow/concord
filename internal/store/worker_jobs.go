@@ -499,7 +499,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	var oracle *AcceptanceOracle
 	if raw, present := fields["acceptance_oracle"]; present && len(raw) > 0 && string(raw) != "null" {
 		if !oracleCapable {
-			return nil, oracleFailure(KindInvalidPayload, "record_worker_job acceptance_oracle is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), "record the job under an oracle-capable definition version or drop the oracle")
+			return nil, oracleFailure(KindInvalidPayload, "record_worker_job acceptance_oracle is not admitted by the pinned workflow definition "+registered.Definition.Ref, "record the job under an oracle-capable definition or drop the oracle")
 		}
 		oracle, err = decodeAcceptanceOracle(raw)
 		if err != nil {
@@ -507,7 +507,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 		}
 	}
 	if oracleCapable && oracle == nil {
-		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition version "+fmt.Sprint(registered.Definition.Version), "author the closed owner/case/control oracle for the job")
+		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition "+registered.Definition.Ref, "author the closed owner/case/control oracle for the job")
 	}
 	// The checks repair (CD-0205 D4): the authoring fields travel together
 	// and only on a repair-capable pinned version; the core derives the
@@ -518,7 +518,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	repairReason := ""
 	if raw, present := fields["repair_revisions"]; present {
 		if !repairCapable {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), false, "record the repair on a repair-capable definition version")
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions is not admitted by the pinned workflow definition "+registered.Definition.Ref, false, "record the repair on a repair-capable definition")
 		}
 		if err := json.Unmarshal(raw, &repairRevisions); err != nil {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions must be an array of revision integers", false, "name the unresolved revisions the repair repairs")
@@ -526,7 +526,7 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	}
 	if raw, present := fields["repair_reason"]; present {
 		if !repairCapable {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), false, "record the repair on a repair-capable definition version")
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason is not admitted by the pinned workflow definition "+registered.Definition.Ref, false, "record the repair on a repair-capable definition")
 		}
 		if err := json.Unmarshal(raw, &repairReason); err != nil {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason must be one bounded prose string", false, "state why the named revisions' checks could not be executed or decided")

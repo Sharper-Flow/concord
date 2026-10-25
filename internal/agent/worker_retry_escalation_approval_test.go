@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -252,7 +253,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 			version = workVersion(t, s, "work-1")
 		}
-		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
+		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
 		input := map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "escalated-dispatch-" + strconv.FormatInt(cycle, 10),
 			"fields": map[string]any{"attempt_id": attemptID, "worker_packet": packet},
@@ -334,7 +335,7 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 	t.Helper()
 	lane := retryLane(t)
 	job := authorizedWorkerJob(t, s, attemptID)
-	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	// The failed terminal carries the recorded host observation the promoted
 	// definition requires; on a released pin the block lands unchanged beside
 	// the store-level record disposition.
@@ -371,17 +372,20 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 func recordWorkflowFailureForPin(t *testing.T, s *store.Store, grant Authority, attemptID string, epoch int64, suffix string, failureAt ...time.Time) int64 {
 	t.Helper()
 	var pinnedRef string
-	var pinnedVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedRef, &pinnedVersion); err != nil {
+	var pinnedDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedRef, &pinnedDigest); err != nil {
 		t.Fatal(err)
 	}
-	derivedHead := map[string]int64{"workflow.implementation": 29, "workflow.break_fix": 26, "workflow.research": 17}[pinnedRef]
-	if pinnedVersion >= derivedHead && derivedHead > 0 {
-		// The canonical head derives the record: the store's own live-authoring
-		// tests pin the derivation rule (implementation v29+, break_fix v26+,
-		// research v17+), and this fixture's pin rides it. The worker
-		// session's lane dispatch precedes its terminal fact, and the seam
-		// derives the record in the same commit.
+	if err := store.BuiltinWorkflowRegistry().Verify(pinnedRef, pinnedDigest); err != nil {
+		t.Fatal(err)
+	}
+	pinned, ok := store.BuiltinWorkflowRegistry().Current(pinnedRef)
+	if !ok {
+		t.Fatalf("workflow definition %s is not registered", pinnedRef)
+	}
+	if slices.Contains(pinned.Definition.Capabilities, store.WorkflowCapabilityDerivedWorkerFailure) {
+		// The verified definition derives the failure record in the same
+		// commit as the worker's terminal fact.
 		applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated-derived-"+suffix, failureAt...)
 		return workVersion(t, s, "work-1")
 	}

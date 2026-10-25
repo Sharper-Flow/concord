@@ -36,13 +36,12 @@ func routinePolicyDefinition(t *testing.T) WorkflowDefinition {
 func routineDefinitionOnPin(t *testing.T, s *Store, workID string) WorkflowDefinition {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s v%d is not registered", ref, version)
+		t.Fatalf("pinned definition %s is not registered", ref)
 	}
 	definition := registered.Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
@@ -305,14 +304,13 @@ func routineGuardContext(t *testing.T, s *Store, workID, actionID string, operat
 	t.Helper()
 	ctx := context.Background()
 	var ref string
-	var version int64
 	var currentStep string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &currentStep); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &currentStep); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s v%d is not registered", ref, version)
+		t.Fatalf("pinned definition %s is not registered", ref)
 	}
 	definition := registered.Definition
 	if newPolicy {

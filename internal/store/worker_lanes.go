@@ -97,7 +97,6 @@ const (
 type WorkerDispatchedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	LaneID              string `json:"lane_id"`
-	LaneVersion         int64  `json:"lane_version"`
 	LaneDigest          string `json:"lane_digest"`
 	CapabilityClass     string `json:"capability_class"`
 	PacketSchemaVersion string `json:"packet_schema_version"`
@@ -623,7 +622,6 @@ type WorkerAttempt struct {
 	WorkID              string `json:"work_id"`
 	AttemptID           string `json:"attempt_id"`
 	LaneID              string `json:"lane_id"`
-	LaneVersion         int64  `json:"lane_version"`
 	LaneDigest          string `json:"lane_digest"`
 	CapabilityClass     string `json:"capability_class"`
 	ReadbackModel       string `json:"readback_model"`
@@ -978,7 +976,7 @@ func decodeClosedWorkerPayload(event Event, target any) error {
 }
 
 func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) error {
-	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) {
+	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) {
 		return invalidWorkerPayload("worker.dispatched payload has invalid identity")
 	}
 	if fault := workerSchemaVersionFault(payload.PacketSchemaVersion, payload.ReportSchemaVersion, payload.WorkerJob != nil); fault != "" {
@@ -998,7 +996,7 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 	if payload.LaneActorRef != "" && !workflowActorRefPattern.MatchString(payload.LaneActorRef) {
 		return invalidWorkerPayload("worker.dispatched lane_actor_ref must be an actor ref")
 	}
-	lane, err := LookupLane(payload.LaneID, payload.LaneVersion, payload.LaneDigest)
+	lane, err := LookupLane(payload.LaneID, payload.LaneDigest)
 	if err != nil {
 		return err
 	}
@@ -1343,8 +1341,8 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, readbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
+		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneDigest, payload.CapabilityClass, readbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already dispatched", false, "use a new attempt identity")
@@ -1710,7 +1708,7 @@ func validateWorkerCompletedOracleJoin(ctx context.Context, tx *sql.Tx, workID s
 // reported evidence are both in hand, so coverage is enforced inside the
 // transaction that would make the attempt terminal.
 func validateWorkerCompletedLaneEvidence(ctx context.Context, tx *sql.Tx, attempt workerTerminalAttempt, payload WorkerCompletedPayload, dispatchedJob *WorkerJobBinding) error {
-	lane, err := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
+	lane, err := LookupLane(attempt.LaneID, attempt.LaneDigest)
 	if err != nil {
 		return err
 	}
@@ -1955,7 +1953,6 @@ type workerTerminalAttempt struct {
 	WorkID              string
 	Lifecycle           string
 	LaneID              string
-	LaneVersion         int64
 	LaneDigest          string
 	ReadbackModel       string
 	ReportSchemaVersion string
@@ -1972,7 +1969,7 @@ func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, att
 	if event.SubjectType != SubjectWorkItem {
 		return attempt, newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_version,lane_digest,readback_model,report_schema_version FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.ReadbackModel, &attempt.ReportSchemaVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_digest,readback_model,report_schema_version FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneDigest, &attempt.ReadbackModel, &attempt.ReportSchemaVersion); err != nil {
 		if err == sql.ErrNoRows {
 			return attempt, newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
 		}
@@ -2150,14 +2147,11 @@ func workerJobRevisionPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID str
 // workflowFailureAttributionActiveForWorkTx reports whether the work item's
 // pinned definition carries the failure-attribution semantics. A work item
 // with no workflow instance keeps every released behavior, so the absence
-// reads as inactive rather than refusing. The gate reads the pin's ref and
-// version alone and never adds a digest authority of its own: the pin's
-// digest is the owning preflight and fold checks' strict boundary, and a
-// retained pin resolves the structure it names.
+// reads as inactive rather than refusing. The owning preflight and fold
+// checks verify the pin's digest; this gate reads its declared capability.
 func workflowFailureAttributionActiveForWorkTx(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
 	var ref string
-	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}
@@ -2203,8 +2197,8 @@ func WorkerAttemptIsTerminal(attempt WorkerAttempt) bool {
 
 func workerAttemptByIDCore(ctx context.Context, q queryer, attemptID string) (WorkerAttempt, error) {
 	var attempt WorkerAttempt
-	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
-		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,
+	err := q.QueryRowContext(ctx, `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,COALESCE(failure_kind,''),COALESCE(failure_detail,''),dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(
+		&attempt.WorkID, &attempt.AttemptID, &attempt.LaneID, &attempt.LaneDigest, &attempt.CapabilityClass, &attempt.ReadbackModel, &attempt.PacketSchemaVersion, &attempt.ReportSchemaVersion, &attempt.LifecycleState, &attempt.FailureKind, &attempt.FailureDetail, &attempt.DispatchedAt, &attempt.CompletedAt, &attempt.FailedAt,
 	)
 	if err == sql.ErrNoRows {
 		return WorkerAttempt{}, newFailure(KindProjectionNotFound, "worker_attempt_read", "worker dispatch row does not exist", false, "record worker.dispatched before the worker result")

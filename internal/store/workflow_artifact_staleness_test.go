@@ -14,13 +14,13 @@ import (
 // frontier at the declared route target, the healthy-association refusal, and
 // the premise refusal.
 
-// pinWorkflowAtStep pins a work item to a registered definition version and
+// pinWorkflowAtStep initializes a work item with its current definition and
 // walks it to step, so the fold reads a real instance row.
-func pinWorkflowAtStep(t *testing.T, s *Store, workID, ref string, version int64, step string) {
+func pinWorkflowAtStep(t *testing.T, s *Store, workID, ref, step string) {
 	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	entry, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("%s version %d is not registered", ref, version)
+		t.Fatalf("%s is not registered", ref)
 	}
 	seedStepWork(t, s, workID)
 	initializeStepWorkflow(t, s, workID, entry.Definition)
@@ -128,7 +128,7 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 		if err := json.Unmarshal(event.Payload, &dispatch); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,'lane:test',1,'sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','dispatched','2026-01-02T00:00:00Z') ON CONFLICT(attempt_id) DO NOTHING`, workID, dispatch.AttemptID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','dispatched','2026-01-02T00:00:00Z') ON CONFLICT(attempt_id) DO NOTHING`, workID, dispatch.AttemptID); err != nil {
 			t.Fatal(err)
 		}
 		if err := writeWorkerDispatchFactsTx(t.Context(), tx, event, dispatch.AttemptID); err != nil {
@@ -161,7 +161,7 @@ func stalenessCapabilityDispatch(t *testing.T, s *Store, workID, attemptID strin
 // dispatched-then-accepted delivery at the named producing step.
 func stalenessSeedWorkerDeliveryAt(t *testing.T, s *Store, workID, attemptID, step string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'lane:test',1,'sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID); err != nil {
 		t.Fatal(err)
 	}
 	stalenessCapabilityDispatch(t, s, workID, attemptID)
@@ -179,7 +179,7 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	defer s.Close()
 	const workID = "unfenced-checkpoint-prefix"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "")
 	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
 		{EventID: "another-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Other checkpoint work","priority":1}`)},
 		{EventID: "another-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "another-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
@@ -251,7 +251,7 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	if target := workflowUnhealthyVerdictRouteTarget(definition, "acceptance"); target != "execution" {
 		t.Fatalf("implementation acceptance route target = %q, want execution", target)
 	}
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	// Production first: an accepted delivery at execution predates the bad
 	// verdict, so the verdict alone decides staleness.
@@ -293,7 +293,7 @@ func TestSupersessionAlonePreservesArtifact(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-supersession"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
@@ -319,7 +319,7 @@ func TestResearchProducerClearsStaleness(t *testing.T) {
 		t.Fatal("research investigate derives no artifact actions")
 	}
 	const researchWork = "stale-research"
-	pinWorkflowAtStep(t, s, researchWork, "workflow.research", research.Version, "conclude")
+	pinWorkflowAtStep(t, s, researchWork, research.Ref, "conclude")
 	stalenessSeedContract(t, s, researchWork)
 	stalenessEvent(t, s, researchWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, researchWork, research); !state.ArtifactStale {
@@ -342,7 +342,7 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-refusals"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	state := foldStalenessState(t, s, workID, definition)
@@ -415,7 +415,7 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-ok-reopen"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_delivery"))
 	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:stale-ok", "execution")
@@ -480,7 +480,7 @@ func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-production-authority"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
@@ -529,7 +529,7 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-nonproducing"
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "acceptance")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	// A health reading completed at the target step is not production.
@@ -552,7 +552,7 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	defer research.Close()
 	researchDefinition := mustBuiltinDefinition(t, "workflow.research").Definition
 	const researchWork = "stale-nonproducing-research"
-	pinWorkflowAtStep(t, research, researchWork, "workflow.research", researchDefinition.Version, "conclude")
+	pinWorkflowAtStep(t, research, researchWork, researchDefinition.Ref, "conclude")
 	stalenessSeedContract(t, research, researchWork)
 	stalenessEvent(t, research, researchWork, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if actions := workflowStepArtifactActions(researchDefinition, "investigate"); len(actions) != 1 || actions[0] != "record_finding" {
@@ -576,7 +576,7 @@ func TestSupersessionWithoutSuccessorDoesNotInventArtifactChange(t *testing.T) {
 	defer s.Close()
 	const workID = "stale-supersede-no-successor"
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	pinWorkflowAtStep(t, s, workID, definition.Ref, definition.Version, "verify")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{}`)
@@ -606,7 +606,7 @@ func TestTerminalUnhealthyVerdictReturnsThroughRouteTable(t *testing.T) {
 	if target := workflowUnhealthyVerdictRouteTarget(definition, "release"); target != "execution" {
 		t.Fatalf("implementation release declares its own unhealthy route %q; the terminal shape needs the declared route to execution", target)
 	}
-	pinWorkflowAtStep(t, s, workID, "workflow.implementation", definition.Version, "release")
+	pinWorkflowAtStep(t, s, workID, definition.Ref, "release")
 	stalenessSeedContract(t, s, workID)
 	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:terminal", "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))

@@ -36,7 +36,7 @@ func deliveryGateFixture(t *testing.T) *Store {
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,?,'delivery','running')`, registered.Definition.Version, registered.Digest); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,'delivery','running')`, registered.Digest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {

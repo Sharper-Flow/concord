@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -239,6 +240,32 @@ func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.Work
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--canonical-definition" {
+		var definition store.WorkflowDefinition
+		decoder := json.NewDecoder(os.Stdin)
+		if err := decoder.Decode(&definition); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			fmt.Fprintln(os.Stderr, "canonical definition requires one JSON object")
+			os.Exit(1)
+		}
+		canonical, err := store.CanonicalWorkflowDefinition(definition)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		digest, err := store.WorkflowDefinitionDigest(definition)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		// Keep the canonical manifest order; the digest is not hashed.
+		fmt.Printf("%s,\"digest\":%q}\n", canonical[:len(canonical)-1], digest)
+		return
+	}
 	definitions := store.BuiltinWorkflowDefinitions()
 	recovery := append(store.BuiltinWorkflowCanonicalRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
 	contracts, err := collectActionContracts(definitions, recovery)

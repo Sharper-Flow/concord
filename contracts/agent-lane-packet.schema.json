@@ -8,7 +8,6 @@
     "schema_version",
     "attempt_id",
     "lane_id",
-    "lane_version",
     "lane_digest",
     "work_id",
     "step_id",
@@ -32,11 +31,6 @@
       "type": "string",
       "minLength": 2,
       "maxLength": 32
-    },
-    "lane_version": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 2147483647
     },
     "lane_digest": {
       "type": "string",

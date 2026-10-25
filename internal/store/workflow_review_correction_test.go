@@ -245,10 +245,6 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 			t.Fatalf("%s gate has no producer return", family)
 		}
 	}
-	// The registry exposes only the current gate as executable authority.
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13); ok {
-		t.Fatal("retired closed gate remains registered")
-	}
 }
 
 // An unaccepted Review of the earlier candidate cannot authorize a candidate
@@ -378,9 +374,9 @@ func TestCurrentDeliveryGateAdmitsEvidenceBearingReturn(t *testing.T) {
 			reviewGateRequireStep(t, s, workID, "delivery")
 
 			current := mustBuiltinDefinition(t, tc.definitionRef)
-			pinnedVersion, pinnedDigest := reviewGateInstancePin(t, s, workID)
-			if pinnedVersion != current.Definition.Version || pinnedDigest != current.Digest {
-				t.Fatalf("pinned definition = v%d %s, want v%d %s", pinnedVersion, pinnedDigest, current.Definition.Version, current.Digest)
+			pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
+			if pinnedRef != current.Definition.Ref || pinnedDigest != current.Digest {
+				t.Fatalf("pinned definition = %s %s, want %s %s", pinnedRef, pinnedDigest, current.Definition.Ref, current.Digest)
 			}
 
 			// The pin advertises the corrective return, not the delivery exit.

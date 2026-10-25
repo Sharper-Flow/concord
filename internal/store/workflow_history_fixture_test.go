@@ -32,7 +32,7 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64, func() *wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: entry.Definition.Ref, Version: entry.Definition.Version, Digest: entry.Digest})
+	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: entry.Definition.Ref, Digest: entry.Digest})
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, RequiredEvidence: []string{"artifact"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}})
 	read := func() *workflowCorrectionHistory {
 		t.Helper()

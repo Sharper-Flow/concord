@@ -41,8 +41,8 @@ func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDe
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_version,definition_digest)
-SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
 DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {

@@ -210,9 +210,9 @@ func reviewSubjectSupersedeContractVersions(t *testing.T, s *Store, workID strin
 func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attemptID, sessionWorktree string) error {
 	t.Helper()
 	const stepID = "repair"
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
-	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
@@ -333,8 +333,8 @@ func viewSubject(view *WorkContextView) string {
 // so the assembly's own admission is the surface under test.
 func rawLiveDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attemptID, sessionWorktree string, job WorkerJobBinding) error {
 	t.Helper()
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
@@ -507,7 +507,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	job := WorkerJobBinding{JobID: "job:accepted-delivery-" + workID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
-	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {

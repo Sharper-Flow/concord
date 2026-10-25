@@ -257,7 +257,7 @@ func seedWorkerFindingsAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", attemptID)
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: "work-1", AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	provenanceDigest := "sha256:" + strings.Repeat("a", 64)
@@ -266,7 +266,7 @@ func seedWorkerFindingsAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 	assertion.PacketDigest = packetDigest
 	request := map[string]any{
 		"event_id": "dispatch-" + attemptID, "work_id": "work-1", "attempt_id": attemptID,
-		"readback_model": readback, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"readback_model": readback, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion, "report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest": packetDigest,
 		"host_provenance": map[string]any{

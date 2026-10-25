@@ -41,7 +41,7 @@ func TestWorkerCurrentJobFactsWithoutLog(t *testing.T) {
 			lane := reviewGateLane(t, "review")
 			base := "1111111111111111111111111111111111111111"
 			return nil, validateNativeReviewRepairTx(ctx, s.db, work, workflowActionCompletedPayload{
-				WorkerSubjectCommit: base, WorkerLaneID: lane.ID, WorkerLaneVersion: lane.Version, WorkerLaneDigest: lane.Digest, WorkerJob: binding,
+				WorkerSubjectCommit: base, WorkerLaneID: lane.ID, WorkerLaneDigest: lane.Digest, WorkerJob: binding,
 			}, &nativeReviewRepair{Base: base, Commit: "2222222222222222222222222222222222222222", ChangedPaths: []string{"internal/store/value.go"}})
 		},
 	}

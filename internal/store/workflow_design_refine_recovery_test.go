@@ -27,9 +27,9 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	t.Helper()
 	ctx := context.Background()
 	lane := reviewGateLane(t, "review")
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":" + label
-	packet := joinPacketFor(t, fixture.store, workID, "refine", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, fixture.store, workID, "refine", attemptID, "review", laneDigest)
 	binding := attachReadyWorkerJobIfJobCapable(t, fixture.store, workID, "refine", fixture.owner, packet)
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
@@ -42,7 +42,7 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest'), json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? ORDER BY seq DESC LIMIT 1`, workID).Scan(&packetDigest, &epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
+	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := fixture.store.Transact(ctx, func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(ctx, transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {

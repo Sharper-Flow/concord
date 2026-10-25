@@ -232,7 +232,7 @@ func currentSourceFrontier(t *testing.T, s *Store, workID string) int64 {
 // authorization bound at the current dispatch payload version.
 func implementDispatchEvidenceEvent(workID, attemptID string, lane LaneDefinition, job WorkerJobBinding) Event {
 	payload := WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest,
 		CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: &job,

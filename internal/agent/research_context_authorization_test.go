@@ -95,8 +95,7 @@ func researchContextRequireRefusal(t *testing.T, err error, wantKind string) {
 func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, packIDs []string) {
 	t.Helper()
 	var stepID, workflowRef, workflowDigest string
-	var definitionVersion int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&stepID, &workflowRef, &workflowDigest, &definitionVersion); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&stepID, &workflowRef, &workflowDigest); err != nil {
 		t.Fatal(err)
 	}
 	var attemptEpoch int64
@@ -113,7 +112,7 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 		"step_id": stepID, "attempt_epoch": attemptEpoch,
 		"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
 		"research_finding_refs": selections,
-		"workflow_ref":          workflowRef, "workflow_definition_version": definitionVersion, "workflow_definition_digest": workflowDigest,
+		"workflow_ref":          workflowRef, "workflow_definition_digest": workflowDigest,
 		"actor_ref":  store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1"),
 		"request_id": "request:research-context-retained",
 	}

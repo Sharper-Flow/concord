@@ -95,8 +95,8 @@ func lawChangeDomains(t *testing.T, s *Store, workID string, laws []string, bind
 // lawChangeV1Generic changes no Product truth, so its contracts carry no
 // binding and its law changes record no registry before-state.
 var (
-	lawChangeV1        = WorkflowDefinition{Ref: "workflow.law-change-test", Version: 1, ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(true)}
-	lawChangeV1Generic = WorkflowDefinition{Ref: "workflow.law-change-generic-test", Version: 1, ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(false)}
+	lawChangeV1        = WorkflowDefinition{Ref: "workflow.law-change-test", ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(true)}
+	lawChangeV1Generic = WorkflowDefinition{Ref: "workflow.law-change-generic-test", ApprovalPolicy: WorkflowApprovalPolicyConsequenceV1, ChangesProductTruth: workflowProductTruth(false)}
 )
 
 func lawChangeFields(t *testing.T, values map[string]any) map[string]json.RawMessage {
@@ -286,7 +286,7 @@ func TestLawChangeDerivationRecordsReasonAndSeriousness(t *testing.T) {
 		requireFailureKind(t, err, KindInvalidPayload, "missing reason")
 	}
 
-	if _, err := deriveLawChange(t, s, workID, WorkflowDefinition{Ref: "workflow.legacy", Version: 1}, reason, []string{"law-agent"}, nil, nil); err == nil {
+	if _, err := deriveLawChange(t, s, workID, WorkflowDefinition{Ref: "workflow.legacy"}, reason, []string{"law-agent"}, nil, nil); err == nil {
 		t.Fatal("a legacy contract accepted law_change fields")
 	}
 	if change, err := deriveLawChange(t, s, workID, lawChangeV1, map[string]json.RawMessage{}, nil, nil, []string{}); err != nil || change != nil {
@@ -1130,7 +1130,7 @@ func lawChangeConstructorItem(t *testing.T, s *Store, workID string, productChan
 		if err := json.Unmarshal(raw, &definition); err != nil {
 			t.Fatal(err)
 		}
-		definition.Ref, definition.Version, definition.ApprovalPolicy = "workflow.law-change-constructor-test", 1, WorkflowApprovalPolicyConsequenceV1
+		definition.Ref, definition.ApprovalPolicy = "workflow.law-change-constructor-test", WorkflowApprovalPolicyConsequenceV1
 		registry, registered = newResolutionRegistry(t, definition)
 	} else {
 		var err error

@@ -92,7 +92,7 @@ func workerCompleteJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbComplete, WorkID: workID, AttemptID: attemptID,
-		LaneID: resolved.ID, LaneVersion: resolved.Version, LaneDigest: resolved.Digest,
+		LaneID: resolved.ID, LaneDigest: resolved.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	evidence := make([]map[string]any, 0, len(resolved.EvidenceObligations))
@@ -113,7 +113,7 @@ func workerFailJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attem
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, FailureKind: failureKind, Nonce: nonce,
 	}
 	value := map[string]any{
@@ -131,7 +131,7 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: verb, WorkID: "work-1", AttemptID: "attempt-1",
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	request := map[string]any{
@@ -148,7 +148,6 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 		assertion.HostProvenanceDigest = provenanceDigest
 		assertion.PacketDigest = packetDigest
 		request["lane_id"] = lane.ID
-		request["lane_version"] = lane.Version
 		request["lane_digest"] = lane.Digest
 		request["packet_schema_version"] = store.WorkerPacketSchemaVersion
 		request["report_schema_version"] = store.WorkerReportSchemaVersion
@@ -196,8 +195,6 @@ func restrictWorkerEvidenceAssertion(t *testing.T, assertion agent.WorkerEvidenc
 			restricted.AttemptID = assertion.AttemptID
 		case "lane_id":
 			restricted.LaneID = assertion.LaneID
-		case "lane_version":
-			restricted.LaneVersion = assertion.LaneVersion
 		case "lane_digest":
 			restricted.LaneDigest = assertion.LaneDigest
 		case "readback_model":
@@ -238,8 +235,6 @@ func mutateWorkerEvidenceField(t *testing.T, assertion agent.WorkerEvidenceAsser
 		assertion.AttemptID = "attempt-somewhere-else"
 	case "lane_id":
 		assertion.LaneID = "lane-somewhere-else"
-	case "lane_version":
-		assertion.LaneVersion++
 	case "lane_digest":
 		assertion.LaneDigest = "sha256:" + strings.Repeat("d", 64)
 	case "readback_model":
@@ -347,7 +342,7 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	}
 	request["failure_attribution"] = observation
 	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, func(a *agent.WorkerEvidenceAssertion) {
-		a.LaneID, a.LaneVersion, a.LaneDigest = "", 0, ""
+		a.LaneID, a.LaneDigest = "", ""
 	})
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "does not bind this attempt identity") {
@@ -894,7 +889,7 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 	overwrite := fmt.Sprintf(`{"event_id":"fail-after-complete","work_id":"work-1","attempt_id":"attempt-1","readback_model":%q,"failure_kind":%q,"detail":"late failure","assertion":%s}`,
 		preferredLaneModel(lane), store.WorkerFailureFallbackBlocked, mustJSON(t, signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 			Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: "attempt-1",
-			LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			LaneID: lane.ID, LaneDigest: lane.Digest,
 			ReadbackModel: preferredLaneModel(lane), FailureKind: string(store.WorkerFailureFallbackBlocked),
 			Nonce: "nonce-fail-afterterminal",
 		})))
@@ -1028,7 +1023,7 @@ func TestWorkerDispatchRefusesMismatchedPacketDigest(t *testing.T) {
 		assertion := agent.WorkerEvidenceAssertion{
 			ClientRef: workerEvidenceClientRef, Verb: agent.WorkerEvidenceVerbDispatch,
 			WorkID: "work-1", AttemptID: "attempt-1", LaneID: lane.ID,
-			LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			LaneDigest:           lane.Digest,
 			ReadbackModel:        preferredLaneModel(lane),
 			HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
 			PacketDigest:         "sha256:" + strings.Repeat("0", 64),
@@ -1242,7 +1237,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?, 'project-1', ?, 'work/dispatch', ?, ?, 'repo-1', 'active', '2026-08-22T00:00:00Z', '{}')`, store.WorktreeSetID(workID), "claim-"+attemptID, strings.Repeat("a", 40), worktreePath); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', 4, ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	seedCLIAuthorization(t, tx, workID, attemptID, actorRef, startPayload, completionPayload)

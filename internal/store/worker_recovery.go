@@ -114,8 +114,8 @@ func WorkerRecoveryContextTx(ctx context.Context, transaction *Transaction, work
 	// recovery prerequisites. An unresolvable lane digest, or a recorded pair
 	// no released revision ever produced, refuses typed before any recovery
 	// worker, replacement attempt, or recomputed digest can exist.
-	if _, laneErr := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest); laneErr != nil {
-		return result, wrapFailure(KindLaneDefinitionNotRegistered, "worker_recovery", "the recorded lane definition of the original attempt no longer resolves", false, "recover against the retained release that registered the original lane", laneErr)
+	if _, laneErr := LookupLane(attempt.LaneID, attempt.LaneDigest); laneErr != nil {
+		return result, laneErr
 	}
 	if !workerMatchedSchemaVersions[result.Dispatch.PacketSchemaVersion] || !workerMatchedSchemaVersions[result.Dispatch.ReportSchemaVersion] || result.Dispatch.PacketSchemaVersion != result.Dispatch.ReportSchemaVersion {
 		return result, newFailure(KindInvariantViolation, "worker_recovery", "the recorded dispatch carries a packet/report schema pair no released revision produced", false, "restore the original recorded dispatch; never relabel or recompute retained schema identity")

@@ -35,7 +35,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 	dispatch := Event{
 		EventID: "dispatch-1", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "authority-work",
 		Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-			AttemptID: "dispatch-1", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			AttemptID: "dispatch-1", LaneID: lane.ID, LaneDigest: lane.Digest,
 			CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 			PacketDigest: "sha256:" + strings.Repeat("b", 64),
@@ -152,7 +152,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	}
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
@@ -224,7 +224,7 @@ func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, string) {
 	}
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
 	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
@@ -640,7 +640,7 @@ func seedFailedLaneAtExecution(t *testing.T, workID string) (*Store, WorkflowAct
 		t.Fatal(err)
 	}
 	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
@@ -688,7 +688,7 @@ func TestActionFailedSameAuthority(t *testing.T) {
 	}
 
 	nextDispatch := Event{EventID: "dispatch-2-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
-		"attempt_id": "attempt:2:" + workID, "lane_id": BuiltinLaneDefinitions()[0].ID, "lane_version": BuiltinLaneDefinitions()[0].Version, "lane_digest": BuiltinLaneDefinitions()[0].Digest,
+		"attempt_id": "attempt:2:" + workID, "lane_id": BuiltinLaneDefinitions()[0].ID, "lane_digest": BuiltinLaneDefinitions()[0].Digest,
 		"capability_class": BuiltinLaneDefinitions()[0].CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("d", 64), "readback_model": preferredModelForLane(BuiltinLaneDefinitions()[0]), "lane_actor_ref": laneRef,
 	})}
@@ -1118,7 +1118,7 @@ func seedDispatchedWorkerAtExecution(t *testing.T, workID string) (*Store, strin
 	dispatch := Event{
 		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-			AttemptID: "dispatch-" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			AttemptID: "dispatch-" + workID, LaneID: lane.ID, LaneDigest: lane.Digest,
 			CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 			PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 			PacketDigest: "sha256:" + strings.Repeat("b", 64),
@@ -1290,7 +1290,7 @@ func TestWorkerAuthorizePersistsRegistryCurrentDispatchVersion(t *testing.T) {
 	seedWork(t, s, "version-dispatch")
 	seedWorkflowLaw(t, s)
 	lane := BuiltinLaneDefinitions()[0]
-	dispatch := Event{EventID: "version-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "version-dispatch", Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:version-dispatch", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("d", 64)})}
+	dispatch := Event{EventID: "version-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "version-dispatch", Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:version-dispatch", LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("d", 64)})}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatch, "principal/operator", "client/concord-1")
 		if err != nil {
@@ -1347,7 +1347,7 @@ func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	// A current attempt refuses a completion that claims a retired report schema.
 	s2, pairWorkerRef := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
 	recordWorkerFixtureDispatchAuthorization(t, s2, "mixed-pair-current", "dispatch-mixed-pair-current-2", "execution", pairWorkerRef)
-	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{currentDispatch}}); err != nil {
 		t.Fatalf("current-pair dispatch refused: %v", err)
 	}

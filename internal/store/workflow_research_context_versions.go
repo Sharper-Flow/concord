@@ -9,5 +9,3 @@ func researchContextSelectionField() WorkflowPayloadField {
 }
 
 var researchContextSelection = withAppendedPayloadField(researchContextSelectionField)
-
-const researchContextPacketSchema = "worker_packet3"

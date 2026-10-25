@@ -14,8 +14,8 @@ func seedCompletedProducerOperation(t *testing.T, s *Store, workID, opID, reques
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		opID, 1, workID, "workflow.break_fix", 1, "repair", "external_effect", "sha256:"+strings.Repeat("c", 64), "", principal, requestID, "2026-09-17T00:00:00Z", "completed", `["`+recordedLocator+`"]`, "sha256:"+strings.Repeat("d", 64))
+	_, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		opID, 1, workID, "workflow.break_fix", mustBuiltinDefinition(t, "workflow.break_fix").Digest, "repair", "external_effect", "sha256:"+strings.Repeat("c", 64), "", principal, requestID, "2026-09-17T00:00:00Z", "completed", `["`+recordedLocator+`"]`, "sha256:"+strings.Repeat("d", 64))
 	if err != nil {
 		t.Fatal(err)
 	}

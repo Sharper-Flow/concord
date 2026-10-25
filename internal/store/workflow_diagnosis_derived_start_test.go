@@ -131,16 +131,13 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if breakFix.Definition.Version < 25 {
-		t.Fatalf("workflow.break_fix current version = %d, want >= 25 (CON-890 owns 24)", breakFix.Definition.Version)
-	}
 	definition := breakFix.Definition
 	if definition.StepGraph.StartStep != "diagnosis" {
 		t.Fatalf("break_fix start step = %q, want diagnosis", definition.StepGraph.StartStep)
 	}
 	for _, retired := range []string{"reproduce", "alignment", "diagnose"} {
 		if workflowStep(definition, retired) != nil {
-			t.Fatalf("break_fix v%d still declares the %q step; CD-0198 D2 folds it into diagnosis", definition.Version, retired)
+			t.Fatalf("break_fix still declares the %q step; CD-0198 D2 folds it into diagnosis", retired)
 		}
 	}
 	if workflowStep(definition, "planning") == nil || workflowStep(definition, "repair") == nil || workflowStep(definition, "verify") == nil {
@@ -160,7 +157,7 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 	}
 	for _, step := range definition.StepGraph.Steps {
 		if slices.Contains(step.Actions, "start_repair") || slices.Contains(step.Actions, "start_refine") {
-			t.Fatalf("break_fix v%d step %q still declares a callable start; CD-0198 D3 derives it", definition.Version, step.ID)
+			t.Fatalf("break_fix step %q still declares a callable start; CD-0198 D3 derives it", step.ID)
 		}
 	}
 	if !slices.Contains(definition.AvailableActions, "record_diagnosis") {
@@ -168,16 +165,13 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 	}
 	for _, retired := range []string{"record_reproduction", "record_alignment", "record_root_cause", "start_repair", "start_refine"} {
 		if slices.Contains(definition.AvailableActions, retired) {
-			t.Fatalf("break_fix v%d still advertises %s", definition.Version, retired)
+			t.Fatalf("break_fix still advertises %s", retired)
 		}
 	}
 
 	implementation, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if implementation.Definition.Version < 28 {
-		t.Fatalf("workflow.implementation current version = %d, want >= 28 (CON-890 owns 27)", implementation.Definition.Version)
 	}
 	implDefinition := implementation.Definition
 	if got := workflowNextStep(implDefinition, "proposal"); got != "alignment" {
@@ -187,11 +181,11 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 		t.Fatalf("implementation alignment advance exits are %v, want exactly [record_alignment]", exits)
 	}
 	if slices.Contains(implDefinition.AvailableActions, "start_refine") {
-		t.Fatalf("implementation v%d still advertises start_refine; CD-0198 D3 derives the refine start", implDefinition.Version)
+		t.Fatal("implementation still advertises start_refine; CD-0198 D3 derives the refine start")
 	}
 	for _, step := range implDefinition.StepGraph.Steps {
 		if slices.Contains(step.Actions, "start_refine") {
-			t.Fatalf("implementation v%d step %q still declares start_refine", implDefinition.Version, step.ID)
+			t.Fatalf("implementation step %q still declares start_refine", step.ID)
 		}
 	}
 	if !slices.Contains(implDefinition.AvailableActions, "start_execution") {
@@ -412,7 +406,7 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !workflowRefineProofGateActive(entry.Definition, "refine") {
-			t.Fatalf("%s v%d does not gate the refine proof at refine", family.ref, entry.Definition.Version)
+			t.Fatalf("%s does not gate the refine proof at refine", family.ref)
 		}
 		checkpointer := diagnosisS1Actor(workID, "checkpointer")
 		if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, checkpointer); err != nil {
@@ -746,7 +740,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 	} else {
 		job = nil
 	}
-	packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Digest)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, stepID, attemptID)
 	if err != nil {
 		t.Fatalf("read the open correction for %s: %v", attemptID, err)
@@ -778,7 +772,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
 	dispatch := Event{EventID: "diagnosis-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {

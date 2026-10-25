@@ -717,7 +717,7 @@ func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.
 			defer s.Close()
 			seedBootstrapStoreAuthority(t, s, repo)
 			origin := liveBootstrapOrigin(t, s, "bootstrap-origin-"+state+"-combined")
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',1,?,'implementation','','1.0','1.0',?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64), state); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',?,'implementation','','1.0','1.0',?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64), state); err != nil {
 				t.Fatal(err)
 			}
 			_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
@@ -762,7 +762,7 @@ func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
 	defer s.Close()
 	seedBootstrapStoreAuthority(t, s, repo)
 	origin := terminalBootstrapOrigin(t, s, "bootstrap-origin-dispatched")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open','implement',1,?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open','implement',?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)

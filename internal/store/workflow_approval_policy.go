@@ -144,7 +144,7 @@ func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *Wor
 	default:
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("definition %s action %s declares unknown approval %q", definition.Ref, actionID, string(declared.Approval)), false, "declare none, conditional, or required")
 	}
-	reason := fmt.Sprintf("legacy policy: %s v%d declares approval %s for %s", definition.Ref, definition.Version, consent, actionID)
+	reason := fmt.Sprintf("legacy policy: %s declares approval %s for %s", definition.Ref, consent, actionID)
 	if facts.OperatorRequired && workflowOperatorVerdictActions[actionID] {
 		consent = WorkflowConsentRequired
 		reason = fmt.Sprintf("legacy policy: WorkflowOperatorRequired on %s requires an operator approval", actionID)
@@ -158,7 +158,7 @@ func classifyLegacyWorkflowApproval(definition WorkflowDefinition, declared *Wor
 // and routine for everything else. No executor override substitutes an
 // operator, and no work attribute infers scope.
 func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, actionID string, facts WorkflowApprovalFacts) (WorkflowApprovalPolicyResult, error) {
-	pin := fmt.Sprintf("%s v%d", definition.Ref, definition.Version)
+	pin := definition.Ref
 	if facts.Destructive != "" {
 		return WorkflowApprovalPolicyResult{Policy: WorkflowApprovalPolicyConsequenceV1, Class: WorkflowApprovalClassDestructive, Consent: WorkflowConsentRequired,
 			Reason: fmt.Sprintf("consequence_v1: %s on %s performs the irreversible effect %q and requires an exact approval", actionID, pin, string(facts.Destructive))}, nil
@@ -191,7 +191,7 @@ func classifyConsequenceV1WorkflowApproval(definition WorkflowDefinition, action
 // must declare the fact, where [] records engineering and a nonempty
 // canonical set records decision-bearing work.
 func classifyConsequenceV1Decision(definition WorkflowDefinition, actionID, role string, domains []string, seriousLawChange bool) (WorkflowApprovalPolicyResult, error) {
-	pin := fmt.Sprintf("%s v%d", definition.Ref, definition.Version)
+	pin := definition.Ref
 	if domains == nil {
 		return WorkflowApprovalPolicyResult{}, newFailure(KindInvalidInput, "workflow_approval_policy", fmt.Sprintf("consequence_v1 %s on %s requires the %s decision-domain fact; absence is a legacy shape", actionID, pin, role), false, "declare the contract's decision domains explicitly")
 	}

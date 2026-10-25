@@ -30,7 +30,7 @@ func workflowEvidenceGapDefinition() WorkflowDefinition {
 	}
 	actions := []string{"accept_worker_result", "approve_contract", "complete"}
 	return WorkflowDefinition{
-		Ref: "workflow.evidence_gap", Version: 1, WorkKind: WorkKindGenericOneOff, ChangesProductTruth: &changesProductTruth,
+		Ref: "workflow.evidence_gap", WorkKind: WorkKindGenericOneOff, ChangesProductTruth: &changesProductTruth,
 		StepGraph:             WorkflowStepGraph{StartStep: "gate", TerminalSteps: []string{"complete"}, Steps: steps, Edges: edges},
 		AvailableActions:      actions,
 		ActionDefinitions:     actionDefinitions(actions, false),

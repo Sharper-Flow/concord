@@ -469,7 +469,7 @@
     },
     {
      "kind": "go_test",
-     "value": "internal/store.TestInFlightWorkflowSurvivesDefinitionVersionSupersession"
+     "value": "internal/store.TestInFlightWorkflowSurvivesDefinitionContentChange"
     }
    ]
   },

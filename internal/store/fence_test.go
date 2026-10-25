@@ -17,7 +17,7 @@ func testDigest(value string) string {
 }
 
 func testClaim(opID, key string) ClaimRequest {
-	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", WorkflowTypeVersion: 1, StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest}
+	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest}
 }
 
 func countRows(t *testing.T, s *Store, table string) int {

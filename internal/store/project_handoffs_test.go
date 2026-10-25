@@ -170,7 +170,7 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	}
 	setup := []Event{
 		workflowEventWithActor("ph-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
 		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+3, "frame", "approve_contract"),
 	}
@@ -848,8 +848,8 @@ func seedOrphanWorkerAttemptRow(t *testing.T, s *Store, workID, attemptID string
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), WorkerPacketSchemaVersion, WorkerReportSchemaVersion, "2026-09-30T00:00:00Z"); err != nil {
+		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), WorkerPacketSchemaVersion, WorkerReportSchemaVersion, "2026-09-30T00:00:00Z"); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -917,14 +917,14 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	identity := workerFixtureWorktreeIdentity(t, f.store, f.workID)
 	started := workflowEventWithActor("ph-dispatch-start-"+attemptID, WorkflowActionStarted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch:" + attemptID, "actor_ref": actorRef, "execution_model": preferredModelForLane(lane)})
-	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
+	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
 	if err := applyWorkflowTestOperation(ctx, f.store, Operation{Events: []Event{started, completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
 		t.Fatal(err)
 	}
 	// The worker evidence stamps its Actor column with the authenticated
 	// client/principal identity the worker-evidence boundary records, which
 	// is never the dispatching session reference.
-	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}

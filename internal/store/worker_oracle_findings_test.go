@@ -156,7 +156,7 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 	job := recordOracleJobRevision(t, s, workID, f.owner, "job:real-packet", twoPathOracleFields(t, s, workID, nil))
 	lane := reviewGateLane(t, "implementation")
 	attempt := "attempt:" + workID
-	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	contextView, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {
@@ -651,7 +651,7 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 		"worker_job":                  map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
 		"worker_packet_digest":        "sha256:" + strings.Repeat("d", 64),
 		"worker_packet_predicate_ids": []string{},
-		"worker_lane_id":              lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass,
+		"worker_lane_id":              lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass,
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{authorization}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("authorize oracle attempt %s: %v", attemptID, err)
@@ -678,11 +678,10 @@ func seedNativeRunForTest(t *testing.T, s *Store, workID, runID string) {
 func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey string, build func(payload *WorkerCompletedPayload)) Event {
 	t.Helper()
 	var laneID, laneDigest string
-	var laneVersion int64
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneDigest); err != nil {
 		t.Fatalf("read attempt lane for %s: %v", attemptID, err)
 	}
-	lane, err := LookupLane(laneID, laneVersion, laneDigest)
+	lane, err := LookupLane(laneID, laneDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1517,7 +1516,7 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	oracleDispatchAttempt(t, f, workID, attempt4, nil, &rev4)
 	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
 	lane := reviewGateLane(t, "implementation")
-	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":5", lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":5", lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, renamedBinding, "implement")
 	before, versionBefore := workerProjectionSnapshot(t, s), readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, "attempt:"+workID+":5", f.owner, "renamed-job-refusal", packet); !hasFailureKind(err, KindMissingEvidence) {

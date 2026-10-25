@@ -15,8 +15,8 @@ func seedBackupCurrentState(t *testing.T, s *Store) {
 	t.Helper()
 	seedWork(t, s, "snapshot-active-work")
 	_, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES('snapshot-active-work','attempt:snapshot','implement',1,?,'engineering','','2.0','2.0','in_flight','2026-10-22T00:00:00Z');
+		INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES('snapshot-active-work','attempt:snapshot','implement',?,'engineering','','2.0','2.0','in_flight','2026-10-22T00:00:00Z');
 		DELETE FROM write_guard`, "sha256:"+strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)

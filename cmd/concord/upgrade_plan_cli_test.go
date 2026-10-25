@@ -609,7 +609,7 @@ const (
 )
 
 // Only an unsupported family selects nonterminal work for this disposition.
-// Old version metadata on a current family is not a separate definition.
+// An old content digest on a current family is not an unsupported family.
 var cutoverSelectedWorks = []string{cutoverArchivedPinWork}
 var cutoverSparedWorks = []string{cutoverOldContractWork, cutoverCanonicalWork, cutoverTerminalHistoryWork, cutoverSupersededContractWork}
 
@@ -679,17 +679,17 @@ func cutoverFixtureActor(workID string) store.WorkflowActor {
 
 // cutoverFixtureContract inserts one contract pin row for a work item under
 // the write guard, the shape an approval leaves behind.
-func cutoverFixtureContract(workID string, contractVersion int64, ref string, definitionVersion int64, digest string) string {
+func cutoverFixtureContract(workID string, contractVersion int64, ref string, digest string) string {
 	return fmt.Sprintf(`INSERT INTO workflow_contracts
-		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_version,definition_digest)
+		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_digest)
 		VALUES('%s',%d,'cutover contract pin','internal_sqlite','[]','[]','2026-10-12T00:00:00Z',
-		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','%s',%d,'%s')`,
-		workID, contractVersion, ref, definitionVersion, digest)
+		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','%s','%s')`,
+		workID, contractVersion, ref, digest)
 }
 
 // This row represents stored metadata, not an executable archived definition.
 func cutoverFixtureArchivedInstance(workID string) string {
-	return fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='workflow.generic_one_off',definition_version=1,definition_digest='%s' WHERE work_id='%s'`, "sha256:"+strings.Repeat("a", 64), workID)
+	return fmt.Sprintf(`UPDATE workflow_instances SET definition_ref='workflow.generic_one_off',definition_digest='%s' WHERE work_id='%s'`, "sha256:"+strings.Repeat("a", 64), workID)
 }
 
 // seedCutoverPinStore builds one fully migrated temporary store whose
@@ -736,11 +736,11 @@ func seedCutoverPinStore(t *testing.T, path string) {
 	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		cutoverFixtureArchivedInstance(cutoverArchivedPinWork),
 		cutoverFixtureArchivedInstance(cutoverTerminalHistoryWork),
-		// Both active and superseded old-version metadata must leave a
+		// Both active and superseded old-digest metadata must leave a
 		// current-family item outside the cancellation population.
-		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
-		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, "sha256:"+strings.Repeat("b", 64)),
-		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", canonical.Definition.Version, canonical.Digest),
+		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", "sha256:"+strings.Repeat("b", 64)),
+		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", canonical.Digest),
 		fmt.Sprintf(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='%s' AND contract_version=1`, cutoverSupersededContractWork),
 	)
 	// A terminal item with archived metadata is not selected again. Record
@@ -1294,7 +1294,16 @@ func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
 	}
 	for _, table := range tables {
 		common := sharedColumns(t, readTx, writeTx, table)
-		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(common, ",")+` FROM `+table)
+		selectColumns := append([]string(nil), common...)
+		if table == "workflow_instances" {
+			// Schema 122 requires a positive definition counter with no default.
+			// This fixture-only value fills that historical shape; the copied
+			// ref and digest remain the identity; the content-identity migration
+			// retires the counter.
+			common = append(common, "definition_version")
+			selectColumns = append(selectColumns, "1")
+		}
+		rows, err := readTx.QueryContext(ctx, `SELECT `+strings.Join(selectColumns, ",")+` FROM `+table)
 		if err != nil {
 			t.Fatalf("cannot read the seeded %s rows: %v", table, err)
 		}

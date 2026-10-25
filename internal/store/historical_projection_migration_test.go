@@ -152,7 +152,7 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 	attemptBytes := func(attempt string) string {
 		t.Helper()
 		var row string
-		if err := db.QueryRowContext(ctx, `SELECT json_array(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) FROM worker_attempts WHERE attempt_id=?`, attempt).Scan(&row); err != nil {
+		if err := db.QueryRowContext(ctx, `SELECT json_array(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) FROM worker_attempts WHERE attempt_id=?`, attempt).Scan(&row); err != nil {
 			t.Fatal(err)
 		}
 		return row

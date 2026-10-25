@@ -21,7 +21,7 @@ func TestPredispatchContractCorrectionPreservesExecutionIdentity(t *testing.T) {
 	definition := workflowFixtureDefinition(t, 2)
 	events := []Event{
 		workflowEvent("predispatch-owner", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("predispatch-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEvent("predispatch-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
 		workflowActionCompletedFixture("predispatch-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("predispatch-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("predispatch-design", workID, ownerRef, 6, "design", "record_design"),

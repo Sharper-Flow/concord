@@ -315,7 +315,7 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 	}
 	job := &store.WorkerJobBinding{JobID: ready[0].JobID, Revision: ready[0].Revision, Digest: ready[0].Digest}
 	packet := bindPacketToRecordedState(t, f.s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion,
-		"attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"attempt_id": attempt, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{}})
 	if correction := f.read(t).Pinned.Pin.Correction; correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
@@ -335,7 +335,7 @@ func (f *spineFixture) startWorker(t *testing.T, laneID, attempt string) (store.
 	epoch := state.Pinned.Pin.Attempt.Epoch
 	dispatch := store.Event{EventID: "spine-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,
 		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
-			AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+			AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 			PacketDigest: f.packetDigest, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := f.s.Transact(ctx, func(tx *store.Transaction) error {
 		pair, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, f.env.PrincipalRef, f.env.ClientRef)

@@ -17,13 +17,12 @@ import (
 func oracleCapablePinForWork(t *testing.T, s *Store, workID string) bool {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatalf("read pinned definition for %s: %v", workID, err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	return workflowOwnerOracleActive(registered.Definition)
 }
@@ -486,7 +485,7 @@ func TestOwnerOracleImmutableProjection(t *testing.T) {
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 	lane := reviewGateLane(t, "implementation")
 	attemptID := "attempt:" + workID
-	packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(views[0])
 	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err != nil {
 		t.Fatalf("recorded-oracle packet refused: %v", err)

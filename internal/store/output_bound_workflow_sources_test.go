@@ -285,7 +285,7 @@ func init() {
 	// Work context domain groups: one group per distinct Domain across the
 	// readings and the finding slots; the partition members ride the view
 	// bounds they partition.
-	domainGroupDefs := []string{"work_context_domain_group", "work_context_domain_group2", "work_context_domain_group3"}
+	domainGroupDefs := []string{"work_context_domain_group"}
 	for _, def := range domainGroupDefs {
 		registerOutputBound("/$defs/"+def+"/properties/domain_id/maxLength", domainIDMaxBytes)
 		registerOutputBound("/$defs/"+def+"/properties/finding_ids/maxItems", viewFindingsMax)
@@ -349,11 +349,9 @@ func init() {
 	registerOutputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength",
 		inputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength"))
 
-	// Work context view: the read parents' retained twin and the two packet
-	// variants render one shared assembly, so each row cites the same
-	// source; the unversioned view is output only through its twin. The subject
-	// commit rides the inline 40..64 lowercase-hex guard.
-	viewDefs := []string{"retained_work_context_view", "work_context_view2", "work_context_view3"}
+	// CD-0242 D14: the current packet and read twin share the same assembly.
+	// The subject commit rides the inline 40..64 lowercase-hex guard.
+	viewDefs := []string{"retained_work_context_view", "work_context_view"}
 	for _, def := range viewDefs {
 		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
 			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
@@ -368,7 +366,7 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}
 	registerOutputBound("/$defs/retained_work_context_view/properties/research_findings/maxItems", viewFindingsMax)
-	registerOutputBound("/$defs/work_context_view3/properties/research_findings/maxItems", viewFindingsMax)
+	registerOutputBound("/$defs/work_context_view/properties/research_findings/maxItems", viewFindingsMax)
 
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each

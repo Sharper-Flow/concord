@@ -343,13 +343,12 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		// digest, the pin the carry forward retained, never a freshly made
 		// definition shape.
 		var carriedRef, carriedDigest string
-		var carriedVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedDigest); err != nil {
 			t.Fatal(err)
 		}
-		definitionEntry, ok := registry.Lookup(carriedRef, carriedVersion)
+		definitionEntry, ok := registry.Current(carriedRef)
 		if !ok || definitionEntry.Digest != carriedDigest {
-			t.Fatalf("the carried pin %s@%d %s does not resolve in the caller registry", carriedRef, carriedVersion, carriedDigest)
+			t.Fatalf("the carried pin %s %s does not resolve in the caller registry", carriedRef, carriedDigest)
 		}
 		// The store pools one connection: the version reads before the
 		// transaction opens, never beside it.
@@ -362,7 +361,7 @@ func TestApprovalPolicyLiveness(t *testing.T) {
 		if confirmationErr != nil {
 			t.Fatal(confirmationErr)
 		}
-		noActionQuestion, noActionWithheld, noActionErr := workflowOperatorQuestionForDefinitionTx(context.Background(), tx, workID, "execution", noActionVersion, definitionEntry.Definition, WorkflowReadDefinition{Ref: definitionEntry.Definition.Ref, Version: definitionEntry.Definition.Version, Digest: definitionEntry.Digest}, WorkflowReadContract{}, confirmation)
+		noActionQuestion, noActionWithheld, noActionErr := workflowOperatorQuestionForDefinitionTx(context.Background(), tx, workID, "execution", noActionVersion, definitionEntry.Definition, WorkflowReadDefinition{Ref: definitionEntry.Definition.Ref, Digest: definitionEntry.Digest}, WorkflowReadContract{}, confirmation)
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			t.Fatal(rollbackErr)
 		}
@@ -467,7 +466,7 @@ func workflowRetryDispatchCompletion(workID, actorRef string, expected int64, la
 		"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
 		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 2,
 		"worker_attempt_id": "attempt:approval-retry", "result_evidence_refs": []string{}, "changed_refs": []string{workID},
-		"worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest,
+		"worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest,
 		"worker_capability_class": lane.CapabilityClass, "actor_ref": actorRef,
 	})
 	return event

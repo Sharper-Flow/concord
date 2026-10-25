@@ -157,9 +157,6 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", tooWide); err == nil {
 		t.Fatal("the current version admitted more than sixteen out_of_scope entries")
 	}
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 21); ok {
-		t.Fatal("retired implementation definition remains executable")
-	}
 
 	s := openTemp(t)
 	defer s.Close()

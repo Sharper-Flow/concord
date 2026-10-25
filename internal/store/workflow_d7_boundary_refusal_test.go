@@ -81,7 +81,7 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 				struct {
 					query string
 					args  []any
-				}{`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, ?, 'running', '2026-08-19T00:00:00Z')`, []any{otherID, "sha256:" + strings.Repeat("e", 64), step}},
+				}{`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, ?, 'running', '2026-08-19T00:00:00Z')`, []any{otherID, "sha256:" + strings.Repeat("e", 64), step}},
 			)
 		}
 		statements = append(statements,
@@ -428,7 +428,7 @@ func TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := ClaimRequest{
-		OpID: "op:d7-claim", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeVersion: 2,
+		OpID: "op:d7-claim", WorkID: workID, WorkflowTypeRef: workflowFixtureRef, WorkflowTypeDigest: mustBuiltinDefinition(t, workflowFixtureRef).Digest,
 		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{"work_id":"` + workID + `"}`, PrincipalRef: "principal/operator", Tool: "concord_work_transition",
 		IdempotencyKey: "d7-claim", RequestID: "request:d7-claim", ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest,

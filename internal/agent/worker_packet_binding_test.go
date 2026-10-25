@@ -196,13 +196,12 @@ func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) bool {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := store.BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	for _, action := range registered.Definition.ActionDefinitions {
 		if action.ID != "record_worker_job" {
@@ -408,7 +407,7 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 		leaseID, workID, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, string(commandJSON), string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject lease: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify',1,'worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
+	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify','','worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
 		"worktree_verify:"+leaseID, workID, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
 	}

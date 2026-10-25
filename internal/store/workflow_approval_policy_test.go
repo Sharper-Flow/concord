@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -20,7 +19,7 @@ func approvalPolicyDefinition(policy string, actions ...string) WorkflowDefiniti
 		definitions = append(definitions, WorkflowActionDefinition{ID: id, Consequence: ActionInternalSQLite, Approval: ActionApprovalNone})
 	}
 	changes := false
-	return WorkflowDefinition{Ref: "workflow.approval_policy_fixture", Version: 1, WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &changes, ApprovalPolicy: policy, AvailableActions: actions, ActionDefinitions: definitions}
+	return WorkflowDefinition{Ref: "workflow.approval_policy_fixture", WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &changes, ApprovalPolicy: policy, AvailableActions: actions, ActionDefinitions: definitions}
 }
 
 // canonicalDecisionDomainSets enumerates all eight canonical decision-domain
@@ -255,32 +254,24 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		}
 	})
 
-	t.Run("engineering consequence generations retain their declared policy", func(t *testing.T) {
+	t.Run("engineering definitions retain their declared policy", func(t *testing.T) {
 		t.Parallel()
-		generations := map[string][]int64{
-			"workflow.implementation": {34, 35, 36, 37},
-			"workflow.break_fix":      {31, 32, 33, 34},
-			"workflow.research":       {21, 22},
-		}
-		live := map[string]int64{}
+		live := map[string]bool{}
 		for _, head := range BuiltinWorkflowDefinitions() {
-			live[head.Ref] = head.Version
+			live[head.Ref] = true
 		}
 		for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
 			if _, ok := live[ref]; !ok {
 				t.Fatalf("%s is not a live authoring head", ref)
 			}
-			if !slices.Contains(generations[ref], live[ref]) {
-				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
-			}
 		}
 		for _, definition := range BuiltinWorkflowDefinitions() {
 			want := ""
-			if slices.Contains(generations[definition.Ref], definition.Version) {
+			if definition.Ref == "workflow.implementation" || definition.Ref == "workflow.break_fix" || definition.Ref == "workflow.research" {
 				want = WorkflowApprovalPolicyConsequenceV1
 			}
 			if definition.ApprovalPolicy != want {
-				t.Errorf("registered %s v%d carries approval policy %q, want %q", definition.Ref, definition.Version, definition.ApprovalPolicy, want)
+				t.Errorf("registered %s carries approval policy %q, want %q", definition.Ref, definition.ApprovalPolicy, want)
 			}
 		}
 	})
@@ -324,7 +315,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if registered.Digest != declaredDigest {
 			t.Fatalf("registered digest = %s, want %s", registered.Digest, declaredDigest)
 		}
-		if err := registry.Verify(declared.Ref, declared.Version, declaredDigest); err != nil {
+		if err := registry.Verify(declared.Ref, declaredDigest); err != nil {
 			t.Fatalf("declared digest did not verify: %v", err)
 		}
 		encoded, err := json.Marshal(declared)
@@ -349,9 +340,9 @@ func legacyApprovalPolicyHeads(t *testing.T) []WorkflowDefinition {
 
 func headDigestForTest(t *testing.T, definition WorkflowDefinition) string {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+	registered, ok := BuiltinWorkflowRegistry().Current(definition.Ref)
 	if !ok {
-		t.Fatalf("builtin head %s v%d is not registered", definition.Ref, definition.Version)
+		t.Fatalf("builtin head %s is not registered", definition.Ref)
 	}
 	return registered.Digest
 }

@@ -1,11 +1,9 @@
 {
   "schema_version": "1.0",
   "registry": "agent_primary_profiles",
-  "version": 1,
   "profiles": [
     {
       "id": "Concord-RTE",
-      "version": 1,
       "description": "Concord-RTE — optional coordination for busy Product or Project work; sequences conflicts, keeps Linear current, and reports ship status, deciding only the choices sessions bring to it.",
       "role_source": ".concord/roles/rte.md",
       "tools": {
@@ -31,7 +29,6 @@
     },
     {
       "id": "Concord",
-      "version": 1,
       "description": "Concord — self-sufficient primary agent; owns design, engineering, tests, review, law, publication, CI, deployment, and planning for its item. No RTE session required.",
       "role_source": ".concord/roles/concord.md",
       "tools": {
@@ -57,7 +54,6 @@
     },
     {
       "id": "Concord-Planner",
-      "version": 1,
       "description": "Concord-Planner — optional research and backlog refinement; reads code and law, writes only under .planning/, and updates Linear within approved scope. Never edits other files, publishes, or advances managed work.",
       "role_source": ".concord/roles/planner.md",
       "tools": {

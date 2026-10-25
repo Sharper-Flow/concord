@@ -209,7 +209,7 @@ func TestUnrelatedAcceptedJobPreservesDerivedFailureSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !workflowDerivedWorkerFailureActive(head.Definition) {
-		t.Fatalf("retained head %s@%d does not derive the failure record from the terminal event", head.Definition.Ref, head.Definition.Version)
+		t.Fatalf("current head %s %s does not derive the failure record from the terminal event", head.Definition.Ref, head.Digest)
 	}
 	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
@@ -446,7 +446,7 @@ func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID str
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
 	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
 		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
 	})}
 	return s.Transact(context.Background(), func(transaction *Transaction) error {
@@ -559,11 +559,10 @@ func completeAndAcceptAttempt(t *testing.T, s *Store, workID, attemptID string, 
 // and the evidence obligations its report must discharge.
 func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDefinition, job *WorkerJobBinding) error {
 	var laneID, laneDigest string
-	var laneVersion int64
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneDigest); err != nil {
 		return err
 	}
-	lane, err := LookupLane(laneID, laneVersion, laneDigest)
+	lane, err := LookupLane(laneID, laneDigest)
 	if err != nil {
 		return err
 	}
@@ -847,8 +846,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
 		t.Run(family, func(t *testing.T) {
 			const workID = "worker-job-refine-local-accept"
-			definition := mustBuiltinDefinition(t, family)
-			f := acceptDeliveryFixtureFor(t, workID, family, definition.Definition.Version, "refine", "start_refine")
+			f := acceptDeliveryFixtureFor(t, workID, family, "refine", "start_refine")
 			s := f.fixture.store
 			defer s.Close()
 			owner := f.fixture.owner
@@ -913,13 +911,12 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 func testWorkPinCallerCapable(t *testing.T, s *Store, workID string) bool {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatalf("read pinned definition for %s: %v", workID, err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	return workflowCallerScopeActive(registered.Definition)
 }

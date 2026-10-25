@@ -51,12 +51,11 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			}
 			assertFactWriteProjectedDomains(t, s, registry, workID, 1, set)
 			var rowRef, rowDigest, approvedBy string
-			var rowVersion int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&rowRef, &rowVersion, &rowDigest, &approvedBy); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&rowRef, &rowDigest, &approvedBy); err != nil {
 				t.Fatal(err)
 			}
-			if rowRef != registered.Definition.Ref || rowVersion != registered.Definition.Version || rowDigest != registered.Digest {
-				t.Fatalf("the initial contract pinned %s@%d %s, want the registered %s@%d %s", rowRef, rowVersion, rowDigest, registered.Definition.Ref, registered.Definition.Version, registered.Digest)
+			if rowRef != registered.Definition.Ref || rowDigest != registered.Digest {
+				t.Fatalf("the initial contract pinned %s %s, want the registered %s %s", rowRef, rowDigest, registered.Definition.Ref, registered.Digest)
 			}
 			if approvedBy != ownerRef {
 				t.Fatalf("the initial contract recorded approved_by %q, want the authoring owner %s", approvedBy, ownerRef)
@@ -218,12 +217,11 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 			t.Fatalf("the refused successor writes left %d events (baseline %d), want rollback with no append", events, baselineEvents)
 		}
 		var pinRef, pinDigest string
-		var pinVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinRef, &pinVersion, &pinDigest); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinRef, &pinDigest); err != nil {
 			t.Fatal(err)
 		}
-		if pinRef != registered.Definition.Ref || pinVersion != registered.Definition.Version || pinDigest != registered.Digest {
-			t.Fatalf("the refused successor writes moved the pin to %s@%d %s, want the registered %s@%d %s", pinRef, pinVersion, pinDigest, registered.Definition.Ref, registered.Definition.Version, registered.Digest)
+		if pinRef != registered.Definition.Ref || pinDigest != registered.Digest {
+			t.Fatalf("the refused successor writes moved the pin to %s %s, want the registered %s %s", pinRef, pinDigest, registered.Definition.Ref, registered.Digest)
 		}
 		assertNoFoldGuardRows(t, s)
 	})

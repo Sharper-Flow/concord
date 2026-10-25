@@ -162,12 +162,11 @@ type workflowWorkContextRecordedPayload struct {
 	// ResearchSelections stores references only: the optional member is
 	// absent and empty for the same meaning, and a new full declaration
 	// explicitly replaces its research selections.
-	ResearchSelections        []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
-	WorkflowRef               string                         `json:"workflow_ref"`
-	WorkflowDefinitionVersion int64                          `json:"workflow_definition_version"`
-	WorkflowDefinitionDigest  string                         `json:"workflow_definition_digest"`
-	ActorRef                  string                         `json:"actor_ref"`
-	RequestID                 string                         `json:"request_id"`
+	ResearchSelections       []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
+	WorkflowRef              string                         `json:"workflow_ref"`
+	WorkflowDefinitionDigest string                         `json:"workflow_definition_digest"`
+	ActorRef                 string                         `json:"actor_ref"`
+	RequestID                string                         `json:"request_id"`
 }
 
 var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+)$`)
@@ -548,8 +547,8 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 		}
 	}
 	var workflowRef, workflowDigestValue string
-	var workflowDefinitionVersion, attemptEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDefinitionVersion, &workflowDigestValue); err != nil {
+	var attemptEpoch int64
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDigestValue); err != nil {
 		return nil, workflowProjectionError(err, "cannot read workflow identity for the work context declaration")
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
@@ -561,7 +560,7 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	values := map[string]any{
 		"step_id": stepID, "attempt_epoch": attemptEpoch,
 		"required_reading": payload.RequiredReading, "finding_refs": payload.FindingRefs, "context_findings": payload.ContextFindings,
-		"workflow_ref": workflowRef, "workflow_definition_version": workflowDefinitionVersion, "workflow_definition_digest": workflowDigestValue,
+		"workflow_ref": workflowRef, "workflow_definition_digest": workflowDigestValue,
 		"actor_ref": actor, "request_id": request.RequestID,
 	}
 	// The selection member stays absent for declarations without research,
@@ -588,18 +587,17 @@ func foldWorkflowWorkContextRecorded(ctx context.Context, tx *sql.Tx, event Even
 	if err := validateWorkContextDeclarationShape(p); err != nil {
 		return err
 	}
-	if !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+	if !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || !workflowString(p.WorkflowRef, 128) || !workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return workContextFailure(KindInvalidPayload, "fold_event", "work context declaration is incomplete or outside its bounds", "supply the complete typed declaration")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
 	var currentStep, workflowRef, workflowDigestValue string
-	var workflowVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue, &workflowVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &workflowRef, &workflowDigestValue); err != nil {
 		return workflowProjectionError(err, "cannot read workflow identity for the work context declaration")
 	}
-	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest || workflowVersion != p.WorkflowDefinitionVersion {
+	if currentStep != p.StepID || workflowRef != p.WorkflowRef || workflowDigestValue != p.WorkflowDefinitionDigest {
 		return newFailure(KindStaleAttempt, "fold_event", "work context declaration does not bind the current workflow step and definition", false, "reread the current workflow context")
 	}
 	var activeAttempt int64

@@ -63,7 +63,7 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 	// the current attempt and its receipt both retain that original identity.
 	lostLane := "sha256:" + strings.Repeat("0", 64)
 	dispatchPayload := mustJSON(t, store.WorkerDispatchedPayload{
-		AttemptID: "attempt-1", LaneID: "research", LaneVersion: 1, LaneDigest: lostLane,
+		AttemptID: "attempt-1", LaneID: "research", LaneDigest: lostLane,
 		CapabilityClass: "research", ReadbackModel: "openai/test-model",
 		PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("c", 64),
@@ -87,7 +87,7 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := seedCLIReceipt(t, tx, store.Event{EventID: "event-recovery-lost-lane", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "client:" + workerEvidenceClientRef + ":operator-1", PayloadVersion: 5, Payload: []byte(dispatchPayload)})
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_payload,dispatch_seq) VALUES ('work-1','attempt-1','research',1,?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL,'event-recovery-lost-lane',?,5,?,?)`,
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_payload,dispatch_seq) VALUES ('work-1','attempt-1','research',?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL,'event-recovery-lost-lane',?,5,?,?)`,
 		lostLane, store.WorkerPacketSchemaVersion, store.WorkerReportSchemaVersion, "client:"+workerEvidenceClientRef+":operator-1", dispatchPayload, seq); err != nil {
 		t.Fatal(err)
 	}

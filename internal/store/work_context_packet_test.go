@@ -30,7 +30,7 @@ import (
 // oracle job adds its preparations to the current work context view.
 func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, view any) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -49,7 +49,6 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        f.workID,
 		"step_id":        "repair",
@@ -1143,7 +1142,7 @@ func tuneAggregateCheckpointToTarget(t *testing.T, f workContextFixture, correct
 // may dispatch more than one attempt.
 func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, checkpoint, correction any) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -1172,7 +1171,6 @@ func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID strin
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        f.workID,
 		"step_id":        "repair",
@@ -1501,11 +1499,11 @@ func TestDispatchContextAggregateMeasurement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		laneVersion, laneDigest := implementLaneIdentity()
+		laneDigest := implementLaneIdentity()
 		for _, member := range []string{"work_context", "checkpoint", "correction"} {
 			packet := map[string]any{
 				"schema_version": WorkerPacketSchemaVersion, "attempt_id": "attempt-null-member",
-				"lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+				"lane_id": "implement", "lane_digest": laneDigest,
 				"work_id": "work-null-member", "step_id": "repair",
 				"inputs": map[string]any{member: nil, "task": "carry the objective", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
 			}

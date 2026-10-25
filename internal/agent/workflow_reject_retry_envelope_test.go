@@ -374,7 +374,7 @@ func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed 
 
 // TestCombinedRejectResearchHeadTransportsAdmittedPacket3 proves the
 // response transport invariant: the current dispatch admits a
-// worker_packet3 whose work-context view carries the selected research, and
+// worker_packet whose work-context view carries the selected research, and
 // the combined rejection's response returns exactly
 // those admitted bytes — canonical packet identity with the digest the
 // fresh dispatch window opened for — with no second dispatch

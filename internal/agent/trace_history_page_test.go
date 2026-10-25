@@ -90,7 +90,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	t.Parallel()
 	workflow := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + strings.Repeat("a", 64)},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + strings.Repeat("a", 64)},
 		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
 			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
 			Artifact: "file:internal/store/impl.go", State: "asserted",

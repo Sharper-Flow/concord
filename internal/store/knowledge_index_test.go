@@ -245,22 +245,24 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	}
 }
 
-func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
+func TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("work-orphan", "2026-08-07T00:00:00Z"))
-	commitKnowledgeRepo(t, repo, "orphan")
+	commit := commitKnowledgeRepo(t, repo, "canonical outcome")
 	s := openTemp(t)
-	home := KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
+	if _, err := s.db.ExecContext(t.Context(), `DROP TABLE IF EXISTS compaction_publications`); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	seedKnowledgeWork(t, s, "work-orphan", "Orphan")
 	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "work-orphan", Home: home})
-	if err != nil || result.Status != "not_compacted" || result.Authority != "authoritative" {
-		t.Fatalf("Q10 orphan = %#v, err %v", result, err)
+	if err != nil || result.Status != "canonical" || result.Authority != "authoritative" || result.Note == nil || result.Note.NotePath != path || result.Note.CommitOID != commit {
+		t.Fatalf("Q10 Git-only outcome = %#v, err %v", result, err)
 	}
 }
 
@@ -410,7 +412,13 @@ func TestKnowledgeSchemaHasNoNoteBodyAndCompactionPersistsLink(t *testing.T) {
 		t.Fatalf("archived_work count=%d, want 1", after)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"P01-publication-membership": func() (any, error) { return linkedCompactionWorkIDs(ctx, s.db) },
+		"Git-rebuild-admission": func() (any, error) {
+			if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+				return nil, err
+			}
+			result, err := s.QueryQ10(ctx, Q10Request{Work: "linked", Home: home})
+			return result.Note, err
+		},
 	})
 }
 

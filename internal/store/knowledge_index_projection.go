@@ -428,7 +428,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 3
+const knowledgeProjectionVersion = 4
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -468,10 +468,6 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
-	linked, err := linkedCompactionWorkIDs(ctx, s.db)
-	if err != nil {
-		return err
-	}
 	notes := make([]VerifiedNote, 0, len(paths))
 	laws := make([]indexedLaw, 0)
 	seen := map[string]bool{}
@@ -485,9 +481,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "two valid canonical notes claim the same stable ID", false, "resolve duplicate canonical note identities")
 		}
 		seen[note.ID], seenPaths[note.NotePath] = true, true
-		if linked[note.ID] {
-			notes = append(notes, note)
-		}
+		notes = append(notes, note)
 	}
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home)
 	if err != nil {
@@ -818,23 +812,6 @@ func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, recor
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law subject", true, "retry once the database is writable", err)
 	}
 	return nil
-}
-
-func linkedCompactionWorkIDs(ctx context.Context, db *sql.DB) (map[string]bool, error) {
-	rows, err := db.QueryContext(ctx, `SELECT work_id FROM compaction_publications`)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read compaction links", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	ids := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read a compaction link", true, "retry once the database is readable", err)
-		}
-		ids[id] = true
-	}
-	return ids, rows.Err()
 }
 
 func insertKnowledgeNote(ctx context.Context, tx *sql.Tx, home KnowledgeHome, note VerifiedNote) error {

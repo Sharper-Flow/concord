@@ -25,140 +25,6 @@ type schemaObject struct {
 	kind, name, sql string
 }
 
-// undoMigration124 restores the pre-124 schema shape on a store migrated
-// through 124, so a test whose manifest tail was removed can re-apply the
-// step. The pre-124 objects are read from a fresh store migrated through 123,
-// never hand-copied, so the restored shape cannot drift from the migrations
-// that built it.
-func undoMigration124(t *testing.T, ctx context.Context, db *sql.DB) error {
-	t.Helper()
-	pre := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-124.db"), planningRetirementMigrationIndex(t))
-	rows, err := pre.QueryContext(ctx, `SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid`)
-	if err != nil {
-		return err
-	}
-	preObjects := []schemaObject{}
-	for rows.Next() {
-		var object schemaObject
-		if err := rows.Scan(&object.kind, &object.name, &object.sql); err != nil {
-			rows.Close()
-			return err
-		}
-		preObjects = append(preObjects, object)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DROP TABLE linear_issue_links`); err != nil {
-		return err
-	}
-	for _, object := range preObjects {
-		if object.kind != "table" || object.name != "relations" {
-			continue
-		}
-		ddl := strings.Replace(object.sql, "CREATE TABLE relations", "CREATE TABLE relations_pre124", 1)
-		if _, err := tx.ExecContext(ctx, ddl); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_pre124',seq FROM sqlite_sequence WHERE name='relations';
-INSERT INTO relations_pre124 SELECT * FROM relations;
-DROP TABLE relations;
-ALTER TABLE relations_pre124 RENAME TO relations;`); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only' CHECK (planning_mode IN ('local_only','linear_enabled'))`); err != nil {
-		return err
-	}
-	present := map[string]bool{}
-	current, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_master`)
-	if err != nil {
-		return err
-	}
-	for current.Next() {
-		var name string
-		if err := current.Scan(&name); err != nil {
-			current.Close()
-			return err
-		}
-		present[name] = true
-	}
-	current.Close()
-	if err := current.Err(); err != nil {
-		return err
-	}
-	for _, kind := range []string{"table", "index", "view", "trigger"} {
-		for _, object := range preObjects {
-			if object.kind != kind || present[object.name] {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, object.sql); err != nil {
-				return err
-			}
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// dropMigration122Objects removes the one object migration 122 creates.
-func dropMigration122Objects(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS worktree_ref_outcomes`)
-	return err
-}
-
-// dropMigration123Objects removes the retirement delete guard migration 123
-// creates on the pre-existing research pack table.
-func dropMigration123Objects(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`)
-	return err
-}
-
-// dropMigration120Objects removes the Initiative violation projection
-// migration 120 creates, triggers first because they attach to tables that
-// predate it.
-func dropMigration120Objects(ctx context.Context, db *sql.DB) error {
-	for _, stmt := range []string{
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
-		`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
-		`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
-		`DROP VIEW IF EXISTS initiative_work_scope`,
-		`DROP TABLE IF EXISTS initiative_entry_violations`,
-		`DROP TABLE IF EXISTS initiative_scope_violations`,
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Migration 124 retires the planning mirror: the planning tables and the
 // Product planning mode leave the schema, the includes relations the retired
 // Initiative events wrote are deleted, and linear_issue_links keeps exactly the
@@ -205,6 +71,7 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
+	seedHistoricalLocatorParents(t, tx, historical[:3])
 	for _, event := range historical {
 		if event.Kind == "work.created" {
 			seedPreQ7WorkCreated(t, tx, event)
@@ -215,8 +82,10 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 		if event.Kind == "relation.added" {
 			continue
 		}
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
-			t.Fatalf("fold %s: %v", event.Kind, err)
+		if event.Kind == "work_project.added" {
+			if _, err := tx.Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'planning-project','primary'); UPDATE work_items SET version=2 WHERE id=?`, event.SubjectID, event.SubjectID); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	// Legacy direct-authority rows a pre-retirement binary wrote outside the
@@ -245,9 +114,7 @@ VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','co
 	if _, err := BackupDatabase(ctx, path, archive); err != nil {
 		t.Fatalf("archive before planning retirement: %v", err)
 	}
-	if err := applyMigration(ctx, db, migrations[index]); err != nil {
-		t.Fatalf("migration 124: %v", err)
-	}
+	advanceHistoricalPrefix(t, db, migrations[index].Version)
 	for _, name := range []string{"initiative_entries", "initiative_scope_violations", "initiative_entry_violations", "initiative_work_scope", "linear_outbox", "linear_outbox_dispositions", "linear_project_links"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name=?`, name).Scan(&count); err != nil {
@@ -347,5 +214,14 @@ VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','co
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('child-b','uuid-x','CON-2','https://linear.app/x/issue/CON-2','t','t')`); err == nil {
 		t.Fatal("linear_issue_links lost its fold guard")
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("planning prefix through the current tail: %v", err)
+	}
+	if err := db.QueryRow(`SELECT resolution_id FROM relations WHERE id=2`).Scan(&resolutionID); err != nil || resolutionID != "resolution-a" {
+		t.Fatalf("current tail changed retained relation: %q, %v", resolutionID, err)
+	}
+	if _, err := db.Exec(`UPDATE relations SET resolution_id=resolution_id WHERE id=2`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("current relation guard lost: %v", err)
 	}
 }

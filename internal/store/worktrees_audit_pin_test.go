@@ -44,8 +44,8 @@ func auditManagedPinFixture(t *testing.T) (*Store, *fakeWorktreeGit, string, int
 func TestWorktreeAuditReclaimVersionUsesRowTransaction(t *testing.T) {
 	s, git, _, before := auditManagedPinFixture(t)
 	runner := auditPinDriftRunner{GitRunner: git, afterRemoval: func() {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE work_items SET version=version+1 WHERE id='work-done'; DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+			UPDATE work_items SET version=version+1 WHERE id='work-done'; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}}

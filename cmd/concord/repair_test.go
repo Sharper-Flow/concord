@@ -155,7 +155,7 @@ func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
 				if err := db.Close(); err != nil {
 					t.Fatal(err)
 				}
-				failures = seedSnapshotForeignKeyCorruption(t, path)
+				failures = seedSnapshotForeignKeyCorruption(t, path, "write_guard")
 			default:
 				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
 					t.Fatal(err)

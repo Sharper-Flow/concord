@@ -167,13 +167,13 @@ func wipeDerivedKnowledge(t *testing.T, s *store.Store, home store.KnowledgeHome
 		t.Fatalf("rebuild against the empty commit: %v", err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM knowledge_index_watermark`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

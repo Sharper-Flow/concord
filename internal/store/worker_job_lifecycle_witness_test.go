@@ -296,7 +296,7 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 				t.Fatalf("combined acceptance refused proof on the unchanged integrated candidate: %v", err)
 			}
 			var accepted int
-			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, id, WorkflowActionCompleted, c.attempt).Scan(&accepted); err != nil || accepted != 1 {
+			if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, id, c.attempt).Scan(&accepted); err != nil || accepted != 1 {
 				t.Fatalf("combined acceptance count = %d, %v; want exactly one", accepted, err)
 			}
 			reviewGateRequireStep(t, s, id, "delivery")
@@ -388,7 +388,7 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 				t.Fatalf("combined acceptance integrated candidate = %s, want output %s", candidate, output)
 			}
 			var accepted int
-			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, id, WorkflowActionCompleted, attempt).Scan(&accepted); err != nil || accepted != 1 {
+			if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, id, attempt).Scan(&accepted); err != nil || accepted != 1 {
 				t.Fatalf("combined acceptance count = %d, %v; want exactly one", accepted, err)
 			}
 			reviewGateRequireStep(t, s, id, "delivery")

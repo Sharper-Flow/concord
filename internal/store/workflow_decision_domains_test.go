@@ -95,9 +95,9 @@ func storedDecisionDomains(t *testing.T, s *Store, workID string, contractVersio
 func seedStoredDecisionDomainAbsence(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		_, err := tx.tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1);
+		_, err := tx.tx.ExecContext(context.Background(), `INSERT INTO write_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=?;
-			DELETE FROM fold_guard`, workID)
+			DELETE FROM write_guard`, workID)
 		return err
 	}); err != nil {
 		t.Fatal(err)

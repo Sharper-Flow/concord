@@ -15,13 +15,13 @@ func TestScopeReadCarriesThePersistedValueStatement(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "packet-value-work")
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE work_items SET intent_json=json_set(intent_json, '$.value_statement', 'Workers read why the work matters before the how.') WHERE id=?`, "packet-value-work"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 

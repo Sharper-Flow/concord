@@ -91,7 +91,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 		t.Fatalf("rejected completion changed instance state: %q", got)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "authority-work", WorkflowCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "authority-work", WorkflowCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 0 {
@@ -173,7 +173,7 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 12, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
@@ -237,7 +237,7 @@ func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 13, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
@@ -397,7 +397,7 @@ func assertRejectedActionStart(t *testing.T, s *Store, event Event, expectedVers
 		t.Fatal(err)
 	}
 	err = func() error {
-		_, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-start-guards"): expectedVersion}}, newFoldScope(tx))
+		_, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "authority-start-guards"): expectedVersion}}, newWriteScope(tx))
 		return err
 	}()
 	_ = tx.Rollback()
@@ -419,7 +419,7 @@ func assertRejectedActionStart(t *testing.T, s *Store, event Event, expectedVers
 func countWorkflowActionStarts(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -471,7 +471,7 @@ func assertRejectedCheckpoint(t *testing.T, s *Store, workID string, event Event
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}, newFoldScope(tx))
+	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expectedVersion}}, newWriteScope(tx))
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != wantKind {
@@ -515,7 +515,7 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}, newFoldScope(tx))
+	_, err = applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}, newWriteScope(tx))
 	_ = tx.Rollback()
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
@@ -743,7 +743,7 @@ func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind Fa
 		t.Fatalf("rejected action_failed version=%d, want %d", got, 12)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, event.SubjectID, WorkflowActionFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, event.SubjectID, WorkflowActionFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -754,7 +754,7 @@ func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind Fa
 func countWorkflowActionCompleted(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -774,7 +774,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request)
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request)
 	if err != nil {
 		tx.Rollback()
 		t.Fatalf("distinct owner could not accept completed worker result: %v", err)
@@ -800,7 +800,7 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	}
 	var payloadVersion int
 	var workerAttempt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.payload_version,json_extract(d.payload,'$.worker_attempt_id') FROM effect_receipts r JOIN worker_attempt_dispositions d ON d.event_id=r.event_id WHERE r.event_id=? AND d.action_id='accept_worker_result'`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
 		t.Fatal(err)
 	}
 	completion, ok := registeredEventKind(WorkflowActionCompleted)
@@ -926,14 +926,14 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 func assertRejectedWorkerAction(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, payload map[string]any, wantKind FailureKind, wantVersion int64, actionID, digestChar, opPrefix, label string) {
 	t.Helper()
 	var completedBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID, Payload: mustJSONValue(payload), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat(digestChar, 64), IdempotencyIdentity: opPrefix + workID, OperationID: opPrefix + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: opPrefix + workID, RequestID: "request:" + opPrefix + workID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
@@ -958,7 +958,7 @@ func assertRejectedWorkerAction(t *testing.T, s *Store, workID string, owner Wor
 		t.Fatalf("rejected %s version=%d, want %d", label, got, wantVersion)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != completedBefore {
@@ -981,7 +981,7 @@ func applyRecordWorkerFailureForTest(t *testing.T, s *Store, workID string, owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "record_worker_failure", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
@@ -1009,7 +1009,7 @@ func applyWorkflowActionForTest(t *testing.T, s *Store, workID string, owner Wor
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID, Payload: mustJSONValue(map[string]any{}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat(digestChar, 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: now,
@@ -1232,7 +1232,7 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); err != nil {
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request); err != nil {
 		tx.Rollback()
 		t.Fatalf("accept: %v", err)
 	}
@@ -1240,7 +1240,7 @@ func TestAcceptWorkerResultBindsTheAttemptAsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var kind, subject, producerRun string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_run_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, "authority-bind", WorkflowEvidenceBound).Scan(&kind, &subject, &producerRun); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings WHERE work_id=? ORDER BY binding_seq DESC LIMIT 1`, "authority-bind").Scan(&kind, &subject, &producerRun); err != nil {
 		t.Fatalf("acceptance bound no evidence: %v", err)
 	}
 	if subject != attemptID || producerRun != "accept-bind" {
@@ -1302,7 +1302,7 @@ func TestWorkerAuthorizePersistsRegistryCurrentDispatchVersion(t *testing.T) {
 		t.Fatalf("dispatch authorize failed: %v", err)
 	}
 	var stored int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-dispatch").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "version-dispatch").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	current := func() int { r, _ := registeredEventKind(WorkerDispatched); return r.CurrentVersion }()
@@ -1323,7 +1323,7 @@ func TestWorkerCompletedPersistsRegistryCurrentVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stored int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-completion").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "version-completion").Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()

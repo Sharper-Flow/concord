@@ -78,7 +78,7 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	}
 
 	var payload string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE event_id=?`, "work.removed:remove-linear-op").Scan(&payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_object('linear',json(linear_confirmation_json)) FROM work_removal_operations WHERE event_id=? AND state='committed'`, "work.removed:remove-linear-op").Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
 	var eventPayload struct {

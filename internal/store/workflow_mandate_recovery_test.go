@@ -17,7 +17,7 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'product',?,'root',?)`, workID, digest, digest); err != nil {
@@ -29,7 +29,7 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,1,'product',?,'root',?,1)`, workID, "CD-0189", workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -40,13 +40,13 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 func seedPublishedLawSubject(t *testing.T, s *Store, lawID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'decision','accepted','docs/decisions/`+lawID+`-other.md','Another work''s decision','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, lawID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -55,7 +55,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/mandate", "client/mandate", "agent/mandate", "session/"+workID)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','now')`, actorRef, "principal/mandate", "client/mandate", "agent/mandate", "session/"+workID); err != nil {
@@ -64,7 +64,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'mandate recovery','internal_sqlite','[]','[]','now',?,'["`+"CD-0189"+`"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -196,11 +196,11 @@ func TestMandateRecoveryNamesNoFailureRecordOnceTheTerminalDerivedIt(t *testing.
 	}
 	// The fixture already approved contract 1 with its architecture binding;
 	// the contract now mandates the law it adds and reserves.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE workflow_contracts SET spec_mandate='["CD-0189"]' WHERE work_id=?1 AND contract_version=1;
 INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) SELECT product_id,'CD-0189',work_id,1,home_domain_id FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
 INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) SELECT work_id,1,product_id,'CD-0189',home_domain_id,work_id,1 FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
-DELETE FROM fold_guard`, workID); err != nil {
+DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition

@@ -144,7 +144,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 				t.Fatalf("%s dispatch bound %#v, found=%v, error=%v, want %#v", lane.ID, bound, found, err, job)
 			}
 			var laneID, capabilityClass string
-			if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_lane_id'),json_extract(payload,'$.worker_capability_class') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&laneID, &capabilityClass); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_lane_id'),json_extract(payload,'$.worker_capability_class') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &capabilityClass); err != nil {
 				t.Fatal(err)
 			}
 			if laneID != lane.ID || capabilityClass != lane.CapabilityClass {

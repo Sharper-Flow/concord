@@ -93,7 +93,7 @@ func TestWorkPinOutstandingEvidenceKindsRequireProducerAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireWorkPinOutstandingKinds(t, &before, []string{})
-	result, err := f.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=(SELECT json_extract(payload,'$.producer_run_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='commit' AND json_extract(payload,'$.immutable_subject_ref')=?)`, f.workID, WorkflowEvidenceBound, wf04RecoveryRef)
+	result, err := f.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=(SELECT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='commit' AND json_extract(payload,'$.immutable_subject_ref')=?)`, f.workID, wf04RecoveryRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,13 +172,13 @@ func TestWorkPinOutstandingEvidenceKindsUseCallerTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET required_evidence='["commit"]' WHERE work_id=? AND superseded_by IS NULL`, f.workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	uncommitted, err := ReadWorkPinTx(ctx, tx, f.workID)

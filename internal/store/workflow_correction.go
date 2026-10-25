@@ -261,7 +261,7 @@ func workflowCorrectionWalkWorkerSatisfaction(ctx context.Context, q queryer, wo
 func readWorkflowCorrectionStateForMigration(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
 	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload, e.event_id FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the current workflow rows are readable", err)
 	}
 	history := &workflowCorrectionHistory{
 		unresolved:        make(map[string]bool),
@@ -276,7 +276,7 @@ func readWorkflowCorrectionStateForMigration(ctx context.Context, q queryer, wor
 		var row workflowCorrectionHistoryRow
 		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload, &row.eventID); err != nil {
 			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the current workflow rows are readable", err)
 		}
 		if err := history.observe(row, subject); err != nil {
 			_ = rows.Close()
@@ -285,10 +285,10 @@ func readWorkflowCorrectionStateForMigration(ctx context.Context, q queryer, wor
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the current workflow rows are readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot close the correction window history", true, "retry once the workflow event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, subject, "cannot close the correction window history", true, "retry once the current workflow rows are readable", err)
 	}
 	return history, nil
 }

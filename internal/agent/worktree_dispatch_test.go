@@ -617,7 +617,7 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 		t.Fatalf("destination_directory=%q, want registered main checkout %q", result.DestinationDirectory, repoRoot)
 	}
 	var eventCount int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "work-1", "work.session_vacated").Scan(&eventCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "work-1", "work.session_vacated").Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 	if eventCount != 1 {
@@ -697,7 +697,7 @@ func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *tes
 		t.Fatalf("replay result=%+v", result)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -776,10 +776,10 @@ func TestSessionVacateReplayOfCompletedRequestResolvesWithoutRows(t *testing.T) 
 		t.Fatalf("replay result=%+v", result)
 	}
 	var vacates, landings int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 || landings != 1 {
@@ -860,10 +860,10 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 		t.Fatalf("replay error=%+v, want the later-claim refusal", replay.Error)
 	}
 	var vacates, landings int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 || landings != 1 {
@@ -905,7 +905,7 @@ func TestSessionVacateFromMainCheckoutWithoutPendingRequestRefuses(t *testing.T)
 		t.Fatalf("error.message=%q, want the no-active-worktree refusal", response.Error.Message)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 0 {
@@ -978,7 +978,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 		t.Fatalf("second vacate response=%+v error=%+v err=%v", second, second.Error, err)
 	}
 	var eventIDs, sessionRefs []string
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, json_extract(payload,'$.session_ref') FROM domain_events WHERE kind='work.session_vacated' ORDER BY occurred_at`)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT r.event_id,v.session_ref FROM effect_receipts r JOIN session_vacate_requests v ON v.request_seq=r.effect_seq AND v.work_id=r.subject_id WHERE r.kind='work.session_vacated' ORDER BY r.effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}

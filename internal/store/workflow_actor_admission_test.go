@@ -83,7 +83,7 @@ func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 // only table is the unguarded workflow_actors lookup, stores actor's real
 // tuple under its canonical actor_ref with a deliberately inconsistent
 // principal_ref, and returns the active transaction the fail-closed checks
-// read through. In real authority workflow_actors is immutable and fold-only,
+// read through. In real authority workflow_actors is immutable and write-seam-only,
 // and foldWorkflowActorRecorded refuses an event whose ref disagrees with its
 // tuple, so no write or fold route can produce this row: it is negative
 // corruption input, never a fabricated successful actor or approval.

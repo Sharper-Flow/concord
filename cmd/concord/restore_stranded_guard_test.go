@@ -25,7 +25,7 @@ func TestRestoreFromVerifiedBackupWhileLiveStoreRefusesStrandedGuard(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	refused, err := store.Open(ctx, path)
@@ -73,7 +73,7 @@ func TestRestoreFromVerifiedBackupWhileLiveStoreRefusesStrandedGuard(t *testing.
 		t.Fatalf("live destination refusal: exit=%d stdout=%s stderr=%s", code, &out, &errOut)
 	}
 	var guards int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil || guards != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM write_guard`).Scan(&guards); err != nil || guards != 1 {
 		t.Fatalf("restore changed the refused live guard: rows=%d err=%v", guards, err)
 	}
 }

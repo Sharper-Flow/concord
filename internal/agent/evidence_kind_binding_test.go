@@ -80,7 +80,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 
 func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []string {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, store.WorkflowEvidenceBound)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(b.payload,'$.evidence_kind') FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? ORDER BY b.binding_seq`, workID, store.WorkflowEvidenceBound)
 	if err != nil {
 		t.Fatalf("read evidence_bound events: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 	if after <= version {
 		t.Fatal("per-kind bind did not advance the work version")
 	}
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, store.WorkflowEvidenceBound)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(b.payload,'$.evidence_kind'), json_extract(b.payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? ORDER BY b.binding_seq`, workID, store.WorkflowEvidenceBound)
 	if err != nil {
 		t.Fatal(err)
 	}

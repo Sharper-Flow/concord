@@ -49,7 +49,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	contractApprovals := func() int {
 		t.Helper()
 		var count int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, store.WorkflowContractApproved).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, store.WorkflowContractApproved).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count

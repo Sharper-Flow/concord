@@ -61,11 +61,10 @@ var workerJobCapableSchemaVersions = map[string]bool{
 	WorkerPacketSchemaVersion:      true,
 }
 
-// workerCompletedJobSizeVersion is the current completion payload version.
-const workerCompletedJobSizeVersion = 8
-
 // workerFailedAttributionVersion and workerDispatchedAttributionVersion
-// identify the current failure and dispatch payload schemas.
+// identify when terminal payloads first recorded attribution. Current-row
+// readers use these boundaries to distinguish absent attribution from
+// pre-attribution terminals copied by migration 139.
 const (
 	workerFailedAttributionVersion     = 4
 	workerDispatchedAttributionVersion = 6
@@ -186,7 +185,7 @@ func workflowDispatchedJobForAttempt(ctx context.Context, q queryer, workID, att
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the dispatched worker-job binding", true, "retry once the workflow event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read the dispatched worker-job binding", true, "retry once the current workflow rows are readable", err)
 	}
 	if raw == "" || raw == "null" {
 		return nil, nil
@@ -616,7 +615,7 @@ type WorkerHostProvenanceSource struct {
 	SHA256 string `json:"sha256,omitempty"`
 }
 
-// WorkerAttempt is the fold-only current projection of one worker attempt.
+// WorkerAttempt is the write-seam-only current row of one worker attempt.
 // It intentionally contains no workflow step, verdict, or completion state.
 // The declared-side routing columns were dropped under CD-0058.
 type WorkerAttempt struct {
@@ -1580,9 +1579,9 @@ func AppendLaneActorDispatchTx(ctx context.Context, transaction *Transaction, ev
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyWorkflowOperationTx(ctx, tx, Operation{Events: events}, scope)
 }

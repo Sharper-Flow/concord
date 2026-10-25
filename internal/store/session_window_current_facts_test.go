@@ -87,11 +87,11 @@ func TestWorkLivenessReadsCurrentProgress(t *testing.T) {
 		t.Fatalf("liveness=%+v err=%v, want recorded progress", want, err)
 	}
 	var stamp string
-	if err := s.db.QueryRow(`SELECT max(occurred_at) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind NOT IN ('work.message_sent','work.message_withdrawn','workflow.overlap_resolved')`, work).Scan(&stamp); err != nil {
+	if err := s.db.QueryRow(`SELECT last_progress_at FROM work_items WHERE id=?`, work).Scan(&stamp); err != nil {
 		t.Fatal(err)
 	}
 	if want.LastProgress != stamp {
-		t.Fatalf("last_progress=%q, want the exact effect timestamp maximum %q", want.LastProgress, stamp)
+		t.Fatalf("last_progress=%q, want the work row's retained progress timestamp %q", want.LastProgress, stamp)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
 		"existing-work": func() (any, error) { return deriveWorkLivenessQ(t.Context(), s.db, work) },

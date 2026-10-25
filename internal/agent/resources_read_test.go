@@ -23,11 +23,11 @@ func TestProductViewResourcesReadsTheSelectedProductInventory(t *testing.T) {
 	}
 	defer s.Close()
 	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES (1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('owner-project','owner-project',1,'t','t');
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('owner-product','owner-product','prototype','operator_only',1,'t','t');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('owner-product','owner-project','primary');
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{

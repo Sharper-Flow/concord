@@ -19,7 +19,7 @@ func TestAppendWorkflowStalenessObservationReplaysSemanticIdentity(t *testing.T)
 		t.Fatalf("semantic replay was refused: %v", err)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id='staleness-replay:observation'`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id='staleness-replay:observation'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {

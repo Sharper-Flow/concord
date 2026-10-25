@@ -137,7 +137,7 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	}
 	defer tx.Rollback()
 	homeLocatorID := "domain-locator-" + productID
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		return fmt.Errorf("pm1fixture: enable Domain fixture fold guard: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,'fixture','fixture')`, homeLocatorID, homeProjectID, "canonical_path", homeDir, homeDir); err != nil {
@@ -152,7 +152,7 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProjectID, homeLocatorID, productID, FixtureRootDomainID, "Fixture root", "Product law fixture", nil, "current", FixtureDomainRegistryContentHash, "fixture"); err != nil {
 		return fmt.Errorf("pm1fixture: seed root Domain: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		return fmt.Errorf("pm1fixture: disable Domain fixture fold guard: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -731,11 +731,11 @@ func nonNil(values []string) []string {
 }
 
 func authorizeKnowledgeLocator(ctx context.Context, s *store.Store, home store.KnowledgeHome) (err error) {
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
 	defer func() {
-		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`)
 		if err == nil {
 			err = cleanupErr
 		}
@@ -753,11 +753,11 @@ func authorizeKnowledgeProductHome(ctx context.Context, s *store.Store, productI
 	if err := authorizeKnowledgeLocator(ctx, s, home); err != nil {
 		return err
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		return err
 	}
 	defer func() {
-		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`)
+		_, cleanupErr := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`)
 		if err == nil {
 			err = cleanupErr
 		}
@@ -768,7 +768,7 @@ func authorizeKnowledgeProductHome(ctx context.Context, s *store.Store, productI
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		return err
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		return err
 	}
 	return nil

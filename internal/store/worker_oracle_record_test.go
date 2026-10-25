@@ -64,14 +64,14 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 	case nil:
 		predicate = seeded
 	case sql.ErrNoRows:
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-			t.Fatalf("open fold guard for %s: %v", workID, err)
+		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+			t.Fatalf("open write guard for %s: %v", workID, err)
 		}
 		if _, err := db.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,0,'check','{"kind":"check","check_ref":"check:oracle-fixture","immutable_subject_ref":"commit:oracle-fixture","expected_result":"pass"}')`, workID, contractVersion, predicate); err != nil {
 			t.Fatalf("seed one approved predicate for %s: %v", workID, err)
 		}
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Fatalf("close fold guard for %s: %v", workID, err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Fatalf("close write guard for %s: %v", workID, err)
 		}
 	default:
 		t.Fatalf("read contract predicates for %s: %v", workID, err)
@@ -94,8 +94,8 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 			t.Fatalf("begin registry seed for %s: %v", workID, err)
 		}
 		defer tx.Rollback()
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-			t.Fatalf("open fold guard for %s: %v", workID, err)
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+			t.Fatalf("open write guard for %s: %v", workID, err)
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('oracle-fixture-locator',?,'canonical_path','/fixture/oracle-registry','/fixture/oracle-registry','now','now')`, project); err != nil {
 			t.Fatalf("seed registry home locator for %s: %v", workID, err)
@@ -106,8 +106,8 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 		if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,'oracle-fixture-locator',?,'root','Root','oracle fixture','current',?,'test')`, project, product, registryHash); err != nil {
 			t.Fatalf("seed root Domain for %s: %v", workID, err)
 		}
-		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Fatalf("close fold guard for %s: %v", workID, err)
+		if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Fatalf("close write guard for %s: %v", workID, err)
 		}
 		if err := tx.Commit(); err != nil {
 			t.Fatalf("commit registry seed for %s: %v", workID, err)
@@ -159,14 +159,14 @@ func oracleAuthorityFixture(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	lawHash := "sha256:" + strings.Repeat("a", 64)
 	registryHash := "sha256:" + strings.Repeat("b", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:oracle',?);
-		DELETE FROM fold_guard`, workID, lawHash); err != nil {
+		DELETE FROM write_guard`, workID, lawHash); err != nil {
 		t.Fatalf("seed pinned law revision: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','edge','Edge','outside the binding','current',?,'test');
-		DELETE FROM fold_guard`, registryHash); err != nil {
+		DELETE FROM write_guard`, registryHash); err != nil {
 		t.Fatalf("seed outside-scope Domain: %v", err)
 	}
 }
@@ -284,11 +284,11 @@ func oracleMemberProjectFixture(t *testing.T) (*Store, WorkflowActor, string, ma
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	t.Cleanup(func() { _ = s.Close() })
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('receiver','Receiver',1,'now','now');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES('product','receiver','secondary');
 		INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'receiver','secondary');
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
@@ -337,7 +337,7 @@ func TestOwnerOracleMemberProjectAuthorAdmission(t *testing.T) {
 	t.Run("different member preparation refuses without effects", func(t *testing.T) {
 		before := readWorkVersion(t, s, workID)
 		var eventsBefore, revisionsBefore int
-		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+		if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.db.QueryRow(`SELECT count(*) FROM worker_job_revisions`).Scan(&revisionsBefore); err != nil {
@@ -350,7 +350,7 @@ func TestOwnerOracleMemberProjectAuthorAdmission(t *testing.T) {
 			t.Fatalf("foreign member preparation error = %v", err)
 		}
 		var eventsAfter, revisionsAfter int
-		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+		if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsAfter); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.db.QueryRow(`SELECT count(*) FROM worker_job_revisions`).Scan(&revisionsAfter); err != nil {
@@ -522,7 +522,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 		t.Fatalf("recorded views = %#v, error = %v", views, err)
 	}
 	var raw []byte
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? ORDER BY recorded_seq DESC LIMIT 1`, workID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var original WorkerJobRecordedPayload
@@ -544,7 +544,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 	// goes non-current, the byte-identical event still folds — an author
 	// re-recording the same oracle under the retired registry would refuse,
 	// but the retained historical input never consults it.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='root'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='root'; DELETE FROM write_guard`); err != nil {
 		t.Fatalf("deprecate the fixture Domain: %v", err)
 	}
 	if err := applyWorkerJobEventForTest(t, s, workID, original); err != nil {
@@ -572,7 +572,7 @@ func TestOwnerOracleDigestCoversOracleContent(t *testing.T) {
 		t.Fatalf("record oracle-bearing job: %v", err)
 	}
 	var raw []byte
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? ORDER BY recorded_seq DESC LIMIT 1`, workID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var payload WorkerJobRecordedPayload

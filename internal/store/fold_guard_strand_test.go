@@ -15,7 +15,7 @@ import (
 func TestApplyOperationRefusesACommittedFoldGuardStrand(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	err := ApplyOperation(ctx, s, Operation{
@@ -36,7 +36,7 @@ func TestApplyOperationRefusesACommittedFoldGuardStrand(t *testing.T) {
 		t.Fatalf("recovery action %q does not name verified backup restore into a new path", failure.RecoveryAction)
 	}
 	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM write_guard`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {

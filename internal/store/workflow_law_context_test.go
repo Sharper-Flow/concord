@@ -34,7 +34,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 	workID := "law-context-constitution"
 	seedLawContextFixture(t, s, workID)
 	constitutionHash := "sha256:" + strings.Repeat("c", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM write_guard`, constitutionHash, constitutionHash); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowLawFixtureRepo(t, s), ".concord", "docs", "constitution.md"), []byte("# Synthetic constitution\n"), 0o600); err != nil {
@@ -261,7 +261,7 @@ func TestContinuityKeepsDeletedModifiedLawInspectable(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
@@ -285,7 +285,7 @@ func TestContinuityKeepsDeletedObligationLawInspectable(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
@@ -316,7 +316,7 @@ func TestContinuityLawContextCarriesThisWorkPredicateCriteria(t *testing.T) {
 		`{"criterion":1,"work_id":"` + workID + `","predicate_id":"predicate:beta"},` +
 		`{"criterion":3,"work_id":"` + otherWork + `","predicate_id":"predicate:gamma"},` +
 		`{"criterion":4,"scenario":"scenario-one"}]`
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET criterion_bindings=? WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM fold_guard`, bindings); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE law_subjects SET criterion_bindings=? WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM write_guard`, bindings); err != nil {
 		t.Fatal(err)
 	}
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
@@ -345,7 +345,7 @@ func TestContinuityRefusesDomainMissingFromRegistry(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE domain_id='child'; DELETE FROM domains WHERE domain_id='child'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE domain_id='child'; DELETE FROM domains WHERE domain_id='child'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})

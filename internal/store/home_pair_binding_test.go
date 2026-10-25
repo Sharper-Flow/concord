@@ -42,12 +42,12 @@ func openV51(t *testing.T, name string) *sql.DB {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	})
 	return db
@@ -161,13 +161,13 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 	ctx := context.Background()
 	s := openTemp(t)
 	anchorHomePair(t, s, "law-project", "law-locator")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('law-project','law-locator','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 

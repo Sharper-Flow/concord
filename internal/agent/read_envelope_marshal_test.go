@@ -80,11 +80,11 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 	s, service, env := domainEvidenceFixture(t)
 	db := s.DatabaseForTesting()
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class
 		FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed duplicate active contract: %v", err)
 	}
 	for _, tc := range []struct {

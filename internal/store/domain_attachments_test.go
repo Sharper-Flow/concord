@@ -73,7 +73,7 @@ func TestDomainResourceAttachmentSchemaRequiresSameProductMembership(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	hash := "sha256:" + repeatA64()
@@ -119,7 +119,7 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 	if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProject, homeLocator, productID, domainID, "Domain "+domainID, "test domain", nil, "current", hash, "commit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

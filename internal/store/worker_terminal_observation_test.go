@@ -197,7 +197,7 @@ func seedGitClaimRepo(t *testing.T, s *Store, workID string) {
 func rawTerminalFrontier(t *testing.T, s *Store, eventID string) (int64, bool) {
 	t.Helper()
 	var frontier sql.NullInt64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.consumed_context_frontier') FROM domain_events WHERE event_id=?`, eventID).Scan(&frontier); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(terminal_payload,'$.consumed_context_frontier') FROM worker_attempts WHERE terminal_event_id=?`, eventID).Scan(&frontier); err != nil {
 		t.Fatalf("read terminal event %s: %v", eventID, err)
 	}
 	return frontier.Int64, frontier.Valid
@@ -208,7 +208,7 @@ func rawTerminalFrontier(t *testing.T, s *Store, eventID string) (int64, bool) {
 func dispatchCompletionFrontier(t *testing.T, s *Store, workID, attemptID string) (int64, bool) {
 	t.Helper()
 	var frontier sql.NullInt64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&frontier); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&frontier); err != nil {
 		t.Fatalf("read dispatch completion frontier: %v", err)
 	}
 	return frontier.Int64, frontier.Valid
@@ -375,7 +375,8 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 		s := fixture.store
 		attemptID := "attempt-frontier-historical"
 		insertWorkerWorktreeEntry(t, s, fixture.workID, t.TempDir())
-		seedHistoricalDispatchWindowRaw(t, s, fixture, attemptID)
+		s = seedHistoricalDispatchWindowRaw(t, s, fixture, attemptID)
+		fixture.store = s
 		lane := BuiltinLaneDefinitions()[0]
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
@@ -426,7 +427,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 		t.Fatalf("claim state flip after the probe error = %v, want %s", err, KindProjectionConflict)
 	}
 	var terminals int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?) AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, WorkerFailed, attemptID).Scan(&terminals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND terminal_kind IN (?,?) AND attempt_id=?`, workID, WorkerCompleted, WorkerFailed, attemptID).Scan(&terminals); err != nil {
 		t.Fatal(err)
 	}
 	if terminals != 0 {
@@ -437,9 +438,9 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 // seedHistoricalDispatchWindowRaw inserts the dispatch authorization pair a
 // binary before the frontier feature recorded: a dispatch_worker start and
 // completion with the digest and attempt identity, and no
-// worker_context_frontier field at all. The rows land through one fold-guard
-// session exactly as recorded history reaches the store.
-func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContextFixture, attemptID string) {
+// worker_context_frontier field at all. Migration 139 must derive the
+// authorization from those original bytes in an actual schema-138 database.
+func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContextFixture, attemptID string) *Store {
 	t.Helper()
 	ctx := context.Background()
 	actorRef, err := WorkflowActorRef(fixture.owner)
@@ -467,36 +468,33 @@ func seedHistoricalDispatchWindowRaw(t *testing.T, s *Store, fixture workContext
 		"worker_packet_predicate_ids": []string{},
 		"worker_worktree_identity":    workerWorktreeIdentity(canonical),
 	})
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	path := filepath.Join(t.TempDir(), "pre-frontier-138.db")
+	db := openMigratedTo(t, path, 138)
+	copyFixtureDataToPrefix(t, s, db, []string{
+		"products", "projects", "product_projects", "work_items", "work_projects",
+		"workflow_actors", "workflow_instances", "workflow_contracts", "worktree_entries",
+	}, map[string]map[string]string{
+		"workflow_instances": {"definition_version": "26"},
+		"workflow_contracts": {"definition_version": "26"},
+	}, "fold_guard")
+	s = &Store{db: db, path: path, Clock: s.Clock}
+	for i, e := range []Event{
+		{EventID: "historical-start-" + attemptID, Kind: WorkflowActionStarted, Payload: startPayload},
+		{EventID: "historical-completed-" + attemptID, Kind: WorkflowActionCompleted, Payload: completionPayload},
+	} {
+		e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion = SubjectWorkItem, fixture.workID, actorRef, 1
+		e.OccurredAt = time.Date(2026, 10, 1, 0, i, 0, 0, time.UTC)
+		insertHistoricalEvent(t, s, e)
 	}
-	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, ?, 1, ?)`, "historical-start-"+attemptID, fixture.workID, actorRef, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), string(startPayload)); err != nil {
-		t.Fatalf("seed historical start: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 1, ?)`, "historical-completed-"+attemptID, fixture.workID, actorRef, time.Date(2026, 10, 1, 0, 1, 0, 0, time.UTC), string(completionPayload)); err != nil {
-		t.Fatalf("seed historical completion: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, attemptID, "historical-start-"+attemptID, "historical-completed-"+attemptID); err != nil {
-		t.Fatalf("seed historical current authorization: %v", err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	var frontiers int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=? AND json_extract(payload,'$.worker_context_frontier') IS NOT NULL`, "historical-completed-"+attemptID).Scan(&frontiers); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE event_id=? AND json_extract(payload,'$.worker_context_frontier') IS NOT NULL`, "historical-completed-"+attemptID).Scan(&frontiers); err != nil {
 		t.Fatal(err)
 	}
 	if frontiers != 0 {
 		t.Fatal("the historical fixture carries a frontier; it must not")
 	}
+	return s
 }

@@ -68,7 +68,7 @@ func TestPendingQuestionsRequireBoundResearchRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = BindResearchRelianceTx(context.Background(), tx, workID, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC))
-	leaveErr := leaveFold(context.Background(), tx)
+	leaveErr := leaveWrite(context.Background(), tx)
 	if err == nil {
 		err = leaveErr
 	}
@@ -152,13 +152,13 @@ func applyInvestigationGateApproval(t *testing.T, s *Store, workID string, versi
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:investigation-gate", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ResearchBindings: bindings,
 	})
-	if leaveErr := leaveFold(context.Background(), tx); actionErr == nil {
+	if leaveErr := leaveWrite(context.Background(), tx); actionErr == nil {
 		actionErr = leaveErr
 	}
 	if actionErr != nil {
@@ -178,12 +178,12 @@ func insertInvestigationGateObservation(t *testing.T, s *Store, workID, observat
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	_, err = tx.ExecContext(context.Background(), `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, observationID, workID, "technical investigation", string(encoded), `[]`, time.Now().UTC().Format(time.RFC3339Nano))
-	leaveErr := leaveFold(context.Background(), tx)
+	leaveErr := leaveWrite(context.Background(), tx)
 	if err == nil {
 		err = leaveErr
 	}

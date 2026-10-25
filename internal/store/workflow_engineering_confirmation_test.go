@@ -41,9 +41,9 @@ func engineeringConfirmationFixture(t *testing.T, workID, domainsJSON string, as
 	actors := recordApprovalActors(t, f.store, workID)
 	if domainsJSON == "" {
 		// No live approval writes an absent fact; the projection carries it.
-		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET decision_domains=NULL WHERE work_id=? AND superseded_by IS NULL;
-			DELETE FROM fold_guard`, workID); err != nil {
+			DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -393,11 +393,11 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), writeTx); err != nil {
+		if err := enterWrite(context.Background(), writeTx); err != nil {
 			t.Fatal(err)
 		}
 		writeErr := workflowPremiseConfirmedWriteTx(context.Background(), writeTx, definition, confirmed, workflowPremiseConfirmedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: workID, ExpectedVersion: &expectedV, ResultingVersion: &resultingV}, ContractVersion: 1, ConfirmingActorRef: coordinatorRef, ConfirmationAuthority: "coordinator"})
-		if leaveErr := leaveFold(context.Background(), writeTx); writeErr == nil {
+		if leaveErr := leaveWrite(context.Background(), writeTx); writeErr == nil {
 			writeErr = leaveErr
 		}
 		if writeErr != nil {

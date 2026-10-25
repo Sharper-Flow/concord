@@ -34,13 +34,13 @@ func TestStaleBinaryRefusesToRebuildNewerProjectionWatermark(t *testing.T) {
 	// Simulate the row a newer binary wrote: a projection version above this
 	// binary's and a digest only its algorithm produces. The current binary
 	// must see the row as not its own and refuse, not rebuild over it.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE knowledge_index_watermark SET projection_version = ?, scanned_content_digest = 'sha256:future-algorithm'`, knowledgeProjectionVersion+1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, s.EnsureKnowledgeIndexFresh(ctx, home), KindSchemaUnsupported)
@@ -76,13 +76,13 @@ func TestOlderProjectionWatermarkStillRebuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE knowledge_index_watermark SET projection_version = ?, scanned_content_digest = ''`, knowledgeProjectionVersion-1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {

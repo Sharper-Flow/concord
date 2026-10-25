@@ -794,8 +794,8 @@ func livenessGreenRunDigest(workID, action string, sequence int) string {
 // the binding, which the caller's action request must carry.
 func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, digest string) (int64, error) {
 	var occurred string
-	if err := sqlTx.QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' AND json_extract(payload,'$.action_id')='start_refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		return 0, fmt.Errorf("read the refine start: %w", err)
+	if err := sqlTx.QueryRowContext(ctx, `SELECT COALESCE(i.last_checkpoint_at,i.execution_started_at,i.started_at) FROM workflow_instances i JOIN workflow_step_epochs e ON e.work_id=i.work_id AND e.step_id='refine' AND e.latest_start_seq>0 WHERE i.work_id=?`, workID).Scan(&occurred); err != nil {
+		return 0, fmt.Errorf("read the current refine instance time: %w", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
 	if err != nil {
@@ -839,7 +839,7 @@ func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, diges
 	if _, err := appendEvent(ctx, sqlTx, binding, true); err != nil {
 		return 0, err
 	}
-	if err := foldRegisteredEvent(ctx, sqlTx, binding); err != nil {
+	if err := applyEffect(ctx, sqlTx, binding); err != nil {
 		return 0, err
 	}
 	if err := sqlTx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
@@ -1040,7 +1040,7 @@ func livenessStep(ctx context.Context, s *Store, workID string) (string, error) 
 func livenessCompletion(ctx context.Context, s *Store, workID string) (string, int64, error) {
 	var state string
 	var completions int64
-	err := s.db.QueryRowContext(ctx, `SELECT instance_state,(SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?) FROM workflow_instances WHERE work_id=?`, string(SubjectWorkItem), workID, WorkflowCompleted, workID).Scan(&state, &completions)
+	err := s.db.QueryRowContext(ctx, `SELECT instance_state,(SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=? AND kind=?) FROM workflow_instances WHERE work_id=?`, string(SubjectWorkItem), workID, WorkflowCompleted, workID).Scan(&state, &completions)
 	return state, completions, err
 }
 
@@ -1104,7 +1104,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -1133,7 +1133,7 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

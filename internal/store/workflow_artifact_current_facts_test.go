@@ -17,7 +17,7 @@ func TestWorkflowArtifactBackfillPreservesPostVerdictProduction(t *testing.T) {
 	stalenessEvent(t, s, work, WorkflowActionCompleted, stalenessActionPayload("late-producer", "record_finding"))
 	queries := []string{`SELECT json_array(work_id,step_id,action_id,production_seq,verdict_seq,verdict_production_seq) FROM workflow_artifact_actions ORDER BY work_id,step_id,action_id`}
 	want := workerFactsQueryRows(t, s, queries)
-	repopulateWorkflowCurrentFactsForTest(t, s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("backfill changed post-verdict production: got %v, want %v", got, want)
 	}

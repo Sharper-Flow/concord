@@ -990,7 +990,7 @@ func rollbackBootstrapTx(ctx context.Context, transaction *Transaction, operatio
 		if marshalErr != nil {
 			return marshalErr
 		}
-		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: operationID + ":rolled-back", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx), false); err != nil {
+		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: operationID + ":rolled-back", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newWriteScope(tx), false); err != nil {
 			return err
 		}
 	}
@@ -1284,7 +1284,7 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 		{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 4, Payload: workPayload},
 		{EventID: operationID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 	}
-	if _, err := applyOperationTx(ctx, transaction.tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(transaction.tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, transaction.tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newWriteScope(transaction.tx), false); err != nil {
 		return err
 	}
 	// Session-prepare reads C19 continuity unconditionally, so a
@@ -1657,7 +1657,7 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newFoldScope(tx.Tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newWriteScope(tx.Tx), false); err != nil {
 		return BootstrapResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?,updated_at=? WHERE op_id=? AND state=?`, worktreeStateVerified, s.now().Format(time.RFC3339Nano), operationID, worktreeStatePending); err != nil {

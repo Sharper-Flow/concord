@@ -166,8 +166,8 @@ func TestWorkSizeOverrideEventRefusesANonOperatorActor(t *testing.T) {
 func TestWorkSizeOverrideRefusesLiveCarriedHistory(t *testing.T) {
 	s := openTemp(t)
 	sizedWork(t, s, "carried")
-	event := operationEvent("carried-override", WorkSizeOverridden, SubjectWorkItem, "carried", workSizeOverriddenPayload{ModelSequence: 1, Size: WorkSizeCrucial, Reason: "historical carry", CarriedFromEventID: "other-override"})
-	assertFailureKind(t, applyWorkEvent(t, s, event, nil), KindInvalidOperation)
+	event := operationEvent("carried-override", WorkSizeOverridden, SubjectWorkItem, "carried", map[string]any{"model_sequence": 1, "size": WorkSizeCrucial, "reason": "historical carry", "carried_from_event_id": "other-override"})
+	assertFailureKind(t, applyWorkEvent(t, s, event, nil), KindInvalidPayload)
 	assertNoWorkSizeOverride(t, s, "carried")
 }
 
@@ -175,8 +175,8 @@ func TestWorkSizeOverrideTableIsFoldOnly(t *testing.T) {
 	s := openTemp(t)
 	sizedWork(t, s, "direct")
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO work_size_overrides(work_id,event_id,model_sequence,size_class,recorded_at) VALUES('direct','direct-sized-1',1,'crucial','2026-10-18T00:00:00Z')`)
-	if err == nil || !strings.Contains(err.Error(), "fold-only") {
-		t.Fatalf("direct insert err=%v; want the fold-only guard", err)
+	if err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("direct insert err=%v; want the write-seam-only guard", err)
 	}
 }
 

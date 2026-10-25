@@ -176,7 +176,7 @@ func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
 					t.Fatal(err)
 				}
 				var before int
-				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 					t.Fatal(err)
 				}
 				method := s.AddProjectLocator
@@ -186,7 +186,7 @@ func TestProjectLocatorAdmissionRefusesRemoteCredentials(t *testing.T) {
 				}
 				err := method(ctx, "project-a", ProjectLocator{ID: id, Kind: LocatorGitRemote, Value: tc.remote}, 2)
 				assertRemoteAdmissionFailure(t, err, tc.remote, "remove credentials from the remote URL; use a git credential helper")
-				assertTableCount(t, s, "domain_events", before)
+				assertTableCount(t, s, "effect_receipts", before)
 				locators, err := s.ProjectLocators(ctx, "project-a")
 				if err != nil || len(locators) != 1 || locators[0].Value != "git@github.com:o/r.git" {
 					t.Fatalf("locators changed after refusal: %+v, err=%v", locators, err)
@@ -240,12 +240,12 @@ func TestRemoteAdmissionRefusesURLParseErrors(t *testing.T) {
 			s := locatorReplayStore(t)
 			ctx := context.Background()
 			var before int
-			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+			if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 				t.Fatal(err)
 			}
 			err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "remote", Kind: LocatorGitRemote, Value: tc.remote}, 1)
 			assertRemoteAdmissionFailure(t, err, tc.remote, "use a remote URL or scp-style SSH remote")
-			assertTableCount(t, s, "domain_events", before)
+			assertTableCount(t, s, "effect_receipts", before)
 			assertTableCount(t, s, "project_locators", 0)
 			root := t.TempDir()
 			host, err := ResolveProjectHost(ctx, root, root, &locatorGitStub{root: root, remote: tc.remote})

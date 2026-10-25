@@ -23,9 +23,7 @@ func TestWorkerNativeCurrentAuthorizationWithoutLog(t *testing.T) {
 	if err != nil || newer.Seq <= wantAuth.Seq {
 		t.Fatalf("newer authorization missing: %+v %v", newer, err)
 	}
-	if _, err := f.s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.s)
 	t.Run("dispatch-binding", func(t *testing.T) {
 		d, auth, err := readNativeOracleDispatchBindingTx(ctx, f.s.db, f.work, f.a.AttemptID)
 		if err != nil || auth.EventID != wantAuth.EventID || auth.Seq != wantAuth.Seq || d.WorkerAttemptID != f.a.AttemptID || d.AttemptEpoch != f.a.AttemptEpoch {
@@ -53,7 +51,7 @@ func TestWorkerNativeCurrentAuthorizationWithoutLog(t *testing.T) {
 			t.Fatalf("unused authorization: open=%v err=%v", open, err)
 		}
 		// Exercise the current consumption coordinate at its strict boundary.
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET dispatch_seq=? WHERE work_id=? AND attempt_id=?`, window.StartSeq, f.work, f.a.AttemptID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET dispatch_seq=? WHERE work_id=? AND attempt_id=?`, window.StartSeq, f.work, f.a.AttemptID); err != nil {
 			t.Fatal(err)
 		}
 		open, err = WorkerDispatchWindowIsOpenTx(ctx, tx, window)
@@ -83,7 +81,7 @@ func TestWorkerNativeCurrentAuthorizationWithoutLog(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + tc.sql); err != nil {
+			if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); ` + tc.sql); err != nil {
 				t.Fatal(err)
 			}
 			_, _, _, err = readNativeOracleDispatchTx(ctx, tx, req, f.head, workerWorktreeIdentity(f.repo))
@@ -109,9 +107,7 @@ func TestWorkerNativeCurrentReceiptWithoutLog(t *testing.T) {
 	if err != nil || d.WorkerAttemptID != f.a.AttemptID {
 		t.Fatalf("exact authorizing dispatch: %+v %v", d, err)
 	}
-	if _, err := f.s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.s)
 	t.Run("complete-producer", func(t *testing.T) {
 		if err := validateNativeOracleProducerTx(ctx, f.s.db, f.work, &r, "pass"); err != nil {
 			t.Fatal(err)
@@ -148,7 +144,7 @@ func TestWorkerNativeCurrentReceiptWithoutLog(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_job_revisions SET recorded_seq=? WHERE work_id=? AND job_id=?`, p.Authorization.Seq, f.work, f.a.WorkerJobBinding.JobID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_job_revisions SET recorded_seq=? WHERE work_id=? AND job_id=?`, p.Authorization.Seq, f.work, f.a.WorkerJobBinding.JobID); err != nil {
 			t.Fatal(err)
 		}
 		if err := validateNativeOracleHistoryTx(ctx, tx, f.work, p, d, r.Oracle); !errors.Is(err, sql.ErrNoRows) {
@@ -165,9 +161,7 @@ func TestWorkerNativeCurrentReleaseStampWithoutLog(t *testing.T) {
 	if err != nil || want.Frontier <= 0 || want.CoreReceipt == "" || want.Attempt == "" || want.Preparations == "[]" {
 		t.Fatalf("incomplete release stamp: %+v %v", want, err)
 	}
-	if _, err := f.s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.s)
 	got, err := readNativeOracleReleaseStamp(ctx, f.s.db, req)
 	if err != nil || got != want {
 		t.Fatalf("stamp changed without log: %+v %v", got, err)
@@ -190,7 +184,7 @@ func TestWorkerNativeCurrentReleaseStampWithoutLog(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + tc.sql); err != nil {
+			if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); ` + tc.sql); err != nil {
 				t.Fatal(err)
 			}
 			stamp, err := readNativeOracleReleaseStamp(ctx, tx, req)
@@ -211,9 +205,7 @@ func TestWorkerNativeCurrentReleaseStampWithoutLog(t *testing.T) {
 func TestWorkerNativeCurrentRevisionReadersWithoutLog(t *testing.T) {
 	f := newNativeOracleFixture(t)
 	ctx := context.Background()
-	if _, err := f.s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.s)
 	t.Run("U09-exact-recorded-existence", func(t *testing.T) {
 		for _, tc := range []struct {
 			work string

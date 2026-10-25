@@ -18,9 +18,9 @@ func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
 	defer s.Close()
 	db := s.DatabaseForTesting()
 	digest := "sha256:" + strings.Repeat("a", 64)
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET definition_ref='workflow.future_definition',definition_digest=?;
-		DELETE FROM fold_guard;
+		DELETE FROM write_guard;
 		INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version)
 		SELECT 'workflow',definition_ref,0,definition_digest,'v99.0.0' FROM workflow_instances GROUP BY definition_ref,definition_digest`, digest); err != nil {
 		t.Fatal(err)

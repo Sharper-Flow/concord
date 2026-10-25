@@ -122,10 +122,10 @@ func observationReadLimit(limit int) int {
 func decodeObservationColumns(refs, tags string) ([]string, []string, error) {
 	var outRefs, outTags []string
 	if err := json.Unmarshal([]byte(refs), &outRefs); err != nil {
-		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation refs are not readable", false, "repair the live projection from its event log", err)
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation refs are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	if err := json.Unmarshal([]byte(tags), &outTags); err != nil {
-		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation tags are not readable", false, "repair the live projection from its event log", err)
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation tags are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	return outRefs, outTags, nil
 }

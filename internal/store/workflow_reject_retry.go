@@ -98,7 +98,7 @@ type retryDispatchRecord struct {
 // including the CD-0173 escalation wall the post-rejection state arms —
 // fails the whole transaction, so the rejection commits no partial writes
 // and the rejection-only escape stays available.
-func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, intent *rejectRetryIntent) (WorkflowActionExecutionResult, retryDispatchRecord, error) {
+func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, intent *rejectRetryIntent) (WorkflowActionExecutionResult, retryDispatchRecord, error) {
 	var result WorkflowActionExecutionResult
 	var record retryDispatchRecord
 	fields, err := workflowActionObject(request.Payload)

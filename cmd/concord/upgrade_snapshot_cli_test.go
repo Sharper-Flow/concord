@@ -78,7 +78,7 @@ func TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence(t *testing.T) {
 				}
 			} else {
 				// Readiness accepts the schema, but backup verification rejects its foreign keys.
-				failures = seedSnapshotForeignKeyCorruption(t, path)
+				failures = seedSnapshotForeignKeyCorruption(t, path, "fold_guard")
 			}
 			code, _, errOut := runUpgradeStdin(t, `{}`)
 			if code != 1 {

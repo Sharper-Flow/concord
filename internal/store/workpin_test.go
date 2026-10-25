@@ -167,7 +167,7 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.DatabaseForTesting().Exec(`UPDATE work_items SET lifecycle=? WHERE id=?`, item.lifecycle, item.id); err != nil {
@@ -182,11 +182,11 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'primary')`, item.id, item.project); err != nil {
 			t.Fatalf("seed %s: %v", item.id, err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('pin-count-other','project','secondary'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('pin-count-other','project','secondary'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := ReadWorkPin(ctx, s, "pin-count-completed")

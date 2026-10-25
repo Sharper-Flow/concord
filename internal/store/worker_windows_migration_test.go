@@ -2,7 +2,7 @@ package store
 
 import (
 	"context"
-	"database/sql"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -61,11 +61,7 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 		return out
 	}
 	want := snapshot()
-	// Remove only 143's destination state. Its backfill must reconstruct the
-	// same current facts the real writing paths produced above.
-	if _, err := s.db.Exec(workerWindowFactsFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
+	assertWorkerWindowCorpus143(t)
 	var migration143 migration
 	for _, m := range migrations {
 		if m.Version == 143 {
@@ -74,9 +70,6 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 	}
 	if migration143.Version != 143 || !migration143.Breaking || migration143.FoldMaintained != "advance" {
 		t.Fatal("missing breaking advance migration 143")
-	}
-	if err := applyMigration(context.Background(), s.db, migration143); err != nil {
-		t.Fatal(err)
 	}
 	if got := snapshot(); !reflect.DeepEqual(got, want) {
 		for i := range queries {
@@ -87,30 +80,12 @@ func assertWorkerWindowsMigration143Parity(t *testing.T, s *Store) {
 	}
 }
 
-const workerWindowFactsFixtureReversal = `
-DROP TABLE worker_attempt_dispositions;
-ALTER TABLE work_items DROP COLUMN effect_seq;
-ALTER TABLE work_items DROP COLUMN last_progress_at;
-ALTER TABLE worker_authorizations DROP COLUMN event_id;
-ALTER TABLE worker_authorizations DROP COLUMN start_seq;
-ALTER TABLE worker_authorizations DROP COLUMN start_payload;
-ALTER TABLE worker_authorizations DROP COLUMN contract_version;
-ALTER TABLE worker_attempts DROP COLUMN terminal_seq;
-ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at;
-ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq;
-ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq;
-ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id;
-ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq;
-ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq;
-`
-
 func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
-	db, err := sql.Open(driverName, ":memory:")
-	if err != nil {
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "effect-frontier.db"), 142)
+	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE work_items(id TEXT PRIMARY KEY,effect_seq INTEGER NOT NULL DEFAULT 0,last_progress_at TEXT NOT NULL DEFAULT ''); INSERT INTO work_items(id) VALUES('work')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work','task','Frontier fixture','needed',0,1,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -125,7 +100,14 @@ func TestWorkEffectFrontierAndLastProgress(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
+		scope, err := beginWrite(ctx, tx)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, Event{Seq: seq, EventID: "effect", SubjectType: SubjectWorkItem, SubjectID: "work", Kind: kind, OccurredAt: at}); err != nil {
+			t.Fatal(err)
+		}
+		if err := scope.close(ctx); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

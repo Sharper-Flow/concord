@@ -54,12 +54,12 @@ func TestPublicDuplicateContractRecoveryUsesRoutineAuthorityAndKeepsWorkID(t *te
 	}
 
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id='work-1' AND contract_version=1;
-DELETE FROM fold_guard`); err != nil {
+DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	version := workVersion(t, s, "work-1")
@@ -81,6 +81,7 @@ DELETE FROM fold_guard`); err != nil {
 	// recovery repairs a duplicate projection. No second approval is consumed.
 	env.HostApproval = nil
 	challengesBefore := verifyWallChallenges(t, s)
+	approvalsBefore := agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`)
 	results := make(chan struct {
 		response Envelope
 		err      error
@@ -125,16 +126,12 @@ DELETE FROM fold_guard`); err != nil {
 	if err := store.WorkflowActionPreflightWithRegistry(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version + 1, ActionID: "start_execution", Payload: json.RawMessage(`{}`), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}}); err != nil {
 		t.Fatalf("recovered work did not reach execution admission: %v", err)
 	}
-	var payload string
-	if err := db.QueryRow(`SELECT payload FROM domain_events WHERE kind=? AND subject_id=? ORDER BY seq DESC LIMIT 1`, store.WorkflowContractSuperseded, "work-1").Scan(&payload); err != nil {
+	var approvingActor string
+	if err := db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&approvingActor); err != nil {
 		t.Fatal(err)
 	}
-	var eventFields map[string]any
-	if err := json.Unmarshal([]byte(payload), &eventFields); err != nil {
-		t.Fatal(err)
-	}
-	if consumedRef, _ := eventFields["approval_ref"].(string); consumedRef != "" {
-		t.Fatalf("routine recovery event consumed approval_ref=%q", consumedRef)
+	if approvingActor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) || agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`) != approvalsBefore {
+		t.Fatalf("routine recovery did not remain agent-attributed and approval-free: approving_actor=%s", approvingActor)
 	}
 	if got := verifyWallChallenges(t, s); got != challengesBefore {
 		t.Fatalf("routine recovery minted approval challenges: %d -> %d", challengesBefore, got)
@@ -145,5 +142,8 @@ DELETE FROM fold_guard`); err != nil {
 	}
 	if active := countRows(t, db, `SELECT count(*) FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`); active != 1 {
 		t.Fatalf("exact recovery retry changed active contract count to %d", active)
+	}
+	if agentRowsSnapshot(t, s, `SELECT * FROM agent_approvals`) != approvalsBefore {
+		t.Fatal("exact recovery retry changed retained approval state")
 	}
 }

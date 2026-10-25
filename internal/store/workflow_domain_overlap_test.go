@@ -27,7 +27,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := enterFold(ctx, tx); err != nil {
+			if err := enterWrite(ctx, tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
@@ -446,7 +446,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 				tx.Rollback()
 				t.Fatal(err)
 			}
-			if err := leaveFold(ctx, tx); err != nil {
+			if err := leaveWrite(ctx, tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
@@ -546,7 +546,7 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -554,7 +554,7 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -579,7 +579,7 @@ func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, starte
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -587,7 +587,7 @@ func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, starte
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -700,7 +700,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -733,7 +733,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -754,7 +754,7 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newWriteScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "overlap-result-accept", OperationID: "overlap-result-accept",
@@ -884,7 +884,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newWriteScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("TEST_CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 2}), Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "overlap-race-accept", OperationID: "overlap-race-accept",

@@ -20,13 +20,13 @@ func seedStaleLawCompaction(t *testing.T) (*Store, KnowledgeHome, string, string
 	seedWorkflowLaw(t, s)
 	actor := DeriveWorkflowActorRef("principal:operator", "client:compaction", "agent:operator", "session:compaction")
 	statements := []string{
-		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO write_guard(active) VALUES(1)`,
 		`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('` + actor + `','principal:operator','client:compaction','agent:operator','session:compaction','operator','2026-08-19T00:00:00Z')`,
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('owner',1,'compaction boundary','internal_sqlite','[]','[]','2026-08-19T00:00:00Z','` + actor + `','["spec:one"]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('owner',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:compaction","immutable_subject_ref":"commit:compaction","expected_result":"pass"}')`,
 		`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('owner',1,'spec:one','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`,
 		`DELETE FROM law_domain_homes WHERE law_id='spec:one'`,
 		`DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
-		`DELETE FROM fold_guard`,
+		`DELETE FROM write_guard`,
 	}
 	for _, statement := range statements {
 		if _, err := s.DatabaseForTesting().Exec(statement); err != nil {
@@ -87,7 +87,7 @@ func TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, home, commit, path := seedStaleLawCompaction(t)
-	beforeEvents := countRows(t, s, "domain_events")
+	beforeEvents := countRows(t, s, "effect_receipts")
 
 	err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "stale-law-link"))
 	assertStaleLawRefusal(t, err)
@@ -95,8 +95,8 @@ func TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim(t *testing.T) {
 	if countRows(t, s, "archived_work") != 0 {
 		t.Fatal("refused compaction link folded an archived_work row")
 	}
-	if countRows(t, s, "domain_events") != beforeEvents {
-		t.Fatalf("refused compaction link appended events: %d, want %d", countRows(t, s, "domain_events"), beforeEvents)
+	if countRows(t, s, "effect_receipts") != beforeEvents {
+		t.Fatalf("refused compaction link appended effects: %d, want %d", countRows(t, s, "effect_receipts"), beforeEvents)
 	}
 }
 

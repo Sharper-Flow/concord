@@ -41,10 +41,10 @@ func TestStoreOracleRecipeRecordsReady(t *testing.T) {
 	}
 	fixture := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	s := fixture.store
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 VALUES(?,'project','store-oracle-claim','store-oracle',?,?,?,'active','2026-10-09T00:00:00Z','{}');
-DELETE FROM fold_guard`, WorktreeSetID(work), head, repo, repo); err != nil {
+DELETE FROM write_guard`, WorktreeSetID(work), head, repo, repo); err != nil {
 		t.Fatal(err)
 	}
 	request := func(id string) WorktreeVerifyRequest {
@@ -135,7 +135,7 @@ DELETE FROM fold_guard`, WorktreeSetID(work), head, repo, repo); err != nil {
 		t.Fatalf("job is not the exact ready revision: %+v", job)
 	}
 	var payload []byte
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, work, WorkerJobRecorded).Scan(&payload); err != nil {
+	if err := s.db.QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? ORDER BY recorded_seq DESC LIMIT 1`, work).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
 	var recorded WorkerJobRecordedPayload

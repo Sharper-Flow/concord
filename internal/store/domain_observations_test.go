@@ -28,7 +28,7 @@ func foldTestEvent(t *testing.T, s *Store, event Event) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx)); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newWriteScope(tx)); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

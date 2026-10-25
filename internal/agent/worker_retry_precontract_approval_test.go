@@ -42,7 +42,7 @@ func TestPreContractWorkerRetryOpensFreshAttemptWithoutConsent(t *testing.T) {
 		t.Fatalf("retry minted a consent challenge: %d -> %d", before, got)
 	}
 	var retryEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&retryEpoch); err != nil {
 		t.Fatal(err)
 	}
 	if retryEpoch != 2 {
@@ -119,14 +119,14 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	path := t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='investigate' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed pre-contract projections: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:precontract-retry", "precontract-retry", strings.Repeat("a", 40), path, "repo:precontract-retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:precontract-retry", "precontract-retry", strings.Repeat("a", 40), path, "repo:precontract-retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("seed pre-contract worktree: %v", err)
 	}
 	attemptID := "attempt:work-1:failed"

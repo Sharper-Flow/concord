@@ -38,9 +38,7 @@ func TestProjectHandoffNewestSelectionsReadCurrentRows(t *testing.T) {
 	f := setupProjectHandoffFixture(t)
 	ctx := context.Background()
 	_, newer := recordOrderedHandoffPair(t, f)
-	if _, err := f.store.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.store)
 	if err := f.store.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "project_handoff_test")
 		if err != nil {
@@ -84,7 +82,7 @@ func TestProjectHandoffAdmissionAndConsumeReadCurrentRows(t *testing.T) {
 			if state == "stale-newer" {
 				seedReplacementProjectHandoffContract(t, f.store, f.workID, readWorkVersion(t, f.store, f.workID))
 			}
-			hideDomainEvents(t, f.store)
+			assertEventLogAbsent(t, f.store)
 			if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
 				err := RefuseUnconsumedProjectHandoffTx(t.Context(), tx, f.workID, f.targetSession)
 				if state == "consumed-newer" {
@@ -131,31 +129,9 @@ func TestProjectHandoffRecordedSeqMigrationBackfillsRecordingOrder(t *testing.T)
 	if olderSeq <= 0 || newerSeq <= olderSeq {
 		t.Fatalf("recorded_seq older=%d newer=%d, want the recording event order", olderSeq, newerSeq)
 	}
-	repopulateSessionWindowCurrentFactsForTest(t, f.store)
+	assertSessionWindowCorpus144(t)
 	if got := workerFactsQueryRows(t, f.store, []string{query}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("backfill recorded_seq=%v, want the folded %v", got, want)
-	}
-}
-
-func repopulateSessionWindowCurrentFactsForTest(t *testing.T, s *Store) {
-	t.Helper()
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DROP TABLE session_relocation_counts; DROP INDEX project_handoffs_recorded_seq; ALTER TABLE project_handoffs DROP COLUMN recorded_seq; ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 144 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -188,9 +164,7 @@ func TestProjectHandoffRetirementSelectionsReadCurrentRows(t *testing.T) {
 			} else if !want.recorded || want.handoffID != newer {
 				t.Fatalf("active facts=%+v, want the later-recorded %s", want, newer)
 			}
-			if _, err := f.store.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-				t.Fatal(err)
-			}
+			assertEventLogAbsent(t, f.store)
 			got, err := read()
 			if err != nil {
 				t.Fatal(err)

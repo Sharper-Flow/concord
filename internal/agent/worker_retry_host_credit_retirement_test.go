@@ -99,7 +99,7 @@ func TestHostRestartDoesNotSupplyRetryAuthority(t *testing.T) {
 	}
 	// Process identity is not an admission basis, even when the request can
 	// proceed through ordinary admission.
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND json_extract(payload,'$.retry_convergence.basis')='host_changed'`); got != 0 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT (SELECT count(*) FROM worker_authorizations WHERE work_id='work-1' AND json_extract(payload,'$.retry_convergence.basis')='host_changed')+(SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND json_extract(payload,'$.retry_convergence.basis')='host_changed')`); got != 0 {
 		t.Fatalf("host restart supplied %d convergence credits", got)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {

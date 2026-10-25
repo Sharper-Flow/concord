@@ -139,7 +139,7 @@ func TestSourceSetProofRefusesLocatorMove(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "locator-move")
 	seedKnowledgeWork(t, s, "locator-move-work", "Move source work")
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='locator-move-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='locator-move-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "locator-move-work")

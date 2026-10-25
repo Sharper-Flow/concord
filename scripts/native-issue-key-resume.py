@@ -147,7 +147,7 @@ def snapshot(db):
     # Observation only: all fixture authority is established through CLI commands.
     with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True) as conn:
         return {name: conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid').fetchall()
-                for name in ("work_items", "worktree_entries", "worktree_occupancy", "linear_issue_links", "domain_events")}
+                for name in ("work_items", "worktree_entries", "worktree_occupancy", "linear_issue_links", "effect_receipts", "store_sequences")}
 
 
 def native_envelope(message):

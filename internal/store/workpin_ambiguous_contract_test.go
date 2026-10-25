@@ -154,13 +154,13 @@ func TestActiveWorkflowContractVersionRefusesAnAmbiguousProjection(t *testing.T)
 func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store, workID string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json)
 		SELECT work_id,contract_version+1,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json
 		FROM workflow_contracts
 		WHERE work_id=? AND superseded_by IS NULL
 		ORDER BY contract_version DESC LIMIT 1;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatalf("duplicate active contract: %v", err)
 	}
 }
@@ -179,7 +179,7 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	seedWithheldQuestionWorkflow(t, s, workID)
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherID})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)

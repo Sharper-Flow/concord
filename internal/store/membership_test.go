@@ -70,7 +70,7 @@ func TestPM5StandaloneCreationRejectsOrphans(t *testing.T) {
 	})
 	assertFailureKind(t, err, KindMembershipInvariant)
 	assertTableCount(t, s, "products", 0)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 }
 
 func createProductProject(t *testing.T, s *Store, productID, projectID string) {
@@ -350,13 +350,13 @@ func TestPM5OpenRejectsExistingOrphanProjection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orphan.db")
 	s := openTempAtPath(t, path)
 	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO products(id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at) VALUES ('orphan', 'orphan', 'prototype', 'operator_only', 1, 'now', 'now')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

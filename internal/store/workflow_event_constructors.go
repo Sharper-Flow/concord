@@ -639,7 +639,7 @@ func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID,
 }
 
 // workflowConfirmPremiseEvents consumes the dispatch's verified entry: the
-// confirmed definition is the one the transaction's fold scope resolved, so
+// confirmed definition is the one the transaction's write scope resolved, so
 // the confirmation never resolves a second contract source.
 func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	return workflowConfirmPremiseEventsForDefinition(ctx, tx, definition, request, actor, fields, eventID, expected)

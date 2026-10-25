@@ -43,7 +43,7 @@ func setAdmissionMandate(t *testing.T, s *Store, workID string, law WorkflowLawR
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=? AND superseded_by IS NULL`, string(mustJSONValue([]string{law.LawID})), workID); err != nil {
@@ -52,7 +52,7 @@ func setAdmissionMandate(t *testing.T, s *Store, workID string, law WorkflowLawR
 	if _, err := tx.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`, workID, law.LawID, law.ContentHash); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

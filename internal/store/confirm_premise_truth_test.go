@@ -35,7 +35,7 @@ func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
 	// Only the question's decision-domain input differs from engineering work.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	seedComparisonObservation(t, s, workID)

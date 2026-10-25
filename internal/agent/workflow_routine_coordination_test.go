@@ -125,11 +125,11 @@ func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx cont
 		query string
 		args  []any
 	}{
-		{"fold guard", `INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{"write guard", `INSERT INTO write_guard(active) VALUES(1)`, nil},
 		{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','domain-locator-product-1')`, nil},
 		{"registry", `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','domain-locator-product-1','fixture-product-1',?,'1.0',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
 		{"root domain", `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','domain-locator-product-1','product-1',?,'Fixture root','Product law fixture',NULL,'current',?,'fixture')`, []any{pm1fixture.FixtureRootDomainID, pm1fixture.FixtureDomainRegistryContentHash}},
-		{"leave fold", `DELETE FROM fold_guard`, nil},
+		{"leave write", `DELETE FROM write_guard`, nil},
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -341,7 +341,7 @@ func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t
 			if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref FROM workflow_overlap_resolutions`).Scan(&recordedRef); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.approval_ref') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventRef); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT o.approval_ref FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id WHERE r.kind='workflow.overlap_resolved'`).Scan(&eventRef); err != nil {
 				t.Fatal(err)
 			}
 			if recordedRef == "" || recordedRef != eventRef || recordedRef == challengeRef {
@@ -374,7 +374,7 @@ func TestRoutineCoordinationDestructiveKindsSettleThroughAConsumedHostApproval(t
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 				t.Fatalf("cached destructive %s replay left %d resolutions, want the settled one", testCase.kind, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 1 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
 				t.Fatalf("cached destructive %s replay left %d resolution events, want the settled one", testCase.kind, got)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`); got != 1 {
@@ -464,7 +464,7 @@ func TestRoutineCoordinationDestructiveApprovalRefusesWhenBoundToAnotherRequest(
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
 				t.Fatalf("the refused mismatch left %d resolutions", got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 0 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 0 {
 				t.Fatalf("the refused mismatch left %d resolution events", got)
 			}
 			if got := workVersion(t, s, "work-1"); got != minted.fromVersion {
@@ -526,7 +526,7 @@ func TestRoutineCoordinationDestructiveKindsRefuseWithoutAConsumableApproval(t *
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
 				t.Fatalf("the refused destructive %s claims left %d resolutions", kind, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 0 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 0 {
 				t.Fatalf("the refused destructive %s claims left %d resolution events", kind, got)
 			}
 			if got := workVersion(t, s, "work-1"); got != binding.fromVersion {
@@ -594,7 +594,7 @@ func TestRoutineCoordinationRoutineKindsRefuseASuppliedApprovalClaim(t *testing.
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
 				t.Fatalf("the refused routine %s claim left %d resolutions", kind, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 0 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 0 {
 				t.Fatalf("the refused routine %s claim left %d resolution events", kind, got)
 			}
 			if got := workVersion(t, s, "work-1"); got != binding.fromVersion {
@@ -666,7 +666,7 @@ func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects
 			// The baseline populations the replay is measured against: one
 			// settled resolution and its two version bumps, and no approval
 			// authority anywhere.
-			baselineEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+			baselineEvents := agentCurrentEffects(t, s)
 			baselineResolutions := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`)
 			baselineChallenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
 			baselineApprovals := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`)
@@ -684,8 +684,8 @@ func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects
 			}
 			// The replay must settle nothing new: these probes measure the
 			// reply against the baseline populations captured before it.
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); got != baselineEvents {
-				t.Errorf("the %s claim replay left %d domain events, want the baseline %d", kind, got, baselineEvents)
+			if got := agentCurrentEffects(t, s); got != baselineEvents {
+				t.Errorf("the %s claim replay changed current rows or receipts: got=%s baseline=%s", kind, got, baselineEvents)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != baselineResolutions {
 				t.Errorf("the %s claim replay left %d resolutions, want the baseline %d", kind, got, baselineResolutions)
@@ -795,7 +795,7 @@ func TestRoutineCoordinationTransactionalCacheHitRefusesAnAddedRoutineClaim(t *t
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 		t.Fatalf("the refused transactional claim left %d resolutions, want the nested original alone", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
 		t.Fatalf("the refused transactional claim left %d resolution events, want the nested original alone", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`); got != 0 {
@@ -837,7 +837,7 @@ func TestRoutineCoordinationCachedClaimRefusesBeforeWriterRelease(t *testing.T) 
 	if unsigned.Outcome != OutcomeOK || unsigned.Error != nil {
 		t.Fatalf("unsigned routine compatible_with outcome=%s error=%+v, want the plain success", unsigned.Outcome, unsigned.Error)
 	}
-	baselineEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	baselineEvents := agentCurrentEffects(t, s)
 	baselineResolutions := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`)
 	baselineChallenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
 	baselineApprovals := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`)
@@ -861,8 +861,8 @@ func TestRoutineCoordinationCachedClaimRefusesBeforeWriterRelease(t *testing.T) 
 	if elapsed >= neighbor.WriterHold {
 		t.Fatalf("the held-writer claim replay answered after %s, want the refusal before the writer's release", elapsed)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); got != baselineEvents {
-		t.Errorf("the held-writer claim replay left %d domain events, want the baseline %d", got, baselineEvents)
+	if got := agentCurrentEffects(t, s); got != baselineEvents {
+		t.Errorf("the held-writer claim replay changed current rows or receipts: got=%s baseline=%s", got, baselineEvents)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != baselineResolutions {
 		t.Errorf("the held-writer claim replay left %d resolutions, want the baseline %d", got, baselineResolutions)
@@ -1045,7 +1045,7 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 		t.Fatalf("the approved cross-Product compatible_with left %d resolutions, want the settled one", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
 		t.Fatalf("the approved cross-Product compatible_with left %d resolution events, want one", got)
 	}
 	if got := workVersion(t, s, "work-1"); got != binding.fromVersion+1 {
@@ -1059,7 +1059,7 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(approval_ref,'') FROM workflow_overlap_resolutions`).Scan(&recordedRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.approval_ref'),''),COALESCE(json_extract(payload,'$.approval_scope_json'),''),COALESCE(json_extract(payload,'$.approval_operation_digest'),''),COALESCE(json_extract(payload,'$.approval_versions_json'),''),COALESCE(json_extract(payload,'$.approval_consequence'),''),actor FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventRef, &eventScope, &eventDigest, &eventVersions, &eventConsequence, &eventActor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT o.approval_ref,COALESCE(a.scope_json,''),COALESCE(a.operation_digest,''),COALESCE(a.version_json,''),COALESCE(a.consequence,''),r.actor FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id LEFT JOIN agent_approvals a ON a.approval_ref=o.approval_ref WHERE r.kind='workflow.overlap_resolved'`).Scan(&eventRef, &eventScope, &eventDigest, &eventVersions, &eventConsequence, &eventActor); err != nil {
 		t.Fatal(err)
 	}
 	if recordedRef != "" || eventRef != "" || eventScope != "" || eventDigest != "" || eventVersions != "" || eventConsequence != "" {
@@ -1104,7 +1104,7 @@ func TestRoutineCoordinationCrossProductRoutineKindSettlesThroughAConsumedHostAp
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 		t.Fatalf("cached cross-Product compatible_with replay left %d resolutions, want the settled one", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
 		t.Fatalf("cached cross-Product compatible_with replay left %d resolution events, want the settled one", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM idempotency_records`); got != 1 {
@@ -1136,7 +1136,7 @@ func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *t
 		{"challenge rows", `SELECT count(*) FROM agent_approval_challenges`},
 		{"approval rows", `SELECT count(*) FROM agent_approvals`},
 		{"resolutions", `SELECT count(*) FROM workflow_overlap_resolutions`},
-		{"resolution events", `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`},
+		{"resolution receipts", `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`},
 	} {
 		if got := countRows(t, s.DatabaseForTesting(), probe.query); got != 0 {
 			t.Fatalf("the refused cross-Product request left %d %s", got, probe.label)
@@ -1195,7 +1195,7 @@ func TestRoutineCoordinationDestructiveKindWithEmptySelectedProductSettlesThroug
 	if err := s.DatabaseForTesting().QueryRow(`SELECT approval_ref FROM workflow_overlap_resolutions`).Scan(&recordedRef); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.approval_ref') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT o.approval_ref FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id WHERE r.kind='workflow.overlap_resolved'`).Scan(&eventRef); err != nil {
 		t.Fatal(err)
 	}
 	if recordedRef == "" || recordedRef != eventRef || recordedRef == challengeRef {
@@ -1246,7 +1246,7 @@ func TestRoutineCoordinationDestructiveKindWithAnotherSelectedProductSettlesThro
 	}
 	routineOverlapConsumedApprovalWitness(t, s, "the selected-other destructive resolution")
 	var recordedScope string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.approval_scope_json') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&recordedScope); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.scope_json FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id JOIN agent_approvals a ON a.approval_ref=o.approval_ref WHERE r.kind='workflow.overlap_resolved'`).Scan(&recordedScope); err != nil {
 		t.Fatal(err)
 	}
 	expectedScope, marshalErr := json.Marshal(scope)

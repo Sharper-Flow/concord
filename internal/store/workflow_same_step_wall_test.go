@@ -81,7 +81,7 @@ func TestRepeatedFailedAttemptsNeverWallTheStep(t *testing.T) {
 func sameStepDispatchedJob(t *testing.T, s *Store, workID, attemptID string) WorkerJobBinding {
 	t.Helper()
 	var payload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, attemptID).Scan(&payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
 	var dispatched WorkerDispatchedPayload

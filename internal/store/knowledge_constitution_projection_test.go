@@ -186,7 +186,7 @@ func TestConstitutionProjectionConvergesAfterWatermarkInvalidation(t *testing.T)
 
 	// Reproduce the pre-fix residual: the watermark claims fresh content
 	// while the constitution rows are absent.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
@@ -199,7 +199,7 @@ func TestConstitutionProjectionConvergesAfterWatermarkInvalidation(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard WHERE active=1`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	if stripped() != 0 {
@@ -215,13 +215,13 @@ func TestConstitutionProjectionConvergesAfterWatermarkInvalidation(t *testing.T)
 	}
 
 	// The migration's invalidation is the seam the rebuild demand needs.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM knowledge_index_watermark`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard WHERE active=1`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {

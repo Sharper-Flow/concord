@@ -135,7 +135,7 @@ func TestTransactRollsBackCallbackFailure(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = raw.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "rollback-event", "test.event", "product", "product-1", "test", time.Now().UTC().Format(time.RFC3339Nano), 1, `{}`)
+		_, err = appendPreparedEvent(t.Context(), raw, Event{EventID: "rollback-event", Kind: "test.event", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "test", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: jsonRaw(`{}`)})
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func TestTransactRollsBackCallbackFailure(t *testing.T) {
 		t.Fatalf("Transact error = %v, want sentinel", err)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, "rollback-event").Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, "rollback-event").Scan(&count); err != nil {
 		t.Fatalf("read rolled back event: %v", err)
 	}
 	if count != 0 {

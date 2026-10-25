@@ -17,12 +17,12 @@ func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, workID, workID); err != nil {
+DELETE FROM write_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,11 +38,11 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	err = foldWorkflowContractApproved(context.Background(), tx, event, nil)
-	_ = leaveFold(context.Background(), tx)
+	_ = leaveWrite(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil || !strings.Contains(err.Error(), "requires no active workflow contract") {
 		t.Fatalf("duplicate active approval error = %v", err)
@@ -175,12 +175,12 @@ func TestContractImpactNoticesAreInvariantToPredecessorOrder(t *testing.T) {
 		dependentID := workID + "-dependent"
 		seedImpactDependent(t, s, dependentID, workID, "hard")
 		db := s.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
+DELETE FROM write_guard`, dependentID, dependentID); err != nil {
 			t.Fatal(err)
 		}
 		var version int64
@@ -192,15 +192,15 @@ DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), tx); err != nil {
+		if err := enterWrite(context.Background(), tx); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
 		payload := workflowContractSupersededPayload{PreviousContractVersion: 1, NewContractVersion: 3, PredecessorContractVersions: predecessors}
 		event := Event{EventID: "impact-predecessor-order-parent", Kind: WorkflowContractSuperseded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt}
-		scope := newFoldScope(tx)
+		scope := newWriteScope(tx)
 		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version, scope)
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)

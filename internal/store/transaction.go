@@ -38,10 +38,10 @@ type Transaction struct {
 	tx    *sql.Tx
 	clock func() time.Time
 	path  string
-	// fold is the transaction's fold scope while a fold region is open on it.
-	// A region owner sets it after beginFold and mutation seams reuse it, so
-	// nested folds stay depth-counted on one scope.
-	fold *foldScope
+	// write holds the transaction's write scope while a write region is open.
+	// A region owner sets it after beginWrite and mutation seams reuse it, so
+	// nested writes stay depth-counted on one scope.
+	write *writeScope
 }
 
 func (t *Transaction) now() time.Time {

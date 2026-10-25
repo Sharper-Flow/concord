@@ -201,9 +201,10 @@ func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
-	if _, err := s.db.Exec(`UPDATE store_revision SET revision=87 WHERE id=1; ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
+	if _, err := s.db.Exec(`UPDATE store_revision SET revision=87 WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
+	assertEventLogAbsent(t, s)
 	tx, err := beginRead(ctx, s, "revision_fixture")
 	if err != nil {
 		t.Fatal(err)

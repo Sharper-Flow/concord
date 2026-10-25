@@ -136,7 +136,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-failed-first", "terminal-failed-first-completed", "terminal-failed-first-attempt", preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("completed then failed", func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-completed-first", "terminal-completed-first-failed", "terminal-completed-first-attempt", preferredModelForLane(lane)), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("duplicate completed event identity differs", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-duplicate", "terminal-duplicate-second", "terminal-duplicate-attempt", preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("foreign completed subject", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-foreign-subject", "terminal-foreign-completed", "terminal-foreign-attempt", preferredModelForLane(lane), "", lane), KindInvalidOperation, before, beforeEvents)
 	})
 	t.Run("foreign failed subject", func(t *testing.T) {
@@ -186,7 +186,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", preferredModelForLane(lane)), KindInvalidOperation, before, beforeEvents)
 	})
 	t.Run("model mismatch records the host readback", func(t *testing.T) {
@@ -203,7 +203,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 		var state, readback string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &readback); err != nil {
@@ -224,7 +224,7 @@ func assertRejectedWorkerTerminal(t *testing.T, s *Store, event Event, wantKind 
 	if after := workerProjectionSnapshot(t, s); after != beforeProjection {
 		t.Fatalf("rejected terminal event changed worker projection:\n%s\nwant\n%s", after, beforeProjection)
 	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
+	if got := countRows(t, s, "effect_receipts"); got != beforeEvents {
 		t.Fatalf("rejected terminal event count=%d, want %d", got, beforeEvents)
 	}
 }
@@ -306,10 +306,10 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 		t.Fatalf("cannot read test pid start: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, ?, ?, 1);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
@@ -334,9 +334,9 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 
 	// Release the recorded occupancy so the abandon path can take the close.
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		DELETE FROM worktree_occupancy WHERE session_ref='session-live';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	closeEvent.EventID = "abandoned-close-empty"
@@ -377,10 +377,10 @@ func TestAbandonedWorkerFailureMissingLeaseSetRefusesALegacyRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, NULL, NULL, 0);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-legacy", "1970-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
@@ -458,10 +458,10 @@ func TestInvalidReportWorkerFailureClosesUnderLiveOccupancy(t *testing.T) {
 		t.Fatalf("cannot read test pid start: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, ?, ?, 1);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestWorkerDispatchCarriesProvenanceIntoDurableEvidence(t *testing.T) {
 		t.Fatalf("dispatch with provenance refused: %v", err)
 	}
 	var storedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='attempt-prov'`).Scan(&storedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE dispatch_event_id='attempt-prov'`).Scan(&storedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(storedPayload, strings.Repeat("d", 16)) {
@@ -721,8 +721,19 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-start-"+attemptID, WorkflowActionStarted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)}))
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	scope, err := beginWrite(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := Event{EventID: "dispatch-authorization-start-" + attemptID, Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)})}
+	startSeq, err := appendPreparedEvent(ctx, tx, started)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -736,16 +747,18 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	if predicateIDs != nil {
 		payload["worker_packet_predicate_ids"] = predicateIDs
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
+	completed := Event{EventID: "dispatch-authorization-" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	completionSeq, err := appendPreparedEvent(ctx, tx, completed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,json_extract(completion.payload,'$.worker_attempt_id'),completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?;
-DELETE FROM fold_guard;`, "dispatch-authorization-start-"+attemptID, "dispatch-authorization-"+attemptID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,?,?,?,?,?,?)`, workID, attemptID, completionSeq, string(completed.Payload), completed.EventID, startSeq, string(started.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -934,7 +947,7 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 			t.Fatalf("empty-list attempt state = %q, want completed", state)
 		}
 		var verdicts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 			t.Fatal(err)
 		}
 		if verdicts != 0 {

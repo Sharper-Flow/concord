@@ -864,7 +864,7 @@ func TestEvaluateAbsentAcceptsProbe(t *testing.T) {
 		Result:        map[string]any{},
 		Communication: map[string]any{},
 		Effects: map[string]any{
-			"terminal_transition": probedAbsent{Evidence: "domain_events has zero terminal rows for work-cross"},
+			"terminal_transition": probedAbsent{Evidence: "current lifecycle and transition receipts show no terminal change for work-cross"},
 		},
 		Authority: map[string]any{},
 	}

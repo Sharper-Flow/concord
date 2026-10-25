@@ -244,7 +244,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 	if err != nil {
 		return workflowObservation{}, err
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		_ = tx.Rollback()
 		return workflowObservation{}, err
@@ -308,7 +308,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			prepareCorpusImpactDependent(t, s, workID, registered)
 		}
 		if proof == "completion_rollback" {
-			if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON domain_events WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
+			if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -791,7 +791,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginWrite(ctx, tx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -834,7 +834,7 @@ func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64
 
 func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64, error) {
 	var seq int64
-	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&seq)
+	err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&seq)
 	return seq, err
 }
 
@@ -1003,30 +1003,24 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 		return observation, err
 	}
 	observation.State["impact_notices"] = notices
-	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT kind,payload,actor FROM domain_events WHERE subject_type=? AND subject_id=? AND seq>? ORDER BY seq`, SubjectWorkItem, workID, beforeSeq)
+	rows, err = s.DatabaseForTesting().QueryContext(ctx, `SELECT r.kind,COALESCE(d.action_id,''),COALESCE(d.attempt_id,''),r.actor FROM effect_receipts r LEFT JOIN worker_attempt_dispositions d ON d.work_id=r.subject_id AND d.event_id=r.event_id WHERE r.subject_type=? AND r.subject_id=? AND r.effect_seq>? ORDER BY r.effect_seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {
 		return observation, err
 	}
 	defer rows.Close()
 	order := []any{}
 	for rows.Next() {
-		var kind, raw, actor string
-		if err := rows.Scan(&kind, &raw, &actor); err != nil {
+		var kind, action, attempt, actor string
+		if err := rows.Scan(&kind, &action, &attempt, &actor); err != nil {
 			return observation, err
 		}
 		observation.Effects[kind] = true
 		if kind == "work.created" {
 			observation.Effects["work.created_event"] = true
 		}
-		if kind == WorkflowActionCompleted {
-			var payload workflowActionCompletedPayload
-			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-				return observation, err
-			}
-			if payload.ActionID == "accept_worker_result" {
-				if worker, ok := workers[payload.WorkerAttemptID].(map[string]any); ok {
-					worker["accepted_by"] = actor
-				}
+		if kind == WorkflowActionCompleted && action == "accept_worker_result" {
+			if worker, ok := workers[attempt].(map[string]any); ok {
+				worker["accepted_by"] = actor
 			}
 		}
 		order = append(order, kind)

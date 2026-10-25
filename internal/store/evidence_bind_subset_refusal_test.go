@@ -23,7 +23,7 @@ func runBindAction(t *testing.T, s *Store, workID, action string, payload json.R
 	}
 	defer tx.Rollback()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: evidenceRefs, EvidenceKinds: evidenceKinds, WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
@@ -62,7 +62,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 	// bound or refused at bind time; nothing may be half-submitted.
 	for _, ref := range []string{secondRef, thirdRef} {
 		var bound int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref).Scan(&bound); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref).Scan(&bound); err != nil {
 			t.Fatal(err)
 		}
 		if bound != 0 {
@@ -108,7 +108,7 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	}
 	// accept_worker_result also mints a bound event for the attempt id, so
 	// the count scopes to the subject this bind submitted.
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY seq`, workID, WorkflowEvidenceBound, subject)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY binding_seq`, workID, subject)
 	if err != nil {
 		t.Fatal(err)
 	}

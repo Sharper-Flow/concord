@@ -236,7 +236,7 @@ func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 	var eventsBefore int
 	var workflowBefore string
 	db := s.DatabaseForTesting()
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsBefore); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowBefore); err != nil {
@@ -249,7 +249,7 @@ func TestVerifyAuthorityLeavesWorkflowReplayUntouched(t *testing.T) {
 
 	var eventsAfter int
 	var workflowAfter string
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsAfter); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT current_step||'|'||instance_state||'|'||definition_ref||'|'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowAfter); err != nil {

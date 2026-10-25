@@ -35,6 +35,23 @@ const AGENT = "concord-implement"
 const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(9)
 
+function vacateReceipts(dbPath: string, workID?: string) {
+  return dbRows(dbPath, `SELECT * FROM effect_receipts WHERE kind='work.session_vacated'
+    AND (?='' OR subject_id=?) ORDER BY effect_seq`, workID ?? "", workID ?? "")
+}
+
+function landingReceipts(dbPath: string, workID?: string) {
+  return dbRows(dbPath, `SELECT * FROM effect_receipts WHERE kind='work.session_vacate_landed'
+    AND (?='' OR subject_id=?) ORDER BY effect_seq`, workID ?? "", workID ?? "")
+}
+
+function vacateRequest(dbPath: string, workID: string) {
+  return dbValue(dbPath, `SELECT q.*, r.event_id FROM session_vacate_requests q
+    JOIN effect_receipts r ON r.effect_seq=q.request_seq AND r.subject_id=q.work_id
+      AND r.kind='work.session_vacated'
+    WHERE q.work_id=? AND q.session_ref=?`, workID, SESSION_ID)
+}
+
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const result = await runProcess(["git", ...args], "", cwd)
   expect(result.exitCode, `git ${args.join(" ")}: ${result.stderr}`).toBe(0)
@@ -224,7 +241,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
       invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
     const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
       parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
-    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? ORDER BY seq", workID)
+    const vacateEvents = () => vacateReceipts(dbPath, workID)
     // CD-0178 D3: occupancy lives in worktree_occupancy, one row per
     // session. This flow holds at most one occupant at a time, so the
     // projection reads back as the single recorded session ref or empty.
@@ -274,6 +291,8 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect((first.error as any).kind).toBe("operation_conflict")
     expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
     expect(vacateEvents()).toHaveLength(1)
+    const firstRequest = vacateRequest(dbPath, workID)
+    expect(firstRequest).toMatchObject({ work_id: workID, project_id: PROJECT_1, session_ref: SESSION_ID, source_directory: worktree1, destination_directory: repo1.repo, landed: 0, event_id: vacateEvents()[0].event_id })
     expect(moves).toEqual([
       { from: repo1.repo, to: worktree1 },
       { from: worktree1, to: repo1.repo },
@@ -291,9 +310,10 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(moves).toHaveLength(2)
     expect(vacateEvents()).toHaveLength(1)
     expect(worktreeEntries()[0].occupant).toBe("")
-    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    const recoveries = landingReceipts(dbPath, workID)
     expect(recoveries).toHaveLength(1)
-    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(vacateRequest(dbPath, workID)).toEqual({ ...firstRequest, landed: 1 })
+    expect(sessionDirectory).toBe(repo1.repo)
 
     // Work resume's read remains read-only. A move back from main refuses
     // while the tool context still reports main; next-turn replay from the
@@ -324,8 +344,9 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     const events = vacateEvents()
     expect(events).toHaveLength(2)
     expect(events[0].event_id).not.toBe(events[1].event_id)
-    for (const event of events) {
-      expect(JSON.parse(event.payload as string)).toMatchObject({
+    const secondRequest = vacateRequest(dbPath, workID)
+    for (const request of [firstRequest, secondRequest]) {
+      expect(request).toMatchObject({
         work_id: workID,
         project_id: PROJECT_1,
         session_ref: SESSION_ID,
@@ -333,14 +354,18 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
         destination_directory: repo1.repo,
       })
     }
+    expect(secondRequest.event_id).toBe(events[1].event_id)
+    expect(secondRequest.request_seq).toBeGreaterThan(firstRequest.request_seq)
     // Both landings recorded their own event and each released the
     // session's rows in one transaction: the recovery landing, then the
     // second vacate's landing.
-    const landings = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    const landings = landingReceipts(dbPath, workID)
     expect(landings).toHaveLength(2)
-    for (const landing of landings) {
-      expect(JSON.parse(landing.payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
-    }
+    expect(landings[0]).toEqual(recoveries[0])
+    expect(landings[1].event_id).toBe(`${workID}:session-vacate-landed:${SESSION_ID}:2`)
+    expect(secondRequest.landed).toBe(1)
+    expect(sessionDirectory).toBe(repo1.repo)
+    expect(dbValue(dbPath, "SELECT vacate_count,vacate_landing_count FROM session_relocation_counts WHERE work_id=? AND session_ref=?", workID, SESSION_ID)).toEqual({ vacate_count: 2, vacate_landing_count: 2 })
 
     // Both vacates preserve the original Project claim, active and
     // unoccupied. The vacated session then claims the same work item in the
@@ -461,7 +486,7 @@ connected("a readback outside every Project recovers through the remembered dest
       invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
     const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
       parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
-    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? ORDER BY seq", workID)
+    const vacateEvents = () => vacateReceipts(dbPath, workID)
     const worktreeEntries = () => dbRows(dbPath, "SELECT c.project_id AS project_id, e.path AS path, e.state AS state, COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? ORDER BY c.project_id", workID)
 
     const captured = await invoke("concord_work_define", "capture", {
@@ -515,9 +540,10 @@ connected("a readback outside every Project recovers through the remembered dest
       { from: outside, to: repo1.repo },
     ])
     expect(vacateEvents()).toHaveLength(1)
-    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    const recoveries = landingReceipts(dbPath, workID)
     expect(recoveries).toHaveLength(1)
-    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(vacateRequest(dbPath, workID)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, destination_directory: repo1.repo, landed: 1 })
+    expect(sessionDirectory).toBe(repo1.repo)
     expect(worktreeEntries()[0].occupant).toBe("")
 
     // The completed request replays as an idempotent completed replay: a
@@ -526,7 +552,7 @@ connected("a readback outside every Project recovers through the remembered dest
     const confirm = await transition("session_vacate", { idempotency_key: "outside-vacate-3" }, repo1.repo)
     expect(confirm.outcome, JSON.stringify(confirm)).toBe("ok")
     expect(vacateEvents()).toHaveLength(1)
-    expect(dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=?", workID)).toHaveLength(1)
+    expect(landingReceipts(dbPath, workID)).toEqual(recoveries)
   } finally {
     configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)
@@ -644,8 +670,8 @@ connected("an unreadable ok answer recovers through the same-key replay from the
       invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
     const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
       parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
-    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq")
-    const landings = () => dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' ORDER BY seq")
+    const vacateEvents = () => vacateReceipts(dbPath)
+    const landings = () => landingReceipts(dbPath)
     const occupants = () => dbRows(dbPath, "SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e WHERE e.state='active' ORDER BY e.path").map((row: any) => row.occupant as string)
 
     const captured = await invoke("concord_work_define", "capture", {
@@ -693,7 +719,8 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     expect(replay.replayed).toBe(true)
     expect(vacateEvents()).toHaveLength(1)
     expect(landings()).toHaveLength(1)
-    expect(JSON.parse(landings()[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(vacateRequest(dbPath, workID)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, destination_directory: repo1.repo, landed: 1 })
+    expect(sessionDirectory.value).toBe(repo1.repo)
     expect(occupants()).toEqual([""])
     expect(moves).toEqual([
       { from: repo1.repo, to: worktree1 },
@@ -813,8 +840,8 @@ connected("a same-key replay after a later claim refuses without moving the host
       invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
     const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
       parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
-    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq")
-    const landings = () => dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' ORDER BY seq")
+    const vacateEvents = () => vacateReceipts(dbPath)
+    const landings = () => landingReceipts(dbPath)
     const occupants = () => dbRows(dbPath, "SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e WHERE e.state='active' ORDER BY e.path").map((row: any) => row.occupant as string)
 
     for (const [index, key] of ["later-claim-capture-1", "later-claim-capture-2"].entries()) {

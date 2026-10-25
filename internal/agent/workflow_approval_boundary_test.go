@@ -125,14 +125,14 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 					t.Fatalf("routine record_proposal work version=%d, want %d after its advance-mode completion", versionAfter, version+1)
 				}
 				var started int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
 					t.Fatal(err)
 				}
 				if started != 0 {
 					t.Fatalf("advance-mode proposal recorded %d fenced starts, want none", started)
 				}
 				var actor string
-				if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&actor); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind=? ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&actor); err != nil {
 					t.Fatal(err)
 				}
 				wantActor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
@@ -160,7 +160,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				t.Fatalf("legacy challenge moved the work version from %d to %d, want it held", version, versionAfter)
 			}
 			var started, completed int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE kind=?),(SELECT count(*) FROM domain_events WHERE kind=?)`, store.WorkflowActionStarted, store.WorkflowActionCompleted).Scan(&started, &completed); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE kind=?),(SELECT count(*) FROM effect_receipts WHERE kind=?)`, store.WorkflowActionStarted, store.WorkflowActionCompleted).Scan(&started, &completed); err != nil {
 				t.Fatal(err)
 			}
 			if started != 0 || completed != 0 {

@@ -31,9 +31,9 @@ func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, 
 func driftWorkPinVersion(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	// Inject a later writer after the owning transaction has committed.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET version=version+1 WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }

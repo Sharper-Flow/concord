@@ -118,7 +118,7 @@ func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
 		t.Fatalf("unavailable action response outcome=%s error=%+v", response.Outcome, response.Error)
 	}
 	var started int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
 		t.Fatal(err)
 	}
 	if started != 0 {
@@ -190,7 +190,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 	beforeEffects := workflowReplayEffectCounts(t, s)
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{"payload": map[string]any{"current_step": "plan"}}, "idempotency_key": "boundary-malformed-payload"}
 	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
@@ -198,7 +198,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 		t.Fatalf("malformed step/payload response=%+v", response)
 	}
 	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
@@ -226,7 +226,7 @@ func TestWorkflowActionRejectsReplayWithoutEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "replay", "fields": map[string]any{}, "idempotency_key": "boundary-replay-refused"}
@@ -246,7 +246,7 @@ func TestWorkflowActionRejectsReplayWithoutEffects(t *testing.T) {
 		t.Fatalf("forbidden replay response outcome=%s error=%+v", response.Outcome, *response.Error)
 	}
 	var eventsAfter int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore {

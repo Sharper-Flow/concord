@@ -206,7 +206,7 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 		t.Fatalf("projection related ids are %v", related)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowBacklogAlignmentRecorded).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowBacklogAlignmentRecorded).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

@@ -93,7 +93,7 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 // attempt plus a distinct verification assignment to execute it.
 func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
@@ -320,7 +320,7 @@ func TestNativeOracleGenuineExecutionAndImmutableReplay(t *testing.T) {
 	if err != nil || !oracleEntryIdentical(r, replay) || f.launches != 1 {
 		t.Fatalf("replay %+v err=%v launches=%d", replay, err, f.launches)
 	}
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);UPDATE worktree_entries SET state='reclaimed' WHERE set_id=?;DELETE FROM fold_guard`, WorktreeSetID(f.work)); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);UPDATE worktree_entries SET state='reclaimed' WHERE set_id=?;DELETE FROM write_guard`, WorktreeSetID(f.work)); err != nil {
 		t.Fatal(err)
 	}
 	page, err := f.s.InspectWorktree(context.Background(), WorktreeInspectRequest{WorkID: f.work, ProjectID: "project", Mode: "oracle_output", RunRef: r.OperationRef, Stream: "stdout", Length: 16384})

@@ -428,7 +428,7 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, f workflowReturnRouteFixture, 
 func countWorkflowCompletionEvents(t *testing.T, s *Store, id string) int {
 	t.Helper()
 	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, id, WorkflowCompleted).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, id, WorkflowCompleted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -445,7 +445,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, f workflowReturnRouteFixture, id 
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
 	var digest string
-	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, id, WorkflowActionCompleted).Scan(&digest); err != nil {
+	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? ORDER BY seq DESC LIMIT 1`, id).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
 	dispatch := Event{EventID: "verify-review-dispatch-" + id, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: id, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}

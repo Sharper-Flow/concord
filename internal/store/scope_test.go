@@ -12,17 +12,17 @@ func TestResolveCompactionHomeUsesProductThenPrimaryMembership(t *testing.T) {
 	t.Parallel()
 	s := seedQueryFixture(t)
 	repo := initKnowledgeRepo(t)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','proj','canonical_path',?,?,'now','now'); DELETE FROM fold_guard`, repo, repo); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator-1','proj','canonical_path',?,?,'now','now'); DELETE FROM write_guard`, repo, repo); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('prod','proj','locator-1'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('prod','proj','locator-1'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	home, err := s.ResolveCompactionHome(context.Background(), "blocked")
 	if err != nil || home.HomeProjectID != "proj" || home.HomeLocatorID != "locator-1" || home.RepoPath != repo {
 		t.Fatalf("Product home=%#v err=%v", home, err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='prod'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='prod'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	fallback, err := s.ResolveCompactionHome(context.Background(), "blocked")
@@ -61,7 +61,7 @@ func TestProductsForWorkIDsReturnsDistinctIdentities(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('blocked','proj-2','secondary'); DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('blocked','proj-2','secondary'); DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			ids := []string{"blocked", "missing"}
@@ -238,7 +238,7 @@ func TestResearchPackOwnerWorkIDsResolvesOwnerWithoutProductMembership(t *testin
 	}
 	// Admission refuses a membership-less work item, so the corrupt retained
 	// state is isolated after the pack exists.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-unmapped'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-unmapped'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	owners, err := s.ResearchPackOwnerWorkIDs(ctx, []string{"pack-unmapped"})

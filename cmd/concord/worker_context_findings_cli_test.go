@@ -84,7 +84,7 @@ func storedTerminalEvent(t *testing.T, dbPath, eventID string) (int, []byte) {
 	defer s.Close()
 	var version int
 	var payload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,payload FROM domain_events WHERE event_id=?`, eventID).Scan(&version, &payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.payload_version,a.terminal_payload FROM effect_receipts r JOIN worker_attempts a ON a.terminal_event_id=r.event_id AND a.terminal_seq=r.effect_seq AND a.terminal_payload_version=r.payload_version WHERE r.event_id=?`, eventID).Scan(&version, &payload); err != nil {
 		t.Fatalf("read stored event %s: %v", eventID, err)
 	}
 	return version, payload
@@ -241,7 +241,7 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerFailed, "attempt-2").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND a.attempt_id=?`, store.WorkerFailed, "attempt-2").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -317,7 +317,7 @@ func TestWorkerEvidenceRepeatAdmissionKeepsTheOriginalFindingsBytes(t *testing.T
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerCompleted, "attempt-1").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND a.attempt_id=?`, store.WorkerCompleted, "attempt-1").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

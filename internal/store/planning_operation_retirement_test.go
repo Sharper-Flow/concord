@@ -67,7 +67,7 @@ func assertOverlapResolutionRefusalWroteNothing(t *testing.T, s *Store, eventID 
 		t.Fatal(err)
 	}
 	var events int
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&events); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, eventID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if resolutions != 0 || events != 0 {

@@ -141,7 +141,7 @@ func TestCompletionCarriesReferencesWithoutMintingEvidence(t *testing.T) {
 	}
 	defer tx.Rollback()
 	var before int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	request := WorkflowActionExecutionRequest{WorkID: workID, OperationID: operation, EvidenceRefs: []string{"receipt:unbound"}}
@@ -149,7 +149,7 @@ func TestCompletionCarriesReferencesWithoutMintingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var after int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {

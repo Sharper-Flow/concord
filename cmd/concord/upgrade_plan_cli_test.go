@@ -213,41 +213,34 @@ func pidJSON(value int) string {
 	return string(encoded)
 }
 
-// pendingBreakingStore builds a real store whose manifest tail, breaking
-// step included, is pending again. With unpoison set, the objects the tail
-// created are dropped so the migration reapplies cleanly; without it, the
-// first colliding object makes the migration fail deterministically.
+// pendingBreakingStore stops the production migration chain before the
+// breaking floor at 111. Poisoned fixtures add a deliberate collision at 112.
 func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 	t.Helper()
-	s, err := store.Open(context.Background(), path)
-	if err != nil {
-		t.Fatalf("open and migrate: %v", err)
+	seedCLIMigrationPrefix(t, path, 110)
+	if unpoison {
+		return
 	}
-	_ = s.Close()
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatalf("open raw: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := rewindMigrationTail(db, 111, unpoison); err != nil {
+	if _, err := db.Exec(`CREATE TABLE product_knowledge_sources(fixture_collision INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// A zero floor selects only the newest manifest row. Poisoned fixtures keep
-// schema objects; clean reapplication requires an explicit entry for every step.
-func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
+// removeMigrationManifestTail deliberately poisons a manifest without changing
+// schema objects. A zero floor selects only the newest row. Validate every
+// manifest step before deleting anything; historical schemas use real prefixes.
+func removeMigrationManifestTail(db *sql.DB, from int) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if from == 0 {
-		if err := tx.QueryRow(`SELECT coalesce(max(version),0) FROM schema_migrations`).Scan(&from); err != nil {
-			return err
-		}
-	}
-	rows, err := tx.Query(`SELECT version FROM schema_migrations WHERE version >= ? ORDER BY version DESC`, from)
+	rows, err := tx.Query(`SELECT version FROM schema_migrations ORDER BY version`)
 	if err != nil {
 		return err
 	}
@@ -266,357 +259,27 @@ func rewindMigrationTail(db *sql.DB, from int, unpoison bool) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if unpoison {
-		for _, version := range versions {
-			if _, ok := migrationTailReversals[version]; !ok {
-				return fmt.Errorf("missing fixture reversal for migration %d", version)
-			}
+	for i, version := range versions {
+		if version > store.CurrentSchemaVersion() {
+			return fmt.Errorf("unknown fixture migration %d", version)
 		}
-		for _, version := range versions {
-			for _, statement := range migrationTailReversals[version] {
-				if _, err := tx.Exec(statement); err != nil {
-					return fmt.Errorf("cannot unpoison migration %d with %q: %w", version, statement, err)
-				}
-			}
+		if version != i+1 {
+			return fmt.Errorf("incomplete fixture manifest: missing migration %d", i+1)
 		}
+	}
+	if len(versions) == 0 {
+		return fmt.Errorf("empty fixture manifest")
+	}
+	if from == 0 {
+		from = versions[len(versions)-1]
+	}
+	if from < 1 || from > versions[len(versions)-1] {
+		return fmt.Errorf("invalid fixture manifest floor %d", from)
 	}
 	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE version >= ?`, from); err != nil {
 		return fmt.Errorf("cannot remove the manifest tail: %w", err)
 	}
 	return tx.Commit()
-}
-
-var migrationTailReversals = map[int][]string{
-	150: {
-		`ALTER TABLE workflow_phase_exits DROP COLUMN record_version`,
-		`ALTER TABLE workflow_phase_exits DROP COLUMN contract_version`,
-		`ALTER TABLE workflow_phase_exits DROP COLUMN step_id`,
-		`ALTER TABLE workflow_phase_exits DROP COLUMN actor`,
-		`ALTER TABLE relations DROP COLUMN record_version`,
-		`ALTER TABLE relations DROP COLUMN reason`,
-		`DROP INDEX effect_receipts_relation_seq`,
-		`ALTER TABLE work_items DROP COLUMN transition_version`,
-		`ALTER TABLE work_items DROP COLUMN transition_seq`,
-		`ALTER TABLE work_items DROP COLUMN transition_evidence_refs`,
-		`ALTER TABLE work_items DROP COLUMN transition_actor`,
-		`ALTER TABLE work_items DROP COLUMN transition_reason`,
-		`ALTER TABLE work_items DROP COLUMN transition_from`,
-	},
-	146: {
-		`DROP TRIGGER domain_events_advance_effect_sequence`,
-		`DROP TABLE work_version_actions`,
-		`DROP TABLE store_sequences`,
-		`ALTER TABLE effect_receipts DROP COLUMN relation_seq`,
-		`ALTER TABLE work_items DROP COLUMN version_actions_floor`,
-		`ALTER TABLE work_size_assessments DROP COLUMN effect_seq`,
-		`ALTER TABLE work_size_assessments DROP COLUMN review_basis`,
-	},
-	145: {
-		`DROP TABLE workflow_staleness_observations`,
-		`DROP TABLE effect_receipts`,
-	},
-	// Rebuild-only steps replace their own tables when reapplied.
-	111: nil,
-	119: nil,
-	126: nil,
-	// Migration 134's overlap-resolution rebuild also drops and recreates
-	// its own table, backup TEMP table included.
-	134: nil,
-	// Migration 140 replaces its own knowledge tables and removes its TEMP copies.
-	140: nil,
-	144: {
-		`DROP TABLE session_relocation_counts`,
-		`DROP INDEX project_handoffs_recorded_seq`,
-		`ALTER TABLE project_handoffs DROP COLUMN recorded_seq`,
-		`ALTER TABLE worktree_ref_outcomes DROP COLUMN settlement_count`,
-	},
-	143: {
-		`DROP TABLE worker_attempt_dispositions`,
-		`ALTER TABLE workflow_instances DROP COLUMN latest_non_dispatch_start_seq`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN satisfied_seq`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_event_id`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_seq`,
-		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded_seq`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_occurred_at`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_seq`,
-		`ALTER TABLE worker_authorizations DROP COLUMN contract_version`,
-		`ALTER TABLE worker_authorizations DROP COLUMN start_payload`,
-		`ALTER TABLE worker_authorizations DROP COLUMN start_seq`,
-		`ALTER TABLE worker_authorizations DROP COLUMN event_id`,
-		`ALTER TABLE work_items DROP COLUMN last_progress_at`,
-		`ALTER TABLE work_items DROP COLUMN effect_seq`,
-	},
-	147: {`ALTER TABLE effect_receipts DROP COLUMN delivery_assertion`},
-	148: {
-		`DROP TABLE work_context_findings`,
-		`DROP TABLE work_context_state`,
-		`DROP TABLE worker_oracle_finding_facts`,
-		`DROP TABLE workflow_review_state`,
-		`DROP TABLE work_size_proof_facts`,
-	},
-	149: {`DROP TABLE workflow_completed_exits`, `DROP TABLE workflow_coordinator_actions`},
-	142: {
-		`DROP TABLE workflow_phase_exits`,
-		`DROP TABLE workflow_artifact_actions`,
-		`DROP TABLE workflow_action_obligations`,
-		`DROP TABLE workflow_worker_actors`,
-		`DROP TABLE workflow_step_completions`,
-		`DROP TABLE workflow_correction_state`,
-		`DROP TABLE workflow_predicate_verdicts`,
-		`DROP TABLE workflow_delivery_state`,
-		`DROP TABLE compaction_publications`,
-		`DROP TABLE workflow_evidence_bindings`,
-		`ALTER TABLE workflow_contracts DROP COLUMN supersession_seq`,
-		`ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq`,
-		`ALTER TABLE workflow_instances DROP COLUMN completion_payload`,
-		`ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at`,
-		`ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq`,
-		`ALTER TABLE work_observations DROP COLUMN recorded_seq`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_seq`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_event_id`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_payload`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_seq`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_event_id`,
-		`ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload`,
-	},
-	129: {
-		`ALTER TABLE law_relations DROP COLUMN declarer_law_id`,
-	},
-	130: {
-		`DROP TABLE knowledge_package_domains`,
-		`DROP TABLE law_coverage_anchors`,
-		`DROP TABLE law_evidence_paths`,
-	},
-	131: {
-		`DROP TABLE work_size_assessments`,
-	},
-	132: {
-		`DROP TABLE work_size_overrides`,
-	},
-	133: {
-		`ALTER TABLE workflow_contracts DROP COLUMN decision_domains`,
-	},
-	135: {
-		`ALTER TABLE workflow_contracts DROP COLUMN law_change`,
-	},
-	// Migration 136's retirement drops only retired tables; reapplying it
-	// after the reversal recreates nothing the fixture must restore.
-	136: nil,
-	137: {
-		`ALTER TABLE worker_job_revisions DROP COLUMN correction_ref`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN group_review_ref`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN group_permission`,
-	},
-	138: {
-		`DROP TABLE store_revision`,
-	},
-	139: {
-		`DROP TABLE worker_authorizations`,
-		`DROP TABLE workflow_step_epochs`,
-		`ALTER TABLE worker_job_revisions DROP COLUMN recorded_payload`,
-		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload`,
-		`ALTER TABLE worker_attempts DROP COLUMN dispatch_event_id`,
-		`ALTER TABLE worker_attempts DROP COLUMN dispatch_actor`,
-		`ALTER TABLE worker_attempts DROP COLUMN dispatch_payload_version`,
-		`ALTER TABLE worker_attempts DROP COLUMN dispatch_seq`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_event_id`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_payload_version`,
-		`ALTER TABLE worker_attempts DROP COLUMN terminal_kind`,
-		`ALTER TABLE worker_attempts DROP COLUMN failure_recorded`,
-		`ALTER TABLE workflow_instances DROP COLUMN result_disposition`,
-	},
-	141: {
-		`DROP TABLE session_vacate_requests`,
-		`DROP TABLE session_claim_landings`,
-	},
-	128: {
-		`ALTER TABLE project_locators DROP COLUMN normalization_version`,
-	},
-	127: {
-		`ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`,
-	},
-	125: {
-		`DROP TRIGGER native_oracle_plan_pair_insert`,
-		`DROP TRIGGER native_oracle_plan_pair_update`,
-		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
-		`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
-		`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
-		`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
-	},
-	121: {
-		`DROP TABLE outside_repair_reconciliations`,
-		`DROP TABLE outside_repair_dispositions`,
-		// Restore the pre-121 column set and CHECK while retaining every row.
-		// DROP COLUMN alone leaves the widened instance_state constraint.
-		`CREATE TABLE workflow_instances_before_outside_repair (
-    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
-    definition_ref TEXT NOT NULL,
-    definition_version INTEGER NOT NULL,
-    definition_digest TEXT NOT NULL,
-    current_step TEXT NOT NULL,
-    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded')),
-    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
-    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
-    started_at TEXT,
-    completed_at TEXT,
-    last_checkpoint_at TEXT,
-    execution_started_at TEXT,
-    CHECK(definition_version > 0 AND definition_version <= 2147483647),
-    CHECK(length(definition_ref) BETWEEN 2 AND 128),
-    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
-    CHECK(length(current_step) BETWEEN 2 AND 128)
-);
-INSERT INTO workflow_instances_before_outside_repair
-    (work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
-     execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at)
-SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
-       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
-  FROM workflow_instances;
-DROP TABLE workflow_instances;
-ALTER TABLE workflow_instances_before_outside_repair RENAME TO workflow_instances;
-CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
-CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-	},
-	112: {
-		`DROP TABLE product_knowledge_sources`,
-	},
-	113: {
-		`DROP TABLE law_cross_source_relations`,
-	},
-	114: {
-		`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
-	},
-	115: {
-		`DROP TABLE project_handoffs`,
-	},
-	118: {
-		`DROP TABLE worker_job_revisions`,
-	},
-	116: {
-		`DROP TABLE durability_commits`,
-	},
-	117: {
-		`DROP TABLE runtime_state_writers`,
-	},
-	120: {
-		// Migration 120 attaches its maintenance triggers to
-		// pre-existing tables, so they drop by name before its tables.
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
-		`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
-		`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
-		`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
-		`DROP VIEW IF EXISTS initiative_work_scope`,
-		`DROP TABLE IF EXISTS initiative_entry_violations`,
-		`DROP TABLE IF EXISTS initiative_scope_violations`,
-	},
-	124: {
-		// Migration 124's retirement dropped the planning mirror objects
-		// that the re-applied tail reads and drops again: migration 120
-		// attaches its maintenance triggers to initiative_entries, and
-		// migration 124 drops the mirror tables, the products planning
-		// mode, and the phase-0 issue-link shape it rebuilds. Restore
-		// each object's pre-124 shape from the migration that last
-		// created it (8, 76, 102), carrying any current rows forward.
-		`CREATE TABLE initiative_entries (
-    initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-    child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-    position       INTEGER NOT NULL CHECK(position >= 0),
-    required       INTEGER NOT NULL CHECK(required IN (0,1)),
-    PRIMARY KEY(initiative_work_id, child_work_id),
-    UNIQUE(initiative_work_id, position),
-    CHECK(initiative_work_id <> child_work_id)
-)`,
-		`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
-		`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
-    CHECK (planning_mode IN ('local_only','linear_enabled'))`,
-		`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
-		`CREATE TABLE linear_issue_links (
-    work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
-    remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
-    human_key          TEXT NOT NULL DEFAULT '' CHECK(length(human_key) <= 64),
-    url                TEXT NOT NULL DEFAULT '' CHECK(length(url) <= 2048),
-    remote_updated_at  TEXT NOT NULL DEFAULT '',
-    content_hash       TEXT NOT NULL DEFAULT '' CHECK(content_hash = '' OR (length(content_hash) = 71 AND substr(content_hash,1,7) = 'sha256:')),
-    link_state         TEXT NOT NULL DEFAULT 'unpublished' CHECK(link_state IN ('unpublished','pending','confirmed','degraded')),
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT NOT NULL
-)`,
-		`INSERT INTO linear_issue_links
-    (work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
-    SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v124_stage`,
-		`DROP TABLE linear_issue_links_v124_stage`,
-		`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
-		`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-		`CREATE TABLE linear_project_links (
-    work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
-    remote_project_uuid TEXT NOT NULL UNIQUE CHECK(length(remote_project_uuid) BETWEEN 2 AND 128),
-    name                TEXT NOT NULL DEFAULT '',
-    url                 TEXT NOT NULL DEFAULT '',
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-)`,
-		`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
-		`CREATE TABLE linear_outbox (
-    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
-    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
-    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','issue_audit_comment','project_create','project_update')),
-    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
-    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
-    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
-    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
-    last_error       TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL,
-    updated_at       TEXT NOT NULL,
-    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
-)`,
-		`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
-		`CREATE TABLE linear_outbox_dispositions (
-    operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
-    work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-    disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
-    reason       TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
-    created_at   TEXT NOT NULL,
-    CHECK(length(operation_id) BETWEEN 2 AND 128),
-    CHECK(length(work_id) BETWEEN 2 AND 128)
-)`,
-		`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
-		`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_project_links_guard_update BEFORE UPDATE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_project_links_guard_delete BEFORE DELETE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-		`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-		`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
-	},
-	122: {
-		// Migration 122's guarded projection is one plain CREATE TABLE:
-		// its guard triggers and index are owned by the table and drop
-		// with it.
-		`DROP TABLE IF EXISTS worktree_ref_outcomes`,
-	},
-	123: {
-		`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
-	},
 }
 
 // A refused or failed migration closes the boundary it opened and commits
@@ -934,7 +597,7 @@ func TestSupportedReleasePairsCoexistWithOldSessionsAndNewAccess(t *testing.T) {
 
 // Cutover fixtures initialize current workflows through the exported store
 // transaction API. Synthetic historical metadata and held dispositions use the
-// test fold guard; no archived definition is registered or executed.
+// test write guard; no archived definition is registered or executed.
 
 const (
 	cutoverArchivedPinWork        = "cutover-archived-pin"
@@ -975,16 +638,15 @@ type cutoverTransitionPayload struct {
 	ResultingVersion int64  `json:"resulting_version"`
 }
 
-// execUnderFoldGuard runs fixture statements against the fold-only
-// projections under the same transient fold the store's own folds use.
-func execUnderFoldGuard(t *testing.T, db *sql.DB, statements ...string) {
+// execUnderWriteGuard seeds current rows inside one guarded transaction.
+func execUnderWriteGuard(t *testing.T, db *sql.DB, statements ...string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -994,7 +656,7 @@ func execUnderFoldGuard(t *testing.T, db *sql.DB, statements ...string) {
 			t.Fatalf("cannot seed the cutover fixture with %q: %v", statement, err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -1016,7 +678,7 @@ func cutoverFixtureActor(workID string) store.WorkflowActor {
 }
 
 // cutoverFixtureContract inserts one contract pin row for a work item under
-// the fold guard, the shape an approval leaves behind.
+// the write guard, the shape an approval leaves behind.
 func cutoverFixtureContract(workID string, contractVersion int64, ref string, definitionVersion int64, digest string) string {
 	return fmt.Sprintf(`INSERT INTO workflow_contracts
 		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_version,definition_digest)
@@ -1071,7 +733,7 @@ func seedCutoverPinStore(t *testing.T, path string) {
 		initialize(workID)
 	}
 
-	execUnderFoldGuard(t, s.DatabaseForTesting(),
+	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		cutoverFixtureArchivedInstance(cutoverArchivedPinWork),
 		cutoverFixtureArchivedInstance(cutoverTerminalHistoryWork),
 		// Both active and superseded old-version metadata must leave a
@@ -1141,7 +803,7 @@ func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	execUnderFoldGuard(t, s.DatabaseForTesting(),
+	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		cutoverFixtureArchivedInstance(cutoverHeldWork),
 		fmt.Sprintf(`UPDATE workflow_instances SET instance_state='outside_repair', outside_repair_state='active' WHERE work_id='%s'`, cutoverHeldWork),
 		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
@@ -1175,24 +837,25 @@ func cutoverWorkStates(t *testing.T, path string) map[string]cutoverWorkState {
 	return states
 }
 
-// cutoverEventCount counts the whole event log, so a read-only claim and a
-// zero-effect refusal are checked against every event, not a filtered kind.
+// cutoverEventCount counts every effect receipt, so a read-only claim and a
+// zero-effect refusal are checked against all effects, not a filtered kind.
 func cutoverEventCount(t *testing.T, path string) int64 {
 	t.Helper()
 	db := mustOpenCutoverStore(t, path)
 	var count int64
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
 }
 
-// cutoverTransitionedEvents reads the ordinary transition events keyed by
-// their work item.
+// cutoverTransitionedEvents reads the current transition's versions, reason
+// and lifecycle, joined to its exact actor and effect position.
 func cutoverTransitionedEvents(t *testing.T, path string) map[string]cutoverTransitionPayload {
 	t.Helper()
 	db := mustOpenCutoverStore(t, path)
-	rows, err := db.Query(`SELECT subject_id, payload FROM domain_events WHERE kind='work.transitioned' ORDER BY subject_id`)
+	rows, err := db.Query(`SELECT w.id,json_object('from',w.transition_from,'to',w.lifecycle,'reason',w.transition_reason,'expected_version',w.transition_version-1,'resulting_version',w.transition_version)
+FROM work_items w JOIN effect_receipts r ON r.subject_id=w.id AND r.effect_seq=w.transition_seq AND r.kind='work.transitioned' AND r.actor=w.transition_actor ORDER BY w.id`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1265,7 +928,7 @@ func installCancellationProbe(t *testing.T, path string) {
 	t.Helper()
 	db := mustOpenCutoverStore(t, path)
 	if _, err := db.Exec(`CREATE TRIGGER cutover_cancel_timing_probe
-		BEFORE INSERT ON domain_events
+		BEFORE INSERT ON effect_receipts
 		WHEN NEW.kind = 'work.transitioned'
 		BEGIN
 			SELECT RAISE(ABORT, '` + cutoverCancellationProbe + `');
@@ -1578,29 +1241,14 @@ func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnap
 	}
 }
 
-// genuinePreTailCutoverStore builds the test's source store from the pinned
-// released baseline. The v13.4.0 core initializes the real target at its own
-// schema 122 — actual physical schema and manifest, no copied DDL — and the
-// current-schema cutover fixture is seeded in a separate store, then only
-// its rows and events move into the baseline's existing tables.
+// genuinePreTailCutoverStore builds schema 122 through production migration
+// code, then transfers only the synthetic cutover pin rows into its real
+// tables. The no-write witness fingerprints every row, not a log count.
 func genuinePreTailCutoverStore(t *testing.T, path string) {
 	t.Helper()
 	seedPath := filepath.Join(t.TempDir(), "cutover-seed.db")
 	seedCutoverPinStore(t, seedPath)
-	baseline := buildCoreFrom(t, extractReleasedSource(t, cutoverBaselineTag), "v0.0.0-con953-baseline-fixture")
-	code, out, errText := runRelease(t, baseline, path, "upgrade", `{}`)
-	if code != 0 {
-		t.Fatalf("the released baseline must initialize the fixture store: %d %s %s", code, out, errText)
-	}
-	var initialized struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal([]byte(out), &initialized); err != nil {
-		t.Fatalf("the baseline upgrade report is not JSON: %v: %s", err, out)
-	}
-	if initialized.SchemaVersion != cutoverBaselineSchema {
-		t.Fatalf("the baseline fixture store's schema = %d, want %d", initialized.SchemaVersion, cutoverBaselineSchema)
-	}
+	seedCLIMigrationPrefix(t, path, cutoverBaselineSchema)
 	transferCutoverFixture(t, seedPath, path)
 }
 
@@ -1613,7 +1261,7 @@ func transferCutoverFixture(t *testing.T, seedPath, targetPath string) {
 	t.Helper()
 	tables := []string{
 		"products", "projects", "product_projects", "work_items", "work_projects",
-		"workflow_actors", "workflow_instances", "workflow_contracts", "domain_events",
+		"workflow_actors", "workflow_instances", "workflow_contracts",
 	}
 	seed, err := sql.Open("sqlite", store.SQLiteFileURI(seedPath)+"?_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -1743,7 +1391,7 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 				t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 			}
 			statesBefore := cutoverWorkStates(t, path)
-			eventsBefore := cutoverEventCount(t, path)
+			snapshotBefore := releaseMigrationSnapshot(t, path)
 			options := store.UpgradeOptions{CancelCutoverPinnedWork: true}
 			before, err := store.PlanUpgradeReadiness(context.Background(), path, options)
 			if err != nil || before.SchemaVersion != 122 || len(before.PendingBreaking) == 0 {
@@ -1795,8 +1443,8 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 			if err != nil || after.SchemaVersion != before.SchemaVersion || !reflect.DeepEqual(after.AppliedVersions, before.AppliedVersions) {
 				t.Fatalf("pre-commit failure moved schema: %+v -> %+v, %v", before, after, err)
 			}
-			if cutoverEventCount(t, path) != eventsBefore || !reflect.DeepEqual(cutoverWorkStates(t, path), statesBefore) {
-				t.Fatal("pre-commit failure moved the event log or work state")
+			if releaseMigrationSnapshot(t, path) != snapshotBefore || !reflect.DeepEqual(cutoverWorkStates(t, path), statesBefore) {
+				t.Fatal("pre-commit failure moved schema, manifest, or stored rows")
 			}
 		})
 	}

@@ -62,7 +62,7 @@ func TestWorkSizeRevisionsChangeEffectiveSizeInPlace(t *testing.T) {
 	}
 	var count, relations, retired int
 	var afterLifecycle string
-	if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM work_items), (SELECT count(*) FROM relations), (SELECT count(*) FROM domain_events WHERE kind IN ('work.resized','work.superseded','workflow.successor_linked')), lifecycle FROM work_items WHERE id=?`, workID).Scan(&count, &relations, &retired, &afterLifecycle); err != nil {
+	if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM work_items), (SELECT count(*) FROM relations), (SELECT count(*) FROM effect_receipts WHERE kind IN ('work.resized','work.superseded','workflow.successor_linked')), lifecycle FROM work_items WHERE id=?`, workID).Scan(&count, &relations, &retired, &afterLifecycle); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 || relations != 0 || retired != 0 || afterLifecycle != lifecycle || readWorkVersion(t, s, workID) != before+1 {

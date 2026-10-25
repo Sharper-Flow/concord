@@ -72,10 +72,10 @@ func TestValidateWorkerDispatchWorktreeRequiresActiveClaim(t *testing.T) {
 func insertWorkerWorktreeEntry(t *testing.T, s *Store, workID, path string) {
 	t.Helper()
 	_, err := s.DatabaseForTesting().Exec(`
-INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 VALUES(?,?,?,?,?,?,?,'active',?,'{}');
-DELETE FROM fold_guard;`, WorktreeSetID(workID), "project-1", "claim-1", "change/claim", strings.Repeat("a", 40), path, "repo-1", "2026-09-05T00:00:00Z")
+DELETE FROM write_guard;`, WorktreeSetID(workID), "project-1", "claim-1", "change/claim", strings.Repeat("a", 40), path, "repo-1", "2026-09-05T00:00:00Z")
 	if err != nil {
 		t.Fatalf("insert worktree entry: %v", err)
 	}
@@ -108,7 +108,7 @@ func appendWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, at
 	t.Helper()
 	identity := workerFixtureWorktreeIdentity(t, s, workID)
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, stepID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
@@ -176,7 +176,7 @@ func TestValidateWorkerCompletionWorktreeBindsAttemptProject(t *testing.T) {
 				}
 			}
 			if faultSQL != "" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + faultSQL + `; DELETE FROM fold_guard`); err != nil {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); ` + faultSQL + `; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -238,7 +238,7 @@ func TestWorkerAttemptProjectRefusalNamesCaller(t *testing.T) {
 			t.Parallel()
 			s := openTemp(t)
 			_, other := seedWorkerCompletionProjectClaims(t, s, true, true)
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE project_id='project-1'; DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE project_id='project-1'; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			ctx := context.Background()
@@ -289,7 +289,7 @@ func seedWorkerCompletionProjectClaims(t *testing.T, s *Store, withAuthorization
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
@@ -325,7 +325,7 @@ FROM domain_events completion JOIN domain_events start ON start.event_id='comple
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

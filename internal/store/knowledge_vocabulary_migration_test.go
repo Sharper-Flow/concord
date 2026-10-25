@@ -176,7 +176,7 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 			t.Errorf("lost schema obligation: %s", entry)
 		}
 	}
-	for _, query := range []string{`SELECT count(*) FROM knowledge_index_watermark`, `SELECT count(*) FROM fold_guard`, `SELECT count(*) FROM sqlite_temp_schema WHERE name LIKE '%v140%'`} {
+	for _, query := range []string{`SELECT count(*) FROM knowledge_index_watermark`, `SELECT count(*) FROM write_guard`, `SELECT count(*) FROM sqlite_temp_schema WHERE name LIKE '%v140%'`} {
 		var count int
 		if err := db.QueryRow(query).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s = %d: %v", query, count, err)
@@ -187,7 +187,7 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 		t.Fatalf("migration 140 breaking=%d: %v", breaking, err)
 	}
 	knowledge140AssertFK(t, db)
-	knowledge140Exec(t, db, `INSERT INTO fold_guard(active) VALUES(1)`)
+	knowledge140Exec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	for _, query := range []string{
 		`UPDATE law_subjects SET status='superseded' WHERE law_id='CD-0001'`,
 		`UPDATE law_relations SET kind='supersedes' WHERE source_law_id='law-b'`,
@@ -197,9 +197,9 @@ func TestKnowledgeVocabularyMigration140PreservesCurrentState(t *testing.T) {
 			t.Fatalf("retired vocabulary was not rejected by CHECK: %s: %v", query, err)
 		}
 	}
-	knowledge140Exec(t, db, `DELETE FROM fold_guard`)
+	knowledge140Exec(t, db, `DELETE FROM write_guard`)
 	for _, query := range []string{`UPDATE law_subjects SET title=title`, `DELETE FROM law_relations`, `DELETE FROM law_cross_source_relations`} {
-		if _, err := db.Exec(query); err == nil || !strings.Contains(err.Error(), "fold-only") {
+		if _, err := db.Exec(query); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
 			t.Fatalf("write guard lost: %s: %v", query, err)
 		}
 	}

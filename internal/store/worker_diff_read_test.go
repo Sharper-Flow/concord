@@ -167,9 +167,9 @@ func TestReadWorkerDiffRefusesSelectorsAndRetiredAttempt(t *testing.T) {
 	}
 	original.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-			mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+			mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 			mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
-			mustTxExec(t, tx, `DELETE FROM fold_guard`)
+			mustTxExec(t, tx, `DELETE FROM write_guard`)
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -311,9 +311,9 @@ func TestReadWorkerDiffRetiredReviewRefusesBeforeGitWithExactDiffRecovery(t *tes
 		t.Fatalf("bound review read failed before the retirement: %+v %v", page, err)
 	}
 	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -335,10 +335,10 @@ func TestReadWorkerDiffMissingActiveContractRefusesBeforeGitWithExactDiffRecover
 		t.Fatalf("bound review read failed before the contract perturbation: %+v %v", page, err)
 	}
 	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		// Preserve the version row and its foreign keys while removing active authority.
 		mustTxExec(t, tx, `UPDATE workflow_contracts SET superseded_by=contract_version WHERE work_id=? AND superseded_by IS NULL`, original.WorkID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

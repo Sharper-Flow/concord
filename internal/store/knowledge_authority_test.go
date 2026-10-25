@@ -207,12 +207,12 @@ func authorityBlobHash(t *testing.T, repo, path string) string {
 func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.Exec(`INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture work', 'completed', 1, 1, 'now', 'now')`, workID); err != nil {
@@ -226,12 +226,12 @@ func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, ref string, definitionVersion int64, digest string, lawModifies []string, existsSubjects []string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.Exec(`INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','now')`, authorityActorRef, "principal:authority-fixture", "client:authority-fixture", "agent:authority-fixture", "session:authority-fixture"); err != nil {
@@ -535,12 +535,12 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 	// refuse; the exact historical pin classifies instead.
 	seedAuthorityContract(t, s, authoritySyntheticWork, 2, retiredRef, retiredVersion, retiredDigest, nil, nil)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	_, updateErr := db.Exec(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, authoritySyntheticWork)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Errorf("remove fold guard: %v", err)
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Errorf("remove write guard: %v", err)
 	}
 	if updateErr != nil {
 		t.Fatal(updateErr)
@@ -560,12 +560,12 @@ func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 			version, digest, changesProductTruth := authorityFamilyDefinition(t, family)
 			seedAuthorityContract(t, s, authoritySyntheticWork, 1, family, version, digest, []string{"CD-8751"}, nil)
 			db := s.DatabaseForTesting()
-			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
 			_, updateErr := db.Exec(`UPDATE work_items SET lifecycle='cancelled' WHERE id=?`, authoritySyntheticWork)
-			if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-				t.Errorf("remove fold guard: %v", err)
+			if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+				t.Errorf("remove write guard: %v", err)
 			}
 			if updateErr != nil {
 				t.Fatal(updateErr)

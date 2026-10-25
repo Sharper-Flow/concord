@@ -17,7 +17,7 @@ func TestSameWorkWatermarksWithoutLog(t *testing.T) {
 			seedWork(t, s, "watermark-other")
 			ctx := context.Background()
 			var want int64
-			if err := s.db.QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id='watermark-work'`).Scan(&want); err != nil {
+			if err := s.db.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='watermark-work'`).Scan(&want); err != nil {
 				t.Fatal(err)
 			}
 			read := func() string {
@@ -43,9 +43,7 @@ func TestSameWorkWatermarksWithoutLog(t *testing.T) {
 			if got := read(); got != fmt.Sprintf("seq:%d", want) || want == 0 {
 				t.Fatalf("watermark=%s, want seq:%d", got, want)
 			}
-			if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
-				t.Fatal(err)
-			}
+			assertEventLogAbsent(t, s)
 			if got := read(); got != fmt.Sprintf("seq:%d", want) {
 				t.Fatalf("log-blind watermark=%s, want seq:%d", got, want)
 			}

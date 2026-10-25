@@ -16,7 +16,7 @@ func TestReadSnapshotLifecycle(t *testing.T) {
 		err := s.readSnapshot(ctx, func(q queryer) error {
 			retained = q
 			var count int
-			if err := q.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&count); err != nil {
+			if err := q.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&count); err != nil {
 				return err
 			}
 			return callbackErr

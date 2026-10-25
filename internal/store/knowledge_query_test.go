@@ -289,7 +289,7 @@ func TestQ10WorkNoteSurvivesHomeDesignationChange(t *testing.T) {
 	home := KnowledgeHome{HomeProjectID: "review-old-home", HomeLocatorID: "review-old-loc", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "review-history-product", home, home.HomeProjectID)
 	hash := sha256.Sum256([]byte(content))
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -301,7 +301,7 @@ func TestQ10WorkNoteSurvivesHomeDesignationChange(t *testing.T) {
 		home.HomeProjectID, home.HomeLocatorID, "review-historical-work", "review-history-product"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	before, err := s.QueryQ10(ctx, Q10Request{Work: "review-historical-work", Product: "review-history-product"})

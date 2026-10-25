@@ -11,22 +11,6 @@ import (
 	"time"
 )
 
-// hideDomainEvents makes the event log unreachable, so a reader that still
-// consults it fails instead of answering.
-func hideDomainEvents(t *testing.T, s *Store) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func restoreDomainEvents(t *testing.T, s *Store) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`ALTER TABLE domain_events_hidden RENAME TO domain_events`); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // inRelocationTx runs fn in one transaction that writes nothing.
 func inRelocationTx(t *testing.T, s *Store, fn func(*Transaction, *sql.Tx) error) error {
 	t.Helper()
@@ -57,7 +41,7 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hideDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 	if err := inRelocationTx(t, s, func(transaction *Transaction, tx *sql.Tx) error {
 		pending, err := PendingSessionVacateSourceRequestTx(ctx, transaction, "project-w", source, "ses-x")
 		if err != nil || pending.WorkID != "work-w" || pending.DestinationDirectory != "/data/repo-main" {
@@ -75,7 +59,7 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	restoreDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 
 	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{
 		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC(),
@@ -83,7 +67,7 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hideDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 	if err := inRelocationTx(t, s, func(transaction *Transaction, tx *sql.Tx) error {
 		if _, err := PendingSessionVacateSourceRequestTx(ctx, transaction, "project-w", source, "ses-x"); failureKind(err) != KindProjectionNotFound {
 			t.Fatalf("err=%v, want projection_not_found once the landing completed the request", err)
@@ -99,13 +83,13 @@ func TestSessionRelocationRequestReadersIgnoreTheLog(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	restoreDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{vacateRequestEvent("relocation-request-2", source)}}); err != nil {
 		t.Fatal(err)
 	}
 
-	hideDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 	if err := inRelocationTx(t, s, func(transaction *Transaction, tx *sql.Tx) error {
 		if _, err := PendingSessionVacateSourceRequestTx(ctx, transaction, "project-w", source, "ses-x"); err != nil {
 			t.Fatalf("second request err=%v, want it pending: the earlier landing does not complete it", err)
@@ -168,7 +152,7 @@ func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 	}
 
 	// Before the re-claim lands, its occupancy row proves no placement.
-	hideDomainEvents(t, f.store)
+	assertEventLogAbsent(t, f.store)
 	if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
 		placement, err := verifiedSessionPlacementTx(ctx, tx, f.workID, f.targetSession)
 		if err != nil || placement != "" {
@@ -178,13 +162,13 @@ func TestSessionClaimLandingReadersIgnoreTheLog(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	restoreDomainEvents(t, f.store)
+	assertEventLogAbsent(t, f.store)
 
 	if _, err := f.store.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: f.workID, SessionRef: f.targetSession, LandedDirectory: reclaimed.Entry.Path, HostPID: os.Getpid(), Now: time.Unix(53, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
 
-	hideDomainEvents(t, f.store)
+	assertEventLogAbsent(t, f.store)
 	if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
 		placement, err := verifiedSessionPlacementTx(ctx, tx, f.workID, f.targetSession)
 		if err != nil || placement != f.targetProject {

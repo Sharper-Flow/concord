@@ -98,7 +98,7 @@ func assertContentCurrent(t *testing.T, s *Store) {
 	if count != 1 || from != 1 || to != 1 || invalidated.Valid {
 		t.Fatalf("judgment audit pins changed: count=%d versions=%d/%d invalidated=%v", count, from, to, invalidated)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("resolution events=%d err=%v", count, err)
 	}
 }

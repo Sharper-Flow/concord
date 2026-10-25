@@ -20,13 +20,13 @@ func verifyWallChallenges(t *testing.T, s *store.Store) int {
 // recorded for one attempt.
 func verifyWallDispatchCompletions(t *testing.T, s *store.Store, attemptID string) int {
 	t.Helper()
-	return countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='%s' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='%s'`, store.WorkflowActionCompleted, attemptID))
+	return countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM worker_authorizations WHERE work_id='work-1' AND attempt_id='%s'`, attemptID))
 }
 
 func assertDispatchHasNoRetryBudget(t *testing.T, s *store.Store, attemptID string) {
 	t.Helper()
 	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_authorizations WHERE work_id='work-1' AND attempt_id=?`, attemptID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var payload map[string]json.RawMessage

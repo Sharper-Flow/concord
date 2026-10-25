@@ -54,7 +54,7 @@ func workItemVersion(t *testing.T, s *store.Store, workID string) int64 {
 func workEventCount(t *testing.T, s *store.Store, workID string) int {
 	t.Helper()
 	count := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
 		t.Fatalf("count events for %s: %v", workID, err)
 	}
 	return count
@@ -93,9 +93,11 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "proj-web", "work-done")
 
-	// History that must survive the reclamation: PM1 seeds work-done with its
-	// full created → in_progress → completed lifecycle.
+	// The completed lifecycle and its original receipts must survive reclamation.
 	historyBefore := workEventCount(t, s, "work-done")
+	retainedBefore := agentRowsSnapshot(t, s, `SELECT * FROM effect_receipts WHERE subject_id='work-done'`)
+	frontierBefore := countRows(t, s.DatabaseForTesting(), `SELECT last FROM store_sequences WHERE name='effect'`)
+	transitionBefore := agentRowsSnapshot(t, s, `SELECT lifecycle,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version FROM work_items WHERE id='work-done'`)
 	if historyBefore == 0 {
 		t.Fatal("PM1 seeded no history for work-done")
 	}
@@ -178,6 +180,12 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	historyAfter := workEventCount(t, s, "work-done")
 	if historyAfter < historyBefore {
 		t.Fatalf("reclamation dropped history: %d events before, %d after", historyBefore, historyAfter)
+	}
+	if got := agentRowsSnapshot(t, s, `SELECT * FROM effect_receipts WHERE subject_id='work-done' AND effect_seq<=?`, frontierBefore); got != retainedBefore {
+		t.Fatal("reclamation changed original receipt identities or digests")
+	}
+	if got := agentRowsSnapshot(t, s, `SELECT lifecycle,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version FROM work_items WHERE id='work-done'`); got != transitionBefore {
+		t.Fatal("reclamation changed the completed lifecycle evidence")
 	}
 	lifecycle, _ := readWorkFromStore(t, s, "work-done")
 	if lifecycle != "completed" {
@@ -276,9 +284,9 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}); err != nil {
 		t.Fatalf("initialize the instance: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET definition_ref='workflow.ops_runbook' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("pin the archived family: %v", err)
 	}
 	version := int64(0)
@@ -290,7 +298,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	state := func() (int64, int64) {
 		t.Helper()
 		var events, contracts int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&events); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id='work-1'`).Scan(&contracts); err != nil {
@@ -307,6 +315,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	// the archived-family answer and commits nothing — the approval-gated
 	// contract first, then the retired native actions by id.
 	baselineEvents, baselineContracts := state()
+	baselineEffects := agentCurrentEffects(t, s)
 	refuse := func(actionID string, fields map[string]any, key string) {
 		t.Helper()
 		input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": actionID, "idempotency_key": key}
@@ -325,6 +334,9 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		events, contracts := state()
 		if events != baselineEvents || contracts != baselineContracts {
 			t.Fatalf("%s refusal wrote state: events=%d/%d contracts=%d/%d", actionID, baselineEvents, events, baselineContracts, contracts)
+		}
+		if agentCurrentEffects(t, s) != baselineEffects {
+			t.Fatalf("%s refusal changed current rows or receipts", actionID)
 		}
 	}
 	refuse("approve_contract", workflowContractFieldsFixture(), "aj8-rollback-contract")

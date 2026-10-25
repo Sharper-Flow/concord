@@ -309,7 +309,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 	}
 	admissionMigrationRequireFacts(t, s, want)
 	before := admissionMigrationCurrentFacts(t, s)
-	admissionMigrationGuards(t, s, supplement)
+	admissionMigrationGuards(t, s, supplement, "write-seam-only")
 	admissionMigrationDrop149(t, s)
 	if err := admissionMigrationApply149(t, s); err != nil {
 		t.Fatalf("apply only migration149: %v", err)
@@ -317,7 +317,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 	admissionMigrationRequireFacts(t, s, want)
 	admissionMigrationRequireFacts(t, s, before)
 	assertFoldGuardEmpty(t, s)
-	admissionMigrationGuards(t, s, supplement)
+	admissionMigrationGuards(t, s, supplement, "fold-only")
 
 	// Deleting a work must remove its current facts without deleting another
 	// work's facts. Retained source rows must not resurrect an orphan on backfill.
@@ -360,7 +360,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 	admissionMigrationRequireFacts(t, s, admissionMigrationLegacyFacts(t, s))
 }
 
-func admissionMigrationGuards(t *testing.T, s *Store, work string) {
+func admissionMigrationGuards(t *testing.T, s *Store, work, refusal string) {
 	t.Helper()
 	before := admissionMigrationCurrentFacts(t, s)
 	for _, query := range []string{
@@ -371,8 +371,8 @@ func admissionMigrationGuards(t *testing.T, s *Store, work string) {
 		`UPDATE workflow_coordinator_actions SET last_effect_seq=last_effect_seq+1 WHERE work_id=?`,
 		`DELETE FROM workflow_coordinator_actions WHERE work_id=?`,
 	} {
-		if _, err := s.db.Exec(query, work); err == nil || !strings.Contains(err.Error(), "is fold-only") {
-			t.Fatalf("unguarded %s: %v; want fold-only refusal", query, err)
+		if _, err := s.db.Exec(query, work); err == nil || !strings.Contains(err.Error(), "is "+refusal) {
+			t.Fatalf("unguarded %s: %v; want %s refusal", query, err, refusal)
 		}
 	}
 	admissionMigrationRequireFacts(t, s, before)

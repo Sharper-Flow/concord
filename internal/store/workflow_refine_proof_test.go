@@ -475,13 +475,13 @@ func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
 // reads.
 func seedWorkCanonicalPath(t *testing.T, s *Store, canonicalPath string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator:refine-proof','project','canonical_path',?,?,'2026-09-29T00:00:00Z','2026-09-29T00:00:00Z')`, canonicalPath, canonicalPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

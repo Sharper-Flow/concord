@@ -328,7 +328,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			}
 			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 				var operatorEvents int
-				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
 					t.Fatal(err)
 				}
 				if operatorEvents != 0 {

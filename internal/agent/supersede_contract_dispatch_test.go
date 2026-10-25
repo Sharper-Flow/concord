@@ -56,7 +56,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		version = workOneVersion(t, s)
 	}
 	if stage == "acceptance" {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard WHERE active=1`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -68,7 +68,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		seedContractCorrectionPeer(t, s)
 	}
 	if stage == "self-repair" {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domain_registries SET product_key='concord' WHERE product_id='product-1'; DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE domain_registries SET product_key='concord' WHERE product_id='product-1'; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -327,10 +327,10 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 func workflowDispatchWorktreeFixture(t *testing.T, s *store.Store, env CallEnvelope) CallEnvelope {
 	t.Helper()
 	env.Worktree = t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 		VALUES(?,'project-1','correction-claim','work/correction',?,?,'repo-1','active','2026-09-05T00:00:00Z','{}');
-		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), strings.Repeat("a", 40), env.Worktree); err != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), strings.Repeat("a", 40), env.Worktree); err != nil {
 		t.Fatal(err)
 	}
 	return env
@@ -346,7 +346,7 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "correction-peer"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('correction-peer','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z');
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT 'correction-peer',contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
@@ -356,7 +356,7 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_affected_domains WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id)
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_domain_modifications WHERE work_id='work-1' AND contract_version=1;
-		DELETE FROM fold_guard;`, breakFixFixtureDigest(t))
+		DELETE FROM write_guard;`, breakFixFixtureDigest(t))
 	if err != nil {
 		t.Fatal(err)
 	}

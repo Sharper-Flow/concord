@@ -36,20 +36,20 @@ func init() {
 	const readSizeRefusalPath = "internal/agent/runtime.go:readSizeRefusal"
 	const mutationResultPath = "internal/agent/mutations.go:mutationResult"
 
-	// The RFC3339Nano timestamp every fold writes into recorded_at,
-	// approved_at, and last_progress columns. The shared bounded-layout
+	// The RFC3339Nano timestamps written into recorded_at, approved_at,
+	// and last_progress_at columns. The shared bounded-layout
 	// helper verifies each cited writer carries exactly one Format layout
-	// and derives the render width from the recorded RFC3339Nano grammar
-	// (date 10, T 1, clock 8, the fraction dot plus at most 9 digits, and a
-	// zone of 1 or 6 characters = 35).
+	// and derives the maximum render width from its tokens and the stdlib
+	// time representation, without assuming a four-digit year or bounded zone.
 	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContractApproved", "time.RFC3339Nano")
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
 	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
-	// last_progress is the max domain_events.occurred_at column value,
-	// rendered by the shared effect writer.
-	eventOccurredAt := pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano")
+	// advanceWorkEffectSeqTx retains the lexical maximum in
+	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
+	// workLivenessFromCounts copies it to LastProgress without reformatting.
+	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
 
 	// Step identity and workflow references are admitted through anchored
 	// regexp.MustCompile variables at definition registration; the pattern
@@ -373,12 +373,12 @@ func init() {
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each
 	// element is a fixed prose format with one int64 count. last_progress
-	// rides the event timestamp format.
+	// rides the current work row's timestamp format.
 	registerOutputBound("/$defs/work_liveness/properties/evidence/items/maxLength",
 		workflowStringConstructionCharactersBound("internal/store/work_removal.go", "workLivenessFromCounts"))
 	registerOutputBound("/$defs/work_liveness/properties/evidence/maxItems",
 		workflowAppendChainItemsBound("internal/store/work_removal.go", "workLivenessFromCounts", "out.Evidence"))
-	registerOutputBound("/$defs/work_liveness/properties/last_progress/maxLength", eventOccurredAt)
+	registerOutputBound("/$defs/work_liveness/properties/last_progress/maxLength", lastProgressAt)
 
 	// Work pin.
 	registerOutputBound("/$defs/work_pin/allOf/0/then/properties/next_valid_intents/maxItems",

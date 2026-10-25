@@ -75,7 +75,7 @@ func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer Workflow
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, workID, refs[1]); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, workID, refs[1]); err != nil {
 		t.Fatal(err)
 	}
 	return reviewer, operator, coordinator

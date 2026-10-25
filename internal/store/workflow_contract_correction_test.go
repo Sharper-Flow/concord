@@ -55,7 +55,7 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 	t.Helper()
 	var version, events, operations int64
 	var step string
-	if err := s.db.QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM domain_events WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
+	if err := s.db.QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
 		t.Fatal(err)
 	}
 	return fmt.Sprintf("version=%d step=%s events=%d operations=%d", version, step, events, operations)

@@ -244,7 +244,7 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 				t.Fatalf("strict read after the report = (%+v, %v), want nil with %s", view, viewErr, KindLimitExceeded)
 			}
 			var terminalPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, terminal.EventID).Scan(&terminalPayload); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&terminalPayload); err != nil {
 				t.Fatal(err)
 			}
 			before := histEventRows(t, s)
@@ -257,7 +257,7 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 			}
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
 			var retainedPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, terminal.EventID).Scan(&retainedPayload); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&retainedPayload); err != nil {
 				t.Fatal(err)
 			}
 			if retainedPayload != terminalPayload {

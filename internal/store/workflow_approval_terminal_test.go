@@ -236,7 +236,7 @@ func approvalWorkAndInstanceState(t *testing.T, s *Store, workID string) (lifecy
 func approvalEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	return events
@@ -396,7 +396,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 
 // assertNoApprovalEffect holds the refusal invariant: the work version and the
 // work item's event count did not move, no confirmation row appeared, and no
-// fold guard row survived.
+// write guard row survived.
 func assertNoApprovalEffect(t *testing.T, s *Store, workID string, baselineVersion, baselineEvents int64) {
 	t.Helper()
 	if version := readWorkVersion(t, s, workID); version != baselineVersion {

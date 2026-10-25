@@ -8,7 +8,7 @@ import (
 )
 
 const reverseFrontiersMigration = `
-INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
 DROP TRIGGER domain_events_advance_effect_sequence;
 DROP TABLE work_version_actions;
 DROP TABLE store_sequences;
@@ -18,7 +18,7 @@ ALTER TABLE work_items DROP COLUMN version_actions_floor;
 ALTER TABLE work_size_assessments DROP COLUMN effect_seq;
 ALTER TABLE work_size_assessments DROP COLUMN review_basis;
 DELETE FROM schema_migrations WHERE version=146;
-DELETE FROM fold_guard;`
+DELETE FROM write_guard;`
 
 const frontierActor = "actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
@@ -235,7 +235,7 @@ func TestFrontierActionsRetentionAndBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard VALUES(1);
+	if _, err := tx.Exec(`INSERT INTO write_guard VALUES(1);
 INSERT INTO workflow_actors VALUES(?,'principal','client','agent','session','agent','now')`, frontierActor); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestFrontierBackfillParity(t *testing.T) {
 	if _, err := s.db.Exec(reverseFrontiersMigration); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1);
 UPDATE work_items SET version=300 WHERE id='a';
 INSERT INTO workflow_actors VALUES(?,'principal','client','agent','session','agent','now');
 INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
@@ -301,7 +301,7 @@ INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_a
 INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at)
  VALUES('basis-size','a',2,2,'larger','{}','{}','now');
 UPDATE sqlite_sequence SET seq=1000 WHERE name='domain_events';
-DELETE FROM fold_guard;`, frontierActor, frontierActor, frontierActor); err != nil {
+DELETE FROM write_guard;`, frontierActor, frontierActor, frontierActor); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(t.Context(), s.db); err != nil {

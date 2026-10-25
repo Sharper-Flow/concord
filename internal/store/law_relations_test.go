@@ -177,7 +177,7 @@ func TestRebuildRecordsTheDeclarerOfAConflictStoredInIDOrder(t *testing.T) {
 	if source, target, declarer := declared(); source != "law-b" || target != "law-z" || declarer.String != "law-z" {
 		t.Fatalf("projected conflict = %s -> %s declared by %v, want law-b -> law-z declared by law-z", source, target, declarer)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_relations SET declarer_law_id=NULL; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE law_relations SET declarer_law_id=NULL; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
@@ -192,7 +192,7 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 	t.Parallel()
 	s := openTemp(t)
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','a','conflicts_with','b','commit','a'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','a','conflicts_with','b','commit','a'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -218,7 +218,7 @@ func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	ids := make([]string, 32)
@@ -237,7 +237,7 @@ func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 			count++
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", ids, ids, true); err == nil {
@@ -289,7 +289,7 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 	t.Run("2.2 contract fails unknown law before persistence", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-unknown")
 		seedWorkflowLaw(t, s)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		err := approve(s, "law-boundary-unknown", actor)

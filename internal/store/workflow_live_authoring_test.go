@@ -108,7 +108,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 			}
 			// Model a stored retired-family instance without registering a historical
 			// definition. The live mutation must refuse before it can append anything.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=? WHERE work_id=?; DELETE FROM fold_guard`, family, workID); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=? WHERE work_id=?; DELETE FROM write_guard`, family, workID); err != nil {
 				t.Fatal(err)
 			}
 
@@ -902,7 +902,7 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 
 // insertCutoverContract copies the seeded instance's own definition pin into
 // the work's active contract, the shape an approval leaves behind, under the
-// fold guard the fold-only contract table requires.
+// write guard the write-seam-only contract table requires.
 func insertCutoverContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contracts

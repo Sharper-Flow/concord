@@ -46,7 +46,7 @@ func TestOpenRefusesUpgradeWindowState(t *testing.T) {
 func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
@@ -89,7 +89,7 @@ func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 			}
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -102,8 +102,8 @@ func TestBinaryCompatibilityUsesCurrentFamilyAndLaterAdditiveSchema(t *testing.T
 	if !ok {
 		t.Fatal("the current implementation definition must be registered")
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET definition_ref='workflow.implementation',definition_version=1,definition_digest=? WHERE work_id='work-skew'; DELETE FROM fold_guard`, definition.Digest); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE workflow_instances SET definition_ref='workflow.implementation',definition_version=1,definition_digest=? WHERE work_id='work-skew'; DELETE FROM write_guard`, definition.Digest); err != nil {
 		t.Fatal(err)
 	}
 	// A release stamp alone is not authority to reject a compatible pair.
@@ -128,7 +128,7 @@ func TestBinaryCompatibilityUsesCurrentFamilyAndLaterAdditiveSchema(t *testing.T
 	if err := odb.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=?`, CurrentSchemaVersion()+1).Scan(&pending); err != nil || pending != 1 {
 		t.Fatalf("refused readiness must leave the pending additive migration: count=%d error=%v", pending, err)
 	}
-	// The terminal disposition remains a fold-only lifecycle change.
+	// The terminal disposition remains a write-seam-only lifecycle change.
 	if err := ApplyOperation(context.Background(), opened, Operation{Events: []Event{{
 		EventID: "work-skew-cancel", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-skew",
 		Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
@@ -158,10 +158,10 @@ func TestArchivedFamilyMetadataReachesCutoverReadiness(t *testing.T) {
 				if axis == "contract" {
 					table = "workflow_contracts"
 				}
-				if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE `+table+` SET definition_ref=? WHERE work_id='work-skew'; DELETE FROM fold_guard`, ref); err != nil {
+				if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE `+table+` SET definition_ref=? WHERE work_id='work-skew'; DELETE FROM write_guard`, ref); err != nil {
 					t.Fatal(err)
 				}
-				eventsBefore := countRows(t, s, "domain_events")
+				eventsBefore := countRows(t, s, "effect_receipts")
 				ctx := context.Background()
 				if err := s.checkBinaryCompatibility(ctx); err != nil {
 					t.Fatalf("recorded archived metadata must reach its cutover owner: %v", err)
@@ -183,7 +183,7 @@ func TestArchivedFamilyMetadataReachesCutoverReadiness(t *testing.T) {
 				if err := s.db.QueryRow(`SELECT lifecycle,version FROM work_items WHERE id='work-skew'`).Scan(&lifecycle, &version); err != nil {
 					t.Fatal(err)
 				}
-				if lifecycle != "needed" || version != 1 || countRows(t, s, "domain_events") != eventsBefore {
+				if lifecycle != "needed" || version != 1 || countRows(t, s, "effect_receipts") != eventsBefore {
 					t.Fatal("compatibility/readiness moved work or appended history")
 				}
 			})

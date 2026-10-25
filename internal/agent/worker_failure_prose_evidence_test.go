@@ -81,7 +81,7 @@ func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
 		}
 	}
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, store.WorkflowActionCompleted).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND action_id='record_worker_failure'`).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 1 {

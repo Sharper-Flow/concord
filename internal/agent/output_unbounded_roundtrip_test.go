@@ -84,7 +84,7 @@ func seedWorkflowConditions(t *testing.T, s *store.Store, workID string, conditi
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, condition := range conditions {
@@ -93,7 +93,7 @@ func seedWorkflowConditions(t *testing.T, s *store.Store, workID string, conditi
 			t.Fatalf("seed current condition %s: %v", condition.id, err)
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -337,7 +337,7 @@ func TestWorkflowReadClassifiesUnknownAuthorityWithoutRewritingIt(t *testing.T) 
 	t.Parallel()
 	fixture := buildClassifiedReadFixture(t, 3, 0, 0, true)
 	var eventsBefore int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	envelope, err := dispatchUnboundedHistory(t, fixture)
@@ -360,7 +360,7 @@ func TestWorkflowReadClassifiesUnknownAuthorityWithoutRewritingIt(t *testing.T) 
 	requireSortedEqual(t, page.Workflow.BlockingConditions, fixture.blocking, "blocking_conditions")
 	requireSortedEqual(t, page.Workflow.UnreadableConditions, []string{fixture.unknown}, "unreadable_conditions")
 	var eventsAfter int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore {

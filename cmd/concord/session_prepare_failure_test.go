@@ -104,7 +104,7 @@ func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T)
 	}
 	defer func() { _ = readTx.Rollback() }()
 	var eventCount int
-	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&eventCount); err != nil {
+	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 	identityCalls, bootCalls := 0, 0
@@ -137,7 +137,7 @@ func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T)
 		t.Fatalf("pinned reader exit=%d boot calls=%d identity error=%v stdout=%q stderr=%q", code, bootCalls, identityErr, out, diagnostic)
 	}
 	var committedEvents int
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&committedEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&committedEvents); err != nil {
 		t.Fatal(err)
 	}
 	if committedEvents != eventCount+1 {

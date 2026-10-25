@@ -70,9 +70,7 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 		t.Fatalf("current job satisfaction=%d, want latest acceptance=%d", satisfiedSeq, latestSeq)
 	}
 	assertWorkerWindowsMigration143Parity(t, s)
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_acceptance_events`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	withoutLog, err := deriveWorkerFailureIntegration(t.Context(), s.db, work, integrationAttributionObservation(failed.LeaseID))
 	if err != nil || !reflect.DeepEqual(before, withoutLog) {
 		t.Fatalf("log-blind frozen population=%+v err=%v; want %+v", withoutLog, err, before)

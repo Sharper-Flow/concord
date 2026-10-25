@@ -39,7 +39,7 @@ func seedReservationAuthority(t *testing.T, s *store.Store, repo string) {
 	otherDigest := "sha256:" + strings.Repeat("b", 64)
 	claimPath := filepath.Join(repo, "worktrees", "work-wl")
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	step := func(label string, statement string, arguments ...any) {
@@ -62,7 +62,7 @@ func seedReservationAuthority(t *testing.T, s *store.Store, repo string) {
 			('wl-claim-op','work-wl','project-wl','wl-set','work/work-wl',?,?, 'verified','principal-wl','wl-request','now','now')`, strings.Repeat("a", 40), claimPath)
 	step("entries", `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES
 			('wl-set','project-wl','wl-claim-op','work/work-wl',?,?,'repo','active','now')`, strings.Repeat("a", 40), claimPath)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

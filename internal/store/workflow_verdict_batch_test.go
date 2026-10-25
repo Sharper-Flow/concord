@@ -159,7 +159,7 @@ func TestWorkflowVerdictBatchParity(t *testing.T) {
 		t.Fatalf("two-entry batch: %v", err)
 	}
 	var eventIDs []string
-	rows, err := f.store.db.Query(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 2`, f.workID, WorkflowVerdictRecorded)
+	rows, err := f.store.db.Query(`SELECT event_id FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 2`, f.workID, WorkflowVerdictRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 	}
 	// Main may have executed; a dispatched worker still cannot associate proof.
 	var worker WorkflowActor
-	if err := f.store.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=(SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')='p:implementation' LIMIT 1)`, f.workID, WorkerDispatched).Scan(&worker.PrincipalRef, &worker.ClientRef, &worker.AgentRef, &worker.SessionRef, &worker.ActorClass); err != nil {
+	if err := f.store.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=(SELECT json_extract(dispatch_payload,'$.lane_actor_ref') FROM worker_attempts WHERE work_id=? AND attempt_id='p:implementation')`, f.workID).Scan(&worker.PrincipalRef, &worker.ClientRef, &worker.AgentRef, &worker.SessionRef, &worker.ActorClass); err != nil {
 		t.Fatal(err)
 	}
 	assertRecoveryRefusalWithoutEffect(t, f.store, f.workID, KindUnauthorized, func() error {
@@ -261,12 +261,12 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	f, ref := seedLateCriterionAssociation(t, "batch-late-current")
 	// Isolate active-version resolution from the separate contract-return journey.
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest)
 		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 		UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1;
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-		DELETE FROM fold_guard`, "batch-late-current", "batch-late-current", "batch-late-current"); err != nil {
+		DELETE FROM write_guard`, "batch-late-current", "batch-late-current", "batch-late-current"); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", criterionAssociationPayload(ref, "predicate:first"), 0, f.owner); err != nil {
@@ -347,7 +347,7 @@ func pAssertBatchAssociations(t *testing.T, f workContextFixture, count int) {
 		}
 	}
 	var eventsBefore int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsBefore); err != nil {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	if eventsBefore < count {
@@ -397,7 +397,7 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 		t.Fatalf("completion lost union or count: %+v", completed)
 	}
 	var recorded int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != criteria {

@@ -1040,7 +1040,7 @@ func livenessStep(ctx context.Context, s *Store, workID string) (string, error) 
 func livenessCompletion(ctx context.Context, s *Store, workID string) (string, int64, error) {
 	var state string
 	var completions int64
-	err := s.db.QueryRowContext(ctx, `SELECT instance_state,(SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?) FROM workflow_instances WHERE work_id=?`, string(SubjectWorkItem), workID, WorkflowCompleted, workID).Scan(&state, &completions)
+	err := s.db.QueryRowContext(ctx, `SELECT instance_state,(SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=? AND kind=?) FROM workflow_instances WHERE work_id=?`, string(SubjectWorkItem), workID, WorkflowCompleted, workID).Scan(&state, &completions)
 	return state, completions, err
 }
 

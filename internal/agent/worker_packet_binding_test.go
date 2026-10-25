@@ -322,9 +322,9 @@ func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, workID string) (s
 	if err == nil {
 		return path, branch
 	}
-	if _, execErr := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, execErr := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID(workID), oracleFixtureProject, "claim:oracle-fixture-"+workID, "work/oracle-fixture", strings.Repeat("a", 40), t.TempDir(), "repo:oracle-fixture", fixedTime().Format(time.RFC3339Nano)); execErr != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID(workID), oracleFixtureProject, "claim:oracle-fixture-"+workID, "work/oracle-fixture", strings.Repeat("a", 40), t.TempDir(), "repo:oracle-fixture", fixedTime().Format(time.RFC3339Nano)); execErr != nil {
 		t.Fatalf("seed the oracle fixture worktree claim: %v", execErr)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND project_id=? AND state='active' LIMIT 1`,
@@ -446,7 +446,7 @@ func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID str
 		return "delivery.txt"
 	}
 	var raw []byte
-	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if err != nil {
 		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
 	}
@@ -701,10 +701,10 @@ func oracleFixtureBundleDigest(t *testing.T, oracle map[string]any, controlID st
 func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 		VALUES('work-1',1,'predicate:second-approved',1,'check','{"kind":"check","check_ref":"check:second","immutable_subject_ref":"commit:second","expected_result":"pass"}');
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	oracle := agentOracleFieldsForTest(t, s)
@@ -843,7 +843,7 @@ func authorizedWorkerJob(t *testing.T, s *store.Store, attemptID string) *store.
 func authorizedWorkerJobFor(t *testing.T, s *store.Store, workID, attemptID string) *store.WorkerJobBinding {
 	t.Helper()
 	var raw string
-	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) || raw == "" {
 		return nil
 	}
@@ -865,7 +865,7 @@ func recordedAgentOracle(t *testing.T, s *store.Store, binding *store.WorkerJobB
 		return nil
 	}
 	var raw sql.NullString
-	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, "work-1", store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(recorded_payload,'$.acceptance_oracle') FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, "work-1", binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("the authorized worker job has no recorded revision: %+v", binding)
 	}

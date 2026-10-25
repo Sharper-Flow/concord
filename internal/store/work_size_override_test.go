@@ -175,8 +175,8 @@ func TestWorkSizeOverrideTableIsFoldOnly(t *testing.T) {
 	s := openTemp(t)
 	sizedWork(t, s, "direct")
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO work_size_overrides(work_id,event_id,model_sequence,size_class,recorded_at) VALUES('direct','direct-sized-1',1,'crucial','2026-10-18T00:00:00Z')`)
-	if err == nil || !strings.Contains(err.Error(), "fold-only") {
-		t.Fatalf("direct insert err=%v; want the fold-only guard", err)
+	if err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("direct insert err=%v; want the write-seam-only guard", err)
 	}
 }
 

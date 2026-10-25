@@ -150,7 +150,7 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 	// The seed statements inline their literals: a multi-statement Exec
 	// binds parameters to the first statement only on this driver, and the
 	// law_subjects home-pair trigger then reads the wrong values.
-	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -464,7 +464,7 @@ func TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject(t
 		t.Fatalf("err=%v, want the unplaced-session replay refused at the placement boundary", unplaced)
 	}
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -908,7 +908,7 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 		t.Fatal(err)
 	}
 	var startedCount int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.action_started' AND subject_id=? AND json_extract(payload,'$.step_id')=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
 		t.Fatal(err)
 	}
 	epoch := startedCount + 1
@@ -1046,7 +1046,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	}
 	// Retirement derives from facts; it never writes.
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
@@ -1054,7 +1054,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	var after int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, f.workID).Scan(&after); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, f.workID).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if events != after || retirement.State != RetirementReady {
@@ -1612,7 +1612,7 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 0 {
@@ -1770,7 +1770,7 @@ func TestConsumedSharedBindSurvivesTheOriginalReceiverVacate(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v, want the standing bind resolved as AlreadyConsumed", replay, err)
 	}
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -1876,7 +1876,7 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 		t.Fatalf("gate err=%v, want the superseded-claim landing refused", err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -1885,18 +1885,12 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 	// The re-claimed worktree's own verified landing names the new claim
 	// generation and reopens admission.
 	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	var rawPayload string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? ORDER BY seq DESC LIMIT 1`, f.workID).Scan(&rawPayload); err != nil {
+	var claimOpID string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.sourceSession, f.sourceProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		ClaimOpID string `json:"claim_op_id"`
-	}
-	if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ClaimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("newest landing claim op=%q, want the re-claimed generation %q", payload.ClaimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != reclaimed.Entry.ClaimOpID {
+		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
 	}
 	if err := runHandoffGate(t, f.store, f.workID, f.sourceSession); err != nil {
 		t.Fatalf("post-landing gate refused %v", err)
@@ -1959,24 +1953,18 @@ func TestReclaimedClaimAfterVacateRecordsItsOwnFirstLanding(t *testing.T) {
 		t.Fatalf("second landing=%+v err=%v, want the re-claim's own first landing recorded", second, err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 2 {
 		t.Fatalf("landing event count=%d, want the vacated claim's and the re-claim's own landing", landings)
 	}
-	var rawSecond string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? ORDER BY seq DESC LIMIT 1`, f.workID).Scan(&rawSecond); err != nil {
+	var claimOpID string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.targetSession, f.targetProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		ClaimOpID string `json:"claim_op_id"`
-	}
-	if err := json.Unmarshal([]byte(rawSecond), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ClaimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("newest landing claim op=%q, want the re-claimed generation %q", payload.ClaimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != reclaimed.Entry.ClaimOpID {
+		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
 	}
 	// The fresh landing resolves the placement: the addressed handoff binds
 	// to the consuming session, and the admission gate admits it.

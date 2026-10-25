@@ -211,7 +211,7 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 		}
 		workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, completion)
 		var raw []byte
-		if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.observed_delivery') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt).Scan(&raw); err != nil {
+		if err := f.store.db.QueryRow(`SELECT json_extract(terminal_payload,'$.observed_delivery') FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND attempt_id=?`, workID, WorkerCompleted, attempt).Scan(&raw); err != nil {
 			t.Fatal(err)
 		}
 		var observed WorkerObservedDelivery
@@ -360,13 +360,13 @@ func TestWorkerJobDeliveredPathContainmentAtAcceptance(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer tx.Rollback()
-				if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := tx.Exec(`UPDATE worker_attempts SET terminal_payload=`+tc.expression+` WHERE work_id=? AND terminal_kind=? AND attempt_id=?`, workID, WorkerCompleted, attempt); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+				if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 				if err := tx.Commit(); err != nil {

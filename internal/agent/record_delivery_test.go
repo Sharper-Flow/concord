@@ -133,7 +133,7 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 	ctx := context.Background()
 	f := newSpineFixture(t)
 	s, service, env, workID := f.s, f.service, f.env, f.work
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)

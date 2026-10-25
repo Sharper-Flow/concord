@@ -127,10 +127,10 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 		{"project update", "projects", `UPDATE projects SET display_name = 'changed' WHERE id = 'project-1'`},
 		{"project delete", "projects", `DELETE FROM projects`},
 		// UPDATE and DELETE triggers fire per matching row, so seed one under
-		// the fold guard before attempting the guarded write.
+		// the write guard before attempting the guarded write.
 		{"product knowledge home insert", "product_knowledge_homes", `INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l')`},
-		{"product knowledge home update", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; UPDATE product_knowledge_homes SET locator_id = 'other'`},
-		{"product knowledge home delete", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; DELETE FROM product_knowledge_homes`},
+		{"product knowledge home update", "product_knowledge_homes", `INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM write_guard; UPDATE product_knowledge_homes SET locator_id = 'other'`},
+		{"product knowledge home delete", "product_knowledge_homes", `INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM write_guard; DELETE FROM product_knowledge_homes`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {
@@ -162,7 +162,7 @@ func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 	assertTableCount(t, s, "products", 0)
 }
 
@@ -179,7 +179,7 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindVersionConflict)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 3)
+	assertTableCount(t, s, "effect_receipts", 3)
 	assertTableCount(t, s, "products", 1)
 	var name string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT display_name FROM products WHERE id = 'product-1'`).Scan(&name); err != nil {
@@ -201,7 +201,7 @@ func TestMultiEventOperationRollsBackWhenSecondEventFails(t *testing.T) {
 	err := ApplyOperation(context.Background(), s, operation)
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 	assertTableCount(t, s, "products", 0)
 }
 
@@ -221,7 +221,7 @@ func assertFailureKind(t *testing.T, err error, want FailureKind) {
 
 func assertFoldGuardEmpty(t *testing.T, s *Store) {
 	t.Helper()
-	assertTableCount(t, s, "fold_guard", 0)
+	assertTableCount(t, s, "write_guard", 0)
 }
 
 func assertTableCount(t *testing.T, s *Store, table string, want int) {

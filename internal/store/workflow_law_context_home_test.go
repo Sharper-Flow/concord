@@ -348,7 +348,7 @@ func TestContinuityQualifiesPreMigrationBoundLawDocument(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(homeRepo, "docs", "spec-pre.md"), []byte("# Pre-migration law\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','spec','accepted','docs/spec-pre.md','Pre-migration law','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','product','root','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','spec','accepted','docs/spec-pre.md','Pre-migration law','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:pre','product','root','sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd','test'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:pre"})
@@ -553,7 +553,7 @@ func TestContinuityRegistryLocatorFollowsTheDomainRegistryHome(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
@@ -605,7 +605,7 @@ func TestLawContextRefusesLawPathEscapingTheHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(homeRepo), "escape.md"), []byte("# Outside\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','spec','accepted','../escape.md','Escaping law','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','product','root','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','spec','accepted','../escape.md','Escaping law','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','product','root','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:escape"})

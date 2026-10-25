@@ -43,7 +43,7 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 			t.Fatalf("fixture repository: %v: %s", err, output)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM fold_guard`, home.RepoPath); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM write_guard`, home.RepoPath); err != nil {
 		t.Fatalf("point the fixture locator at the repository: %v", err)
 	}
 	tooling, err := store.ResolveWorkProjectTooling(ctx, s, "work-1")
@@ -81,7 +81,7 @@ func recoveryProducerLane(t *testing.T, laneID string) store.LaneDefinition {
 func attemptEpoch(t *testing.T, s *store.Store, attemptID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id='work-1' AND attempt_id=?`, attemptID).Scan(&epoch); err != nil {
 		t.Fatalf("read dispatch epoch for %s: %v", attemptID, err)
 	}
 	if epoch == 0 {

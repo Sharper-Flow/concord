@@ -252,7 +252,7 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 		t.Fatalf("related row names %q, want %q", related.Related, relatedID)
 	}
 	var diagnosisEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
 		t.Fatal(err)
 	}
 	if diagnosisEvents != 1 {
@@ -326,7 +326,7 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 		t.Fatalf("refused record_diagnosis calls wrote %d alignment rows", len(rows))
 	}
 	var diagnosisEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
 		t.Fatal(err)
 	}
 	if diagnosisEvents != 0 {
@@ -774,7 +774,7 @@ func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attem
 		return err
 	}
 	var packetDigest string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
 	dispatch := Event{EventID: "diagnosis-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{

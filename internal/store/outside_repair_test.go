@@ -217,7 +217,7 @@ func TestOutsideRepairReconcileBothLiveLifecycles(t *testing.T) {
 				t.Fatalf("instance=%s err=%v", instance, err)
 			}
 			var fabricated int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind IN ('workflow.completed','workflow.verdict_recorded','workflow.premise_confirmed','workflow.evidence_bound','work.transitioned') AND event_id NOT LIKE '%:start'`, work).Scan(&fabricated); err != nil || fabricated != 0 {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind IN ('workflow.completed','workflow.verdict_recorded','workflow.premise_confirmed','workflow.evidence_bound','work.transitioned') AND event_id NOT LIKE '%:start'`, work).Scan(&fabricated); err != nil || fabricated != 0 {
 				t.Fatalf("fabricated=%d err=%v", fabricated, err)
 			}
 			assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal"}), KindInvalidOperation)

@@ -15,7 +15,7 @@ type foldRowReader interface {
 func foldGuardRows(t *testing.T, q foldRowReader) int {
 	t.Helper()
 	var n int
-	if err := q.QueryRowContext(context.Background(), `SELECT count(*) FROM fold_guard`).Scan(&n); err != nil {
+	if err := q.QueryRowContext(context.Background(), `SELECT count(*) FROM write_guard`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -159,11 +159,11 @@ func TestFoldScopeRollbackLeavesNoCommittedGuard(t *testing.T) {
 func TestFoldGuardCollisionIsInvariantFailure(t *testing.T) {
 	t.Parallel()
 	s := openRepairStore(t)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+		_, _ = s.DatabaseForTesting().Exec(`DELETE FROM write_guard`)
 	})
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -188,13 +188,13 @@ func TestFoldGuardCollisionIsInvariantFailure(t *testing.T) {
 }
 
 // Ordinary use must refuse before anything reads or writes a database that
-// carries a committed fold_guard row.
+// carries a committed write_guard row.
 func TestOpenRefusesCommittedFoldGuard(t *testing.T) {
 	t.Parallel()
 	s := openRepairStore(t)
 	path := s.Path()
 	seedRepairProduct(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -203,7 +203,7 @@ func TestOpenRefusesCommittedFoldGuard(t *testing.T) {
 	reopened, err := Open(context.Background(), path)
 	if err == nil {
 		_ = reopened.Close()
-		t.Fatal("Open admitted a database with a committed fold_guard row")
+		t.Fatal("Open admitted a database with a committed write_guard row")
 	}
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {

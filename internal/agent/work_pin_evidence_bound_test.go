@@ -76,7 +76,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}
 	var boundEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, store.WorkflowEvidenceBound, long).Scan(&boundEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? AND json_extract(b.payload,'$.immutable_subject_ref')=?`, workID, store.WorkflowEvidenceBound, long).Scan(&boundEvents); err != nil {
 		t.Fatal(err)
 	}
 	if boundEvents != 0 {

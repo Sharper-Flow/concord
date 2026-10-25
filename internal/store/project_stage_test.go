@@ -32,7 +32,7 @@ func TestProjectStageChangeValidatesAndClearsInheritance(t *testing.T) {
 	assertProjectStage(t, s, "stage-project", "", "", 3)
 
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE projects SET stage_maturity_override='alpha' WHERE id='stage-project'`); err == nil {
-		t.Fatal("direct Project stage mirror write bypassed fold guard")
+		t.Fatal("direct Project stage mirror write bypassed write guard")
 	}
 }
 
@@ -85,7 +85,7 @@ func assertProjectStage(t *testing.T, s *Store, id, wantMaturity, wantAudience s
 func countProjectStageEvents(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='project.stage_changed'`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='project.stage_changed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

@@ -33,7 +33,7 @@ func TestWorkflowEvaluationAuthorityCurrentFactsWithoutLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`DELETE FROM worker_attempts WHERE work_id=?`, f.workID); err != nil {

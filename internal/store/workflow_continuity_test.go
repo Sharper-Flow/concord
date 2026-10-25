@@ -231,7 +231,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 		t.Fatalf("restart error=%v", err)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -349,7 +349,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 		t.Fatal("context checkpoint update bypassed immutability guard")
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM workflow_context_checkpoints WHERE work_id='continuity-v22-guards'`); err == nil {
-		t.Fatal("context checkpoint delete bypassed fold guard")
+		t.Fatal("context checkpoint delete bypassed write guard")
 	}
 	actorRef, err := WorkflowActorRef(actor)
 	if err != nil {
@@ -360,6 +360,6 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
-		t.Fatal("context boundary insert bypassed fold guard")
+		t.Fatal("context boundary insert bypassed write guard")
 	}
 }

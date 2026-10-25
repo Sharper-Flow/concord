@@ -106,7 +106,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 		t.Fatal(err)
 	}
 	var statements strings.Builder
-	statements.WriteString("INSERT INTO fold_guard(active) VALUES(1);")
+	statements.WriteString("INSERT INTO write_guard(active) VALUES(1);")
 	for product := 0; product < readPopulationProducts; product++ {
 		productID := fmt.Sprintf("perf-product-%03d", product)
 		projectPrimary := fmt.Sprintf("perf-project-%03d-primary", product)
@@ -138,7 +138,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 		blockerID := fmt.Sprintf("perf-work-%03d-06", product)
 		fmt.Fprintf(&statements, "INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('%s','perf-work-%03d-02','blocks','2026-08-05T00:00:00Z'),('%s','perf-work-%03d-04','blocks','2026-08-05T00:00:00Z');", blockerID, product, blockerID, product)
 	}
-	statements.WriteString("DELETE FROM fold_guard;")
+	statements.WriteString("DELETE FROM write_guard;")
 	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), statements.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -295,13 +295,13 @@ func execPopulationStatement(t *testing.T, s *store.Store, statement string, arg
 	t.Helper()
 	ctx := context.Background()
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, statement, args...); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

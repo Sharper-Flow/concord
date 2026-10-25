@@ -60,7 +60,7 @@ func s2WorkerFailedAttributedLive(t *testing.T, s *Store, workID, attemptID, det
 // one attempt and returns their step, epoch, actor, and event id.
 func s2DerivedFailureRecords(t *testing.T, s *Store, workID, attemptID string) []map[string]any {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref'),event_id FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq`, workID, WorkflowActionCompleted, attemptID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref'),event_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=? ORDER BY seq`, workID, attemptID)
 	if err != nil {
 		t.Fatal(err)
 	}

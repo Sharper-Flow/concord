@@ -20,7 +20,9 @@ import (
 func agentSeedRefineProofRun(t *testing.T, s *store.Store, workID, digest string) string {
 	t.Helper()
 	var occurred string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionStarted).Scan(&occurred); err != nil {
+	// Both the start and its durable operation use request.Now. Match the
+	// exact start identity; last_progress_at can include a later clock value.
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT d.observed_at FROM workflow_step_epochs e JOIN durable_operations d ON d.work_id=e.work_id AND e.latest_start_event_id=d.op_id||':started' AND d.accepted_inputs_digest=json_extract(e.latest_start_payload,'$.accepted_inputs_digest') WHERE e.work_id=? AND e.step_id='refine' AND e.latest_start_seq>0`).Scan(&occurred); err != nil {
 		t.Fatalf("read the refine start: %v", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
@@ -58,19 +60,19 @@ func agentSeedRefineProofRun(t *testing.T, s *store.Store, workID, digest string
 }
 
 // agentSeedIntegrationVerifyRun seeds one green worktree_verify run of the
-// work's primary Project acquired after the work's latest recorded event —
-// the current phase start or required job acceptance, whichever is later —
+// work's primary Project acquired after its retained progress timestamp,
+// covering the current phase start and required job acceptance,
 // and returns the operation ref the CD-0205 delivery admission binds as the
 // integration evidence.
 func agentSeedIntegrationVerifyRun(t *testing.T, s *store.Store, workID, digest string) string {
 	t.Helper()
 	var latest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? ORDER BY seq DESC LIMIT 1`, workID).Scan(&latest); err != nil {
-		t.Fatalf("read the work's latest event: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last_progress_at FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
+		t.Fatalf("read the work's retained progress timestamp: %v", err)
 	}
 	anchor, err := time.Parse(time.RFC3339Nano, latest)
 	if err != nil {
-		t.Fatalf("parse the work's latest event time: %v", err)
+		t.Fatalf("parse the work's retained progress timestamp: %v", err)
 	}
 	var project string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE((SELECT DISTINCT project_scope FROM worker_job_revisions WHERE work_id=? AND project_scope!='' LIMIT 1),(SELECT project_id FROM work_projects WHERE work_id=? AND role='primary' LIMIT 1),'project-1')`, workID, workID).Scan(&project); err != nil || project == "" {

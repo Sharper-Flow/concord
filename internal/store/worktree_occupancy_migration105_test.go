@@ -112,7 +112,7 @@ func migrateV103(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-// occupancyBoundAccepts reports whether a fold-guarded insert of a
+// occupancyBoundAccepts reports whether a write-guarded insert of a
 // keyLength-char worktree_id fits the table's CHECK.
 func occupancyBoundAccepts(ctx context.Context, t *testing.T, db *sql.DB, keyLength int) bool {
 	t.Helper()
@@ -120,12 +120,12 @@ func occupancyBoundAccepts(ctx context.Context, t *testing.T, db *sql.DB, keyLen
 	if len(key) != keyLength {
 		t.Fatalf("test key length %d, want %d", len(key), keyLength)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := db.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES(?,?,?,?,NULL,0)`,
 		key, fmt.Sprintf("ses-%d", keyLength), "2026-09-26T00:00:00Z", nil)
-	if _, derr := db.ExecContext(ctx, `DELETE FROM fold_guard WHERE active = 1`); derr != nil {
+	if _, derr := db.ExecContext(ctx, `DELETE FROM write_guard WHERE active = 1`); derr != nil {
 		t.Fatal(derr)
 	}
 	return err == nil

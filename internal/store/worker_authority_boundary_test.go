@@ -91,7 +91,7 @@ func TestWorkerAuthorityBoundaryHoldsInBothDirections(t *testing.T) {
 		t.Fatalf("rejected completion changed instance state: %q", got)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "authority-work", WorkflowCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "authority-work", WorkflowCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 0 {
@@ -419,7 +419,7 @@ func assertRejectedActionStart(t *testing.T, s *Store, event Event, expectedVers
 func countWorkflowActionStarts(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -743,7 +743,7 @@ func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind Fa
 		t.Fatalf("rejected action_failed version=%d, want %d", got, 12)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, event.SubjectID, WorkflowActionFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, event.SubjectID, WorkflowActionFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -754,7 +754,7 @@ func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind Fa
 func countWorkflowActionCompleted(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -926,7 +926,7 @@ func assertRejectedWorkerAcceptance(t *testing.T, s *Store, workID string, owner
 func assertRejectedWorkerAction(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion int64, payload map[string]any, wantKind FailureKind, wantVersion int64, actionID, digestChar, opPrefix, label string) {
 	t.Helper()
 	var completedBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completedBefore); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -958,7 +958,7 @@ func assertRejectedWorkerAction(t *testing.T, s *Store, workID string, owner Wor
 		t.Fatalf("rejected %s version=%d, want %d", label, got, wantVersion)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != completedBefore {

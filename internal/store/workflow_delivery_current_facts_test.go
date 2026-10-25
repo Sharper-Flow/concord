@@ -57,7 +57,7 @@ func TestWorkflowCurrentCorrectionRequestPreservesVerdictWindow(t *testing.T) {
 	}
 	// Model a retained unhealthy judgment using its current descriptor. Its
 	// correction baseline belongs to the judgment, not a later request.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,1,?,?,'actor:test',?); DELETE FROM fold_guard`, work, predicate, seq, string(raw)); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,1,?,?,'actor:test',?); DELETE FROM write_guard`, work, predicate, seq, string(raw)); err != nil {
 		t.Fatal(err)
 	}
 	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
@@ -73,7 +73,7 @@ func TestWorkflowCurrentCorrectionRequestPreservesVerdictWindow(t *testing.T) {
 		t.Fatalf("current unhealthy judgment has no correction: %+v, %v", want, err)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){"verdict-correction": read})
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM fold_guard`, work, seq+1); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM write_guard`, work, seq+1); err != nil {
 		t.Fatal(err)
 	}
 	got, err := read()
@@ -100,7 +100,7 @@ func TestWorkflowVerdictWriterSnapshotsPriorCorrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM fold_guard`, work, prior); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'request_correction',?); DELETE FROM write_guard`, work, prior); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, work, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {
@@ -151,7 +151,7 @@ func TestWorkflowArtifactProductionCurrentFactsWithoutLog(t *testing.T) {
 	})
 	// A later producer update changes current freshness, not the ground on
 	// which the existing verdict was made.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_artifact_actions SET production_seq=? WHERE work_id=? AND step_id=?; DELETE FROM fold_guard`, verdict+10, work, target); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_artifact_actions SET production_seq=? WHERE work_id=? AND step_id=?; DELETE FROM write_guard`, verdict+10, work, target); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := read(0); err != nil || got != verdict+10 {

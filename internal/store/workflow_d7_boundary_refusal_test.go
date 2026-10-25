@@ -362,7 +362,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 			otherID := "d7-other-" + testCase.actionID
 			s, actor, version := seedD7BoundaryOverlap(t, workID, otherID, testCase.step)
 			var eventsBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 				t.Fatal(err)
 			}
 
@@ -375,7 +375,7 @@ func TestD7ConsequentialBoundariesRefuseUnresolvedOverlap(t *testing.T) {
 			if got := currentStep(t, s, workID); got != testCase.step {
 				t.Fatalf("refused boundary advanced step=%q, want %q", got, testCase.step)
 			}
-			assertTableCount(t, s, "domain_events", eventsBefore)
+			assertTableCount(t, s, "effect_receipts", eventsBefore)
 
 			// D7: read-only inspection remains available while the boundary refuses.
 			if _, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID}); err != nil {

@@ -29,18 +29,18 @@ func seedLawChangeFixture(t *testing.T, workID string) *Store {
 	return s
 }
 
-// lawChangeFold runs one projection write under an open fold guard.
+// lawChangeFold runs one projection write under an open write guard.
 func lawChangeFold(t *testing.T, s *Store, query string, args ...any) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(query, args...); err != nil {
-		_, _ = db.Exec(`DELETE FROM fold_guard`)
+		_, _ = db.Exec(`DELETE FROM write_guard`)
 		t.Fatalf("%s: %v", query, err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -916,7 +916,7 @@ func editLawChangeLaw(t *testing.T, s *Store, lawID string) {
 	t.Helper()
 	tx := lawChangeTx(t, s)
 	hash := "sha256:" + strings.Repeat("9", 64)
-	for _, query := range []string{`PRAGMA defer_foreign_keys=ON`, `INSERT INTO fold_guard(active) VALUES(1)`, `UPDATE law_subjects SET content_hash=? WHERE law_id=?`, `UPDATE law_domain_homes SET law_content_hash=? WHERE law_id=?`, `DELETE FROM fold_guard`} {
+	for _, query := range []string{`PRAGMA defer_foreign_keys=ON`, `INSERT INTO write_guard(active) VALUES(1)`, `UPDATE law_subjects SET content_hash=? WHERE law_id=?`, `UPDATE law_domain_homes SET law_content_hash=? WHERE law_id=?`, `DELETE FROM write_guard`} {
 		var args []any
 		if strings.HasPrefix(query, "UPDATE") {
 			args = []any{hash, lawID}

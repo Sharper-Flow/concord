@@ -514,8 +514,6 @@ func releaseMigrationSnapshot(t *testing.T, path string) string {
 SELECT json_array('schema',type,name,tbl_name,sql) FROM sqlite_schema
 UNION ALL
 SELECT json_array('migration',version,name,checksum,applied_at,breaking) FROM schema_migrations
-UNION ALL
-SELECT json_array('events',count(*),max(seq)) FROM domain_events
 ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
@@ -532,6 +530,63 @@ ORDER BY 1`)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Fingerprint every actual table on either side of the floor. This is one
+	// schema-independent no-write observer, not an old/new query fallback.
+	tables, err := db.Query(`SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for tables.Next() {
+		var name string
+		if err := tables.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	if err := tables.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tables.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		quoted := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+		probe, err := db.Query(`SELECT * FROM ` + quoted + ` LIMIT 0`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns, err := probe.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for i, column := range columns {
+			columns[i] = `quote("` + strings.ReplaceAll(column, `"`, `""`) + `")`
+		}
+		data, err := db.Query(`SELECT json_array(` + strings.Join(columns, ",") + `) FROM ` + quoted + ` ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for data.Next() {
+			var row string
+			if err := data.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			snapshot.WriteString(name + ":" + row + "\n")
+		}
+		if err := data.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := data.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return snapshot.String()
 }
@@ -661,15 +716,14 @@ const cutoverBaselineTag = "v13.4.0"
 const cutoverBaselineSchema = 122
 
 // cutoverEvidenceQueries fingerprints the living evidence a cutover must
-// carry across the breaking floor: the original event log with its actors,
-// the active research consumer, the claimed worktree with its live session
+// carry across the breaking floor: the active research consumer, the claimed
+// worktree with its live session
 // landing, and the completed retained worker report. Every query names only
 // columns that exist identically at the baseline and candidate schemas.
 var cutoverEvidenceQueries = []struct {
 	name  string
 	query string
 }{
-	{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
 	{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
 	{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
 	{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
@@ -726,6 +780,65 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 		}
 		_ = rows.Close()
 		captured[evidence.name] = population
+	}
+	return captured
+}
+
+// Baseline receipts are the exact identities migration 145 must derive from
+// the real released log. Only worker payloads remain retained after 151.
+func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
+	t.Helper()
+	captured := captureCutoverEvidence(t, db)
+	rows, err := db.Query(`SELECT seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload FROM domain_events ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int64
+		var version int
+		var id, kind, subjectType, subjectID, actor string
+		var payload []byte
+		if err := rows.Scan(&seq, &id, &kind, &subjectType, &subjectID, &actor, &version, &payload); err != nil {
+			t.Fatal(err)
+		}
+		captured["effect_receipts"] = append(captured["effect_receipts"], mustJSON(t, []any{seq, id, kind, subjectType, subjectID, actor, version, cliPayloadDigest(t, payload)}))
+		if kind == store.WorkerDispatched || kind == store.WorkerCompleted || kind == store.WorkerFailed {
+			captured["worker_payloads"] = append(captured["worker_payloads"], mustJSON(t, []any{id, string(payload)}))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return captured
+}
+
+func captureCurrentCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
+	t.Helper()
+	captured := captureCutoverEvidence(t, db)
+	for _, query := range []struct{ name, sql string }{
+		{"effect_receipts", `SELECT json_array(effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts ORDER BY effect_seq`},
+		{"worker_payloads", `SELECT json_array(event_id,payload) FROM (
+SELECT r.effect_seq,r.event_id,CAST(a.dispatch_payload AS TEXT) AS payload FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.dispatch_event_id=r.event_id AND a.dispatch_seq=r.effect_seq AND a.dispatch_payload_version=r.payload_version AND a.dispatch_actor=r.actor WHERE r.kind='worker.dispatched'
+UNION ALL SELECT r.effect_seq,r.event_id,CAST(a.terminal_payload AS TEXT) FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.terminal_event_id=r.event_id AND a.terminal_seq=r.effect_seq AND a.terminal_payload_version=r.payload_version AND a.terminal_kind=r.kind WHERE r.kind IN ('worker.completed','worker.failed')) ORDER BY effect_seq`},
+	} {
+		rows, err := db.Query(query.sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			captured[query.name] = append(captured[query.name], row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return captured
 }
@@ -932,9 +1045,9 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	session := startAdapterSessionOperation(t, baselineAdapter, path, "/srv/cutover-baseline-session")
 	sessionPID := session.command.Process.Pid
 	seedCutoverLivingEvidence(t, path, sessionPID)
-	want := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["domain_events"]) != 13 {
-		t.Fatalf("seeded event log = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["domain_events"]))
+	want := captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, path))
+	if len(want["effect_receipts"]) != 13 {
+		t.Fatalf("seeded identities = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["effect_receipts"]))
 	}
 	if len(want["active_research_consumers"]) != 1 ||
 		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {
@@ -946,12 +1059,12 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if len(want["worker_attempts"]) != 1 || !strings.Contains(want["worker_attempts"][0], "\x1fcompleted\x1f") {
 		t.Fatalf("seeded worker attempts = %v, want the one completed retained report", want["worker_attempts"])
 	}
-	assertPreserved := func(t *testing.T) {
+	assertPreserved := func(t *testing.T, capture func(*testing.T, *sql.DB) map[string][]string) {
 		t.Helper()
-		got := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-		for _, evidence := range cutoverEvidenceQueries {
-			if strings.Join(got[evidence.name], "\x1e") != strings.Join(want[evidence.name], "\x1e") {
-				t.Fatalf("%s evidence =\n%s\nwant\n%s", evidence.name, strings.Join(got[evidence.name], "\n"), strings.Join(want[evidence.name], "\n"))
+		got := capture(t, mustOpenCutoverStore(t, path))
+		for name, expected := range want {
+			if strings.Join(got[name], "\x1e") != strings.Join(expected, "\x1e") {
+				t.Fatalf("%s evidence =\n%s\nwant\n%s", name, strings.Join(got[name], "\n"), strings.Join(expected, "\n"))
 			}
 		}
 	}
@@ -967,7 +1080,7 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
 			t.Fatalf("a refused upgrade must close the boundary it opened: %+v %v", fence, err)
 		}
-		assertPreserved(t)
+		assertPreserved(t, captureBaselineCutoverEvidence)
 	}
 
 	// The unstamped baseline tree refuses first, and the refusal names the
@@ -1091,7 +1204,7 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if !cutoverPlanningProjectionsAbsent(t, path, "initiative_entries", "linear_outbox") {
 		t.Fatal("the retired planning projections must be absent after the migration")
 	}
-	assertPreserved(t)
+	assertPreserved(t, captureCurrentCutoverEvidence)
 
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	// The candidate operates the migrated store with no further migration.
@@ -1117,7 +1230,7 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if after := releaseMigrationSnapshot(t, path); after != upgradedSnapshot {
 		t.Fatal("the baseline core's floor refusal changed the migrated store")
 	}
-	assertPreserved(t)
+	assertPreserved(t, captureCurrentCutoverEvidence)
 }
 
 // stampAdapterRuntime copies one source tree's adapter runtime into a

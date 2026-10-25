@@ -663,10 +663,10 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 // cannot prove an executed control; valid fixtures use VerifyWorktree.
 func seedNativeRunForTest(t *testing.T, s *Store, workID, runID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref)
 		VALUES(?,?,'start','started',?,'authority/oracle-host','actor/oracle-host','native://run',?,'evidence://run',?,'2026-10-09T00:00:00Z','2026-10-09T00:00:00Z','trusted_client_report','{}','policy/oracle','policy/oracle');
-		DELETE FROM fold_guard`, workID, runID, "native-run-"+runID, "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)); err != nil {
+		DELETE FROM write_guard`, workID, runID, "native-run-"+runID, "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)); err != nil {
 		t.Fatalf("seed native run %s: %v", runID, err)
 	}
 }

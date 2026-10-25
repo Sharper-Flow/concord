@@ -25,7 +25,7 @@ func seedCheckpointFailedReviewCorrection(t *testing.T, workID string) (fixture 
 	failedID = "attempt:" + workID + ":failed-review"
 	failedEpoch = dispatchCheckpointReviewAttempt(t, fixture, workID, failedID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, failedID)
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id=?`, workID).Scan(&failedSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM work_items WHERE id=?`, workID).Scan(&failedSeq); err != nil {
 		t.Fatal(err)
 	}
 	reviewID = "attempt:" + workID + ":correction-review"
@@ -41,7 +41,7 @@ func workerAttemptPopulation(t *testing.T, s *Store, workID string) (attempts, d
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=?`, workID).Scan(&attempts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkerDispatched).Scan(&dispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkerDispatched).Scan(&dispatches); err != nil {
 		t.Fatal(err)
 	}
 	return attempts, dispatches
@@ -74,7 +74,7 @@ func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, wo
 		t.Fatalf("workflow contracts after the correction = %d, want the one approved contract", contracts)
 	}
 	var failures int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkerFailed).Scan(&failures); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkerFailed).Scan(&failures); err != nil {
 		t.Fatal(err)
 	}
 	if failures != 1 {
@@ -177,7 +177,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// never a reuse of the dispositioned review attempt.
 	pin := issue1013Pin(t, s, workID)
 	var repairEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, workID, WorkflowActionStarted).Scan(&repairEpoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, workID).Scan(&repairEpoch); err != nil {
 		t.Fatal(err)
 	}
 	fresh := "attempt:" + workID + ":fresh"
@@ -192,7 +192,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatalf("fresh fenced attempt after the checkpoint correction: %v", err)
 	}
 	var freshEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, fresh).Scan(&freshEpoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, fresh).Scan(&freshEpoch); err != nil {
 		t.Fatal(err)
 	}
 	if freshEpoch != repairEpoch+1 {

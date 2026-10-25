@@ -33,13 +33,13 @@ func deliveryGateFixture(t *testing.T) *Store {
 	if !workflowStepIsDeliveryGate(workflowStep(registered.Definition, "delivery")) {
 		t.Fatal("workflow.break_fix v13 has no delivery gate step named delivery")
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,?,'delivery','running')`, registered.Definition.Version, registered.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	return s

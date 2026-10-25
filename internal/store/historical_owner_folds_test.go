@@ -123,7 +123,7 @@ func TestLiveOccupancyReleaseEmitsVersionTwo(t *testing.T) {
 	}
 	insertWorktreeOccupantWithIdentity(t, s, "work-w", "ses-ended", pid, start-1)
 	seedWorktreeLifecycle(t, s)
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM worktree_occupancy WHERE session_ref='ses-claim'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_occupancy WHERE session_ref='ses-claim'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-release-version", ExpectedVersion: 4, Now: time.Unix(25, 0).UTC(), Runner: git}); err != nil {

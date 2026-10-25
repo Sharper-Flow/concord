@@ -124,7 +124,7 @@ func TestFenceCommitHookRollsBackAllWrites(t *testing.T) {
 	if err == nil {
 		t.Fatal("commit hook unexpectedly succeeded")
 	}
-	if got := countRows(t, s, "domain_events"); got != 0 {
+	if got := countRows(t, s, "effect_receipts"); got != 0 {
 		t.Fatalf("events after hook rollback = %d", got)
 	}
 	if got := countRows(t, s, "products"); got != 0 {

@@ -181,7 +181,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&beforeEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,7 +203,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&afterEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if afterVersion != beforeVersion || afterEvents != beforeEvents {

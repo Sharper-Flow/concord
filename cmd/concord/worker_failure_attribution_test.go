@@ -134,7 +134,7 @@ func attributionStoredFailureAttribution(t *testing.T, dbPath, attemptID string)
 	s := mustOpenStore(t, dbPath)
 	defer s.Close()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.failure_attribution') FROM domain_events WHERE subject_type='work_item' AND kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerFailed, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(a.terminal_payload,'$.failure_attribution') FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND r.kind=? AND a.attempt_id=?`, store.WorkerFailed, attemptID).Scan(&raw); err != nil {
 		t.Fatalf("read the stored failure attribution: %v", err)
 	}
 	var block store.WorkerFailureAttribution
@@ -469,7 +469,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	s := mustOpenStore(t, dbPath)
 	defer s.Close()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerDispatched, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.dispatch_payload FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.dispatch_event_id AND r.effect_seq=a.dispatch_seq WHERE r.subject_type='work_item' AND r.kind=? AND a.attempt_id=?`, store.WorkerDispatched, attemptID).Scan(&raw); err != nil {
 		t.Fatalf("read the born-failed dispatch: %v", err)
 	}
 	var payload store.WorkerDispatchedPayload

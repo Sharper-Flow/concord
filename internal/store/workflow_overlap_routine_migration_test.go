@@ -227,29 +227,29 @@ func assertUnchangedDump(t *testing.T, label string, before, after []string) {
 	}
 }
 
-// requireGuardRefusal holds one write to the fold-only resolution table that
-// runs without a fold guard: the guards themselves, not the caller, must
+// requireGuardRefusal holds one write to the write-seam-only resolution table that
+// runs without a write guard: the guards themselves, not the caller, must
 // refuse.
 func requireGuardRefusal(t *testing.T, err error, action string) {
 	t.Helper()
 	if err == nil {
-		t.Fatalf("%s without a fold guard was admitted; the workflow_overlap_resolutions fold guards no longer operate", action)
+		t.Fatalf("%s without a write guard was admitted; the workflow_overlap_resolutions write guards no longer operate", action)
 	}
-	if !strings.Contains(err.Error(), "workflow_overlap_resolutions is fold-only") {
-		t.Fatalf("%s without a fold guard failed with %v, want the fold-only refusal", action, err)
+	if !strings.Contains(err.Error(), "workflow_overlap_resolutions is write-seam-only") {
+		t.Fatalf("%s without a write guard failed with %v, want the write-seam-only refusal", action, err)
 	}
 }
 
 // requireSchemaRefusal holds one claim the rebuilt approval_ref CHECK must
-// refuse while the fold guard is armed, so the refusal names the schema and
+// refuse while the write guard is armed, so the refusal names the schema and
 // not the guard.
 func requireSchemaRefusal(t *testing.T, err error, action string) {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("%s was admitted; the rebuilt approval_ref check dropped the destructive authority requirement", action)
 	}
-	if strings.Contains(err.Error(), "workflow_overlap_resolutions is fold-only") {
-		t.Fatalf("%s was refused by the fold guard, want the approval_ref check refusal", action)
+	if strings.Contains(err.Error(), "workflow_overlap_resolutions is write-seam-only") {
+		t.Fatalf("%s was refused by the write guard, want the approval_ref check refusal", action)
 	}
 }
 
@@ -469,7 +469,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatalf("recorded target row = %s/%s/breaking=%d, want %s/%s/breaking=%d", recordedName, recordedChecksum, recordedBreaking, want.Name, want.checksum(), boolInt(want.Breaking))
 	}
 
-	// Without a fold guard the rebuilt table still refuses every direct
+	// Without a write guard the rebuilt table still refuses every direct
 	// write, proving the three guards survived the rebuild.
 	insertGuardProbe := func() error {
 		_, err := db.ExecContext(ctx, `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at,invalidated_seq) VALUES('probe-guard',?,?,?,?,?,?,'depends_on','probe without a fold guard','','2026-10-15T00:00:00Z',NULL)`,

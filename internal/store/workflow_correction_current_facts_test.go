@@ -24,7 +24,7 @@ func TestWorkflowCorrectionCurrentFactsWithoutLog(t *testing.T) {
 		}
 		return h.openRecord(""), nil
 	}
-	if err := f.s.db.QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id=?`, f.workID).Scan(&frontier); err != nil {
+	if err := f.s.db.QueryRow(`SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_id=?`, f.workID).Scan(&frontier); err != nil {
 		t.Fatal(err)
 	}
 	h, err := workflowCorrectionWalkWorkerSatisfaction(ctx, f.s.db, f.workID, frontier, "workflow_action")

@@ -208,7 +208,7 @@ func rawTerminalFrontier(t *testing.T, s *Store, eventID string) (int64, bool) {
 func dispatchCompletionFrontier(t *testing.T, s *Store, workID, attemptID string) (int64, bool) {
 	t.Helper()
 	var frontier sql.NullInt64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&frontier); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&frontier); err != nil {
 		t.Fatalf("read dispatch completion frontier: %v", err)
 	}
 	return frontier.Int64, frontier.Valid
@@ -426,7 +426,7 @@ func TestWorkerTerminalClaimStateDriftRefusesAppend(t *testing.T) {
 		t.Fatalf("claim state flip after the probe error = %v, want %s", err, KindProjectionConflict)
 	}
 	var terminals int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?) AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, WorkerFailed, attemptID).Scan(&terminals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND terminal_kind IN (?,?) AND attempt_id=?`, workID, WorkerCompleted, WorkerFailed, attemptID).Scan(&terminals); err != nil {
 		t.Fatal(err)
 	}
 	if terminals != 0 {

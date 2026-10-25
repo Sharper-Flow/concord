@@ -39,22 +39,22 @@ func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, ser
 	}
 	// The recorded narrative rides the packet's work_record member verbatim,
 	// so the fixture seeds it directly the way capture records it.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET narrative=? WHERE id='work-1';
-		DELETE FROM fold_guard`, strings.Repeat("n", 16384)); err != nil {
+		DELETE FROM write_guard`, strings.Repeat("n", 16384)); err != nil {
 		t.Fatalf("seed the recorded narrative: %v", err)
 	}
 	path := t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:verification","expected_result":"pass"}');
-		DELETE FROM fold_guard`, ownerRef); err != nil {
+		DELETE FROM write_guard`, ownerRef); err != nil {
 		t.Fatalf("seed combined-reject projections: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:combined-reject", "combined-reject", strings.Repeat("a", 40), path, "repo:combined-reject", fixedTime().Format(time.RFC3339Nano)); err != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:combined-reject", "combined-reject", strings.Repeat("a", 40), path, "repo:combined-reject", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("seed combined-reject worktree: %v", err)
 	}
 	grant.Worktree = path
@@ -145,7 +145,7 @@ func combinedRejectInput(version, epoch int64, diagnosis, strategy string) json.
 func latestDispatchEpoch(t *testing.T, s *store.Store) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow("SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1", store.WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch
@@ -155,7 +155,7 @@ func latestDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // the fixture's own seed dispatch does not account for.
 func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
-	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='`+string(store.WorkflowActionCompleted)+`' AND json_extract(payload,'$.action_id') IN ('reject_worker_result','dispatch_worker')`)
+	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id='work-1' AND r.kind='workflow.action_completed' AND (EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.event_id=r.event_id) OR EXISTS(SELECT 1 FROM worker_attempt_dispositions d WHERE d.event_id=r.event_id AND d.action_id='reject_worker_result'))`)
 }
 
 // TestCombinedRejectOversizedResultRefusesZeroWrite proves a legal oversized

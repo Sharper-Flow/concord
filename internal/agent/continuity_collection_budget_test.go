@@ -351,9 +351,8 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 
 // continuityReadyJobEvent records one dispatch-ready worker-job revision, so
 // the paging witness carries the ready set the unbounded scan returns
-// (CD-0205). The revision row and its job-recorded event land together
-// through the fold-guard direct-seeding route the envelope-budget fixtures
-// already use for fold-guarded state; the store's own ready predicate decides
+// (CD-0205). The revision row and its receipt land together through the
+// current-row fixture route; the store's own ready predicate decides
 // readiness at read time.
 func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
 	t.Helper()
@@ -381,16 +380,21 @@ func continuityReadyJobEvent(t *testing.T, s *store.Store, index int) {
 	unresolved, _ := json.Marshal([]string{})
 	readinessJSON, _ := json.Marshal(readiness)
 	eventPayload, _ := json.Marshal(recording)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload)
-		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z',?);
-		DELETE FROM fold_guard`,
-		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest, string(eventPayload)); err != nil {
+	tx, err := s.DatabaseForTesting().Begin()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload)
-		VALUES(?, 'worker.job_recorded', 'work_item', 'work-1', 'operator', '2026-08-08T12:00:00Z', 1, ?)`,
-		"liveness-job-"+jobID, string(eventPayload)); err != nil {
+	defer tx.Rollback()
+	eventID := "liveness-job-" + jobID
+	seq := agentSeedReceipt(t, tx, eventID, store.WorkerJobRecorded, "work-1", "operator", 1, eventPayload)
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
+		INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
+		VALUES('work-1',?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', '2026-08-08T12:00:00Z',?,?,?);
+		DELETE FROM write_guard`,
+		jobID, 1, contractVersion, objective, "the recorded checks pass", "", string(pathScope), string(predicates), string(checks), string(prerequisites), string(unresolved), "", string(readinessJSON), digest, string(eventPayload), seq, eventID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -127,7 +127,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1'`); err != nil {
@@ -142,7 +142,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`, store.WorktreeSetID("work-1"), "project-1", "claim:gate-recovery", "gate-recovery", strings.Repeat("a", 40), worktree, "repo:gate-recovery", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,7 +172,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	epochOf := func(actionID string) int64 {
 		t.Helper()
 		var epoch int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted, actionID).Scan(&epoch); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' AND json_extract(latest_start_payload,'$.action_id')=? ORDER BY latest_start_seq DESC LIMIT 1`, actionID).Scan(&epoch); err != nil {
 			t.Fatal(err)
 		}
 		return epoch
@@ -259,9 +259,9 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 
 	// Seed the contract-correction checkpoint for the successor's store-owned
 	// setup, then park its unchanged candidate at the delivery gate below.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed contract-correction checkpoint: %v", err)
 	}
 	runVerificationStoreAction(t, s, "supersede_contract", map[string]any{
@@ -280,9 +280,9 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	}
 
 	// Park the unchanged candidate with its now-inapplicable accepted Review.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='delivery' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed the parked gate position: %v", err)
 	}
 
@@ -304,7 +304,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	// delivery assertion is the only one, and the parked change never
 	// claimed one of its own.
 	var deliveries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r JOIN workflow_delivery_state d ON d.assertion_id=r.event_id WHERE r.subject_id='work-1' AND r.kind=? AND json_extract(d.payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
 		t.Fatal(err)
 	}
 	if deliveries != 1 {

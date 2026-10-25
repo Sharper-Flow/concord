@@ -68,12 +68,12 @@ func marshalManifestWithoutRegistry(t *testing.T, manifest KnowledgeManifest) []
 // Product-home designation.
 func authorizeSourceLocator(t *testing.T, s *Store, home KnowledgeHome) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
@@ -657,7 +657,7 @@ func TestWorkflowLawPinsDeriveAcrossSources(t *testing.T) {
 	s, source := seedFederatedProduct(t, "pin-product", home, source,
 		"SRC-LAW", ".concord/docs/decisions/CD-0917-pin-law.md", "Pin source law")
 	seedKnowledgeWork(t, s, "pin-review-work", "Pin review work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM fold_guard`, source.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM write_guard`, source.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	// The derivation runs the mandated-law boundary in its transaction, so

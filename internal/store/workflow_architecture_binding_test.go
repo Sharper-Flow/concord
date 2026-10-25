@@ -116,13 +116,13 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 			b.DomainRegistryContentHash = "sha256:" + strings.Repeat("c", 64)
 		}},
 		{name: "zero Product scope", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
-			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id LIKE 'architecture-validation-zero-Product-scope'; DELETE FROM fold_guard`)
+			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id LIKE 'architecture-validation-zero-Product-scope'; DELETE FROM write_guard`)
 		}},
 		// A secondary membership in another Product does not refuse: the
 		// primary Project's Product owns the contract, and the schema's
 		// one-primary index leaves no multi-primary ambiguity to simulate.
 		{name: "deprecated Domain", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
-			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='child'; DELETE FROM fold_guard`)
+			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='child'; DELETE FROM write_guard`)
 		}},
 		{name: "home outside affected", mutate: func(_ *Store, b *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
 			b.AffectedDomainIDs = []string{"root"}
@@ -388,7 +388,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	assertAbsentRelationAtomic := func(event Event, version int64, contracts int) {
 		t.Helper()
 		var eventsBefore int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
 			t.Fatal(err)
 		}
 		err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
@@ -400,7 +400,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsAfter); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&eventsAfter); err != nil {
 			t.Fatal(err)
 		}
 		if count != contracts || readWorkVersion(t, s, workID) != version || eventsBefore != eventsAfter {
@@ -480,7 +480,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if !continuity.ChangesProductTruth || continuity.ArchitectureBinding == nil || len(continuity.ArchitectureBinding.VerificationObligations) != 1 {
 		t.Fatalf("unexpected continuity: %+v", continuity)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_digest='sha256:`+strings.Repeat("c", 64)+`' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	current, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
@@ -549,10 +549,10 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	workID := "architecture-obligation-completion"
 	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
 		s := f.store
-		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 			INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid)
 			SELECT home_project_id,home_locator_id,law_id,'product','root',content_hash,'test' FROM law_subjects WHERE law_id='spec:one';
-			DELETE FROM fold_guard`); err != nil {
+			DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		var contractRaw []byte

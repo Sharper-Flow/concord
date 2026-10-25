@@ -40,7 +40,7 @@ func TestCreateManagedResourceAndAddConsumerAreEventBacked(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM managed_resources WHERE resource_id='resource-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind IN ('managed_resource.created','managed_resource.consumer_added')`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind IN ('managed_resource.created','managed_resource.consumer_added')`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if ownerCount != 1 || consumerCount != 1 || version != 2 || events != 2 {

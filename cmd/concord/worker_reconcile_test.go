@@ -60,7 +60,7 @@ func TestWorkerEvidenceExactReconciliation(t *testing.T) {
 			}
 			defer s.Close()
 			var count int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, request["event_id"]).Scan(&count); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, request["event_id"]).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			if count != 1 {
@@ -194,7 +194,7 @@ func TestWorkerEvidenceDurableReconciliationIgnoresPinnedReader(t *testing.T) {
 	}
 	defer tx.Rollback()
 	var count int
-	if err := tx.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := tx.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	request, assertion := workerEvidenceRequest(t, "worker-dispatch", lane, preferredLaneModel(lane), "nonce-busy-effect-first001")
@@ -237,9 +237,9 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO write_guard(active) VALUES(1)`,
 		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-1','attempt-1',?,?,?,'implementation','','1.0','1.0','in_flight','2026-01-01T00:00:00Z')`,
-		`DELETE FROM fold_guard`,
+		`DELETE FROM write_guard`,
 	} {
 		if _, err := seedTx.ExecContext(ctx, statement, lane.ID, lane.Version, lane.Digest); err != nil {
 			t.Fatalf("seed in-flight attempt: %v", err)
@@ -275,7 +275,7 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 		t.Fatalf("exact replay of the in-flight abandonment: exit=%d %s", code, diagnostic.String())
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND json_extract(a.terminal_payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

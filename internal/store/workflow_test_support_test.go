@@ -125,7 +125,7 @@ func workflowFixtureDigest(t *testing.T) string {
 // cancelled leaves the lifecycle-side decision gate in force.
 func seedTerminalInstanceForTesting(t *testing.T, s *Store, workID, state string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state=?,completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded'); DELETE FROM fold_guard`, state, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state=?,completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded'); DELETE FROM write_guard`, state, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -340,7 +340,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	// check happens before opening the mutation transaction and never treats a
 	// different event identity as a replay.
 	var existingKind string
-	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
+	err := s.db.QueryRowContext(ctx, `SELECT kind FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&existingKind)
 	if err == nil && existingKind == WorkflowCompleted {
 		replay, err := s.beginDurableTx(ctx)
 		if err != nil {

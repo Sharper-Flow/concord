@@ -155,7 +155,7 @@ func reviewGateRefusal(t *testing.T, j *candidateJourney, route deliveryEntryRou
 	version := readWorkVersion(t, j.s, j.workID)
 	deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
 	var before int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	err := route.exit(t, j.s, j.workID, attempt, epoch, j.fixture.owner, nil, false)
@@ -164,7 +164,7 @@ func reviewGateRefusal(t *testing.T, j *candidateJourney, route deliveryEntryRou
 		t.Fatalf("%s exit = %v, want %s naming %q", route.name, err, kind, detail)
 	}
 	var after int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before || readWorkVersion(t, j.s, j.workID) != version || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {

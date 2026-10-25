@@ -83,7 +83,7 @@ func remoteUpgradeFixtureForProject(t *testing.T, projectID string, locators ...
 	return s
 }
 
-func remoteUpgradeSnapshot(t *testing.T, s *Store) string {
+func remoteUpgradeSnapshot(t *testing.T, s *Store, guard string) string {
 	t.Helper()
 	var b strings.Builder
 	for _, table := range []string{"schema_migrations", "domain_events", "projects", "project_locators"} {
@@ -91,7 +91,7 @@ func remoteUpgradeSnapshot(t *testing.T, s *Store) string {
 		b.WriteString(cutoverTableSnapshot(t, s, table))
 	}
 	var active int
-	if err := s.db.QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&active); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM ` + guard).Scan(&active); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Fprint(&b, active)
@@ -146,12 +146,12 @@ func TestRemoteLocatorUpgradeRecordedCutover(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM project_locators WHERE kind='git_remote' AND normalization_version=2`).Scan(&marked); err != nil || marked != 2 {
 		t.Fatalf("marked=%d err=%v", marked, err)
 	}
-	snapshot := remoteUpgradeSnapshot(t, s)
+	snapshot := remoteUpgradeSnapshot(t, s, "write_guard")
 	for range 2 {
 		if err := Migrate(ctx, s.db); err != nil {
 			t.Fatal(err)
 		}
-		if got := remoteUpgradeSnapshot(t, s); got != snapshot {
+		if got := remoteUpgradeSnapshot(t, s, "write_guard"); got != snapshot {
 			t.Fatal("retry changed upgraded state or journal")
 		}
 	}
@@ -203,10 +203,10 @@ func TestRemoteLocatorUpgradeLastLocatorWritesNothing(t *testing.T) {
 				locators = append(locators, ProjectLocator{ID: fmt.Sprint(i), Kind: LocatorGitRemote, Value: raw})
 			}
 			s := remoteUpgradeFixture(t, locators...)
-			before := remoteUpgradeSnapshot(t, s)
+			before := remoteUpgradeSnapshot(t, s, "fold_guard")
 			err := Migrate(context.Background(), s.db)
 			assertFailureKind(t, err, KindProjectionConflict)
-			if !strings.Contains(err.Error(), "project-a") || remoteUpgradeSnapshot(t, s) != before {
+			if !strings.Contains(err.Error(), "project-a") || remoteUpgradeSnapshot(t, s, "fold_guard") != before {
 				t.Fatalf("last-locator refusal lost identity or wrote state: %v", err)
 			}
 		})
@@ -216,7 +216,7 @@ func TestRemoteLocatorUpgradeLastLocatorWritesNothing(t *testing.T) {
 func TestRemoteLocatorUpgradeSessionFence(t *testing.T) {
 	useStampedBuild(t)
 	s := remoteUpgradeFixture(t, ProjectLocator{ID: "https", Kind: LocatorGitRemote, Value: "https://host/o/r"})
-	before := remoteUpgradeSnapshot(t, s)
+	before := remoteUpgradeSnapshot(t, s, "fold_guard")
 	held := 0
 	for _, m := range migrations {
 		if m.Name == remoteLocatorUpgradeName {
@@ -225,7 +225,7 @@ func TestRemoteLocatorUpgradeSessionFence(t *testing.T) {
 	}
 	_, err := Upgrade(context.Background(), s.path, []HeldSchema{{PID: 1, SchemaVersion: held}})
 	assertFailureKind(t, err, KindUpgradeBlocked)
-	if before != remoteUpgradeSnapshot(t, s) {
+	if before != remoteUpgradeSnapshot(t, s, "fold_guard") {
 		t.Fatal("held older session refusal wrote state")
 	}
 }
@@ -283,7 +283,7 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			before := remoteUpgradeSnapshot(t, s)
+			before := remoteUpgradeSnapshot(t, s, "fold_guard")
 			err := Migrate(context.Background(), s.db)
 			if err == nil {
 				t.Fatal("unsafe upgrade succeeded")
@@ -293,7 +293,7 @@ func TestRemoteLocatorUpgradeRefusalsRollback(t *testing.T) {
 			if (mode == "credential" || mode == "invalid") && (!strings.Contains(err.Error(), "locator a") || !strings.Contains(err.Error(), "Project project-a")) {
 				t.Fatalf("refusal omits repair target: %v", err)
 			}
-			if remoteUpgradeSnapshot(t, s) != before {
+			if remoteUpgradeSnapshot(t, s, "fold_guard") != before {
 				t.Fatal("refused upgrade changed schema/journal/locators/versions")
 			}
 			if mode == "mid-append" {
@@ -373,7 +373,7 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 		ProjectLocator{ID: "https", Kind: LocatorGitRemote, Value: "https://host/o/r"},
 		ProjectLocator{ID: "file", Kind: LocatorGitRemote, Value: "file:///srv/o/r"},
 		ProjectLocator{ID: "path", Kind: LocatorCanonicalPath, Value: t.TempDir()})
-	before := remoteUpgradeSnapshot(t, s)
+	before := remoteUpgradeSnapshot(t, s, "fold_guard")
 	oldEvents := histEventRows(t, s)
 	oldSchema, err := readSchemaManifestVersion(ctx, s.db)
 	if err != nil {
@@ -418,7 +418,7 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 			t.Fatalf("wrong restored locator: %+v", l)
 		}
 	}
-	if before != remoteUpgradeSnapshot(t, s) {
+	if before != remoteUpgradeSnapshot(t, s, "fold_guard") {
 		t.Fatal("backup/staging verification changed the source")
 	}
 }
@@ -426,10 +426,10 @@ func TestRemoteLocatorUpgradeBackupStagePreservesSource(t *testing.T) {
 func TestRemoteLocatorUpgradeBackupLastLocatorRefusal(t *testing.T) {
 	useStampedBuild(t)
 	s := remoteUpgradeFixture(t, ProjectLocator{ID: "file", Kind: LocatorGitRemote, Value: "file:///srv/o/r"})
-	before := remoteUpgradeSnapshot(t, s)
+	before := remoteUpgradeSnapshot(t, s, "fold_guard")
 	_, err := BackupDatabase(context.Background(), s.path, filepath.Join(t.TempDir(), "snapshot.db"))
 	assertFailureKind(t, err, KindProjectionConflict)
-	if before != remoteUpgradeSnapshot(t, s) {
+	if before != remoteUpgradeSnapshot(t, s, "fold_guard") {
 		t.Fatal("staging last-locator refusal changed the source")
 	}
 }

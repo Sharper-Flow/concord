@@ -143,7 +143,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
 	seedWork(t, s, otherWorkID)
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET decision_domains='["product"]' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +179,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	seedWorkflowLaw(t, bare)
 	seedIssue31DomainRegistry(t, bare)
 	seedWithheldQuestionWorkflow(t, bare, workID)
-	if _, err := bare.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := bare.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	contractless, err := ReadWorkPin(ctx, bare, workID)
@@ -227,12 +227,12 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) Workflo
 	}
 	db := s.DatabaseForTesting()
 	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
-	// These projections are fold-only. The guard row admits the direct seed.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	// These projections are write-seam-only. The guard row admits the direct seed.
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}()

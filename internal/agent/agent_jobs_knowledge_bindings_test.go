@@ -349,13 +349,13 @@ func TestKnowledgeResolveNoteRefusesANewerProjectionWatermark(t *testing.T) {
 		t.Fatalf("read knowledge watermark: %v", err)
 	}
 	// The watermark table admits fixture writes only under the fold guard.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE knowledge_index_watermark SET projection_version = ? WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, versionBefore+1, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")

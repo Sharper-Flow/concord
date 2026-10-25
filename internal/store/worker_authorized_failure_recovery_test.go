@@ -17,7 +17,7 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 	s := openTemp(t)
 	t.Cleanup(func() { _ = s.Close() })
 	seed := seedDispatchFixture(t, s, workID)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=?,definition_version=?,definition_digest=? WHERE work_id=?; DELETE FROM fold_guard`, entry.Definition.Ref, entry.Definition.Version, entry.Digest, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET definition_ref=?,definition_version=?,definition_digest=? WHERE work_id=?; DELETE FROM write_guard`, entry.Definition.Ref, entry.Definition.Version, entry.Digest, workID); err != nil {
 		t.Fatalf("pin test definition: %v", err)
 	}
 	attemptID := "attempt:" + workID
@@ -74,10 +74,10 @@ func TestAuthorizedWorkerFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	const workID = "authorized-failure-recovery"
 	s, _, attemptID := seedAuthorizedFailedWorker(t, workID)
 	var dispatches, dispositions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkerDispatched).Scan(&dispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkerDispatched).Scan(&dispatches); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, workID, WorkflowActionCompleted).Scan(&dispositions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure'`, workID).Scan(&dispositions); err != nil {
 		t.Fatal(err)
 	}
 	if dispatches != 0 || dispositions != 1 {
@@ -115,7 +115,7 @@ func TestTerminalAuthorizationRecoveryIdentityIsReadOnly(t *testing.T) {
 		t.Fatal("reading the retry binding changed work state")
 	}
 	var dispositions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, workID, WorkflowActionCompleted).Scan(&dispositions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure'`, workID).Scan(&dispositions); err != nil {
 		t.Fatal(err)
 	}
 	if dispositions != 1 {
@@ -144,7 +144,7 @@ func TestAuthorizedWorkerFailureRecoveryRejectsWrongEpoch(t *testing.T) {
 	const workID = "authorized-failure-wrong-epoch"
 	s, owner, attemptID := seedAuthorizedFailedWorker(t, workID)
 	var derivedEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&derivedEpoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=?`, workID, attemptID).Scan(&derivedEpoch); err != nil {
 		t.Fatal(err)
 	}
 	if derivedEpoch != 1 {
@@ -197,7 +197,7 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	// window's own epoch (CD-0198 D5, CD-0193 D1); a second, caller-authored
 	// record of the same attempt refuses.
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.attempt_epoch')=?`, workID, WorkflowActionCompleted, attemptID, epoch).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=? AND json_extract(payload,'$.attempt_epoch')=?`, workID, attemptID, epoch).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 1 {
@@ -208,7 +208,7 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 		t.Fatalf("second checkpoint failure disposition error=%v, want illegal_lifecycle_transition", err)
 	}
 	var dispatches int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, attemptID).Scan(&dispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, workID, attemptID).Scan(&dispatches); err != nil {
 		t.Fatal(err)
 	}
 	if dispatches != 0 || currentStep(t, s, workID) != "verify" {
@@ -237,7 +237,7 @@ func TestAuthorizedFailedRetryDoesNotMaskRegistryStaleness(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=?`, workID, attemptID).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 1 {
@@ -297,7 +297,7 @@ func TestAuthorizedAttemptCannotBeAcceptedWithoutDispatchEvidence(t *testing.T) 
 	const workID = "authorized-failure-no-success-evidence"
 	s, owner, attemptID := seedAuthorizedFailedWorker(t, workID)
 	// Corroborate against the event log even if a projection claims success.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lifecycle_state='completed',readback_model='model/synthetic',completed_at='2026-01-01T00:00:00Z',failed_at=NULL,failure_kind='',failure_detail='' WHERE attempt_id=?; DELETE FROM fold_guard`, attemptID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET lifecycle_state='completed',readback_model='model/synthetic',completed_at='2026-01-01T00:00:00Z',failed_at=NULL,failure_kind='',failure_detail='' WHERE attempt_id=?; DELETE FROM write_guard`, attemptID); err != nil {
 		t.Fatal(err)
 	}
 	ownerRef, err := WorkflowActorRef(owner)

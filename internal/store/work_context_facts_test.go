@@ -99,9 +99,7 @@ func TestWorkContextFactsReferenceAdmissionLogBlind(t *testing.T) {
 	f := seedWorkContextFixture(t, "context-facts-refs")
 	seq := seedContextFactTerminal(t, f, WorkerFailed, map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
 	valid := fmt.Sprintf("finding:%d:0", seq)
-	if _, err := f.store.db.Exec(`ALTER TABLE domain_events RENAME TO retired_context_log`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.store)
 	tx, err := f.store.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +144,7 @@ func TestWorkContextFactsGuardAndRollback(t *testing.T) {
 func TestWorkContextFactsCorruptionIsNotRetryable(t *testing.T) {
 	f := seedWorkContextFixture(t, "context-facts-corruption")
 	seq := seedContextFactTerminal(t, f, WorkerFailed, map[string]any{"context_findings": []WorkerContextFinding{contextFindingFixture()}})
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard VALUES(1); UPDATE work_context_findings SET finding='{"statement":12}' WHERE source_seq=?; DELETE FROM fold_guard`, seq); err != nil {
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_context_findings SET finding='{"statement":12}' WHERE source_seq=?; DELETE FROM write_guard`, seq); err != nil {
 		t.Fatal(err)
 	}
 	_, err := readWorkContextView(t.Context(), f.store.db, f.workID)

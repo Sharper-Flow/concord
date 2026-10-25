@@ -14,10 +14,10 @@ func TestWorkflowHealthyFrontierFollowsCurrentVerdictSet(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1 AND ordinal=0`, work).Scan(&primary); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
  SELECT work_id,contract_version,'predicate:second',1,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1 AND ordinal=0;
-DELETE FROM fold_guard`, work); err != nil {
+DELETE FROM write_guard`, work); err != nil {
 		t.Fatal(err)
 	}
 	var healthy int64
@@ -43,7 +43,7 @@ DELETE FROM fold_guard`, work); err != nil {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,1,?,?,'actor:test',?)
 ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,payload=excluded.payload`, work, verdict.PredicateID, seq, string(raw)); err != nil {
 			tx.Rollback()
@@ -53,7 +53,7 @@ ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=exc
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -154,7 +154,7 @@ func TestWorkflowHealthyFrontierContractChangeRecomputesCurrentSet(t *testing.T)
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE workflow_predicate_verdicts SET payload=json_set(payload,'$.incomparable_with_approved',json('true')) WHERE work_id=?`, work); err != nil {
 		t.Fatal(err)
 	}

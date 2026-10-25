@@ -432,7 +432,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	countEvents := func() int {
 		t.Helper()
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -462,9 +462,9 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	// correction event.
 	live := valid
 	live.EventID = "correction-" + workID + "-live"
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET instance_state='running' WHERE work_id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, live), KindInvalidOperation, "only to a completed workflow instance")
@@ -490,7 +490,7 @@ func TestTerminalDeliveryCorrectionRefusalNamesReferenceByteBound(t *testing.T) 
 func countWorkflowSubjectEvents(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -568,7 +568,7 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatal("the original assertion event payload was rewritten")
 	}
 	var eventCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&eventCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 	if eventCount != 1 {

@@ -54,7 +54,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worker_job_revisions SET state='satisfied' WHERE work_id=? AND job_id=?`, workID, jobID); err != nil {
@@ -65,7 +65,7 @@ func TestChecksRepairDispatchPropagatesUnreadableAuthorization(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) VALUES(?,?,1,?)`, workID, "attempt:unreadable", `{"action_id":"dispatch_worker","worker_attempt_id":"attempt:unreadable","checks_repair_review":{"worker_job":{}}}`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	err = verifyWorkerDispatchedJobBindingTx(ctx, tx, Event{SubjectID: workID}, "attempt:unreadable", binding)
@@ -371,7 +371,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 		return err
 	}
 	var packetDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
 	dispatch := Event{EventID: "checks-repair-review-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
@@ -391,7 +391,7 @@ func dispatchConfirmingReview(t *testing.T, s *Store, workID, attemptID string, 
 func assertChecksRepairReviewMarker(t *testing.T, s *Store, workID, attemptID string, binding WorkerJobBinding) {
 	t.Helper()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var payload map[string]json.RawMessage
@@ -427,7 +427,7 @@ func assertChecksRepairReviewMarker(t *testing.T, s *Store, workID, attemptID st
 func checksRepairRecordedEvent(t *testing.T, s *Store, workID, jobID string, revision int64) map[string]json.RawMessage {
 	t.Helper()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded, jobID, revision).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, jobID, revision).Scan(&raw); err != nil {
 		t.Fatalf("read the recorded worker.job_recorded event for %s@%d: %v", jobID, revision, err)
 	}
 	var payload map[string]json.RawMessage

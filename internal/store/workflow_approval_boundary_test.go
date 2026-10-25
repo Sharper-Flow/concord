@@ -401,7 +401,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		foldGuardRows := func(t *testing.T, s *Store) int {
 			t.Helper()
 			var rows int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&rows); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM write_guard`).Scan(&rows); err != nil {
 				t.Fatal(err)
 			}
 			return rows
@@ -436,7 +436,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 				t.Fatalf("%s refusal moved the probe item", name)
 			}
 			if rows := foldGuardRows(t, s); rows != 0 {
-				t.Fatalf("%s refusal left %d fold_guard rows", name, rows)
+				t.Fatalf("%s refusal left %d write_guard rows", name, rows)
 			}
 		}
 		expectPinRefusal("missing (builtin)", initialize(t, s, probe, registered, nil))
@@ -457,7 +457,7 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("probe pin = %s v%d %s, want the verified registered entry", probeRef, probeDefinitionVersion, probeDigest)
 		}
 		if rows := foldGuardRows(t, s); rows != 0 {
-			t.Fatalf("caller-registry initialization left %d fold_guard rows", rows)
+			t.Fatalf("caller-registry initialization left %d write_guard rows", rows)
 		}
 
 		higherRegistered, err := registry.Register(higher)

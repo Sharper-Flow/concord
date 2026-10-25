@@ -200,7 +200,7 @@ func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('missing-from','missing-to','blocks','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('missing-from','missing-to','blocks','2026-01-01T00:00:00Z'); DELETE FROM write_guard`); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}

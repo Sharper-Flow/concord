@@ -167,7 +167,7 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&associations); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&associations); err != nil {
 		t.Fatal(err)
 	}
 	if contracts != 1 || associations != 1 {

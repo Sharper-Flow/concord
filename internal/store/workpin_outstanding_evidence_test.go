@@ -173,13 +173,13 @@ func TestWorkPinOutstandingEvidenceKindsUseCallerTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET required_evidence='["commit"]' WHERE work_id=? AND superseded_by IS NULL`, f.workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	uncommitted, err := ReadWorkPinTx(ctx, tx, f.workID)

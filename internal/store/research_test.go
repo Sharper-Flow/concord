@@ -229,7 +229,7 @@ func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
 func linkArchivedResearchOwner(t *testing.T, s *Store, id string) {
 	t.Helper()
 	anchorHomePair(t, s, "home", "locator")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM fold_guard`, id, id); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM write_guard`, id, id); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -593,7 +593,7 @@ func TestRetirementDeleteGuardRefusesMissingOwner(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
 		t.Fatal("guard admitted a delete whose owner work is non-terminal")
 	}
-	synthExecPath(t, path, `DELETE FROM work_items WHERE id='owner'`)
+	synthExecPath(t, path, "fold_guard", `DELETE FROM work_items WHERE id='owner'`)
 	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
 		t.Fatal("guard admitted a delete whose owner work row is missing")
 	}
@@ -695,7 +695,7 @@ func TestPublishCompactionLinkRetainsResearchWithRequiredConsumer(t *testing.T) 
 		t.Fatal("compaction did not record the archive")
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -812,7 +812,7 @@ func TestCompactionRetryAfterCrashWindowRetainsResearch(t *testing.T) {
 		t.Fatalf("idempotent compaction retry refused: %v", err)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

@@ -29,7 +29,7 @@ func TestDerivedSourceLawResolvesForLawModifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedKnowledgeWork(t, s, "derived-modify-work", "Derived source work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='derived-modify-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='derived-modify-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	for _, reference := range []string{"SRC-LAW", source.HomeProjectID + "/SRC-LAW"} {
@@ -93,7 +93,7 @@ func TestSourceSetProofSeparatesVerifiedHeadFromScannedRevision(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "proof-code-only")
 	seedKnowledgeWork(t, s, "proof-code-only-work", "Code-only work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-code-only-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-code-only-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	writeKnowledgeFile(t, source.RepoPath, "main.go", "package main\n")

@@ -1535,7 +1535,7 @@ func factWriteOperatorSelection(t *testing.T, s *Store, registry DefinitionRegis
 
 // assertFactWriteInitialNoEffect holds the refusal invariant for an initial
 // decision-fact write: no contract row, no event movement, no version
-// advance, and no stranded fold guard.
+// advance, and no stranded write guard.
 func assertFactWriteInitialNoEffect(t *testing.T, s *Store, workID string, baselineVersion int64, baselineEvents int) {
 	t.Helper()
 	if version := readWorkVersion(t, s, workID); version != baselineVersion {
@@ -1554,7 +1554,7 @@ func assertFactWriteInitialNoEffect(t *testing.T, s *Store, workID string, basel
 // complete successor write over a confirmed engineering predecessor: the
 // active predecessor keeps its fact and its open supersession slot, the work
 // version and its event rows did not move, the live confirmation row stands,
-// and no consent challenge, approval-kind evidence, or fold guard row exists.
+// and no consent challenge, approval-kind evidence, or write guard row exists.
 func assertFactWritePredecessorPreserved(t *testing.T, s *Store, workID string, baselineVersion int64, baselineEvents int, confirmedBy string) {
 	t.Helper()
 	if version := readWorkVersion(t, s, workID); version != baselineVersion {

@@ -116,7 +116,7 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			// Merely owning the fold guard grants no reconciliation authority.
+			// Merely owning the write guard grants no reconciliation authority.
 			if err := updateWorkLifecycle(context.Background(), tx.tx, event, target, version, version+1, scope); err != nil {
 				return err
 			}
@@ -298,10 +298,10 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	// Reconciliation must protect outstanding execution even when a hold
 	// already exists in the current rows.
 	hold := outsideRepairTestRequest(t, s, seed.workID, "hold")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 		VALUES(?,?,'active','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
-		DELETE FROM fold_guard`, seed.workID, hold.ApprovalRef); err != nil {
+		DELETE FROM write_guard`, seed.workID, hold.ApprovalRef); err != nil {
 		t.Fatal(err)
 	}
 	req := outsideRepairTestRequest(t, s, seed.workID, "reconcile")

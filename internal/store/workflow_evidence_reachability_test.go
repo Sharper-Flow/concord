@@ -143,7 +143,7 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var approvals int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&approvals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&approvals); err != nil {
 		t.Fatal(err)
 	}
 	var versionAfter int64

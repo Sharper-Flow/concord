@@ -38,9 +38,7 @@ func TestProjectHandoffNewestSelectionsReadCurrentRows(t *testing.T) {
 	f := setupProjectHandoffFixture(t)
 	ctx := context.Background()
 	_, newer := recordOrderedHandoffPair(t, f)
-	if _, err := f.store.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, f.store)
 	if err := f.store.Transact(ctx, func(transaction *Transaction) error {
 		tx, err := transactionSQL(transaction, "project_handoff_test")
 		if err != nil {
@@ -84,7 +82,7 @@ func TestProjectHandoffAdmissionAndConsumeReadCurrentRows(t *testing.T) {
 			if state == "stale-newer" {
 				seedReplacementProjectHandoffContract(t, f.store, f.workID, readWorkVersion(t, f.store, f.workID))
 			}
-			hideDomainEvents(t, f.store)
+			assertEventLogAbsent(t, f.store)
 			if err := inRelocationTx(t, f.store, func(_ *Transaction, tx *sql.Tx) error {
 				err := RefuseUnconsumedProjectHandoffTx(t.Context(), tx, f.workID, f.targetSession)
 				if state == "consumed-newer" {
@@ -188,9 +186,7 @@ func TestProjectHandoffRetirementSelectionsReadCurrentRows(t *testing.T) {
 			} else if !want.recorded || want.handoffID != newer {
 				t.Fatalf("active facts=%+v, want the later-recorded %s", want, newer)
 			}
-			if _, err := f.store.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-				t.Fatal(err)
-			}
+			assertEventLogAbsent(t, f.store)
 			got, err := read()
 			if err != nil {
 				t.Fatal(err)

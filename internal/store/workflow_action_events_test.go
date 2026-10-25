@@ -60,7 +60,7 @@ func TestGenericApplyOperationRejectsEveryReservedWorkflowEvent(t *testing.T) {
 		}
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'workflow.%'`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind LIKE 'workflow.%'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -103,7 +103,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	if version != 14 {
 		t.Fatalf("bind_evidence resulting version=%d, want 14", version)
 	}
-	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id=? AND (kind=? OR kind=? OR kind=?) ORDER BY seq`, "workflow-issue31-actions", WorkflowContractApproved, WorkflowEvidenceBound, WorkflowActionCompleted)
+	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM effect_receipts WHERE subject_id=? AND (kind=? OR kind=? OR kind=?) ORDER BY effect_seq`, "workflow-issue31-actions", WorkflowContractApproved, WorkflowEvidenceBound, WorkflowActionCompleted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func assertIssue31VersionAndNoVerdict(t *testing.T, s *Store, workID string, wan
 		t.Fatal(err)
 	}
 	var verdicts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 		t.Fatal(err)
 	}
 	if version != want || verdicts != 0 {
@@ -354,7 +354,7 @@ func assertIssue31VersionAndVerdict(t *testing.T, s *Store, workID string, want 
 		t.Fatal(err)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if version != want || events != 1 {

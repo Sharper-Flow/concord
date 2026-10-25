@@ -24,8 +24,8 @@ func seedSnapshotForeignKeyCorruption(t *testing.T, path string) []string {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`PRAGMA foreign_keys=OFF; INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missing-project','primary'); DELETE FROM fold_guard;`); err != nil {
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF; INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missing-project','primary'); DELETE FROM write_guard;`); err != nil {
 		t.Fatal(err)
 	}
 	for _, check := range []string{"integrity_check", "quick_check"} {

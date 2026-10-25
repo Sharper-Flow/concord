@@ -54,7 +54,7 @@ func attributionWorkerObservation() *WorkerFailureObservation {
 func attributionStoredFailurePayload(t *testing.T, s *Store, workID, eventID string) WorkerFailedPayload {
 	t.Helper()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND event_id=?`, workID, WorkerFailed, eventID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND terminal_event_id=?`, workID, WorkerFailed, eventID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var payload WorkerFailedPayload
@@ -69,7 +69,7 @@ func attributionStoredFailurePayload(t *testing.T, s *Store, workID, eventID str
 func attributionStoredDispatchPayload(t *testing.T, s *Store, workID, attemptID string) WorkerDispatchedPayload {
 	t.Helper()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkerDispatched, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var payload WorkerDispatchedPayload
@@ -266,7 +266,7 @@ func TestWorkerFailureAttributionForgedAndSmuggledRefuse(t *testing.T) {
 		t.Fatal("the seam admitted a producer-authored core identity")
 	}
 	var refused int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id IN ('failed-attribution-legacy','failed-attribution-authored')`).Scan(&refused); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id IN ('failed-attribution-legacy','failed-attribution-authored')`).Scan(&refused); err != nil {
 		t.Fatal(err)
 	}
 	if refused != 0 {
@@ -607,7 +607,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorrection(t *testing.T) 
 		t.Fatalf("the rejection completion with the derived block refused: %v", err)
 	}
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' ORDER BY seq DESC LIMIT 1`, workID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var completion workflowActionCompletedPayload
@@ -632,7 +632,7 @@ func verifyStoredCorrectionAttribution(t *testing.T, s *Store, workID, actionID 
 	t.Helper()
 	var seq int64
 	var attempt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,COALESCE(json_extract(payload,'$.worker_attempt_id'),'') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, actionID).Scan(&seq, &attempt); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,attempt_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id=? ORDER BY seq DESC LIMIT 1`, workID, actionID).Scan(&seq, &attempt); err != nil {
 		t.Fatal(err)
 	}
 	return verifyCoordinatorFailureAttributionTx(context.Background(), s.DatabaseForTesting(), workID, actionID, attempt, block, seq)
@@ -757,7 +757,7 @@ func TestWorkerFailureAttributionCoordinatorIntegrationCorruptPopulationRefuses(
 		t.Fatal("the live fold admitted an integration population the cited run's watermark excludes")
 	}
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id='attribution-corrupt-rejection'`).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id='attribution-corrupt-rejection'`).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 0 {
@@ -805,12 +805,12 @@ func TestWorkerFailureAttributionCoordinatorResultReview(t *testing.T) {
 		t.Fatalf("the completed ingest refused: %v", err)
 	}
 	var completedEvent string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? AND json_extract(payload,'$.observed_delivery') IS NOT NULL`, workID, WorkerCompleted, attempt).Scan(&completedEvent); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_event_id FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND attempt_id=? AND json_extract(terminal_payload,'$.observed_delivery') IS NOT NULL`, workID, WorkerCompleted, attempt).Scan(&completedEvent); err != nil {
 		t.Fatalf("the completed attempt recorded no observed delivery subject: %v", err)
 	}
 
 	var completedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, completedEvent).Scan(&completedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, completedEvent).Scan(&completedPayload); err != nil {
 		t.Fatal(err)
 	}
 	observation := &WorkerFailureObservation{
@@ -932,7 +932,7 @@ func TestDerivedWorkerFailureAttributionReference(t *testing.T) {
 	assertDerivedReference(t, s, workID, attempt, "failed-attribution-ref")
 	var eventID, raw string
 	var seq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload,seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&eventID, &raw, &seq); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload,seq FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=?`, workID, attempt).Scan(&eventID, &raw, &seq); err != nil {
 		t.Fatal(err)
 	}
 	var completion workflowActionCompletedPayload
@@ -957,7 +957,7 @@ func TestDerivedWorkerFailureAttributionReference(t *testing.T) {
 func assertDerivedReference(t *testing.T, s *Store, workID, attempt, terminalEventID string) {
 	t.Helper()
 	var ref string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.failure_attribution_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&ref); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.failure_attribution_ref') FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=?`, workID, attempt).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
 	if ref != terminalEventID {
@@ -1000,9 +1000,9 @@ func TestWorkerFailureAttributionReaderResolvesSourceVersion(t *testing.T) {
 	}
 	// The current definition requires the block live. Model the current fact
 	// backfilled from a pre-attribution terminal without changing live admission.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE worker_attempts SET terminal_payload_version=1,terminal_payload=json_remove(terminal_payload,'$.failure_attribution') WHERE terminal_event_id='failed-attribution-reader-2';
-DELETE FROM fold_guard;`); err != nil {
+DELETE FROM write_guard;`); err != nil {
 		t.Fatal(err)
 	}
 	legacyRecord, err := WorkerFailureAttributionForAttemptTx(context.Background(), s.DatabaseForTesting(), workID, legacy)
@@ -1047,7 +1047,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 		t.Fatalf("the earlier completion refused: %v", err)
 	}
 	var earlierPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, earlierCompleted).Scan(&earlierPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, earlierCompleted).Scan(&earlierPayload); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1073,7 +1073,7 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 		t.Fatalf("the completed ingest refused: %v", err)
 	}
 	var completedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, completedEvent).Scan(&completedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, completedEvent).Scan(&completedPayload); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1156,10 +1156,10 @@ func TestWorkerFailureAttributionResultReviewSourceJoins(t *testing.T) {
 	}
 	var laterPayload string
 	var rejectionSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, laterCompleted).Scan(&laterPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, laterCompleted).Scan(&laterPayload); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE event_id=?`, rejection.EventID).Scan(&rejectionSeq); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, rejection.EventID).Scan(&rejectionSeq); err != nil {
 		t.Fatal(err)
 	}
 	source := WorkerFailureSource{Kind: WorkerFailureSourceResult, Locator: laterCompleted, Digest: sha256PayloadDigestForTest(laterPayload)}

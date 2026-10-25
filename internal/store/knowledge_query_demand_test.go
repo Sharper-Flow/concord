@@ -60,7 +60,7 @@ func demandFederatedFixture(t *testing.T) (*Store, KnowledgeHome, KnowledgeHome)
 	source := KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "d-srcl", RepoPath: sourceRepo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "d-product", home)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('d-src','Source',1,'now','now')`); err != nil {
@@ -75,7 +75,7 @@ func demandFederatedFixture(t *testing.T) (*Store, KnowledgeHome, KnowledgeHome)
 	if _, err := db.Exec(`INSERT INTO product_projects(product_id,project_id,role) VALUES('d-product','d-src','secondary')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {

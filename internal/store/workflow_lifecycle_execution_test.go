@@ -176,7 +176,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		t.Fatalf("fold kept %q, want the first start in log order %q", folded, want)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1); UPDATE workflow_instances SET execution_started_at=NULL WHERE work_id=?; DELETE FROM fold_guard;`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO write_guard(active) VALUES (1); UPDATE workflow_instances SET execution_started_at=NULL WHERE work_id=?; DELETE FROM write_guard;`, workID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(migration107Backfill(t)); err != nil {

@@ -194,9 +194,7 @@ func assertWorkerFactsLogBlind(t *testing.T, s *Store, checks map[string]func() 
 		}
 		want[name] = value
 	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	for name, read := range checks {
 		t.Run(name, func(t *testing.T) {
 			got, err := read()

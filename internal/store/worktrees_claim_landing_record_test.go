@@ -9,6 +9,30 @@ import (
 	"time"
 )
 
+func assertClaimLandingReceipt(t *testing.T, s *Store, eventID string, want sessionClaimLandedPayload) {
+	t.Helper()
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDigest, err := effectPayloadDigest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var digest, actor string
+	var version int
+	if err := s.db.QueryRow(`SELECT payload_digest,actor,payload_version FROM effect_receipts WHERE event_id=? AND kind='work.session_claim_landed' AND subject_type='work_item' AND subject_id=?`, eventID, want.WorkID).Scan(&digest, &actor, &version); err != nil {
+		t.Fatal(err)
+	}
+	if digest != wantDigest || actor != want.SessionRef || version != 2 {
+		t.Fatalf("landing receipt digest/actor/version = (%s,%s,%d), want (%s,%s,2)", digest, actor, version, wantDigest, want.SessionRef)
+	}
+	var landed bool
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?)`, want.WorkID, want.SessionRef, want.ProjectID, want.ClaimOpID).Scan(&landed); err != nil || !landed {
+		t.Fatalf("claim landing = %v, err = %v, want the exact claim generation", landed, err)
+	}
+}
+
 // The landing record transfers the session's occupancy inside one
 // transaction: the destination row must be active and occupied by this
 // session — or record no occupant, the shape a resumed session lands in — the
@@ -57,38 +81,22 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	}
 
 	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
 		t.Fatalf("landing event count=%d, want exactly one", count)
 	}
-	var payload []byte
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE kind='work.session_claim_landed'`).Scan(&payload); err != nil {
-		t.Fatal(err)
-	}
-	var recorded struct {
-		WorkID            string   `json:"work_id"`
-		ProjectID         string   `json:"project_id"`
-		SessionRef        string   `json:"session_ref"`
-		SourceDirectories []string `json:"source_directories"`
-		LandedDirectory   string   `json:"landed_directory"`
-	}
-	if err := json.Unmarshal(payload, &recorded); err != nil {
-		t.Fatal(err)
-	}
-	if recorded.WorkID != "work-w" || recorded.ProjectID != "project-b" || recorded.SessionRef != "ses-1" || recorded.LandedDirectory != claimedB.Entry.Path {
-		t.Fatalf("recorded landing=%+v, want the session, work item, and landed path named", recorded)
-	}
-	if !slices.Equal(recorded.SourceDirectories, []string{claimedA.Entry.Path}) {
-		t.Fatalf("recorded sources=%v, want %v", recorded.SourceDirectories, []string{claimedA.Entry.Path})
-	}
+	assertClaimLandingReceipt(t, s, "work-w:session-claim-landed:ses-1:1", sessionClaimLandedPayload{
+		WorkID: "work-w", ProjectID: "project-b", ClaimOpID: claimedB.Entry.ClaimOpID, SessionRef: "ses-1",
+		SourceDirectories: []string{claimedA.Entry.Path}, LandedDirectory: claimedB.Entry.Path, HostPID: 1, HostPIDStart: landing.HostPIDStart,
+	})
 
 	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -123,11 +131,11 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	// landing into the worktree the inserted ses-9 row holds adds its own
 	// row, and ses-9's row stays until its own release rule consumes it.
 	if _, err := s.db.Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses-9', '1970-01-01T00:00:00Z', NULL, NULL, 0
 		  FROM worktree_entries WHERE set_id=? AND project_id='project-b' AND state='active';
-		DELETE FROM fold_guard`, WorktreeSetID("work-w")); err != nil {
+		DELETE FROM write_guard`, WorktreeSetID("work-w")); err != nil {
 		t.Fatal(err)
 	}
 	secondLanding, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-2", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
@@ -141,7 +149,7 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	if rows != 2 {
 		t.Fatalf("occupancy rows after the second session's landing=%d, want ses-2 and ses-9 both recorded", rows)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 3 {
@@ -229,7 +237,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Fatalf("destination entry=%+v, want ses-1 to hold the re-claimed worktree", byProject["project-b"])
 	}
 	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -240,7 +248,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {

@@ -15,7 +15,7 @@ import (
 func sequenceWitnessEventCount(t *testing.T, s *Store, workID string) int64 {
 	t.Helper()
 	var count int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

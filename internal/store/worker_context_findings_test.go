@@ -235,13 +235,13 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 		}
 	}
 	var storedFindings string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.context_findings') FROM domain_events WHERE event_id=?`, "complete-findings").Scan(&storedFindings); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(terminal_payload,'$.context_findings') FROM worker_attempts WHERE terminal_event_id=?`, "complete-findings").Scan(&storedFindings); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(storedFindings, "the bounded read is the only admission route") {
 		t.Fatalf("stored completion findings missing: %s", storedFindings)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.context_findings') FROM domain_events WHERE event_id=?`, "failed-findings").Scan(&storedFindings); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(terminal_payload,'$.context_findings') FROM worker_attempts WHERE terminal_event_id=?`, "failed-findings").Scan(&storedFindings); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(storedFindings, "internal/store/fold.go") {
@@ -358,10 +358,10 @@ func TestWorkerTerminalContextFindingsRetentionAndVersionBoundary(t *testing.T) 
 			t.Fatal(err)
 		}
 		var storedCompletion, storedFailure string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-complete-findings'`).Scan(&storedCompletion); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id='rebuild-complete-findings'`).Scan(&storedCompletion); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='rebuild-failed-findings'`).Scan(&storedFailure); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id='rebuild-failed-findings'`).Scan(&storedFailure); err != nil {
 			t.Fatal(err)
 		}
 		for _, raw := range []string{storedCompletion, storedFailure} {

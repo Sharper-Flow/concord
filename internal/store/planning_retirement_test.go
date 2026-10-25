@@ -51,7 +51,7 @@ func TestRetiredInitiativeSelectionAfterMigration124(t *testing.T) {
 			seedWork(t, s, "live-blocked")
 			// Migration 124 removes includes, not work items or blocks edges.
 			// Seed exactly the surviving current rows to exercise selection.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='retired-initiative'; DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='retired-initiative'; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			seedOverlapGuardRelation(t, s, "retired-initiative", "retired-child", "blocks")

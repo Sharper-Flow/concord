@@ -118,7 +118,7 @@ func routinePairVersions(t *testing.T, s *Store) (int64, int64) {
 func routineOverlapEventCount(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -608,7 +608,7 @@ func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID string) string 
 func routineWorkEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

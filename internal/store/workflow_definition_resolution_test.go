@@ -640,7 +640,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		defer foreignTx.Rollback()
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
 		foreignScope := newWriteScope(foreignTx)
@@ -673,7 +673,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatalf("the foreign-scope append left %d instance rows, want no terminal effect", instances)
 		}
 		var appended int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline {
@@ -713,7 +713,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			}
 		}
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -738,7 +738,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// The store pools one connection: the in-transaction count reads the
 		// open transaction, never the pool beside it.
 		var appended int
-		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline+1 {
@@ -815,10 +815,10 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 func assertNoFoldGuardRows(t *testing.T, s *Store) {
 	t.Helper()
 	var guards int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM write_guard`).Scan(&guards); err != nil {
 		t.Fatal(err)
 	}
 	if guards != 0 {
-		t.Fatalf("%d fold guard rows survived a refused operation", guards)
+		t.Fatalf("%d write guard rows survived a refused operation", guards)
 	}
 }

@@ -79,7 +79,7 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 				ref := view.ResearchFindings[0].ViewID
 				payload := mustJSONValue(tc.fields(ref))
 				var evidenceBefore int
-				if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceBefore); err != nil {
+				if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceBefore); err != nil {
 					t.Fatal(err)
 				}
 				before := contractCorrectionEffectSnapshot(t, f.store, workID)
@@ -119,11 +119,11 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 					t.Fatalf("criterion association advanced from %s to %s", step, got)
 				}
 				var count int
-				if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil || count != tc.count {
+				if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil || count != tc.count {
 					t.Fatalf("recorded %d criterion associations, want %d: %v", count, tc.count, err)
 				}
 				var evidenceAfter int
-				if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceAfter); err != nil || evidenceAfter != evidenceBefore {
+				if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceAfter); err != nil || evidenceAfter != evidenceBefore {
 					t.Fatalf("criterion association minted or rebound evidence: before=%d after=%d err=%v", evidenceBefore, evidenceAfter, err)
 				}
 				for index := 0; index < tc.count; index++ {

@@ -215,7 +215,7 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 			t.Fatalf("research read failed: %+v", read.Error)
 		}
 		var state [3]int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM idempotency_records), (SELECT version FROM work_items WHERE id='work-1')`).Scan(&state[0], &state[1], &state[2]); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT last FROM store_sequences WHERE name='effect'), (SELECT count(*) FROM idempotency_records), (SELECT version FROM work_items WHERE id='work-1')`).Scan(&state[0], &state[1], &state[2]); err != nil {
 			t.Fatal(err)
 		}
 		return read.Result, state

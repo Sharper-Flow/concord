@@ -152,16 +152,14 @@ func TestDerivedFailureTerminalPairWithoutLog(t *testing.T) {
 	var raw string
 	var event Event
 	event.SubjectID = work
-	if err := s.db.QueryRow(`SELECT event_id,seq,payload FROM domain_events WHERE event_id='terminal-pair-failed:workflow-failure'`).Scan(&event.EventID, &event.Seq, &raw); err != nil {
+	if err := s.db.QueryRow(`SELECT event_id,seq,payload FROM worker_attempt_dispositions WHERE work_id=? AND event_id='terminal-pair-failed:workflow-failure' AND action_id='record_worker_failure'`, work).Scan(&event.EventID, &event.Seq, &raw); err != nil {
 		t.Fatal(err)
 	}
 	var p workflowActionCompletedPayload
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO unavailable_domain_events`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	if err := s.Transact(ctx, func(transaction *Transaction) error {
 		tx := transaction.tx
 		definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), work)

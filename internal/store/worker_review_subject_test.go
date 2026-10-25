@@ -452,7 +452,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 			t.Fatalf("unprepared combined rejection error = %v, want %s refusing the whole operation without its sealed preparation", err, KindInvalidOperation)
 		}
 		var rejections, retryAttempts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, fixture.workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, fixture.workID).Scan(&rejections); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, fixture.workID).Scan(&retryAttempts); err != nil {
@@ -553,9 +553,9 @@ func TestReviewDispatchAfterContractSupersessionPinsCurrentSubject(t *testing.T)
 	// A superseded work item cannot review at all: the instance lifecycle
 	// gate refuses every workflow action — the review dispatch's own job
 	// record here — before any review effect exists.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET instance_state='superseded' WHERE work_id=?;
-		DELETE FROM fold_guard`, fixture.workID); err != nil {
+		DELETE FROM write_guard`, fixture.workID); err != nil {
 		t.Fatal(err)
 	}
 	fields := map[string]any{

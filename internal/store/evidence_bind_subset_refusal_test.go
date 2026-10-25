@@ -62,7 +62,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 	// bound or refused at bind time; nothing may be half-submitted.
 	for _, ref := range []string{secondRef, thirdRef} {
 		var bound int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref).Scan(&bound); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref).Scan(&bound); err != nil {
 			t.Fatal(err)
 		}
 		if bound != 0 {
@@ -108,7 +108,7 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	}
 	// accept_worker_result also mints a bound event for the attempt id, so
 	// the count scopes to the subject this bind submitted.
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY seq`, workID, WorkflowEvidenceBound, subject)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY binding_seq`, workID, subject)
 	if err != nil {
 		t.Fatal(err)
 	}

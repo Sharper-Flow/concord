@@ -725,7 +725,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 	}
 	// CD-0059 fixture: pin the workflow instance to the execution step
 	// inside one fold transaction, since the workflow_instances table is
-	// fold-only. The dispatch action lives on the external_effect step
+	// write-seam-only. The dispatch action lives on the external_effect step
 	// "execution"; advancing via the action itself would force the test
 	// to drive the workflow through contract approval first.
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -1139,7 +1139,7 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 	}
 	beforeVersion := readWorkVersion(t, s, seed.workID)
 	var beforeEvents int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, seed.workID).Scan(&beforeEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, seed.workID).Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 	_, secondErr := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-b"))
@@ -1154,7 +1154,7 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 		t.Fatalf("second authorization did not name the pending launch and its recovery: %+v", failure)
 	}
 	var afterEvents int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, seed.workID).Scan(&afterEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, seed.workID).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if beforeEvents != afterEvents || readWorkVersion(t, s, seed.workID) != beforeVersion {

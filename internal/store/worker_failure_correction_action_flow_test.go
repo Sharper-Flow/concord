@@ -94,10 +94,10 @@ func readStoredCorrectionCompletion(t *testing.T, s *Store, workID, actionID str
 func attributionVerdictAndEvidenceCounts(t *testing.T, s *Store, workID string) (int64, int64) {
 	t.Helper()
 	var verdicts, evidence int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidence); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidence); err != nil {
 		t.Fatal(err)
 	}
 	return verdicts, evidence

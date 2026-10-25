@@ -1588,7 +1588,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	def := pinnedWorkflowDefinitionForTest(t, s, workID)
 	// The seeded proof records and satisfies one worker job in the primary
 	// Project, so the delivery facet folds a recorded, satisfied job.
-	model := admissionModelState{step: "complete", contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project"}
+	model := admissionModelState{step: "complete", contracts: 2, verdict: "ok", artifact: true, jobs: "satisfied", jobsScope: "project", integration: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "duplicate at the complete step")
 	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
 		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
@@ -1643,7 +1643,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	// duplicates hid: its started delivery, the accepted current Review of
 	// the delivered candidate, and the engineering successor's coordinator
 	// confirmation.
-	model.started, model.engineering = true, true
+	model.started, model.engineering, model.integration = true, true, true
 	model.review = admissionModelReview{candidate: true, accepted: "ready_for_final_proof", current: true}
 	conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, def, model, "after the duplicate correction")
 }

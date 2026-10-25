@@ -151,6 +151,9 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		if !found {
 			t.Fatal("model has no admitted producing completion")
 		}
+		// The first intake's observed producer proof still covers the
+		// integrated candidate while the next changed result is pending.
+		model.integration = round > 1
 		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "job-bound terminal before local acceptance")
 		window := reviewSubjectWindow(t, s, workID, attempt)
 		if err := journey.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": window.AttemptEpoch}, f.owner); err != nil {
@@ -166,6 +169,7 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		if !found {
 			t.Fatal("model has no held, satisfied local intake")
 		}
+		model.integration = false
 		conformanceCheckpoint(t, s, BuiltinWorkflowRegistry(), workID, definition, model, "local acceptance holds with no Review authority")
 		journey.observe(t, attempt)
 	}

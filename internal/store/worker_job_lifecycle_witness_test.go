@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -246,7 +248,7 @@ func TestWitnessRewrittenJobKeepsFailedAttemptIdentity(t *testing.T) {
 	}
 }
 
-// Proof of A stops applying when an earlier accepted Review integrates B.
+// Applicable producer proof follows the candidate an earlier Review integrates.
 func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 	for _, changed := range []bool{true, false} {
 		name := "unchanged-candidate"
@@ -271,25 +273,10 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 			}
 			c.attempt = "attempt:" + id + ":final"
 			c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
-			before := c.j.effects(t)
 			err := runDeliveryAdmissionAction(t, s, id, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:witness-final"),
 				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
-			if changed {
-				var failure *Failure
-				if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verification does not cover the current integrated candidate") {
-					t.Fatalf("combined acceptance refusal = %v, want missing_evidence naming the changed integrated candidate", err)
-				}
-				if after := c.j.effects(t); after != before {
-					t.Fatalf("refused combined acceptance changed durable state: before=%s after=%s", before, after)
-				}
-				reviewGateRequireStep(t, s, id, "refine")
-				if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq != 0 {
-					t.Fatalf("refused combined acceptance delivery assertion = %d, %v; want none", seq, err)
-				}
-				return
-			}
 			if err != nil {
-				t.Fatalf("combined acceptance refused proof on the unchanged integrated candidate: %v", err)
+				t.Fatalf("combined acceptance refused producer proof on the integrated candidate: %v", err)
 			}
 			var accepted int
 			if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, id, c.attempt).Scan(&accepted); err != nil || accepted != 1 {
@@ -301,6 +288,22 @@ func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
 			}
 		})
 	}
+}
+
+func witnessUnprovedCorrectiveReview(t *testing.T, j *candidateJourney, attempt string, job WorkerJobBinding, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(j.repo, path)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(j.repo, path), []byte("corrective output awaiting verification\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := j.commit(t, "reviewer@example.invalid", "unproved corrective output")
+	report := currentReviewBlockForTest(t, j.s, j.workID, attempt, "ready_for_final_proof")
+	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, j.repo, output)}
+	j.reviewReceipts = nil
+	j.completeReview(t, attempt, job, report)
+	return output
 }
 
 // Integration proof follows the candidate the final pending result produces
@@ -324,9 +327,8 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 			}
 			j.laneDispatch(t, attempt, "review", &job)
 			output := j.head(t)
-			var outputProof WorktreeVerifyResult
 			if changed {
-				output, outputProof = j.completeCorrectiveReview(t, attempt, job, "internal/store/final.txt", "the final job changes the candidate\n", "final-result")
+				output = witnessUnprovedCorrectiveReview(t, j.candidateJourney, attempt, job, "internal/store/final.txt")
 			} else {
 				j.completeReview(t, attempt, job, currentReviewBlockForTest(t, s, id, attempt, "ready_for_final_proof"))
 			}
@@ -372,8 +374,7 @@ func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testin
 					t.Fatalf("refused combined acceptance delivery assertion = %d, %v; want unchanged %d", seq, err, deliveryBefore)
 				}
 				// The same pending result admits once its output is actually proven.
-				// Review already carried this receipt, but only A was bound above.
-				j.bindVerification(t, outputProof)
+				j.bindVerification(t, j.observeRun(t, "final-result"))
 				err = runDeliveryAdmissionAction(t, s, id, "accept_worker_result", payload,
 					refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
 			}
@@ -414,7 +415,7 @@ func TestWitnessCombinedAcceptChecksPendingCandidateTooling(t *testing.T) {
 				t.Fatal(err)
 			}
 			j.laneDispatch(t, attempt, "review", &job)
-			output, _ := j.completeCorrectiveReview(t, attempt, job, "internal/store/tooling.txt", "pending candidate needs its own declared command\n", "tooling-output")
+			output := witnessUnprovedCorrectiveReview(t, j.candidateJourney, attempt, job, "internal/store/tooling.txt")
 			request := j.request("tooling-b", nil)
 			request.Command = []string{"git", "rev-parse", "HEAD"}
 			proofB, err := j.s.VerifyWorktree(t.Context(), request)

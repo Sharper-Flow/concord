@@ -399,7 +399,7 @@ func workflowAdmitDelivery(definition WorkflowDefinition, state WorkflowAdmissio
 // never supplies integration, so a combined acceptance behind missing
 // integration evidence refuses exactly as record_delivery does.
 func workflowAdmitDeliveryForAccept(definition WorkflowDefinition, state WorkflowAdmissionState, decision WorkflowAdmissionDecision, accepting *WorkerJobBinding) WorkflowAdmissionDecision {
-	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && (state.Review.Candidate != nil || state.RefinementWorkflow) {
+	if state.Review != nil && workflowDefinitionProducesDelivery(definition) && (state.Review.Candidate != nil || state.RefinementWorkflow || state.Review.Dependencies != nil && !state.Review.Dependencies.ArchitectureNotApplicable) {
 		if err := workflowAdmitReview(*state.Review, ""); err != nil {
 			decision.Failure = workflowFailureOf(err)
 			return decision
@@ -435,6 +435,12 @@ func workflowAdmitDeliveryForAccept(definition WorkflowDefinition, state Workflo
 // intermediate Review, but a changed depended-on revision still invalidates it.
 // Delivery and completion use the same rule without an assignment group.
 func workflowAdmitReview(state WorkflowReviewState, group string) error {
+	if err := workflowAdmitArchitectureReview(state); err != nil {
+		return err
+	}
+	if state.StaleJobs[group] || group == "" && len(state.StaleJobs) != 0 {
+		return reviewFailure(KindMissingEvidence, "a changed worker-job revision requires a current accepted Review", "obtain and accept a Review covering the revised job before dispatch or execution exit")
+	}
 	if admitted, found := state.Groups[group]; found && admitted.CorrectionRef != "" && state.Accepted != nil && state.Accepted.ReportRef == admitted.ReviewRef && state.DependenciesCurrent {
 		return nil
 	}
@@ -472,6 +478,13 @@ func workflowAdmitReview(state WorkflowReviewState, group string) error {
 	}
 	if disposition != "ready_for_final_proof" {
 		return reviewFailure(KindMissingEvidence, "leaving execution requires accepted ready_for_final_proof, not "+disposition, "obtain and accept ready_for_final_proof on the current candidate")
+	}
+	return nil
+}
+
+func workflowAdmitArchitectureReview(state WorkflowReviewState) error {
+	if state.Dependencies != nil && !state.Dependencies.ArchitectureNotApplicable && (state.Accepted == nil || !state.DependenciesCurrent) {
+		return reviewFailure(KindMissingEvidence, "execution progression requires an accepted Review covering the current architecture and criteria", "use request_correction if the architecture needs revision, then obtain and accept a Review on the current dependencies")
 	}
 	return nil
 }

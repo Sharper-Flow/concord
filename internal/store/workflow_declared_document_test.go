@@ -20,7 +20,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				s := openTemp(t)
 				defer s.Close()
 				const workID = "work-declared-document"
-				seedStepWork(t, s, workID)
+				seedWork(t, s, workID)
 				encoded, err := json.Marshal(currentWorkflowDefinition(t))
 				if err != nil {
 					t.Fatal(err)
@@ -82,6 +82,16 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 						t.Fatal(err)
 					}
 					if _, err := apply("record_alignment", `{"searched":"The bounded work inventory.","outcome":"none_found"}`, "prepare-alignment"); err != nil {
+						t.Fatal(err)
+					}
+					seedWorkflowLaw(t, s)
+					seedIssue31DomainRegistry(t, s)
+					binding := corpusArchitectureBinding()
+					binding["home_domain_id"], binding["affected_domain_ids"] = "root", []string{"root"}
+					approval := mustJSONValue(map[string]any{"premise": "The declared document serves the accepted outcome.", "decision_domains": []string{},
+						"outcome_predicates": []map[string]any{{"predicate_id": "predicate:document", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "fixture:document", "subjects": []string{"document:declared"}}}},
+						"spec_mandate":       []string{}, "law_modifies": []string{}, "architecture_binding": binding})
+					if _, err := apply("approve_contract", string(approval), "prepare-criteria"); err != nil {
 						t.Fatal(err)
 					}
 				}

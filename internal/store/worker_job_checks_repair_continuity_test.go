@@ -391,6 +391,18 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	if second == nil || second.Revision != 4 {
 		t.Fatalf("the second repair = %+v, want derived revision 4", second)
 	}
+	reviewState, err := loadWorkflowReviewState(ctx, s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewState.Accepted == nil || reviewState.Candidate == nil || reviewState.Accepted.Report.OutputCandidate != *reviewState.Candidate || !reviewState.DependenciesCurrent || !reviewState.StaleJobs[jobID] {
+		t.Fatalf("the second repair must revalidate its changed job on the unchanged candidate: %+v", reviewState)
+	}
+	// The candidate is unchanged, but the new checks-repair revision is not
+	// covered by the voiding Review. Revalidate that job before its dispatch.
+	reviewFixture := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
+	acceptCurrentReviewForTest(t, reviewFixture, workerFixtureDirectory(t, s, workID), "correction_required")
+	checksRepairRequestCorrection(t, s, workID, acceptor)
 	pin = issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, fixture.owner, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	attempt4 := "attempt:" + workID + ":4"

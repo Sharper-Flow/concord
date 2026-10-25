@@ -49,6 +49,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 	preparation := current.Pinned.Jobs[0].AcceptanceOracle.Controls[0].ReadinessEvidenceRefs[0]
 	dependencies := *current.Pinned.Pin.Review.Dependencies
 	const attempt = "attempt:spine-repair"
+	acceptedBeforeRepair := current.Pinned.Pin.Review.Accepted
 	lane, job, epoch = f.startWorker(t, "review", attempt)
 	broken := f.executeControl(t, attempt, epoch, job, preparation, "spine-control-b")
 	if broken.Oracle == nil || broken.Oracle.Qualification != "fail" || broken.Oracle.SubjectCommit != b.Commit || broken.ExitCode == 0 {
@@ -77,7 +78,7 @@ func TestSpineReviewRepairsCandidateThroughMainDelivery(t *testing.T) {
 		RemainingObligations: []store.WorkerReviewObligation{{ObligationID: "obligation:publication", OwnerRef: "owner:main", SubjectRef: "commit:" + c.Commit, InputDigest: dependencies.Criteria[0].ContentDigest, NeededProof: "Publish the canonical closure receipt after delivery."}}}
 	f.finishWorker(t, lane, attempt, job, report)
 	unaccepted := f.read(t).Pinned.Pin
-	if unaccepted.Review.Candidate == nil || *unaccepted.Review.Candidate != b || unaccepted.Review.Accepted != nil || unaccepted.Lifecycle != "in_progress" {
+	if unaccepted.Review.Candidate == nil || *unaccepted.Review.Candidate != b || !reflect.DeepEqual(unaccepted.Review.Accepted, acceptedBeforeRepair) || unaccepted.Lifecycle != "in_progress" {
 		t.Fatalf("terminal arrival granted readiness: %+v", unaccepted.Review)
 	}
 	for _, intent := range unaccepted.NextValidIntents {

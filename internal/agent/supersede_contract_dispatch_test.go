@@ -32,7 +32,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
 		version = workOneVersion(t, s)
 	}
@@ -51,6 +51,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
+	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "supersede-design")
 	if stage != "before-start" {
 		invokeWorkflowIssue31Action(t, s, service, env, "start_execution", version, "supersede-start-execution")
 		version = workOneVersion(t, s)

@@ -145,8 +145,8 @@ func currentImplementationComposition() WorkflowComposition {
 		Parts: []WorkflowPartUse{
 			{Ref: "part.proposal"},
 			{Ref: "part.alignment"},
-			{Ref: "part.design"},
 			{Ref: "part.planning", StepID: "planning"},
+			{Ref: "part.design"},
 			{Ref: "part.execution", RecoveryTo: "execution"},
 			{Ref: "part.refine", RecoveryTo: "execution"},
 			{Ref: "part.delivery"},

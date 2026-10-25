@@ -770,22 +770,18 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	// The canonical head removed the discovery marker, so the pre-contract
-	// walk is proposal, alignment, design; each consumes two events.
-	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	// Proposal and alignment establish the criteria approval context.
+	for i, action := range []string{"record_proposal", "record_alignment"} {
 		fields := ""
-		if action == "record_design" {
-			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		}
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 		}
 		if action == "record_alignment" {
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		}
-		// Cumulative expected versions: proposal, alignment, and design each
+		// Cumulative expected versions: proposal and alignment each
 		// consume two events over the version-4 capture.
-		expectedVersion := []int{4, 6, 8}[i]
+		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
@@ -800,14 +796,14 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 10}
+	versions := map[string]any{"work": 8}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
-	if durableBefore != 3 {
-		t.Fatalf("approval challenge durable operation count=%d, want 3 prior actions", durableBefore)
+	if durableBefore != 2 {
+		t.Fatalf("approval challenge durable operation count=%d, want 2 prior actions", durableBefore)
 	}
 	approvedInput := workflowContractActionInput(t, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
@@ -821,8 +817,8 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "execution" {
-		t.Fatalf("approved action current step=%s, want execution", step)
+	if step != "design" {
+		t.Fatalf("approved action current step=%s, want design", step)
 	}
 	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
@@ -854,21 +850,18 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	// The canonical pre-contract walk is proposal, alignment, design: two
+	// The pre-contract walk is proposal and alignment: two
 	// events each over the version-4 capture, so the approval lands at
-	// expected version 10.
-	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	// expected version 8.
+	for i, action := range []string{"record_proposal", "record_alignment"} {
 		fields := ""
-		if action == "record_design" {
-			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		}
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 		}
 		if action == "record_alignment" {
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		}
-		expectedVersion := []int{4, 6, 8}[i]
+		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-late-` + action + `"}`)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
@@ -916,8 +909,8 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "execution" {
-		t.Fatalf("late-approved action current step=%s, want execution", step)
+	if step != "design" {
+		t.Fatalf("late-approved action current step=%s, want design", step)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
 	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {

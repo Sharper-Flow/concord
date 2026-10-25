@@ -212,7 +212,7 @@ func TestDeliveryRequiresReviewOfCurrentCandidate(t *testing.T) {
 			reviewGateDriveRejection(t, j)
 			attempt, epoch := reviewGateCompleteReview(t, j, "ready_for_final_proof")
 			pReturnProduce(t, j, "repair")
-			kind, detail := KindMissingEvidence, "accepted Review on the current candidate"
+			kind, detail := KindMissingEvidence, "a changed worker-job revision requires a current accepted Review"
 			if route.name == "accept_worker_result" {
 				kind, detail = KindStaleRequiresReview, "newer accepted candidate replaced this Review's input"
 			}
@@ -284,7 +284,7 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 			}
 			early, epoch = reviewGateCompleteReview(t, j, "ready_for_final_proof")
 			pReturnProduce(t, j, "repair")
-			kind, detail := KindMissingEvidence, "accepted Review on the current candidate"
+			kind, detail := KindMissingEvidence, "a changed worker-job revision requires a current accepted Review"
 			if route.name == "accept_worker_result" {
 				kind, detail = KindStaleRequiresReview, "newer accepted candidate replaced this Review's input"
 			}

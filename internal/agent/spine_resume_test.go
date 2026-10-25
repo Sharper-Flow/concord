@@ -238,6 +238,9 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["required_evidence"] = []string{"verification"}
 	spineOK(t, f.action(t, "approve_contract", fields))
+	if family == "workflow.implementation" {
+		recordApprovedWorkDesign(t, s, service, f.env, f.work, "spine-design")
+	}
 	entry := "start_execution"
 	if family == "workflow.break_fix" {
 		entry = "checkpoint_repair"
@@ -247,6 +250,12 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 }
 
 func (f *spineFixture) recordJob(t *testing.T) {
+	if review := f.read(t).Pinned.Pin.Review; review != nil && review.Accepted == nil && review.Dependencies != nil && !review.Dependencies.ArchitectureNotApplicable {
+		// Review the architecture with its own job so accepting it does not
+		// satisfy the implementation assignment.
+		f.recordJobAs(t, "job:spine-architecture-review")
+		f.review(t, "continue", "")
+	}
 	f.recordJobAs(t, "job:spine-value")
 }
 

@@ -45,6 +45,13 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	}
 	gitRunStore(t, repo, "branch", "-m", branch)
 	j := &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo}
+	dependencies, err := workflowReviewDependencies(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dependencies.ArchitectureNotApplicable {
+		acceptCurrentReviewForTest(t, f, repo, "continue")
+	}
 	job := reviewSubjectReadyRevision(t, f)
 	if err := descendantDispatch(t, j, "implement", "p:implementation", job, nil); err != nil {
 		t.Fatal(err)

@@ -628,8 +628,12 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		var reviewErr error
 		switch actionID {
 		case "dispatch_worker":
-			if state.ReviewLane == "implementation" && !state.ReviewCorrective {
-				reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
+			if state.ReviewLane == "implementation" {
+				if state.ReviewCorrective {
+					reviewErr = workflowAdmitArchitectureReview(*state.Review)
+				} else {
+					reviewErr = workflowAdmitReview(*state.Review, state.ReviewGroup)
+				}
 			}
 		case "complete":
 			reviewErr = workflowAdmitReview(*state.Review, "")

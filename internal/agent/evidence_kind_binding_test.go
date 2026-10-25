@@ -71,6 +71,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
+	after = recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
 	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
 	if started.Outcome != OutcomeOK {
 		t.Fatalf("start_execution: %+v", started.Error)

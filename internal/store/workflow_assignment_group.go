@@ -121,6 +121,40 @@ func recordWorkflowAssignmentGroup(ctx context.Context, tx *sql.Tx, event Event,
 	return err
 }
 
+// Compare only jobs present at Review dispatch. A later assignment is not a
+// dependency of that Review, but replacing a reviewed job withdraws its authority.
+func loadWorkflowReviewJobChanges(ctx context.Context, q queryer, workID string, state *WorkflowReviewState) error {
+	state.StaleJobs = nil
+	if state.Accepted == nil {
+		return nil
+	}
+	rows, err := q.QueryContext(ctx, `SELECT current.job_id,COALESCE(m.group_id,'')
+FROM worker_job_revisions current
+JOIN worker_authorizations a ON a.work_id=current.work_id AND a.attempt_id=?
+JOIN worker_job_revisions reviewed ON reviewed.work_id=current.work_id AND reviewed.job_id=current.job_id
+LEFT JOIN workflow_group_members m ON m.work_id=current.work_id AND m.job_id=current.job_id
+WHERE current.work_id=?
+AND current.revision=(SELECT MAX(j.revision) FROM worker_job_revisions j WHERE j.work_id=current.work_id AND j.job_id=current.job_id)
+AND reviewed.revision=(SELECT MAX(j.revision) FROM worker_job_revisions j WHERE j.work_id=current.work_id AND j.job_id=current.job_id AND j.recorded_seq<a.seq)
+AND current.digest<>reviewed.digest`, state.Accepted.AttemptID, workID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	state.StaleJobs = map[string]bool{}
+	for rows.Next() {
+		var job, group string
+		if err := rows.Scan(&job, &group); err != nil {
+			return err
+		}
+		state.StaleJobs[job] = true
+		if group != "" {
+			state.StaleJobs[workflowMemberGroupAdmissionID(group)] = true
+		}
+	}
+	return rows.Err()
+}
+
 func workflowDeclaredReviewCorrection(ctx context.Context, q queryer, workID, attempt string, state *WorkflowReviewState) (string, error) {
 	if state == nil || state.Accepted == nil || state.Candidate == nil || state.Accepted.Report.OutputCandidate != *state.Candidate || !state.DependenciesCurrent || state.Accepted.Report.Disposition != "correction_required" {
 		return "", nil

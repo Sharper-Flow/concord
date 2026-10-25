@@ -328,7 +328,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// Advance to the planning step through the same real action owners the
 	// semantic-event test uses; these calls are scaffolding, not the surface
 	// under proof.
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-"+action, actor)
 	}
 

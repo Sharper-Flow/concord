@@ -21,7 +21,8 @@ type WorkflowAcceptedReview struct {
 // WorkflowReviewState is the current execution view consumed by admission and
 // exposed on resumption. Findings remain open when a later report omits them.
 type WorkflowReviewState struct {
-	Groups map[string]workflowAssignmentGroup `json:"-"`
+	Groups    map[string]workflowAssignmentGroup `json:"-"`
+	StaleJobs map[string]bool                    `json:"-"`
 	// ExecutionProgressed comes from current assignments and implementation
 	// attempts, not the presence of Review or a session's lifetime.
 	ExecutionProgressed    bool                      `json:"-"`
@@ -159,6 +160,9 @@ func loadWorkflowReviewState(ctx context.Context, q queryer, workID string) (Wor
 	if err := loadWorkflowAssignmentGroups(ctx, q, workID, &state); err != nil {
 		return state, err
 	}
+	if err := loadWorkflowReviewJobChanges(ctx, q, workID, &state); err != nil {
+		return state, err
+	}
 	return state, nil
 }
 
@@ -198,6 +202,9 @@ func projectWorkflowReviewAcceptance(ctx context.Context, q queryer, workID stri
 		findings[finding.FindingID] = finding
 	}
 	applyWorkflowAcceptedReview(&state, WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRef, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}, findings)
+	if err := loadWorkflowReviewJobChanges(ctx, q, workID, &state); err != nil {
+		return state, err
+	}
 	state.Findings = slices.Clone(state.Findings)
 	for i, finding := range state.Findings {
 		state.Findings[i] = findings[finding.FindingID]

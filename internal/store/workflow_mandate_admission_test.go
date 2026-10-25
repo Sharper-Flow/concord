@@ -120,9 +120,11 @@ func TestReadyReviewCannotBypassMandate(t *testing.T) {
 			workID := "mandate-ready-review-" + disposition
 			j, _ := descendantReviewFixture(t, workID)
 			s := j.s
-			attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+			// The mandate is pinned before Review judges it: a pin added after
+			// the report would stale that Review (CD-0242 D10).
 			law := WorkflowLawRevision{LawID: j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID, ContentHash: j.fixture.sources.lawHash}
 			setAdmissionMandate(t, s, workID, law)
+			attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
 			payload := map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}
 			for _, bound := range []bool{false, true} {
 				if bound {

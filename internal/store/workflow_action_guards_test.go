@@ -355,15 +355,14 @@ func TestBindEvidenceRefusedPastBindingStepOnceMandateBound(t *testing.T) {
 
 func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	const workID = "mandate-recovery-verdict"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	f, _, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
+		attachWorkflowLawPin(t, f.store, workID, "sha256:"+strings.Repeat("a", 64))
+	})
 	s := f.store
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1`, workID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?)`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {

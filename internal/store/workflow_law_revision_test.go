@@ -264,7 +264,6 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 
 	currentWork := "law-recovery-action-current"
 	currentStore := seedLawRevisionPendingReview(t, currentWork)
-	attachWorkflowLawPin(t, currentStore, currentWork, "sha256:"+strings.Repeat("a", 64))
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), currentStore, BuiltinWorkflowRegistry(), currentWork, "supersede_contract"); err == nil {
 		t.Fatal("non-stale workflow exposed the contract recovery action")
 	} else {
@@ -279,7 +278,6 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	t.Parallel()
 	const workID = "law-deletion-execution-recovery"
 	s := seedLawRevisionPendingReview(t, workID)
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	if _, _, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); !hasFailureKind(err, KindInvalidOperation) {
 		t.Fatalf("healthy execution exposed stale recovery: %v", err)
 	}
@@ -360,7 +358,6 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 	workID := "law-cross-connection-order"
 	s1 := seedLawRevisionPendingReview(t, workID)
 	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s1, workID))
-	attachWorkflowLawPin(t, s1, workID, "sha256:"+strings.Repeat("a", 64))
 	s2, err := Open(context.Background(), s1.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -443,7 +440,6 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 	t.Parallel()
 	workID := "law-cross-process-order"
 	s := seedLawRevisionPendingReview(t, workID)
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	version := readWorkVersion(t, s, workID)
 
 	cutover := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
@@ -567,6 +563,7 @@ func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
+	attachWorkflowLawPin(t, f.store, workID, "sha256:"+strings.Repeat("a", 64))
 	completeCurrentReviewForTest(t, workContextFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator}, workerFixtureDirectory(t, f.store, workID), "continue")
 	return f.store
 }
@@ -641,7 +638,6 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	t.Parallel()
 	workID := "law-stale-in-flight"
 	s := seedLawRevisionPendingReview(t, workID)
-	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
 	var definitionRef string
 	var definitionDigest string

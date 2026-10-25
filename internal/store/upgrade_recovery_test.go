@@ -111,6 +111,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), q7CurrentMetadataFixtureReversal); err != nil {
 		t.Fatalf("cannot restore the pre-150 history metadata: %v", err)
 	}
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE workflow_completed_exits; DROP TABLE workflow_coordinator_actions;`); err != nil {
+		t.Fatalf("cannot restore the pre-admission-facts schema: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), reverseFrontiersMigration); err != nil {
 		t.Fatalf("cannot restore the pre-frontier schema: %v", err)
 	}

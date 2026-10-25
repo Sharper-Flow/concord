@@ -958,7 +958,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	var started int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq <= ?`, event.SubjectID, WorkflowActionStarted, event.Seq).Scan(&started); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=?)`, event.SubjectID).Scan(&started); err != nil {
 		return err
 	}
 	if started > 0 && !sameFamily {
@@ -1795,6 +1795,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
 		return err
 	}
+	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
+		return err
+	}
 	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
 
@@ -1926,6 +1929,9 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		return workflowProjectionError(err, "cannot record workflow checkpoint")
 	}
 	if err := foldWorkflowDecisionRecordForRegistry(ctx, tx, scopeDefinitionRegistry(scope), event, p.CheckpointPayload); err != nil {
+		return err
+	}
+	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
@@ -2604,6 +2610,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	}
 	if err := writeWorkerAuthorizationTx(ctx, tx, event, p); err != nil {
 		return workflowProjectionError(err, "cannot record the worker authorization or disposition")
+	}
+	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
+		return err
+	}
+	if err := writeWorkflowCompletedExitTx(ctx, tx, event, p, entry.Definition.Ref); err != nil {
+		return err
 	}
 	if err := advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef); err != nil {
 		return err
@@ -3416,6 +3428,9 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, event.SubjectID)
 	if err != nil {
+		return err
+	}
+	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {
 		return err
 	}
 	return advanceWorkflowActionObligationsTx(ctx, tx, event, p.StepID, p.AttemptEpoch, p.ActorRef)

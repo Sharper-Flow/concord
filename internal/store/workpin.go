@@ -624,7 +624,7 @@ func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, c
 
 // workPinDrivingSessionsTx returns the bounded set of agent sessions that have
 // driven the work item, most recent first. The execution actor preserves the
-// session that initialized the workflow, while action events identify later
+// session that initialized the workflow, while current action facts identify later
 // coordinator sessions that took over the item.
 func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinDrivingSession, error) {
 	rows, err := tx.QueryContext(ctx, workPinDrivingSessionsSQL, workPinDrivingSessionsArgs(workID)...)
@@ -636,32 +636,20 @@ func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([
 }
 
 func workPinDrivingSessionsArgs(workID string) []any {
-	return []any{string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
-		string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
-		string(ActorAgent), workID, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed}
+	return []any{workID, string(ActorAgent), workID, workID}
 }
 
 const workPinDrivingSessionsSQL = `
 		SELECT a.session_ref,
-		       COALESCE((SELECT COALESCE(json_extract(e.payload,'$.action_id'),e.kind)
-		                    FROM domain_events e
-		                   WHERE e.subject_type=? AND e.subject_id=?
-		                     AND e.actor=a.actor_ref AND e.kind IN (?,?,?,?)
-		                   ORDER BY e.occurred_at DESC,e.seq DESC LIMIT 1),
-		                'workflow.actor_recorded'),
-		       COALESCE((SELECT e.occurred_at
-		                    FROM domain_events e
-		                   WHERE e.subject_type=? AND e.subject_id=?
-		                     AND e.actor=a.actor_ref AND e.kind IN (?,?,?,?)
-		                   ORDER BY e.occurred_at DESC,e.seq DESC LIMIT 1),
-		                a.first_seen_at) AS last_acted_at
+		       COALESCE(f.last_action_id,'workflow.actor_recorded'),
+		       COALESCE(f.last_acted_at,a.first_seen_at) AS last_acted_at
 		FROM workflow_actors a
+		LEFT JOIN workflow_coordinator_actions f ON f.work_id=? AND f.actor_ref=a.actor_ref
 		WHERE a.actor_class=?
 		  AND (
 			 a.actor_ref=(SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?)
 			 OR a.actor_ref IN (
-				SELECT e.actor FROM domain_events e
-				WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?,?,?)
+				SELECT actor_ref FROM workflow_coordinator_actions WHERE work_id=?
 			 )
 		  )
 		ORDER BY last_acted_at DESC,a.session_ref

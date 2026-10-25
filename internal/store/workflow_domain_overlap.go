@@ -958,8 +958,8 @@ func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, 
 
 func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=?`, eventID).Scan(&seq); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read authoritative event sequence", true, "retry once the event log is readable", err)
+	if err := tx.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&seq); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read authoritative effect sequence", true, "retry once the effect receipt is readable", err)
 	}
 	return seq, nil
 }

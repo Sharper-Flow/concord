@@ -174,6 +174,7 @@ func TestGreenVerifyRunBindsAsVerificationEvidence(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, f, repo); err != nil {
 		t.Fatalf("confirm with reviewed verify receipt: %v", err)
 	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete with reviewed verify receipt: %v", err)

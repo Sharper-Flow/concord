@@ -35,6 +35,9 @@ func (s *Store) RequireActionableWork(ctx context.Context, workID, operation str
 }
 
 func requireActionableWork(ctx context.Context, q queryer, workID, operation string) error {
+	if err := publishedWorkAbsenceQ(ctx, q, workID, operation); err != nil {
+		return err
+	}
 	var kind string
 	if err := q.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

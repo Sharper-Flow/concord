@@ -48,11 +48,11 @@ func agentJobsCompactionFixture(t *testing.T) (*store.Store, *Service, Authority
 // archivedWorkLocator reads the durable canonical locator for a work item. It
 // returns ok=false when no compaction row exists, which is the durable meaning
 // of "no locator was recorded".
-func archivedWorkLocator(t *testing.T, s *store.Store, workID string) (locator, commitOID string, ok bool) {
+func archivedWorkLocator(t *testing.T, s *store.Store) (locator, commitOID string, ok bool) {
 	t.Helper()
 	var notePath, commit string
 	err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT note_path, commit_oid FROM archived_work WHERE id=?`, workID).Scan(&notePath, &commit)
+		`SELECT note_path, commit_oid FROM archived_work WHERE id=?`, "work-cancelled").Scan(&notePath, &commit)
 	if err != nil {
 		return "", "", false
 	}
@@ -184,7 +184,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("publish outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 
-	locator, commitOID, ok := archivedWorkLocator(t, s, "work-cancelled")
+	locator, commitOID, ok := archivedWorkLocator(t, s)
 	if !ok {
 		t.Fatal("publication reported ok but recorded no canonical locator")
 	}
@@ -200,7 +200,7 @@ func bindAJ6CompactTerminalWork(t *testing.T, sc jobScenario) jobObservation {
 	if replay.Outcome != OutcomeOK {
 		t.Fatalf("replayed publish outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
-	replayLocator, _, replayOK := archivedWorkLocator(t, s, "work-cancelled")
+	replayLocator, _, replayOK := archivedWorkLocator(t, s)
 	if !replayOK || replayLocator != locator {
 		t.Fatalf("replay changed the canonical locator: %q -> %q (ok=%v)", locator, replayLocator, replayOK)
 	}
@@ -297,7 +297,7 @@ func bindAJ6PartialPublication(t *testing.T, sc jobScenario) jobObservation {
 	// Active probe: prove no canonical locator was recorded. A missing row is
 	// the durable meaning of "SQLite never records a locator before git proof",
 	// so the probe reads the table rather than trusting the envelope.
-	locator, _, recorded := archivedWorkLocator(t, s, "work-cancelled")
+	locator, _, recorded := archivedWorkLocator(t, s)
 	work := map[string]any{}
 	if recorded {
 		work["canonical_note_locator"] = locator

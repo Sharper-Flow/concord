@@ -320,6 +320,9 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 					proofRef = view.ResearchFindings[0].ViewID
 				}
+				if actionID == "complete" {
+					bindCompletionClosure(t, s, workID, livenessActor())
+				}
 				apply(actionID, map[string]string{})
 			}
 			state, events, err := livenessCompletion(ctx, s, workID)

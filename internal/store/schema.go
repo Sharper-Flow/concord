@@ -7723,6 +7723,15 @@ CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflo
 CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  153,
+		Name:     "terminal_execution_cleanup",
+		Breaking: true,
+		SQL: `
+DROP TABLE archived_work_components;
+DROP TABLE compaction_publications;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

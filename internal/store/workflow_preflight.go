@@ -324,6 +324,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// refine it first: the evidence-binding recovery binds the outstanding
 	// requirement the payload names.
 	if request.ActionID == "bind_evidence" {
+		// Preflight carries only payload evidence. Execution checks the full
+		// envelope kind inventory through the same guard before writing.
 		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
 		if recoveryErr != nil {
 			return RegisteredDefinition{}, recoveryErr

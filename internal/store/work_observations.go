@@ -206,6 +206,9 @@ func (s *Store) ReadWorkObservations(ctx context.Context, req WorkObservationsRe
 // the result envelope metadata, so this core composes inside any
 // transaction.
 func observationsPageForWork(ctx context.Context, q queryer, req WorkObservationsRequest) (WorkObservationPage, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, req.WorkID, "work_observations"); err != nil {
+		return WorkObservationPage{}, err
+	}
 	limit := observationReadLimit(req.Limit)
 	cursor, err := decodeWorkCollectionCursor(req.Cursor, req.WorkID, workObservationsCollection)
 	if err != nil {

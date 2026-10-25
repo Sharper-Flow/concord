@@ -37,7 +37,8 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+workID[len(workID)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
+	observationKey := strings.Repeat("0", max(0, 12-len(workID))) + workID
+	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+observationKey[len(observationKey)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
 		_ = leaveWrite(context.Background(), tx)
 		tx.Rollback()
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -125,6 +126,7 @@ func TestSpineCompleteStepContractRecovery(t *testing.T) {
 				"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
 				"selected_choice": "confirm", "idempotency_key": "spine-successor-confirm",
 			}))
+			spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": "sha256:" + strings.Repeat("a", 64)}))
 			spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 			done := f.read(t)
 			if done.WorkID != before.WorkID || done.Pinned.Pin.Lifecycle != "completed" || !reflect.DeepEqual(done.Pinned.Pin.Review.Candidate, before.Pinned.Pin.Review.Candidate) || len(done.Pinned.Pin.VerifiedCriteria) != 1 || countRows(t, f.s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts`) != attempts {

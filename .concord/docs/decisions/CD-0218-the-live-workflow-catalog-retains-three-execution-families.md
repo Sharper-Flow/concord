@@ -138,7 +138,9 @@ than publish competing overrides.
 ```gherkin
   Given a completed item recorded under a retired-family definition
   When the store reads that item back
-  Then its recorded digest, actor, subject, and evidence remain unchanged
+  Then any retained digest, actor, subject and evidence remain unchanged
+  And execution state collected under CD-0242 D2 returns typed absence with the canonical outcome locator
+  And the reader never fabricates historical evidence or a live artifact reference
 ```
 
 ```gherkin
@@ -223,16 +225,14 @@ set at the D5 boundary.
 - Criterion 3 keeps its retry anchors:
   `go test ./internal/store/ -run TestCombinedRejectRetryDispatchesThroughTheDispatchOwner`
   and `go test ./internal/store/ -run TestRetryLaunchFailureAfterCommittedIntentStaysTruthful`.
-- Criterion 4's recorded-definition reading binds the current-state anchor:
-  recorded definitions and their digests read back unchanged, with no replay
-  (CD-0242 D2, D14). Until that change lands,
-  `python3 scripts/check-knowledge-index.py` is the executable anchor for this
-  record's law registration.
+- Criterion4 distinguishes retained-state readback from collected-state absence under CD-0242 D2 and D14.
+  Retained definitions, digests, actors, subjects and evidence are read as recorded, without replay or relabeling.
+  Collected execution state returns typed absence and its canonical outcome locator.
+  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestPublishedClassificationOnlyAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
 - Criterion 5 is covered by
   `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
   `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
-  Readiness refuses the nonterminal archived pin without a live store mutation;
-  terminal recorded items remain readable as current rows (CD-0242 D2).
+  Readiness refuses the nonterminal archived pin without a live store mutation; terminal items return unchanged retained state or typed collected-state absence under CD-0242 D2.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 keeps its ordinary-recovery anchors:

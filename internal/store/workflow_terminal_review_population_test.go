@@ -116,6 +116,7 @@ func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
 		if err := j.confirmPremise(t); err != nil {
 			t.Fatalf("confirm premise over B with an accepted Review bound to B: %v", err)
 		}
+		bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
 		if err := j.completeOrdinary(t); err != nil {
 			t.Fatalf("ordinary complete over B with an accepted Review bound to B: %v", err)
 		}
@@ -154,6 +155,7 @@ func TestManagedCandidateTerminalReviewPopulation(t *testing.T) {
 		if err := j.confirmPremise(t); err != nil {
 			t.Fatalf("confirm premise over B with an accepted Review bound to B: %v", err)
 		}
+		bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
 		if err := j.completeOrdinary(t); err != nil {
 			t.Fatalf("ordinary complete over B with an accepted Review bound to B: %v", err)
 		}

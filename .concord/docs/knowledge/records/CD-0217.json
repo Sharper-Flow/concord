@@ -9,7 +9,11 @@
   "doc_contract_profile": "current",
   "evidence": [
     ".concord/docs/compaction-retention-policy.md",
-    ".concord/docs/knowledge/coverage/CD-0217.json"
+    ".concord/docs/knowledge/coverage/CD-0217.json",
+    "internal/store/terminal_cleanup_test.go",
+    "internal/store/terminal_absence_test.go",
+    "internal/store/research_retirement_test.go",
+    "internal/agent/research_surface_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "CD-0217",
@@ -22,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ff6ff652f534bbe33358292bfba3730f968a608f3d0c069b16dfc343840c76c1",
+  "sha256": "sha256:863541a2fc4476bc3ca108b8ca4381d2a1ea8568713fbda15bbbfbc61f9a1dbc",
   "status": "accepted",
-  "summary": "Preserves deferred terminal projection pruning, recorded current state under CD-0242 D2, Git note authority, immutable work IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer disposition.",
+  "summary": "Separates verified terminal execution cleanup from explicit research retirement; protects retained research, category consumers and canonical knowledge.",
   "tags": [
     "retention",
     "compaction",

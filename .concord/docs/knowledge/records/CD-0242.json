@@ -131,6 +131,10 @@
     {
       "kind": "refines",
       "target_id": "CD-0178"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0217"
     }
   ],
   "path": ".concord/docs/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md",

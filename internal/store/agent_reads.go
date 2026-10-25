@@ -24,6 +24,9 @@ func (s *Store) ReadWorkItemSummary(ctx context.Context, workID string) (WorkIte
 }
 
 func readWorkItemSummary(ctx context.Context, q queryer, workID string) (WorkItemSummary, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, workID, "read_work_item_summary"); err != nil {
+		return WorkItemSummary{}, err
+	}
 	var summary WorkItemSummary
 	err := q.QueryRowContext(ctx, `SELECT kind, title, narrative FROM work_items WHERE id=?`, workID).Scan(&summary.Kind, &summary.Title, &summary.Narrative)
 	if err == sql.ErrNoRows {

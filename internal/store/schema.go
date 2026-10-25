@@ -7173,6 +7173,68 @@ DELETE FROM fold_guard;
 ALTER TABLE effect_receipts ADD COLUMN delivery_assertion INTEGER NOT NULL DEFAULT 0;
 `,
 	},
+	{
+		Version:        150,
+		Name:           "q7_current_state_metadata",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+ALTER TABLE work_items ADD COLUMN transition_from TEXT;
+ALTER TABLE work_items ADD COLUMN transition_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_items ADD COLUMN transition_actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE work_items ADD COLUMN transition_evidence_refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(transition_evidence_refs) AND json_type(transition_evidence_refs)='array');
+ALTER TABLE work_items ADD COLUMN transition_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE work_items ADD COLUMN transition_version INTEGER NOT NULL DEFAULT 1;
+CREATE TEMP TABLE q7_transitions AS
+WITH effects AS (
+ SELECT seq,subject_id AS work_id,actor,payload,
+ CASE kind WHEN 'work.created' THEN 'needed' WHEN 'work.transitioned' THEN json_extract(payload,'$.to')
+ WHEN 'workflow.outside_repair_reconciled' THEN 'completed' WHEN 'work.superseded' THEN 'superseded'
+ ELSE 'needed' END AS lifecycle
+ FROM domain_events WHERE subject_type='work_item' AND kind IN
+ ('work.created','work.transitioned','work.reopened','work.superseded','work.reopened_from_superseded','workflow.outside_repair_reconciled')
+ UNION ALL
+ SELECT seq,CASE json_extract(payload,'$.resolution_kind') WHEN 'supersedes' THEN json_extract(payload,'$.to_work_id') ELSE subject_id END,
+ actor,payload,'superseded' FROM domain_events WHERE subject_type='work_item' AND kind='workflow.overlap_resolved'
+ AND json_extract(payload,'$.resolution_kind') IN ('supersedes','merged_into')
+), transitions AS (
+ SELECT *,LAG(lifecycle) OVER (PARTITION BY work_id ORDER BY seq) AS previous_lifecycle,
+ ROW_NUMBER() OVER (PARTITION BY work_id ORDER BY seq DESC) AS latest FROM effects
+)
+SELECT work_id,seq,actor,COALESCE(json_extract(payload,'$.from'),previous_lifecycle) AS prior,
+ COALESCE(json_extract(payload,'$.reason'),'') AS reason,COALESCE(json_extract(payload,'$.evidence_refs'),'[]') AS evidence_refs,
+ CASE WHEN json_extract(payload,'$.resolution_kind')='supersedes' THEN json_extract(payload,'$.to_resulting_version')
+ ELSE COALESCE(json_extract(payload,'$.resulting_version'),1) END AS version
+FROM transitions WHERE latest=1;
+UPDATE work_items AS w SET
+ transition_from=(SELECT prior FROM q7_transitions t WHERE t.work_id=w.id),
+ transition_reason=COALESCE((SELECT reason FROM q7_transitions t WHERE t.work_id=w.id),''),
+ transition_actor=COALESCE((SELECT actor FROM q7_transitions t WHERE t.work_id=w.id),''),
+ transition_evidence_refs=COALESCE((SELECT evidence_refs FROM q7_transitions t WHERE t.work_id=w.id),'[]'),
+ transition_seq=COALESCE((SELECT seq FROM q7_transitions t WHERE t.work_id=w.id),0),
+ transition_version=COALESCE((SELECT version FROM q7_transitions t WHERE t.work_id=w.id),1);
+DROP TABLE q7_transitions;
+ALTER TABLE relations ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE relations ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
+UPDATE relations AS r SET
+ reason=COALESCE((SELECT CASE WHEN e.kind='work.created' THEN 'capture acknowledges the colliding external reference'
+ ELSE json_extract(e.payload,'$.reason') END FROM effect_receipts f JOIN domain_events e ON e.event_id=f.event_id WHERE f.relation_seq=r.id),''),
+ record_version=COALESCE((SELECT CASE WHEN e.kind='work.created' THEN 1 ELSE json_extract(e.payload,'$.resulting_version') END FROM effect_receipts f JOIN domain_events e ON e.event_id=f.event_id WHERE f.relation_seq=r.id),0);
+ALTER TABLE workflow_phase_exits ADD COLUMN actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE workflow_phase_exits ADD COLUMN step_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE workflow_phase_exits ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE workflow_phase_exits ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
+UPDATE workflow_phase_exits AS x SET
+ actor=COALESCE((SELECT actor FROM domain_events e WHERE e.seq=x.exit_seq),''),
+ step_id=COALESCE((SELECT json_extract(payload,'$.step_id') FROM domain_events e WHERE e.seq=x.exit_seq),''),
+ record_version=COALESCE((SELECT json_extract(payload,'$.resulting_version') FROM domain_events e WHERE e.seq=x.exit_seq),1),
+ contract_version=COALESCE((SELECT CASE kind WHEN 'workflow.contract_approved' THEN json_extract(payload,'$.contract_version') ELSE json_extract(payload,'$.new_contract_version') END
+ FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=x.work_id AND e.seq<x.exit_seq
+ AND e.kind IN ('workflow.contract_approved','workflow.contract_superseded') ORDER BY e.seq DESC LIMIT 1),0);
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

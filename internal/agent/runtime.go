@@ -228,7 +228,7 @@ type researchReadInput struct {
 type historyInput struct {
 	WorkID          string    `json:"work_id"`
 	Direction       string    `json:"direction"`
-	EventKinds      []string  `json:"event_kinds"`
+	RecordKinds     []string  `json:"record_kinds"`
 	ContractVersion int64     `json:"contract_version,omitempty"`
 	Page            pageInput `json:"page"`
 	Limit           int       `json:"limit,omitempty"`
@@ -1674,39 +1674,11 @@ func (r runtime) verdictFor(workID string) (*store.WorkflowReadVerdict, bool, er
 }
 
 func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
-	events := make([]map[string]any, 0, len(q.Events))
-	for _, e := range q.Events {
-		evidence := make([]map[string]any, 0, len(e.EvidenceRefs))
-		for _, ref := range e.EvidenceRefs {
-			evidence = append(evidence, map[string]any{"kind": "artifact", "authority": "product_memory", "locator_kind": "reference", "locator": ref})
-		}
-		// `reason` and `actor` are optional in work_event_page and carry a
-		// minimum length: an ordinary lifecycle event has neither, so the
-		// keys are omitted rather than emitted empty. A present-but-empty
-		// optional field fails the generated schema and refuses the whole
-		// page (issue #383).
-		event := map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "evidence": evidence}
-		if e.AttemptID != "" {
-			event["attempt_id"] = e.AttemptID
-		}
-		if e.Actor != "" {
-			event["actor"] = e.Actor
-		}
-		if e.Reason != "" {
-			event["reason"] = e.Reason
-		}
-		if e.ContractVersion != nil {
-			event["contract_version"] = *e.ContractVersion
-		}
-		if e.PreviousContractVersion != nil {
-			event["previous_contract_version"] = *e.PreviousContractVersion
-		}
-		if e.ConflictApplication != nil {
-			event["conflict_application"] = e.ConflictApplication
-		}
-		events = append(events, event)
+	entries := q.Entries
+	if entries == nil {
+		entries = []store.HistoryEntry{}
 	}
-	payload := map[string]any{"events": events}
+	payload := map[string]any{"entries": entries}
 	if q.Workflow != nil {
 		workflow, err := publishedWorkflowRead(q.Workflow)
 		if err != nil {

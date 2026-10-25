@@ -119,6 +119,9 @@ func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(q7CurrentMetadataFixtureReversal); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.Exec(`
 CREATE TEMP TABLE relation_positions_fixture AS SELECT event_id,relation_seq FROM effect_receipts WHERE relation_seq IS NOT NULL;
 DROP TABLE workflow_phase_exits;
@@ -165,6 +168,13 @@ ALTER TABLE effect_receipts ADD COLUMN relation_seq INTEGER;
 UPDATE effect_receipts AS r SET relation_seq=(SELECT p.relation_seq FROM temp.relation_positions_fixture p WHERE p.event_id=r.event_id);
 DROP TABLE temp.relation_positions_fixture;`); err != nil {
 		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		if m.Version == 150 {
+			if err := applyMigration(t.Context(), tx, m); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)

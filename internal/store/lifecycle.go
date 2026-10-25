@@ -255,9 +255,9 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
-		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?)`,
-		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent))
+		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json, transition_actor, transition_seq)
+		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?, ?, ?)`,
+		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent), event.Actor, event.Seq)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
@@ -972,10 +972,25 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 	if isTerminalLifecycle(lifecycle) {
 		terminalTime = now
 	}
+	var metadata struct {
+		Reason       string   `json:"reason"`
+		EvidenceRefs []string `json:"evidence_refs"`
+	}
+	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
+		return err
+	}
+	if metadata.EvidenceRefs == nil {
+		metadata.EvidenceRefs = []string{}
+	}
+	evidence, err := json.Marshal(metadata.EvidenceRefs)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_items
-		SET lifecycle = ?, version = ?, updated_at = ?, terminal_time = ?
-		WHERE id = ? AND version = ?`, lifecycle, resulting, now, terminalTime, event.SubjectID, current)
+		SET transition_from=lifecycle, transition_reason=?, transition_actor=?, transition_evidence_refs=?, transition_seq=?, transition_version=?,
+		lifecycle = ?, version = ?, updated_at = ?, terminal_time = ?
+		WHERE id = ? AND version = ?`, metadata.Reason, event.Actor, string(evidence), event.Seq, resulting, lifecycle, resulting, now, terminalTime, event.SubjectID, current)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update work item projection", true,
 			"retry once the database is writable", err)
@@ -1116,9 +1131,25 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if event.Kind == WorkflowOverlapResolved {
 		resolutionID = event.EventID
 	}
+	var metadata struct {
+		ResultingVersion int64  `json:"resulting_version"`
+		Reason           string `json:"reason"`
+	}
+	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
+		return err
+	}
+	if metadata.ResultingVersion == 0 && event.Kind == "work.created" {
+		metadata.ResultingVersion = 1
+	}
+	if metadata.ResultingVersion < 1 {
+		return newFailure(KindInvariantViolation, "fold_event", "relation effect has no work version", false, "supply the writing work version")
+	}
+	if payload.Reason == "" {
+		payload.Reason = metadata.Reason
+	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id)
-		VALUES (?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID)
+		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id, reason, record_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID, payload.Reason, metadata.ResultingVersion)
 	if err == nil {
 		return nil
 	}

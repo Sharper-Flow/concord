@@ -656,7 +656,7 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 	if err := ValidateOperationPayload("concord_work_transition", "lifecycle", []byte(`{"work_id":"w-1","expected_version":2,"target":"completed","reason":"done","idempotency_key":"idem-1","evidence":[{"kind":"artifact","authority":"test","locator_kind":"file","locator":"README.md","unknown":true}]}`), false); err == nil {
 		t.Fatal("unknown nested array property accepted")
 	}
-	if err := ValidateOperationPayload("concord_work_trace", "history", []byte(`{"events":[{"event_id":"event-1","kind":"work.created","version":"1","occurred_at":"2026-08-08T00:00:00Z","evidence":[{"kind":"artifact","authority":"test","locator_kind":"file","locator":"README.md","unknown":true}]}]}`), true); err == nil {
+	if err := ValidateOperationPayload("concord_work_trace", "history", []byte(`{"entries":[{"entry_id":"evidence_binding:one","entry_kind":"evidence_binding","version":1,"version_work_id":"work-1","position":{"effect_seq":1,"basis":"effect","unknown":true},"evidence_refs":["README.md"],"binding_id":"binding-1","evidence_kind":"artifact","immutable_subject_ref":"README.md","producer_id":"producer-1","producer_run_ref":"run-1","producer_watermark":"seq:1","observed_at":"2026-08-08T00:00:00Z"}]}`), true); err == nil {
 		t.Fatal("unknown deeply nested array property accepted")
 	}
 	if err := ValidateOperationPayload("concord_product_view", "resolve", []byte(`{"product_id":"p-1","unknown":true}`), false); err == nil {

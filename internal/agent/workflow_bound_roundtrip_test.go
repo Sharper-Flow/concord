@@ -115,16 +115,13 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 	}
 }
 
-// History renders a stored event's evidence_refs one entry per reference, so
-// its per-event evidence bound must admit the largest list any producer
-// stores there: a workflow action's evidence_refs field, or the input
-// evidence that revise and lifecycle transitions record.
+// Current lifecycle metadata preserves the transition's admitted evidence list.
 func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 	t.Parallel()
 	page := schemaDef(t, "work_event_page")
-	events, _ := page["properties"].(map[string]any)["events"].(map[string]any)
+	events, _ := page["properties"].(map[string]any)["entries"].(map[string]any)
 	event, _ := events["items"].(map[string]any)
-	evidence, _ := event["properties"].(map[string]any)["evidence"].(map[string]any)
+	evidence, _ := event["properties"].(map[string]any)["evidence_refs"].(map[string]any)
 	bound, ok := evidence["maxItems"].(float64)
 	if !ok {
 		// An uncapped read admits every stored list; the output bound
@@ -169,10 +166,8 @@ func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 	}
 }
 
-// A context checkpoint admits up to 64 evidence references. Each one reaches
-// the history page as one evidence entry, and the page must satisfy its
-// published schema with every reference in order, even at limit 1.
-func TestCheckpointEvidenceRoundTripsThroughHistory(t *testing.T) {
+// CD-0242 D2 retires checkpoint traces; current proof receipts remain readable.
+func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 	t.Parallel()
 	for _, count := range []int{32, 33, 64} {
 		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
@@ -184,11 +179,9 @@ func TestCheckpointEvidenceRoundTripsThroughHistory(t *testing.T) {
 				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)
 				refs[i] = prefix + strings.Repeat("e", 128-len(prefix))
 			}
-			engine("checkpoint_context", map[string]any{
-				"active_unit": "history evidence", "hypothesis": "every admitted reference is readable", "diagnosis": "the page bound follows admission", "strategy": "read the checkpoint back",
-				"touched_refs": []string{"internal/agent/runtime.go"}, "evidence_refs": refs,
-				"pending_questions": []string{}, "pending_decisions": []string{},
-			})
+			for _, ref := range refs {
+				engine("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": ref})
+			}
 			grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 			if err != nil {
 				t.Fatal(err)
@@ -197,29 +190,35 @@ func TestCheckpointEvidenceRoundTripsThroughHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","event_kinds":["workflow.context_checkpointed"],"limit":1}`)}, mutationEnvelope(grant, scopeVersion))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if response.Outcome != OutcomeOK {
-				t.Fatalf("history with a %d-reference checkpoint refused: %+v", count, response.Error)
-			}
-			var page struct {
-				Events []struct {
-					Evidence []struct {
-						Locator string `json:"locator"`
-					} `json:"evidence"`
-				} `json:"events"`
-			}
-			if err := json.Unmarshal(response.Result, &page); err != nil {
-				t.Fatal(err)
-			}
-			if len(page.Events) != 1 {
-				t.Fatalf("events = %d, want the one checkpoint", len(page.Events))
-			}
-			got := make([]string, 0, len(page.Events[0].Evidence))
-			for _, entry := range page.Events[0].Evidence {
-				got = append(got, entry.Locator)
+			got := make([]string, 0, count)
+			input := map[string]any{"work_id": "work-1", "record_kinds": []string{"evidence_binding"}, "limit": 10}
+			for len(got) <= count {
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, mutationEnvelope(grant, scopeVersion))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if response.Outcome != OutcomeOK {
+					t.Fatalf("history receipt page refused: %+v", response.Error)
+				}
+				var page struct {
+					Entries []struct {
+						EvidenceRefs []string `json:"evidence_refs"`
+					} `json:"entries"`
+				}
+				if err := json.Unmarshal(response.Result, &page); err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range page.Entries {
+					got = append(got, entry.EvidenceRefs...)
+				}
+				if response.NextCursor == nil {
+					break
+				}
+				input["page"] = map[string]any{"cursor": *response.NextCursor}
 			}
 			if !reflect.DeepEqual(got, refs) {
 				t.Fatalf("history evidence = %d entries, want all %d checkpoint references in order", len(got), count)

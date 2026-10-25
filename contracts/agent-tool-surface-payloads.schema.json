@@ -2545,15 +2545,15 @@
         "direction": {
           "$ref": "#/$defs/direction"
         },
-        "event_kinds": {
+        "record_kinds": {
           "type": "array",
-          "maxItems": 32,
+          "maxItems": 4,
           "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/short",
-            "description": "Bounds: 1..256 code points inclusive"
+            "type": "string",
+            "enum": ["lifecycle", "relation", "phase_exit", "evidence_binding"]
           },
-          "description": "Bounds: <=32 items inclusive"
+          "description": "Select current retained record categories, not historical event kinds. Bounds: <=4 items inclusive"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -5081,116 +5081,74 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "events"
+        "entries"
       ],
       "properties": {
-        "events": {
+        "entries": {
           "type": "array",
           "maxItems": 100,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "event_id",
-              "kind",
+              "entry_id",
+              "entry_kind",
+              "position",
               "version",
-              "occurred_at"
+              "version_work_id",
+              "evidence_refs"
             ],
             "properties": {
-              "event_id": {
-                "$ref": "#/$defs/id"
+              "entry_id": {
+                "type": "string", "minLength": 1
               },
-              "kind": {
-                "$ref": "#/$defs/short"
+              "entry_kind": {
+                "type": "string", "enum": ["lifecycle", "relation", "phase_exit", "evidence_binding"]
               },
-              "attempt_id": {
-                "type": "string",
-                "minLength": 1
+              "position": {
+                "type": "object", "additionalProperties": false,
+                "required": ["effect_seq", "basis"],
+                "properties": {
+                  "effect_seq": {"type": "integer", "minimum": 1},
+                  "basis": {"const": "effect"}
+                }
               },
               "version": {
-                "$ref": "#/$defs/version"
+                "$ref": "#/$defs/version",
+                "description": "The work version written by the retained effect, qualified by version_work_id; never a page index."
               },
-              "occurred_at": {
-                "type": "string",
-                "maxLength": 64
-              },
-              "actor": {
-                "$ref": "#/$defs/id"
-              },
-              "reason": {
-                "$ref": "#/$defs/short"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/evidence"
-                }
-              },
-              "contract_version": {
-                "$ref": "#/$defs/version"
-              },
-              "previous_contract_version": {
-                "$ref": "#/$defs/version"
-              },
-              "conflict_application": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "rule_id",
-                  "rule_source_hash",
-                  "catalog_generation",
-                  "size_assessment_sequence",
-                  "model_version",
-                  "size",
-                  "outcome",
-                  "settlement_ref"
-                ],
-                "properties": {
-                  "rule_id": {
-                    "type": "string",
-                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-                  },
-                  "rule_source_hash": {
-                    "type": "string",
-                    "pattern": "^sha256:[0-9a-f]{64}$"
-                  },
-                  "catalog_generation": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "size_assessment_sequence": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "model_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "size": {
-                    "type": "string",
-                    "enum": [
-                      "small",
-                      "larger",
-                      "crucial"
-                    ]
-                  },
-                  "outcome": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096,
-                    "pattern": "\\S",
-                    "x-maxBytes": 4096
-                  },
-                  "settlement_ref": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 256,
-                    "pattern": "\\S",
-                    "x-maxBytes": 256
-                  }
-                }
-              }
-            }
+              "version_work_id": {"$ref": "#/$defs/id"},
+              "actor": {"$ref": "#/$defs/id"},
+              "reason": {"type": "string", "minLength": 1},
+              "evidence_refs": {"type": "array", "items": {"type": "string"}},
+              "lifecycle": {"$ref": "#/$defs/lifecycle"},
+              "from": {"$ref": "#/$defs/lifecycle"},
+              "work_id_from": {"$ref": "#/$defs/id"},
+              "work_id_to": {"$ref": "#/$defs/id"},
+              "relation_kind": {"$ref": "#/$defs/short"},
+              "created_at": {"type": "string", "maxLength": 64},
+              "resolution_id": {"$ref": "#/$defs/id"},
+              "action_id": {"$ref": "#/$defs/id"},
+              "step_id": {"$ref": "#/$defs/id"},
+              "contract_version": {"$ref": "#/$defs/version"},
+              "binding_id": {"$ref": "#/$defs/id"},
+              "evidence_kind": {"$ref": "#/$defs/evidence_kind"},
+              "immutable_subject_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+              "producer_id": {"$ref": "#/$defs/id"},
+              "producer_run_ref": {"$ref": "#/$defs/id"},
+              "producer_watermark": {"$ref": "#/$defs/id"},
+              "observed_at": {"type": "string", "minLength": 1}
+            },
+            "oneOf": [
+              {"properties": {"entry_kind": {"const": "lifecycle"}}, "required": ["lifecycle"],
+                "not": {"anyOf": [{"required": ["work_id_from"]}, {"required": ["work_id_to"]}, {"required": ["relation_kind"]}, {"required": ["created_at"]}, {"required": ["resolution_id"]}, {"required": ["action_id"]}, {"required": ["step_id"]}, {"required": ["contract_version"]}, {"required": ["binding_id"]}, {"required": ["evidence_kind"]}, {"required": ["immutable_subject_ref"]}, {"required": ["producer_id"]}, {"required": ["producer_run_ref"]}, {"required": ["producer_watermark"]}, {"required": ["observed_at"]}]}},
+              {"properties": {"entry_kind": {"const": "relation"}}, "required": ["work_id_from", "work_id_to", "relation_kind", "created_at"],
+                "not": {"anyOf": [{"required": ["lifecycle"]}, {"required": ["from"]}, {"required": ["action_id"]}, {"required": ["step_id"]}, {"required": ["contract_version"]}, {"required": ["binding_id"]}, {"required": ["evidence_kind"]}, {"required": ["immutable_subject_ref"]}, {"required": ["producer_id"]}, {"required": ["producer_run_ref"]}, {"required": ["producer_watermark"]}, {"required": ["observed_at"]}]}},
+              {"properties": {"entry_kind": {"const": "phase_exit"}}, "required": ["action_id", "step_id"],
+                "not": {"anyOf": [{"required": ["lifecycle"]}, {"required": ["from"]}, {"required": ["work_id_from"]}, {"required": ["work_id_to"]}, {"required": ["relation_kind"]}, {"required": ["created_at"]}, {"required": ["resolution_id"]}, {"required": ["binding_id"]}, {"required": ["evidence_kind"]}, {"required": ["immutable_subject_ref"]}, {"required": ["producer_id"]}, {"required": ["producer_run_ref"]}, {"required": ["producer_watermark"]}, {"required": ["observed_at"]}]}},
+              {"properties": {"entry_kind": {"const": "evidence_binding"}}, "required": ["binding_id", "evidence_kind", "immutable_subject_ref", "producer_id", "producer_run_ref", "producer_watermark", "observed_at"],
+                "not": {"anyOf": [{"required": ["lifecycle"]}, {"required": ["from"]}, {"required": ["work_id_from"]}, {"required": ["work_id_to"]}, {"required": ["relation_kind"]}, {"required": ["created_at"]}, {"required": ["resolution_id"]}, {"required": ["action_id"]}, {"required": ["step_id"]}, {"required": ["contract_version"]}]}}
+            ]
           }
         },
         "next_cursor": {

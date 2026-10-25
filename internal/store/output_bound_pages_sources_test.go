@@ -1221,18 +1221,14 @@ func init() {
 	))
 	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"))
 
-	// The timeline fold copies the payload's evidence_refs verbatim and no
-	// store fold guards the count; the workflow action input admission bounds
-	// the agent surface only, and the correction paths append input unions.
-	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/evidence/maxItems", unboundedOutput("internal/store/query.go:decodeTimelineEvent copies the payload evidence_refs verbatim and no store fold guards the count; the correction record path appends field unions (internal/store/workflow_correction.go), so the stored evidence list is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
-	// decodeTimelineEvent refuses a conflict application that fails the frozen
-	// v1 validator, so its byte guards bound the history output.
-	for _, unit := range []string{"maxLength", "x-maxBytes"} {
-		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/outcome/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.Outcome)", boundBytes))
-		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/settlement_ref/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.SettlementRef)", boundBytes))
-	}
-	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/occurred_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendPreparedEvent", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_event_page/properties/events/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
+	// CD-0242 D2 retires the event trace and frozen conflict payload. Current
+	// transition refs and proof observations keep their producer's actual bounds.
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/immutable_subject_ref/maxLength", goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/created_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "insertRelation", "time.RFC3339Nano"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
 	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/body/maxLength", goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes))
 	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/message_id/maxLength", goPatternBound("internal/store/work_messages.go", "messageIDPattern"))

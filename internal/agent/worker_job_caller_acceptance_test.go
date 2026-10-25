@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,8 @@ import (
 // dispatched subject and the delivered commit, and every path outside the
 // job's path scope needs an evidenced repair under the recorded allowance
 // that no other work item owns.
+// The lookup change exceeds the retired fixture's 400-line production cap;
+// CD-0242 D6 keeps this coherent assignment intact without a split ritual.
 func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 	for _, scenario := range []string{"contained", "missing repair", "wrong owner", "foreign owner"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -132,19 +136,33 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			write("owner/value.go", "package owner\nfunc Value(_ string) int { return 7 }\n")
+			var lookup strings.Builder
+			lookup.WriteString("package owner\nfunc Value(key string) int {\nswitch key {\n")
+			for i := range 501 {
+				fmt.Fprintf(&lookup, "case %q:\nreturn %d\n", strconv.Itoa(i), i)
+			}
+			lookup.WriteString("default:\nreturn 7\n}\n}\n")
+			write("owner/value.go", lookup.String())
 			ownerOnly, err := run("go", "test", "./...")
 			if err == nil || !strings.Contains(ownerOnly, "not enough arguments in call to owner.Value") {
 				t.Fatalf("owner-only check = %v\n%s, want the direct caller's compile failure", err, ownerOnly)
 			}
 			write("caller/use.go", "package caller\nimport \"example.invalid/caller/owner\"\nfunc Use() int { return owner.Value(\"caller\") }\n")
-			write("caller/use_test.go", "package caller\nimport \"testing\"\nfunc TestUse(t *testing.T) { if Use() != 7 { t.Fatal(\"wrong value\") } }\n")
+			write("caller/use_test.go", "package caller\nimport (\"testing\"; \"strconv\"; \"example.invalid/caller/owner\")\nfunc TestUse(t *testing.T) { if Use() != 7 { t.Fatal(\"wrong value\") }; for i := range 501 { if got := owner.Value(strconv.Itoa(i)); got != i { t.Fatalf(\"lookup %d = %d\", i, got) } } }\n")
 			combined, err := run("go", "test", "./...")
 			if err != nil {
 				t.Fatalf("combined check: %v\n%s", err, combined)
 			}
 			mustGit("add", ".")
 			mustGit("commit", "-m", "change the owner and its direct caller")
+			stat := strings.Fields(mustGit("diff", "--numstat", "HEAD^", "HEAD", "--", "owner/value.go"))
+			if len(stat) != 3 {
+				t.Fatalf("production diff is not one text file: %v", stat)
+			}
+			added, err := strconv.Atoi(stat[0])
+			if err != nil || added <= 400 {
+				t.Fatalf("production chunk is not above the retired cap: %v (%v)", stat, err)
+			}
 			repair := store.WorkerDirectCallerRepair{
 				Owner: store.WorkerCallerMechanism{Path: "owner/value.go", EntryPoint: "Value"}, Caller: store.WorkerCallerMechanism{Path: "caller/use.go", EntryPoint: "Use"},
 				Edge: "Use invokes Value", Exposing: "go test ./... on the owner-only change", ChangedPaths: []string{"caller/use.go", "caller/use_test.go"},
@@ -181,6 +199,10 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			if scenario == "contained" {
 				if out.Outcome != OutcomeOK {
 					t.Fatalf("contained caller acceptance: %+v", out.Error)
+				}
+				var revisions int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_job_revisions WHERE work_id='work-1'`).Scan(&revisions); err != nil || revisions != 1 {
+					t.Fatalf("above-cap acceptance needed another assignment: revisions=%d err=%v", revisions, err)
 				}
 			} else {
 				want := map[string]string{

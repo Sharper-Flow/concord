@@ -292,6 +292,9 @@ func workflowAcceptedResultCandidate(ctx context.Context, q queryer, workID stri
 		candidate := result.Review.OutputCandidate
 		return &candidate, nil
 	}
+	if base, err := workflowMemberResultBase(ctx, q, workID, auth); err != nil || base != nil {
+		return nil, err
+	}
 	if delivery := result.ObservedDelivery; delivery != nil && delivery.State == "clean" {
 		project := ""
 		if auth.WorkerJob != nil {

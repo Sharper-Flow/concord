@@ -65,6 +65,7 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
 		t.Fatalf("create worktree: %v", err)
 	}
+	seedGitFixtureWorktree(t, worktreeDir)
 	worktreePath, err := filepath.EvalSymlinks(worktreeDir)
 	if err != nil {
 		t.Fatalf("resolve worktree: %v", err)

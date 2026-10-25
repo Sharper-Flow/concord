@@ -1,46 +1,39 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 )
 
-// A clean first result at its dispatch commit must prove the job's declared
-// outcome already holds; editing capability alone does not require an edit.
-// Later attempts may deliver a retained draft from an earlier failed attempt;
-// without a recorded job base, commit equality cannot judge those corrections.
+// A delivery unchanged from the job's base must prove its declared outcome.
+// Review dispositions use their own acceptance rules instead of claiming delivery.
 func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[string]json.RawMessage) error {
 	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 	var raw []byte
 	err := g.tx.QueryRowContext(g.ctx, `SELECT terminal_payload FROM worker_attempts
 		WHERE work_id=? AND terminal_kind=? AND attempt_id=?
-		AND capability_class='implementation' AND lifecycle_state='completed'`, g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
+		AND lifecycle_state='completed'`, g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
-		return workflowProjectionError(err, "cannot read the completed editing result")
+		return workflowProjectionError(err, "cannot read the completed worker result")
 	}
 	var completed WorkerCompletedPayload
 	if err := json.Unmarshal(raw, &completed); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "reconcile the invalid retained worker terminal fact before retrying")
+		return newFailure(KindInvariantViolation, "workflow_action", "the completed worker result is malformed", false, "reconcile the invalid retained worker terminal fact before retrying")
 	}
-	if completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
+	if completed.Review != nil || completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
 		return nil
 	}
-	window, err := findAuthorizedDispatchWindowCore(g.ctx, g.tx, g.request.WorkID, attemptID)
+	var base string
+	err = g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(payload,'$.worker_subject_commit'),'')
+		FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_job.job_id')=?
+		ORDER BY seq LIMIT 1`, g.request.WorkID, completed.WorkerJob.JobID).Scan(&base)
 	if err != nil {
-		return err
+		return workflowProjectionError(err, "cannot read the job's base subject")
 	}
-	if window.SubjectCommit == "" || window.SubjectCommit != completed.ObservedDelivery.Commit {
-		return nil
-	}
-	firstAttempt, err := firstWorkerEditingJobAttemptTx(g.ctx, g.tx, g.request.WorkID, completed.WorkerJob.JobID)
-	if err != nil {
-		return workflowProjectionError(err, "cannot read the editing job's first authorization")
-	}
-	if firstAttempt != attemptID {
+	if base == "" || base != completed.ObservedDelivery.Commit {
 		return nil
 	}
 	oracles, err := readWorkerJobOraclesTx(g.ctx, g.tx, g.request.WorkID)
@@ -55,15 +48,6 @@ func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[st
 	}
 	return newFailure(KindInvalidOperation, "workflow_action", "accept_worker_result: the job has no changed paths and lacks fresh passing evidence that its declared outcome already holds", false,
 		"bind_evidence for each independently executed control run and retry; otherwise reject_worker_result and dispatch a correction whose report proves every declared job control passes on the unchanged subject, or that delivers the outcome a failing control shows unmet; no edit is required when the outcome already holds")
-}
-
-func firstWorkerEditingJobAttemptTx(ctx context.Context, q queryer, workID, jobID string) (string, error) {
-	var attempt string
-	err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_authorizations r
-		JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id
-		WHERE r.work_id=? AND json_extract(r.payload,'$.worker_job.job_id')=? AND a.capability_class='implementation'
-		ORDER BY r.seq LIMIT 1`, workID, jobID).Scan(&attempt)
-	return attempt, err
 }
 
 func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerCompletedPayload, oracle *AcceptanceOracle) (bool, error) {

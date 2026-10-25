@@ -5,7 +5,7 @@ import { delimiter, join } from "node:path"
 import { createInterface } from "node:readline"
 import { Readable } from "node:stream"
 import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
-import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest, work_transition } from "./concord"
+import { configureConcordAdapter, executeBoundWorkerControl, invokeConcordOperation, laneDispatchRequest, work_transition } from "./concord"
 import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
 
 // The route test drives the real core through its own runner, so argv[0] is
@@ -22,6 +22,8 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
+import { createWorkerCapabilityGuard } from "./lane_capabilities"
+import { workerCheckTool } from "./worker_control"
 import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, workerEffects, type JSONRecord } from "./end-to-end.fixture"
 
 const PRODUCT_ID = "product-e2e"
@@ -815,7 +817,7 @@ routeDeclaration("composes implementation and independent review through one ord
         return runFixtureProcess([binary, ...argv.slice(1)], input, { env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal })
       },
     }
-    configureConcordAdapter({ runner: realRunner })
+    configureConcordAdapter({ runner: realRunner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
 
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => {
       if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") expect(sessionDirectory).toBe(worktree)
@@ -888,6 +890,15 @@ routeDeclaration("composes implementation and independent review through one ord
     const dispatchEvent = dbRows(dbPath, `SELECT payload FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${packet.attempt_id}'`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([predicate.predicate_id])
     const report = routeWorkerReport(lane, packet, subjectCommit)
+    const control = packet.inputs.worker_job.acceptance_oracle.controls[0]
+    const childCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: implementation.windows }), executeBoundWorkerControl)
+    const execution = JSON.parse(await childCheck.execute({ control_id: control.control_id }, contextFor(worktree, implementation.workerSessionID))) as JSONRecord
+    expect(execution.oracle.qualification).toBe("pass")
+    expect(execution.oracle.subject_commit).toBe(subjectCommit)
+    report.evidence[0].oracle_receipt = {
+      control_ids: [control.control_id], case_ids: control.case_ids, recipe_source: control.recipe_source,
+      result: "pass", exit_code: execution.exit_code, run_ref: execution.operation_ref, evidence_refs: [],
+    }
     const implementationReceipt = await completeRouteTask(implementation, report, realRunner, binary)
     expect(implementationReceipt.outcome).toBe("ok")
     const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)

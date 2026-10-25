@@ -87,7 +87,7 @@ type WorkerJobRecordedPayload struct {
 	// (CD-0227 D1 as amended): a caller-capable definition records it
 	// beside the explicit path scope.
 	ProductionSizeMax     *int64                    `json:"production_size_max,omitempty"`
-	MeasurementBasis      json.RawMessage           `json:"measurement_basis,omitempty"`
+	MeasurementBasis      *retiredMeasurementBasis  `json:"measurement_basis,omitempty"`
 	DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
 	// ChecksRepair is the core-derived checks repair metadata (CD-0205 D4):
 	// the stated reason and, for every named unresolved revision, its
@@ -98,6 +98,18 @@ type WorkerJobRecordedPayload struct {
 	// one serializes byte-identically and keeps its digest.
 	ChecksRepair *WorkerJobChecksRepair `json:"checks_repair,omitempty"`
 	Digest       string                 `json:"digest"`
+}
+
+// retiredMeasurementBasis decodes the size inventory a v1 revision may carry
+// (CD-0242 D6). Its field order is the order the recorded digest was derived
+// with, so the digest of that revision still re-derives.
+type retiredMeasurementBasis struct {
+	BaseCommit string `json:"base_commit"`
+	Paths      []struct {
+		Path         string `json:"path"`
+		Class        string `json:"class"`
+		GeneratorRef string `json:"generator_ref,omitempty"`
+	} `json:"paths"`
 }
 
 // DeriveWorkerJobDigest derives the canonical content digest of one worker-job
@@ -124,7 +136,7 @@ func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 		Readiness             *WorkerJobReadiness       `json:"readiness,omitempty"`
 		AcceptanceOracle      *AcceptanceOracle         `json:"acceptance_oracle,omitempty"`
 		ProductionSizeMax     *int64                    `json:"production_size_max,omitempty"`
-		MeasurementBasis      json.RawMessage           `json:"measurement_basis,omitempty"`
+		MeasurementBasis      *retiredMeasurementBasis  `json:"measurement_basis,omitempty"`
 		DirectCallerAllowance *WorkerJobCallerAllowance `json:"direct_caller_allowance,omitempty"`
 		ChecksRepair          *WorkerJobChecksRepair    `json:"checks_repair,omitempty"`
 	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle, payload.ProductionSizeMax, payload.MeasurementBasis, payload.DirectCallerAllowance, payload.ChecksRepair}
@@ -212,7 +224,7 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	// The retired size members decode history but record nothing new
 	// (CD-0242 D6). A live recording is payload version 2; a replayed v1
 	// revision keeps the members it may carry.
-	if payload.ProductionSizeMax != nil || len(payload.MeasurementBasis) != 0 {
+	if payload.ProductionSizeMax != nil || payload.MeasurementBasis != nil {
 		return invalidWorkerPayload("worker.job_recorded production_size_max and measurement_basis are retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies")
 	}
 	// The oracle graph is re-proved from the payload's own retained content:

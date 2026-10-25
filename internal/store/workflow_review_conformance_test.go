@@ -33,7 +33,7 @@ func TestDeliveryGateCorrectionAdmitsInapplicableReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID, 0)
+	loaded, err := loadWorkflowReviewState(ctx, f.store.db, f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}

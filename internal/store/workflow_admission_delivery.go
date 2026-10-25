@@ -222,7 +222,7 @@ func workflowCandidateVerificationRun(ctx context.Context, q queryer, workID, re
 	}
 	// Only an actual producer needs singular Review dependencies. Inapplicable
 	// delivery and refs without a producer must leave recovery readable.
-	review, err := loadWorkflowReviewState(ctx, q, workID, 0)
+	review, err := loadWorkflowReviewState(ctx, q, workID)
 	if err != nil {
 		return nil, "", "", err
 	}

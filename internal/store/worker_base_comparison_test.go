@@ -136,6 +136,7 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "base-comparison-shape-attempt"
+			seedWork(t, s, "base-comparison-shape")
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}

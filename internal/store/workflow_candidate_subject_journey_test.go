@@ -534,7 +534,7 @@ func (j *candidateAtVerify) reclaimWorktree(t *testing.T) {
 // attempt and the integrated candidate to be the named commit.
 func (j *candidateJourney) requireAcceptedReview(t *testing.T, attemptID, candidate string) {
 	t.Helper()
-	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID, 0)
+	state, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 	j := journeyWithIntegratedB(t, "candidate-corrective-b")
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
-	review, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID, 0)
+	review, err := loadWorkflowReviewState(t.Context(), j.s.db, j.workID)
 	if err != nil || review.Accepted == nil || review.Candidate == nil || review.Candidate.Commit != j.b || review.Accepted.Report.InputCandidate.Commit != j.b {
 		t.Fatalf("correction Review over B: %+v err=%v", review, err)
 	}

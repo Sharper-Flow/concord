@@ -111,7 +111,7 @@ func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID
 // Only the current accepted report contributes readiness. Finishing an older
 // report later does not replace that report or its integrated candidate.
 func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID string) error {
-	state, err := loadWorkflowReviewState(ctx, q, workID, 0)
+	state, err := loadWorkflowReviewState(ctx, q, workID)
 	if err != nil {
 		return err
 	}

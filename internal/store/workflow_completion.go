@@ -115,7 +115,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	if workflowDefinitionProducesDelivery(definition) {
-		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, 0)
+		review, err := loadWorkflowReviewState(ctx, tx, event.SubjectID)
 		if err != nil {
 			return err
 		}

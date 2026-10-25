@@ -1016,7 +1016,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // a nil registry selects the builtin registry.
 func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowCorrectionReturnTarget(definition, currentStep) != "" {
-		review, err := loadWorkflowReviewState(ctx, q, workID, excludeSeq)
+		review, err := loadWorkflowReviewState(ctx, q, workID)
 		if err != nil {
 			return nil, workflowCorrectionMissingNone, err
 		}
@@ -1207,6 +1207,12 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 	if err != nil {
 		return nil, err
 	}
+	return workflowCorrectionContextForRecord(ctx, q, workID, stepID, record)
+}
+
+// A selected correction record owns both provenance and validation. Consumers
+// that already selected it must not reselect or skip malformed-attempt errors.
+func workflowCorrectionContextForRecord(ctx context.Context, q queryer, workID, stepID string, record *workflowCorrectionRecordState) (*WorkflowCorrectionContext, error) {
 	if record == nil {
 		return nil, nil
 	}

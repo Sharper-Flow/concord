@@ -11,6 +11,9 @@ transcript of commands and status changes. Do not mirror routine progress in
 chat, receipts, and planning comments. Required workflow transitions and planning
 state changes still belong in their owning systems.
 
+List every law change in the pull request and completion report with its record,
+its change in meaning or an explicit statement of none, and its reason.
+
 ## State the problem and the end state
 
 Every Linear issue you create or rewrite, and every work item you capture,

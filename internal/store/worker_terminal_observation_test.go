@@ -197,7 +197,7 @@ func seedGitClaimRepo(t *testing.T, s *Store, workID string) {
 func rawTerminalFrontier(t *testing.T, s *Store, eventID string) (int64, bool) {
 	t.Helper()
 	var frontier sql.NullInt64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.consumed_context_frontier') FROM domain_events WHERE event_id=?`, eventID).Scan(&frontier); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(terminal_payload,'$.consumed_context_frontier') FROM worker_attempts WHERE terminal_event_id=?`, eventID).Scan(&frontier); err != nil {
 		t.Fatalf("read terminal event %s: %v", eventID, err)
 	}
 	return frontier.Int64, frontier.Valid

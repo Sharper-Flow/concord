@@ -11,22 +11,23 @@ import (
 )
 
 func TestOwnerOracleProducerAuthority(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
-	claimFixtureWorktree(t, s, git)
+	f := oracleProducerAuthorityFixture(t)
+	s, git := f.store, f.git
 	ctx := context.Background()
 	command := oracleGoArgv("immutability")
-	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-authority", command, func(context.Context, string, []string, int) (int, []byte, bool, error) {
+	req := verifyRequest(git, "oracle-authority", command, func(context.Context, string, []string, int) (int, []byte, bool, error) {
 		return 0, []byte("bounded output"), true, nil
-	}))
+	})
+	req.ProjectID = "project"
+	result, err := s.VerifyWorktree(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	oracle := testOracleGraph()
-	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
 	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
 	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
-		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
+		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
 		Result:       OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef}
 	validate := func(r WorkerOracleReceipt) error {
 		return s.Transact(ctx, func(tx *Transaction) error {
@@ -55,19 +56,20 @@ func TestOwnerOracleProducerAuthority(t *testing.T) {
 }
 
 func TestOwnerOracleResolutionAuthority(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
-	claimFixtureWorktree(t, s, git)
+	f := oracleProducerAuthorityFixture(t)
+	s, git := f.store, f.git
 	ctx := context.Background()
-	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-closure", oracleGoArgv("immutability"), func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }))
+	req := verifyRequest(git, "oracle-closure", oracleGoArgv("immutability"), func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.ProjectID = "project"
+	result, err := s.VerifyWorktree(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	oracle := testOracleGraph()
-	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
 	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
 	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
-		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef}
+		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef}
 	finding := &WorkerOpenOracleFinding{FindingID: "finding:1:0", OwnerID: "owner:entry", Classification: OracleClassificationDeliveryBlocker, ControlIDs: []string{"control:immutable"}}
 	validate := func(refs []string, receipts []WorkerOracleReceipt) error {
 		return s.Transact(ctx, func(tx *Transaction) error {
@@ -77,7 +79,9 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt}); err != nil {
 		t.Errorf("matched current control closure refused: %v", err)
 	}
-	failed, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-later-fail", result.Command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 1, nil, false, nil }))
+	failReq := verifyRequest(git, "oracle-later-fail", result.Command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 1, nil, false, nil })
+	failReq.ProjectID = "project"
+	failed, err := s.VerifyWorktree(ctx, failReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,13 +101,7 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 		t.Error("old subject closed current finding")
 	}
 	// A retained evidence binding alone carries no control execution.
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, err := tx.tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('unrelated-bound',?,'work_item','work-w','actor:other','2026-10-09T00:00:00Z',1,?)`, WorkflowEvidenceBound, `{"immutable_subject_ref":"evidence:unrelated"}`)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := validate([]string{"evidence:unrelated"}, nil); err == nil {
+	if err := validate([]string{"evidence:return-route-verification"}, nil); err == nil {
 		t.Error("unrelated bound evidence closed finding")
 	}
 	finding.ControlIDs = []string{"control:immutable", "control:bind"}
@@ -113,7 +111,7 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 	finding.ControlIDs = nil
 	finding.Classification = OracleClassificationUncoveredCase
 	finding.Tie = &WorkerOracleFinding{EntryPoint: "unlisted path"}
-	if err := validate([]string{"evidence:unrelated"}, nil); err == nil {
+	if err := validate([]string{"evidence:return-route-verification"}, nil); err == nil {
 		t.Error("uncovered entry path closed without inventory or reproduction")
 	}
 }
@@ -186,11 +184,13 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 }
 
 func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
-	claimFixtureWorktree(t, s, git)
+	f := oracleProducerAuthorityFixture(t)
+	s, git := f.store, f.git
 	ctx := context.Background()
 	command := oracleGoArgv("immutability")
-	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-native-command", command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }))
+	req := verifyRequest(git, "oracle-native-command", command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.ProjectID = "project"
+	result, err := s.VerifyWorktree(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,11 +204,10 @@ func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	oracle := testOracleGraph()
-	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
 	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
 	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
-		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: "run:matched"}
+		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: "run:matched"}
 	validate := func() error {
 		return s.Transact(ctx, func(tx *Transaction) error {
 			_, err := workerOracleReceiptProducerTx(ctx, tx.tx, "work-w", &receipt, oracle, strings.TrimPrefix(result.SubjectRef, "commit:"))
@@ -230,9 +229,22 @@ func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
 	if err := validate(); err != nil {
 		t.Fatalf("matched native producer refused: %v", err)
 	}
-	if _, err := s.db.Exec(`UPDATE durable_operations SET result_payload='{}' WHERE op_id=?`, result.OperationRef); err != nil {
+	missing, err := buildNativeRunEvent("oracle-native-missing-producer", "work-w", actor, time.Unix(42, 0).UTC(), readWorkVersion(t, s, "work-w"), "health", "run:missing-producer", result.SubjectRef, "healthy", "worktree_verify:missing-producer", "sha256:"+strings.Repeat("b", 64), time.Unix(42, 0).UTC().Format(time.RFC3339Nano))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{missing}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT observation_id FROM workflow_native_runs WHERE work_id='work-w' AND run_id='run:missing-producer'`).Scan(&observation); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return AppendExternalObservationVerificationTx(ctx, tx, "work-w", "principal-1", time.Unix(43, 0).UTC(), ExternalObservationVerification{ObservationID: observation, VerificationMethod: VerifyTrustedClientReport, VerifiedAt: time.Unix(43, 0).UTC().Format(time.RFC3339Nano), VerifyingAuthorityRef: "client:verifier", Result: VerificationMatched})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	receipt.RunRef = "run:missing-producer"
 	if err := validate(); err == nil {
 		t.Fatal("native binding lost its command producer but still proved pass")
 	}
@@ -261,7 +273,7 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	command := oracleGoArgv("path-b")
 	// First execute as the dispatched lane itself and bind the real producer.
 	var laneActor string
-	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, second).Scan(&laneActor); err != nil {
+	if err := s.db.QueryRow(`SELECT json_extract(dispatch_payload,'$.lane_actor_ref') FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, second).Scan(&laneActor); err != nil {
 		t.Fatal(err)
 	}
 	var worker WorkflowActor
@@ -405,6 +417,16 @@ type oracleRepairFixture struct {
 	acceptor WorkflowActor
 	git      *fakeWorktreeGit
 	entry    WorktreeEntry
+}
+
+func oracleProducerAuthorityFixture(t *testing.T) oracleRepairFixture {
+	t.Helper()
+	var predicates []map[string]any
+	for _, id := range []string{"predicate:one", "predicate:two"} {
+		predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": len(predicates), "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:producer", "immutable_subject_ref": "commit:producer", "expected_result": "pass"}})
+	}
+	seed := seedWorkflowReturnRouteFixtureWithDefinition(t, "work-w", legacyApprovalPolicyDefinitionForRef(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"}, predicates...)
+	return oracleRepairFixtureFrom(t, "work-w", seed)
 }
 
 func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
@@ -583,7 +605,12 @@ func recordOracleJobRevisionWith(t *testing.T, s *Store, workID string, actor Wo
 	for name, value := range overrides {
 		fields[name] = value
 	}
-	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
+	key := "oracle-job-" + workID + "-" + itoa(int(readWorkVersion(t, s, workID)))
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_worker_job", Payload: mustJSONValue(fields),
+		Actor: actor, AcceptedInputsDigest: nativeDigest(mustJSONValue(fields)), IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+	}); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
 	}
 	views, err := readWorkerJobRevisions(context.Background(), s.db, workID)
@@ -602,9 +629,8 @@ func recordOracleJobRevisionWith(t *testing.T, s *Store, workID string, actor Wo
 	return binding
 }
 
-// oracleDispatchAttempt isolates the fold joins through a recorded dispatch
-// authorization and worker evidence. TestOwnerOracleRealPacketAcceptance owns
-// the acceptance proof through the actual generated-packet preflight route.
+// oracleDispatchAttempt authorizes the exact job-bearing packet through the
+// public workflow boundary, then records its lane-actor dispatch.
 func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptID string, oracle map[string]any, job *WorkerJobBinding) {
 	t.Helper()
 	s := f.store
@@ -613,47 +639,16 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 		*job = binding
 	}
 	lane := reviewGateLane(t, "implementation")
-	actorRef, err := WorkflowActorRef(f.worker)
+	packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Digest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, lane.ID)
+	correction, err := workflowCorrectionContextForDispatch(context.Background(), s.db, workID, "repair", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	version := readWorkVersion(t, s, workID)
-	epoch := latestStepStartEpoch(t, s, workID, "repair") + 1
-	// The dispatch authorization names the attempt's original Project claim,
-	// so completion resolves ownership from this same event.
-	identity, identityErr := canonicalWorkerWorktreePath(f.entry.Path)
-	if identityErr != nil {
-		t.Fatal(identityErr)
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
 	}
-	// CD-0198 D3: on a derived-start pin the dispatch opens the step epoch
-	// itself, so the replay-style fixture crafts the same started event a
-	// real fenced dispatch appends before its completion.
-	entry, entryErr := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
-	if entryErr != nil {
-		t.Fatal(entryErr)
-	}
-	if workflowDerivedStepStartActive(entry.Definition) {
-		start := workflowEventWithActor("oracle-start-"+attemptID, WorkflowActionStarted, workID, actorRef, map[string]any{
-			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef,
-			"accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "oracle-start-" + attemptID,
-		})
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-			t.Fatalf("craft the derived dispatch start for %s: %v", attemptID, err)
-		}
-		version++
-	}
-	authorization := workflowEventWithActor("oracle-authorize-"+attemptID, WorkflowActionCompleted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID,
-		"actor_ref":                   actorRef,
-		"worker_worktree_identity":    workerWorktreeIdentity(identity),
-		"worker_job":                  map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest},
-		"worker_packet_digest":        "sha256:" + strings.Repeat("d", 64),
-		"worker_packet_predicate_ids": []string{},
-		"worker_lane_id":              lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass,
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{authorization}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+	if err := dispatchJobPacketForTest(t, s, workID, attemptID, f.worker, "oracle-authorize-"+attemptID, packet); err != nil {
 		t.Fatalf("authorize oracle attempt %s: %v", attemptID, err)
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attemptID, job)
@@ -729,6 +724,9 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 		}
 	}
 	for _, entry := range payload.Evidence {
+		if entry.OracleReceipt != nil && entry.OracleReceipt.EvidenceRefs == nil {
+			entry.OracleReceipt.EvidenceRefs = []string{}
+		}
 		if entry.OracleReceipt != nil && entry.OracleReceipt.SubjectCommit == "" && entry.OracleReceipt.RunRef != "" {
 			entry.OracleReceipt.SubjectCommit, err = readCurrentOracleSubject(context.Background(), s.db, workID)
 			if err != nil {
@@ -1300,7 +1298,8 @@ func TestOwnerOracleCorrectionLineage(t *testing.T) {
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	advanceOracleFixtureSubject(t, f, workID, "2")
-	oracleDispatchAttempt(t, f, workID, attempt2, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	job = &WorkerJobBinding{JobID: job.JobID}
+	oracleDispatchAttempt(t, f, workID, attempt2, twoPathOracleFields(t, s, workID, reportedBoth), job)
 	closeRun := oracleVerifyControl(t, f, workID, "convergence-close", "2", oracleGoArgv("path-a"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt2, "oracle-convergence-2", func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(closeRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: closeRun.OperationRef})
@@ -1326,7 +1325,8 @@ func TestOwnerOracleCorrectionLineage(t *testing.T) {
 	attempt3 := "attempt:" + workID + ":3"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	advanceOracleFixtureSubject(t, f, workID, "3")
-	oracleDispatchAttempt(t, f, workID, attempt3, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	job = &WorkerJobBinding{JobID: job.JobID}
+	oracleDispatchAttempt(t, f, workID, attempt3, twoPathOracleFields(t, s, workID, reportedBoth), job)
 	replaceRun := oracleVerifyControl(t, f, workID, "convergence-replace", "3", oracleGoArgv("path-a"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-convergence-3", func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(replaceRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: replaceRun.OperationRef})
@@ -1386,7 +1386,8 @@ func TestOwnerOracleCorrectionLineage(t *testing.T) {
 	attempt5 := "attempt:" + workID + ":5"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	advanceOracleFixtureSubject(t, f, workID, "5")
-	oracleDispatchAttempt(t, f, workID, attempt5, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	job = &WorkerJobBinding{JobID: job.JobID}
+	oracleDispatchAttempt(t, f, workID, attempt5, twoPathOracleFields(t, s, workID, reportedBoth), job)
 	defectRunA := oracleVerifyControl(t, f, workID, "defect-a", "5", oracleGoArgv("path-a"), pass)
 	defectRunB := oracleVerifyControl(t, f, workID, "defect-b", "5", oracleGoArgv("path-b"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt5, "oracle-convergence-5", func(payload *WorkerCompletedPayload) {
@@ -1569,59 +1570,79 @@ func TestOwnerOracleCompletionPayloadBoundary(t *testing.T) {
 // the stop route stay usable, and the context read refuses past the view
 // bound instead of dropping blockers.
 func TestOwnerOracleReceiptViewRecoversAfterContractSupersession(t *testing.T) {
-	s, git, _ := worktreeFixture(t)
-	claimFixtureWorktree(t, s, git)
+	const workID = "receipt-supersession"
+	seed := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	f := oracleRepairFixtureFrom(t, workID, seed)
+	s := f.store
 	ctx := context.Background()
-	appendEvent := func(id string, kind string, payload any) {
+	job := &WorkerJobBinding{JobID: "job:receipt-supersession"}
+	appendReport := func(id string, job *WorkerJobBinding) {
 		t.Helper()
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			scope, err := beginWrite(ctx, tx.tx)
-			if err != nil {
-				return err
-			}
-			result, err := tx.tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-w','actor:fixture','2026-10-10T00:00:00Z',6,?)`, id, kind, string(raw))
-			if err != nil {
-				return err
-			}
-			seq, err := result.LastInsertId()
-			if err != nil {
-				return err
-			}
-			if err := writeOracleFindingFactsTx(ctx, tx.tx, Event{Seq: seq, EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: "work-w", Payload: raw}); err != nil {
-				return err
-			}
-			return scope.close(ctx)
-		}); err != nil {
+		oracleDispatchAttempt(t, f, workID, id, twoPathOracleFields(t, s, workID, nil), job)
+		event := oracleCompletionEvent(t, s, workID, id, "receipt-report", func(p *WorkerCompletedPayload) {
+			withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, Result: OracleReceiptResultNotRun,
+				RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}})
+		})
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Projection fixtures feed the current lineage writer in the same transaction
-	// as the retained log insert. Native producer and terminal admission tests
-	// separately establish receipt execution and authority.
-	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
 	for i := range oracleRetainedReceiptsMax + 1 {
-		appendEvent("receipt-history-"+itoa(i), WorkerCompleted, WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
+		appendReport("receipt-history-"+itoa(i), job)
 	}
-	if _, err := readWorkContextView(ctx, s.db, "work-w"); err == nil || !strings.Contains(err.Error(), "above the 64 view bound") {
+	if _, err := readWorkContextView(ctx, s.db, workID); err == nil || !strings.Contains(err.Error(), "above the 64 view bound") {
 		t.Fatalf("over-bound receipt view = %v, want an explicit refusal", err)
 	}
-	appendEvent("receipt-contract-supersession", WorkflowContractSuperseded, map[string]any{})
-	lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, "work-w")
+	// A committed registry rescan makes the parent contract stale and opens
+	// its production supersession route without changing any receipt.
+	var homePath string
+	if err := s.db.QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&homePath); err != nil {
+		t.Fatal(err)
+	}
+	registry := KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "product", RootDomainID: "product-root:product", Domains: []KnowledgeDomain{
+		{DomainID: "product-root:product", Name: "Product", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		{DomainID: "root", Name: "Fixture", Purpose: "Rescanned fixture law", Status: "current", ParentDomainID: "product-root:product", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+	}}
+	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: registry, Records: []KnowledgeRecord{}}
+	writeAggregateAsShards(t, homePath, mustJSONValue(manifest))
+	gitRunStore(t, homePath, "init", "-b", "main")
+	gitRunStore(t, homePath, "add", ".")
+	gitRunStore(t, homePath, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "rescan registry")
+	if err := s.RebuildKnowledgeIndex(ctx, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: homePath, HeadRef: "HEAD"}); err != nil {
+		t.Fatal(err)
+	}
+	var registryHash string
+	if err := s.db.QueryRow(`SELECT content_hash FROM domain_registries WHERE product_id='product'`).Scan(&registryHash); err != nil {
+		t.Fatal(err)
+	}
+	successor := map[string]any{
+		"contract_version": 2, "premise": "deliver the checked successor", "supersede_reason": "replace the bounded receipt view",
+		"decision_domains": []string{},
+		"audit_evidence":   []string{"evidence:return-route-artifact"}, "required_evidence": []string{"verification"},
+		"route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
+		"architecture_binding": WorkflowArchitectureBinding{DomainRegistryContentHash: registryHash, HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
+	}
+	const key = "receipt-contract-supersession"
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "supersede_contract", Payload: mustJSONValue(successor),
+		Actor: f.owner, AcceptedInputsDigest: nativeDigest(mustJSONValue(successor)), IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(lineage.retainedReceipts) != 0 {
 		t.Fatalf("superseded receipt view holds %d receipts, want 0", len(lineage.retainedReceipts))
 	}
-	if _, err := readWorkContextView(ctx, s.db, "work-w"); err != nil {
+	if _, err := readWorkContextView(ctx, s.db, workID); err != nil {
 		t.Fatalf("context remains stranded after contract supersession: %v", err)
 	}
-	appendEvent("receipt-successor-report", WorkerCompleted, WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
-	lineage, err = readWorkerOracleFindingLineageTx(ctx, s.db, "work-w")
+	appendReport("receipt-successor-report", &WorkerJobBinding{JobID: job.JobID})
+	lineage, err = readWorkerOracleFindingLineageTx(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1629,8 +1650,8 @@ func TestOwnerOracleReceiptViewRecoversAfterContractSupersession(t *testing.T) {
 		t.Fatalf("successor receipt view holds %d receipts, want 1", len(lineage.retainedReceipts))
 	}
 	var retained int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-w' AND event_id LIKE 'receipt-history-%'`).Scan(&retained); err != nil || retained != oracleRetainedReceiptsMax+1 {
-		t.Fatalf("supersession changed immutable receipt history: %d %v", retained, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE 'receipt-history-%' AND json_extract(terminal_payload,'$.evidence[0].oracle_receipt.result')='not_run'`, workID).Scan(&retained); err != nil || retained != oracleRetainedReceiptsMax+1 {
+		t.Fatalf("supersession changed retained terminal receipt sources: %d %v", retained, err)
 	}
 }
 

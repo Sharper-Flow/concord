@@ -118,7 +118,7 @@ func TestArchivedFamilyPublicMutationRefusesBeforeWrite(t *testing.T) {
 
 			events := func() int64 {
 				var count int64
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&count); err != nil {
 					t.Fatal(err)
 				}
 				return count
@@ -341,7 +341,7 @@ func TestCanonicalHeadsAuthorBatchVerdictsOnly(t *testing.T) {
 
 	verdictEvents := func() int64 {
 		var count int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -422,8 +422,10 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 		t.Fatal(err)
 	}
 	approval := map[string]any{
-		"contract_version": 1,
-		"premise":          "deliver the explicitly checked change",
+		"contract_version":  1,
+		"premise":           "deliver the explicitly checked change",
+		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 		"outcome_predicates": []map[string]any{{
 			"predicate_id": "predicate:canonical-check", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:canonical", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
@@ -447,6 +449,27 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	fields, err := workflowActionObject(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedEvents, err := workflowApproveContractEvents(ctx, tx2, registered.Definition, WorkflowActionExecutionRequest{WorkID: workID, Now: time.Date(2026, 10, 11, 1, 0, 0, 0, time.UTC)}, ownerRef, fields, operationID+":semantic", version)
+	if err != nil || len(expectedEvents) != 1 {
+		t.Fatalf("approval constructor=%+v, err=%v", expectedEvents, err)
+	}
+	expectedPayload := expectedEvents[0].Payload
+	var emitted map[string]json.RawMessage
+	if err := json.Unmarshal(expectedPayload, &emitted); err != nil {
+		t.Fatal(err)
+	}
+	for _, invented := range []string{"outcome_kind", "outcome_payload"} {
+		if _, present := emitted[invented]; present {
+			t.Fatalf("canonical approval invented top-level %s", invented)
+		}
+	}
+	if !strings.Contains(string(emitted["outcome_predicates"]), "predicate:canonical-check") || strings.Contains(string(expectedPayload), "check:workflow") || strings.Contains(string(expectedPayload), `["completed"]`) {
+		t.Fatalf("canonical approval lost explicit predicates or invented an outcome: %s", expectedPayload)
+	}
 	if _, err := applyWorkflowActionRawTx(ctx, tx2, newWriteScope(tx2), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: encoded, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: operationID, OperationID: operationID,
@@ -459,44 +482,19 @@ func TestCanonicalHeadsApproveRecordsExplicitPredicatesWithoutInventedOutcome(t 
 	if err := tx2.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&raw); err != nil {
+	var digest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
-	text := string(raw)
-	if !strings.Contains(text, `"outcome_predicates"`) || !strings.Contains(text, "predicate:canonical-check") {
-		t.Fatalf("canonical approval event lost the explicit predicate array: %s", workflowRefExcerpt(text))
+	// The exact digest detects invented legacy outcome fields as well as a
+	// missing or changed explicit predicate; receipts retain no raw payload.
+	wantDigest, err := effectPayloadDigest(expectedPayload)
+	if err != nil || digest != wantDigest {
+		t.Fatalf("canonical approval digest=%q, want %q, err=%v", digest, wantDigest, err)
 	}
-	// The engine invents no legacy outcome pair beside the predicates: no
-	// synthesized check and no completed token. The per-predicate entries
-	// keep their own typed outcome fields; the top-level pair is the
-	// invention this assertion refuses.
-	var topFields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &topFields); err != nil {
-		t.Fatal(err)
-	}
-	for _, invented := range []string{"outcome_kind", "outcome_payload"} {
-		if _, present := topFields[invented]; present {
-			t.Fatalf("canonical approval event invented the top-level %s field", invented)
-		}
-	}
-	for _, synthesized := range []string{"check:workflow", `["completed"]`} {
-		if strings.Contains(text, synthesized) {
-			t.Fatalf("canonical approval event synthesized %s: %s", synthesized, workflowRefExcerpt(text))
-		}
-	}
-	var decoded struct {
-		OutcomePredicates []workflowContractPredicatePayload `json:"outcome_predicates"`
-		OutcomeKind       string                             `json:"outcome_kind"`
-	}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if len(decoded.OutcomePredicates) != 1 || decoded.OutcomePredicates[0].PredicateID != "predicate:canonical-check" {
-		t.Fatalf("decoded predicates = %+v, want the one explicit check", decoded.OutcomePredicates)
-	}
-	if decoded.OutcomeKind != "" {
-		t.Fatalf("canonical approval recorded outcome_kind %q, want the field absent", decoded.OutcomeKind)
+	predicates, err := readWorkflowContractPredicates(ctx, s.db, workID, 1)
+	if err != nil || len(predicates) != 1 || predicates[0].PredicateID != "predicate:canonical-check" || predicates[0].OutcomeKind != "check" {
+		t.Fatalf("stored canonical predicates=%+v, err=%v", predicates, err)
 	}
 }
 
@@ -642,7 +640,7 @@ func storedCounts(t *testing.T, path string) (events int64, migrations int64) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&migrations); err != nil {
@@ -828,8 +826,8 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 	attempt := "attempt:" + workID + ":1"
 	dispatchResearchAttempt(attempt, "research-failure-dispatch-"+workID, nil)
 	recordResearchDispatch(attempt)
-	if starts := workflowStartedEventsAtStep(t, s, workID, "investigate"); len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("investigate starts after the dispatch = %+v, want one dispatch start at epoch 1", starts)
+	if start := workflowCurrentStartAtStep(t, s, workID, "investigate"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("investigate current start after the dispatch = %+v, want one dispatch receipt at epoch 1", start)
 	}
 	detail := "the research lane failed before a judgeable report existed"
 	// The research failure ingest carries the recorded observation the
@@ -869,9 +867,9 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 	retry := "attempt:" + workID + ":2"
 	dispatchResearchAttempt(retry, "research-retry-dispatch-"+workID, retryCorrection)
 	recordResearchDispatch(retry)
-	starts := workflowStartedEventsAtStep(t, s, workID, "investigate")
-	if len(starts) != 2 || starts[1].Epoch != 2 {
-		t.Fatalf("investigate starts after the retry = %+v, want the second dispatch at epoch 2", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "investigate")
+	if start == nil || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
+		t.Fatalf("investigate current start after the retry = %+v, want two receipts and current epoch 2", start)
 	}
 
 }
@@ -1160,7 +1158,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	for _, table := range []string{"relations", "work_messages", "workflow_contracts", "workflow_checkpoints", "worktree_claims", "worktree_entries", "linear_issue_links", "active_research_revisions"} {
 		untouched[table] = cutoverTableSnapshot(t, s, table)
 	}
-	eventsBefore := countRows(t, s, "domain_events")
+	eventsBefore := countRows(t, s, "effect_receipts")
 	options := UpgradeOptions{CancelCutoverPinnedWork: true}
 	plan, err := PlanUpgradeReadiness(ctx, s.Path(), options)
 	if err != nil {
@@ -1170,7 +1168,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if plan.ActivationBlocked || !reflect.DeepEqual(plan.CutoverDisposition, want) {
 		t.Fatalf("cutover plan = %+v, want %+v", plan, want)
 	}
-	if countRows(t, s, "domain_events") != eventsBefore {
+	if countRows(t, s, "effect_receipts") != eventsBefore {
 		t.Fatal("plan appended an event")
 	}
 	report, err := Upgrade(ctx, s.Path(), nil, options)
@@ -1180,7 +1178,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 	if !reflect.DeepEqual(report.CutoverDisposition, want) {
 		t.Fatalf("disposition = %+v, want %+v", report.CutoverDisposition, want)
 	}
-	if countRows(t, s, "domain_events") != eventsBefore+2 {
+	if countRows(t, s, "effect_receipts") != eventsBefore+2 {
 		t.Fatal("disposition must append exactly two events")
 	}
 	for id, prior := range before {
@@ -1197,16 +1195,18 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		if current.lifecycle != "cancelled" || current.version != prior.version+1 {
 			t.Fatalf("cancelled work %s = %+v", id, current)
 		}
-		var kind, actor, raw string
-		if err := s.db.QueryRow(`SELECT kind,actor,payload FROM domain_events WHERE event_id=?`, fmt.Sprintf("upgrade-cutover-cancel:%s:%d", id, prior.version)).Scan(&kind, &actor, &raw); err != nil {
-			t.Fatal(err)
-		}
+		var kind, actor, digest string
 		var payload workTransitionPayload
-		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		if err := s.db.QueryRow(`SELECT r.kind,r.actor,r.payload_digest,w.transition_from,w.lifecycle,w.transition_reason,w.transition_version FROM effect_receipts r JOIN work_items w ON w.id=r.subject_id AND w.transition_seq=r.effect_seq WHERE r.event_id=?`, fmt.Sprintf("upgrade-cutover-cancel:%s:%d", id, prior.version)).Scan(&kind, &actor, &digest, &payload.From, &payload.To, &payload.Reason, &payload.ResultingVersion); err != nil {
 			t.Fatal(err)
 		}
-		if kind != "work.transitioned" || actor != "operator" || payload.From != prior.lifecycle || payload.To != "cancelled" || payload.ExpectedVersion != prior.version || payload.ResultingVersion != prior.version+1 || !strings.Contains(payload.Reason, "CD-0218 D5 cutover disposition") {
-			t.Fatalf("cancellation event %s/%s/%s", kind, actor, raw)
+		if kind != "work.transitioned" || actor != "operator" || payload.From != prior.lifecycle || payload.To != "cancelled" || payload.ResultingVersion != prior.version+1 || !strings.Contains(payload.Reason, "CD-0218 D5 cutover disposition") {
+			t.Fatalf("cancellation effect %s/%s/%+v", kind, actor, payload)
+		}
+		payload.ExpectedVersion = prior.version
+		wantDigest, err := effectPayloadDigest(mustJSONValue(payload))
+		if err != nil || digest != wantDigest {
+			t.Fatalf("cancellation digest=%q, want exact transition/version payload %q: %v", digest, wantDigest, err)
 		}
 	}
 	var state string
@@ -1243,7 +1243,7 @@ func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *tes
 	execStaleRegistryInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
 		VALUES('b-contract-only','approval:hold','active','synthetic outside repair','{}','now')`)
 	before := cutoverTableSnapshot(t, s, "work_items")
-	eventsBefore := countRows(t, s, "domain_events")
+	eventsBefore := countRows(t, s, "effect_receipts")
 	options := UpgradeOptions{CancelCutoverPinnedWork: true}
 	plan, err := PlanUpgradeReadiness(ctx, s.Path(), options)
 	if err != nil {
@@ -1257,7 +1257,7 @@ func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *tes
 	if !failureAs(err, &failure) || failure.Kind != KindOutsideRepairActive || !strings.Contains(err.Error(), "b-contract-only") {
 		t.Fatalf("held-item disposition = %v", err)
 	}
-	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "domain_events") != eventsBefore {
+	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "effect_receipts") != eventsBefore {
 		t.Fatal("atomic refusal changed lifecycle, version, or event log")
 	}
 }
@@ -1266,7 +1266,7 @@ func TestCutoverDispositionRechecksGateBeforeCommit(t *testing.T) {
 	ctx := context.Background()
 	s := seedCutoverDispositionFixture(t)
 	before := cutoverTableSnapshot(t, s, "work_items")
-	eventsBefore := countRows(t, s, "domain_events")
+	eventsBefore := countRows(t, s, "effect_receipts")
 	// A synthetic fold defect leaves a selected item nonterminal. The final
 	// gate must refuse and roll back all events, not report a partial cutover.
 	if _, err := s.db.Exec(`CREATE TRIGGER cutover_incomplete_fold AFTER UPDATE OF lifecycle ON work_items
@@ -1278,7 +1278,7 @@ func TestCutoverDispositionRechecksGateBeforeCommit(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "b-contract-only") {
 		t.Fatalf("incomplete disposition must refuse at the re-check: %v", err)
 	}
-	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "domain_events") != eventsBefore {
+	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "effect_receipts") != eventsBefore {
 		t.Fatal("incomplete disposition committed a partial cutover")
 	}
 }

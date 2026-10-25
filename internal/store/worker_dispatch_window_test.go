@@ -145,17 +145,15 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	if len(result.EventIDs) < 2 {
 		t.Fatalf("dispatch_worker invocation emitted %d events, want >= 2 (started + completed)", len(result.EventIDs))
 	}
-	var actionID string
-	var attemptEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.action_id'), json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`,
-		"workflow.action_started", seed.workID, "execution").Scan(&actionID, &attemptEpoch); err != nil {
-		t.Fatalf("cannot read workflow.action_started: %v", err)
+	start := workflowCurrentStartAtStep(t, s, seed.workID, "execution")
+	if start == nil {
+		t.Fatal("dispatch left no current execution start")
 	}
-	if actionID != "dispatch_worker" {
-		t.Fatalf("latest action_started action_id = %q, want dispatch_worker", actionID)
+	if start.ActionID != "dispatch_worker" {
+		t.Fatalf("current action_started action_id = %q, want dispatch_worker", start.ActionID)
 	}
-	if attemptEpoch < 1 {
-		t.Fatalf("attempt_epoch = %d, want >=1", attemptEpoch)
+	if start.Epoch < 1 {
+		t.Fatalf("attempt_epoch = %d, want >=1", start.Epoch)
 	}
 }
 
@@ -193,12 +191,8 @@ func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T
 	if strings.Contains(failure.Detail, claimed) || strings.Contains(failure.Detail, session) {
 		t.Fatalf("mismatched worktree failure leaked a machine path: %q", failure.Detail)
 	}
-	var started int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionStarted, seed.workID, "dispatch_worker").Scan(&started); err != nil {
-		t.Fatal(err)
-	}
-	if started != 0 {
-		t.Fatalf("mismatched worktree opened %d dispatch windows", started)
+	if start := workflowCurrentStartAtStep(t, s, seed.workID, "execution"); start != nil || len(workflowStartReceiptIDs(t, s, seed.workID)) != 0 {
+		t.Fatalf("mismatched worktree left a start or receipt: %+v", start)
 	}
 }
 
@@ -229,7 +223,7 @@ func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
 		t.Fatalf("dispatch_worker invocation failed: %v", err)
 	}
 	var identity string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionCompleted, seed.workID, "dispatch_worker").Scan(&identity); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, seed.workID, attemptID).Scan(&identity); err != nil {
 		t.Fatal(err)
 	}
 	canonical, err := canonicalWorkerWorktreePath(claimed)
@@ -511,8 +505,7 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 		t.Fatalf("dispatch_worker failed: %v", err)
 	}
 	var storedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionCompleted, "dispatch_worker", "execution").Scan(&storedDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id='attempt-digest' AND json_extract(payload,'$.step_id')='execution'`, seed.workID).Scan(&storedDigest); err != nil {
 		t.Fatalf("cannot read workflow.action_completed: %v", err)
 	}
 	if storedDigest != wantDigest {
@@ -572,11 +565,7 @@ func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
 	if failure.Kind != KindInvalidPayload {
 		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
 	}
-	var startedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
-		t.Fatal(err)
-	}
+	startedCount := len(workflowStartReceiptIDs(t, s, seed.workID))
 	if startedCount != 0 {
 		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
 	}
@@ -618,11 +607,7 @@ func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
 	if failure.Kind != KindInvalidPayload {
 		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
 	}
-	var startedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
-		t.Fatal(err)
-	}
+	startedCount := len(workflowStartReceiptIDs(t, s, seed.workID))
 	if startedCount != 0 {
 		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
 	}

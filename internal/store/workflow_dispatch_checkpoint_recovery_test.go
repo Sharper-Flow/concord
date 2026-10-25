@@ -329,7 +329,7 @@ func walledResearchAssertUndispositioned(t *testing.T, f crossAttemptFixture) {
 	t.Helper()
 	reviewV2 := "attempt:" + f.workID + ":4"
 	var dispositions int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id') IN (?,?) AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure')`, f.workID, WorkflowActionCompleted, f.attemptV, reviewV2).Scan(&dispositions); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id IN (?,?) AND action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure')`, f.workID, f.attemptV, reviewV2).Scan(&dispositions); err != nil {
 		t.Fatal(err)
 	}
 	if dispositions != 0 {
@@ -368,14 +368,14 @@ func walledResearchCapture(t *testing.T, f crossAttemptFixture, settled, authori
 	}
 	for _, attemptID := range rejected {
 		var payload []byte
-		if queryErr := f.s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq`, f.workID, WorkflowActionCompleted, attemptID).Scan(&payload); queryErr != nil {
+		if queryErr := f.s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' AND attempt_id=?`, f.workID, attemptID).Scan(&payload); queryErr != nil {
 			t.Fatalf("read the rejection completion of %s: %v", attemptID, queryErr)
 		}
 		snapshot.bytes["rejected:"+attemptID] = payload
 	}
-	var supersededPayload []byte
-	if supersededErr := f.s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, f.workID, WorkflowContractSuperseded).Scan(&supersededPayload); supersededErr == nil {
-		snapshot.bytes["superseded"] = supersededPayload
+	var supersededDigest string
+	if supersededErr := f.s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, f.workID, WorkflowContractSuperseded).Scan(&supersededDigest); supersededErr == nil {
+		snapshot.bytes["superseded-digest"] = []byte(supersededDigest)
 	} else if supersededErr != sql.ErrNoRows {
 		t.Fatal(supersededErr)
 	}

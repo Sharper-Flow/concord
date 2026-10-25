@@ -165,7 +165,7 @@ func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
 		t.Fatal(err)
 	}
 	var subject string
-	if err := tx.QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowEvidenceBound).Scan(&subject); err != nil {
+	if err := tx.QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=? ORDER BY binding_seq DESC LIMIT 1`, workID).Scan(&subject); err != nil {
 		t.Fatal(err)
 	}
 	if subject != "commit:declared" {

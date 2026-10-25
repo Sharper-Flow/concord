@@ -127,7 +127,7 @@ func deliveryAssertionEvent(t *testing.T, s *Store, workID string, offsetFromLat
 	var eventID string
 	var seq int64
 	var payloadVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,seq,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery' AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' ORDER BY seq DESC LIMIT 1 OFFSET ?`, workID, WorkflowActionCompleted, offsetFromLatest).Scan(&eventID, &seq, &payloadVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,effect_seq,payload_version FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? AND delivery_assertion=1 ORDER BY effect_seq DESC LIMIT 1 OFFSET ?`, workID, WorkflowActionCompleted, offsetFromLatest).Scan(&eventID, &seq, &payloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	return eventID, seq, payloadVersion
@@ -352,7 +352,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	valid := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	eventsBefore := countWorkflowSubjectEvents(t, s, workID)
 	var nonAssertion string
-	if err := s.db.QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_proposal'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
+	if err := s.db.QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.work_id=r.subject_id AND x.exit_seq=r.effect_seq WHERE r.subject_id=? AND r.kind=? AND r.delivery_assertion=0 AND x.action_id='confirm_premise'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
 		t.Fatal(err)
 	}
 
@@ -534,7 +534,7 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("read target identity = (%q,%d,%d), want (%q,%d,%d)", target.EventID, target.Seq, target.TargetPayloadVersion, targetEventID, targetSeq, targetPayloadVersion)
 	}
 	var originalPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE work_id=? AND assertion_id=?`, workID, targetEventID).Scan(&originalPayload); err != nil {
 		t.Fatal(err)
 	}
 
@@ -561,7 +561,7 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("effective artifact = %q, want the corrected merge evidence", assertion.EffectiveArtifact)
 	}
 	var replayedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE work_id=? AND assertion_id=?`, workID, targetEventID).Scan(&replayedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if originalPayload != replayedPayload {

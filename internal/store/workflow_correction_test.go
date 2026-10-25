@@ -216,7 +216,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 
 	var workerAttempt, diagnosis string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM domain_events WHERE event_id=?`, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='reject_worker_result' AND event_id=?`, workID, attemptID, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
 		t.Fatal(err)
 	}
 	if workerAttempt != attemptID || diagnosis == "" {

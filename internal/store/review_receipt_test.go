@@ -128,7 +128,7 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 				}
 				for index := 0; index < tc.count; index++ {
 					var raw []byte
-					if err := f.store.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq LIMIT 1 OFFSET ?`, workID, WorkflowVerdictRecorded, index).Scan(&raw); err != nil {
+					if err := f.store.db.QueryRow(`SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq LIMIT 1 OFFSET ?`, workID, index).Scan(&raw); err != nil {
 						t.Fatal(err)
 					}
 					var association workflowVerdictRecordedPayload

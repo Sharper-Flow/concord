@@ -58,7 +58,7 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "evidence-covered-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, "evidence-covered", attemptID, complete.EventID, WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload

@@ -149,7 +149,7 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := route.store
 	var before string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&before); err != nil {
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	f := qAssociateCurrentProof(t, workContextFixture{store: s, workID: workID, owner: route.owner, operator: route.operator}, "", true)
@@ -157,7 +157,7 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 		t.Fatal("association replaced the seeded store or returned no receipt")
 	}
 	var after string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&after); err != nil {
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {

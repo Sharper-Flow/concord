@@ -1209,9 +1209,8 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 			t.Fatalf("finding %q after close has status %q (present %v), want reported; findings %v", statement, status, ok, statements)
 		}
 	}
-	// No event outside the declaration and worker-report kinds carries the
-	// markers, and no knowledge-side promotion row exists.
-	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT kind, payload FROM domain_events WHERE subject_id=? AND (payload LIKE '%CON887-%')`, fixture.workID)
+	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT ? AS kind,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_payload LIKE '%CON887-%'
+UNION ALL SELECT ?,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND terminal_payload LIKE '%CON887-%'`, WorkflowWorkContextRecorded, fixture.workID, WorkerCompleted, fixture.workID, WorkerCompleted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1228,7 +1227,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(carrying) != 2 || !carrying[WorkflowWorkContextRecorded] || !carrying[WorkerCompleted] {
-		t.Fatalf("event kinds carrying context markers = %v, want only the declaration and worker report", carrying)
+		t.Fatalf("retained context marker sources = %v, want the declaration and worker report", carrying)
 	}
 	for _, probe := range []string{
 		`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (active_unit LIKE '%CON887-%' OR hypothesis LIKE '%CON887-%' OR diagnosis LIKE '%CON887-%' OR strategy LIKE '%CON887-%')`,

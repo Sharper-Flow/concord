@@ -62,7 +62,7 @@ func TestProjectCreationWritesStageOnlyThroughVersionedEvent(t *testing.T) {
 	}
 	assertProjectStage(t, s, "operator-stage-project", "beta", "public", 1)
 	var payloadVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE kind='project.created' AND subject_id=?`, "operator-stage-project").Scan(&payloadVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='project.created' AND subject_id=?`, "operator-stage-project").Scan(&payloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	if payloadVersion != 2 {

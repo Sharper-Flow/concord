@@ -1587,7 +1587,7 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 		t.Fatalf("read the research authorization's step: %v", err)
 	}
 	var startEpoch int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted, startStep, completionSeq).Scan(&startEpoch); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(start_payload,'$.attempt_epoch'),0) FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=? AND start_seq>0 AND start_seq<?`, workID, f.attemptR, startStep, completionSeq).Scan(&startEpoch); err != nil {
 		t.Fatalf("read the research authorization's start epoch: %v", err)
 	}
 	if startEpoch != completionEpoch {

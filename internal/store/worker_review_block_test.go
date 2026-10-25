@@ -94,7 +94,7 @@ func TestReviewLaneCompletionRequiresTheTypedReviewBlock(t *testing.T) {
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, second+"-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, workID, second, second+"-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -128,7 +128,7 @@ func TestNonReviewLaneCompletionWithoutReviewBlockIsUnchanged(t *testing.T) {
 		t.Fatalf("completion without a review block was refused on a lane that requires none: %v", err)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, attemptID+"-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, workID, attemptID, attemptID+"-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(stored), `"review":`) {

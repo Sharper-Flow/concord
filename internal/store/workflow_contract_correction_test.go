@@ -66,19 +66,20 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]any {
 	t.Helper()
 	const version = int64(2)
-	var raw string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowContractApproved).Scan(&raw); err != nil {
+	contract, err := readWorkflowContractVersion(t.Context(), s.db, id, 1)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var approved map[string]any
-	if err := json.Unmarshal([]byte(raw), &approved); err != nil {
-		t.Fatal(err)
+	predicates := make([]any, len(contract.OutcomePredicates))
+	for i, predicate := range contract.OutcomePredicates {
+		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)}
 	}
-	payload := map[string]any{"contract_version": version, "premise": premise, "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:return-route-artifact"}}
-	for _, field := range []string{"outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "decision_domains", "architecture_binding"} {
-		if value, ok := approved[field]; ok {
-			payload[field] = value
-		}
+	payload := map[string]any{"contract_version": version, "premise": premise, "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:return-route-artifact"}, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
+	if contract.DecisionDomains != nil {
+		payload["decision_domains"] = contract.DecisionDomains
+	}
+	if contract.ArchitectureBinding != nil {
+		payload["architecture_binding"] = contract.ArchitectureBinding
 	}
 	return payload
 }
@@ -250,7 +251,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 		t.Fatalf("association without contract_version: %v", err)
 	}
 	var recorded int64
-	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+	if err := f.store.db.QueryRow(`SELECT contract_version FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq DESC LIMIT 1`, id).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 2 {

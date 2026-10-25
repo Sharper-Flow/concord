@@ -71,12 +71,12 @@ func TestWorktreeSettlementSequenceUsesCurrentCounts(t *testing.T) {
 	base := worktreeRefSettlementEventBase(req.WorkID, req.ProjectID, req.OpID, branch)
 	for _, id := range []string{base + ">planned:6:i1", base + "planned>planned:7:i1"} {
 		var exists bool
-		if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, id).Scan(&exists); err != nil || !exists {
+		if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE event_id=?)`, id).Scan(&exists); err != nil || !exists {
 			t.Fatalf("published identity %q exists=%t err=%v", id, exists, err)
 		}
 	}
 	var legacyCount int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM domain_events WHERE event_id>=? AND event_id<?`, base, base+"\xff").Scan(&legacyCount); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM effect_receipts WHERE event_id>=? AND event_id<?`, base, base+"\xff").Scan(&legacyCount); err != nil {
 		t.Fatal(err)
 	}
 	if legacyCount != 8 {

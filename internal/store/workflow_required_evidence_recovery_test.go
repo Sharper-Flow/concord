@@ -183,7 +183,7 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 func (f acceptanceRecoveryFixture) boundCount(t *testing.T, kind, reference string) int {
 	t.Helper()
 	var count int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, f.workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, f.workID, kind, reference).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -401,7 +401,7 @@ func countWorkflowEvents(t *testing.T, s *Store, kind string) int {
 func countEvidenceBinding(t *testing.T, s *Store, workID, kind, reference string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, kind, reference).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

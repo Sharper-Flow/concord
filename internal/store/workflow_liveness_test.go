@@ -794,8 +794,8 @@ func livenessGreenRunDigest(workID, action string, sequence int) string {
 // the binding, which the caller's action request must carry.
 func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, digest string) (int64, error) {
 	var occurred string
-	if err := sqlTx.QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' AND json_extract(payload,'$.action_id')='start_refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		return 0, fmt.Errorf("read the refine start: %w", err)
+	if err := sqlTx.QueryRowContext(ctx, `SELECT COALESCE(i.last_checkpoint_at,i.execution_started_at,i.started_at) FROM workflow_instances i JOIN workflow_step_epochs e ON e.work_id=i.work_id AND e.step_id='refine' AND e.latest_start_seq>0 WHERE i.work_id=?`, workID).Scan(&occurred); err != nil {
+		return 0, fmt.Errorf("read the current refine instance time: %w", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
 	if err != nil {

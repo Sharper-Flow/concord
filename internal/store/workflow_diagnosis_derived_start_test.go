@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,48 +34,63 @@ func diagnosisPayload(reproduction, searched, outcome string, relatedIDs []strin
 	return encoded
 }
 
-func workflowStartedEventsAtStep(t *testing.T, s *Store, workID, stepID string) []struct {
-	Seq      int64
-	ActionID string
-	Epoch    int64
-	ActorRef string
-	Occurred time.Time
-} {
+type workflowStartObservation struct {
+	Seq           int64
+	EventID       string
+	ActionID      string
+	Epoch         int64
+	ActorRef      string
+	PayloadDigest string
+}
+
+func workflowCurrentStartAtStep(t *testing.T, s *Store, workID, stepID string) *workflowStartObservation {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT seq, json_extract(payload,'$.action_id'), json_extract(payload,'$.attempt_epoch'), json_extract(payload,'$.actor_ref'), occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? ORDER BY seq`, workID, WorkflowActionStarted, stepID)
+	var start workflowStartObservation
+	var raw []byte
+	err := s.db.QueryRow(`SELECT latest_start_seq,latest_start_event_id,latest_start_payload,attempt_epoch FROM workflow_step_epochs WHERE work_id=? AND step_id=? AND latest_start_seq>0`, workID, stepID).Scan(&start.Seq, &start.EventID, &raw, &start.Epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
-		t.Fatalf("read the step's action starts: %v", err)
+		t.Fatalf("read the current step start: %v", err)
+	}
+	var payload workflowActionStartedPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.WorkID != workID || payload.StepID != stepID || payload.AttemptEpoch != start.Epoch {
+		t.Fatalf("current start identity/epoch differs from its retained payload: %+v, %+v", start, payload)
+	}
+	if err := s.db.QueryRow(`SELECT actor,payload_digest FROM effect_receipts WHERE event_id=? AND effect_seq=? AND subject_type='work_item' AND subject_id=? AND kind=?`, start.EventID, start.Seq, workID, WorkflowActionStarted).Scan(&start.ActorRef, &start.PayloadDigest); err != nil {
+		t.Fatalf("read the exact current-start receipt: %v", err)
+	}
+	wantDigest, err := effectPayloadDigest(raw)
+	if err != nil || wantDigest != start.PayloadDigest || start.ActorRef != payload.ActorRef {
+		t.Fatalf("current start differs from its receipt: %+v, payload=%+v, err=%v", start, payload, err)
+	}
+	start.ActionID = payload.ActionID
+	return &start
+}
+
+func workflowStartReceiptIDs(t *testing.T, s *Store, workID string) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT event_id FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY effect_seq`, workID, WorkflowActionStarted)
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer rows.Close()
-	var starts []struct {
-		Seq      int64
-		ActionID string
-		Epoch    int64
-		ActorRef string
-		Occurred time.Time
-	}
+	var ids []string
 	for rows.Next() {
-		var start struct {
-			Seq      int64
-			ActionID string
-			Epoch    int64
-			ActorRef string
-			Occurred time.Time
-		}
-		var occurred string
-		if err := rows.Scan(&start.Seq, &start.ActionID, &start.Epoch, &start.ActorRef, &occurred); err != nil {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			t.Fatal(err)
 		}
-		start.Occurred, err = time.Parse(time.RFC3339Nano, occurred)
-		if err != nil {
-			t.Fatalf("parse the action start time: %v", err)
-		}
-		starts = append(starts, start)
+		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return starts
+	return ids
 }
 
 func instanceExecutionStart(t *testing.T, s *Store, workID string) (string, string) {
@@ -356,19 +372,19 @@ func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, checkpointer); err != nil {
 		t.Fatalf("the first qualifying checkpoint derives the repair start: %v", err)
 	}
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 {
-		t.Fatalf("repair step action starts = %d, want the one derived start", len(starts))
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("repair current start = %+v, want one receipted derived start", start)
 	}
-	if starts[0].ActionID != "checkpoint_repair" || starts[0].Epoch != 1 {
-		t.Fatalf("derived start = action %q epoch %d, want checkpoint_repair epoch 1", starts[0].ActionID, starts[0].Epoch)
+	if start.ActionID != "checkpoint_repair" || start.Epoch != 1 {
+		t.Fatalf("derived start = action %q epoch %d, want checkpoint_repair epoch 1", start.ActionID, start.Epoch)
 	}
 	checkpointerRef, err := WorkflowActorRef(checkpointer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if starts[0].ActorRef != checkpointerRef {
-		t.Fatalf("derived start actor = %q, want the first qualifying action's own actor %q", starts[0].ActorRef, checkpointerRef)
+	if start.ActorRef != checkpointerRef {
+		t.Fatalf("derived start actor = %q, want the first qualifying action's own actor %q", start.ActorRef, checkpointerRef)
 	}
 	startedAt, executionActor := instanceExecutionStart(t, s, workID)
 	if startedAt == "" {
@@ -412,9 +428,9 @@ func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, checkpointer); err != nil {
 			t.Fatalf("%s: checkpoint_refine derives the refine start: %v", family.ref, err)
 		}
-		starts := workflowStartedEventsAtStep(t, s, workID, "refine")
-		if len(starts) != 1 || starts[0].ActionID != "checkpoint_refine" || starts[0].Epoch != 1 {
-			t.Fatalf("%s: refine starts = %+v, want one checkpoint_refine start at epoch 1", family.ref, starts)
+		start := workflowCurrentStartAtStep(t, s, workID, "refine")
+		if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 || start.ActionID != "checkpoint_refine" || start.Epoch != 1 {
+			t.Fatalf("%s: refine current start = %+v, want one checkpoint_refine start at epoch 1", family.ref, start)
 		}
 		refineProofSeedGreenRun(t, s, workID, "derivedrefine"+workID)
 		oProveReadyDelivery(t, fixture, workID)
@@ -438,6 +454,7 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	actor := fixture.owner
 	acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: actor}, workerFixtureDirectory(t, s, workID), "ready_for_final_proof")
 	parkWorkflowInstanceAt(t, s, workID, "repair")
+	receiptsBefore := workflowStartReceiptIDs(t, s, workID)
 
 	contextPayload, err := json.Marshal(map[string]any{
 		"required_reading": []map[string]any{workContextRepoReading("root", "the reading is product-wide")},
@@ -463,17 +480,18 @@ func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), 0, actor); err == nil {
 		t.Fatal("checkpoint_context admitted at an unstarted fenced repair step")
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 0 {
-		t.Fatalf("a refused repair-step action left %d starts, want none", len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || !slices.Equal(receiptsBefore, workflowStartReceiptIDs(t, s, workID)) {
+		t.Fatalf("a refused repair-step action left a current start or new receipt: %+v", start)
 	}
 
 	// The qualifying checkpoint still derives cleanly afterwards.
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
 		t.Fatalf("checkpoint_repair after the non-qualifying actions: %v", err)
 	}
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the non-qualifying actions = %+v, want one derived start at epoch 1", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	receiptsAfter := workflowStartReceiptIDs(t, s, workID)
+	if start == nil || start.Epoch != 1 || len(receiptsAfter) != len(receiptsBefore)+1 || !slices.Equal(receiptsAfter[:len(receiptsBefore)], receiptsBefore) || receiptsAfter[len(receiptsAfter)-1] != start.EventID {
+		t.Fatalf("repair current start after the non-qualifying actions = %+v, want epoch 1 and exactly its receipt", start)
 	}
 }
 
@@ -491,18 +509,20 @@ func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, actor); err != nil {
 		t.Fatalf("first checkpoint_refine: %v", err)
 	}
-	firstStarts := workflowStartedEventsAtStep(t, s, workID, "refine")
+	firstStart := workflowCurrentStartAtStep(t, s, workID, "refine")
+	firstReceipts := workflowStartReceiptIDs(t, s, workID)
+	firstStartedAt, firstActor := instanceExecutionStart(t, s, workID)
 	refineProofSeedGreenRun(t, s, workID, "repeatrefine"+workID)
 	contextCheckpoint := json.RawMessage(`{"active_unit":"the refine unit","hypothesis":"the refined subject holds","diagnosis":"the review found no defect","strategy":"deliver the refined work","touched_refs":["internal/store/workflow.go"],"evidence_refs":["evidence:repeat-context"],"pending_questions":[],"pending_decisions":[]}`)
 	if err := runWorkflowActionWithIdentity(t, s, workID, "checkpoint_context", contextCheckpoint, 0, actor, "repeat-context"); err != nil {
 		t.Fatalf("context checkpoint behind the derived start: %v", err)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "refine"); len(starts) != len(firstStarts) {
-		t.Fatalf("step activity after the derived start opened a new start: %d -> %d", len(firstStarts), len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "refine"); start == nil || firstStart == nil || *start != *firstStart || !slices.Equal(firstReceipts, workflowStartReceiptIDs(t, s, workID)) {
+		t.Fatalf("step activity changed the current start or its receipts: %+v -> %+v", firstStart, start)
 	}
 	startedAt, actorRef := instanceExecutionStart(t, s, workID)
-	if startedAt == "" || actorRef == "" {
-		t.Fatal("the derived start lost its fence")
+	if startedAt == "" || actorRef == "" || startedAt != firstStartedAt || actorRef != firstActor {
+		t.Fatal("step activity changed or lost the instance's execution time/actor fence")
 	}
 	oProveReadyDelivery(t, fixture, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:repeat-`+workID+`","delivery_state":"asserted"}`), 0, actor); err != nil {
@@ -526,8 +546,8 @@ func TestRefusedQualifyingActionLeavesNoStart(t *testing.T) {
 	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("refused checkpoint_repair moved the work version %d -> %d", version, got)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 0 {
-		t.Fatalf("the refused qualifying action left %d starts", len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("the refused qualifying action left a current start or receipt: %+v", start)
 	}
 	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
 		t.Fatalf("the refused qualifying action set execution_started_at = %q", startedAt)
@@ -535,8 +555,8 @@ func TestRefusedQualifyingActionLeavesNoStart(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
 		t.Fatalf("checkpoint_repair after the refusal: %v", err)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the refusal = %+v, want one derived start at epoch 1", starts)
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("repair current start after the refusal = %+v, want one receipt at epoch 1", start)
 	}
 }
 
@@ -557,9 +577,9 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	if err := runVerdictActionAtVersion(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), version, second); err == nil {
 		t.Fatal("the second concurrent checkpoint_repair admitted at the same expected version")
 	}
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 {
-		t.Fatalf("concurrent first qualifying actions left %d starts, want one", len(starts))
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("concurrent first qualifying actions left current start %+v, want one receipt", start)
 	}
 	firstRef, err := WorkflowActorRef(first)
 	if err != nil {
@@ -569,8 +589,8 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if starts[0].ActorRef != firstRef {
-		t.Fatalf("the fence names %q, want the first actor %q", starts[0].ActorRef, firstRef)
+	if start.ActorRef != firstRef {
+		t.Fatalf("the fence names %q, want the first actor %q", start.ActorRef, firstRef)
 	}
 	if _, executionActor := instanceExecutionStart(t, s, workID); executionActor != firstRef || executionActor == secondRef {
 		t.Fatalf("execution actor fence = %q, want the first actor only", executionActor)
@@ -800,9 +820,10 @@ func TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair(t *testing.T) {
 	s := fixture.store
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
 	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":1", dispatcher, "implement")
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 || starts[0].ActionID != "dispatch_worker" || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the dispatch = %+v, want one dispatch_worker start at epoch 1", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	receipts := workflowStartReceiptIDs(t, s, workID)
+	if start == nil || len(receipts) != 1 || start.ActionID != "dispatch_worker" || start.Epoch != 1 {
+		t.Fatalf("repair current start after the dispatch = %+v, want one dispatch_worker receipt at epoch 1", start)
 	}
 	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, dispatcher); err == nil {
@@ -811,8 +832,8 @@ func TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair(t *testing.T) {
 	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 {
-		t.Fatalf("the refused checkpoint left %d starts, want one", len(starts))
+	if after := workflowCurrentStartAtStep(t, s, workID, "repair"); after == nil || *after != *start || !slices.Equal(receipts, workflowStartReceiptIDs(t, s, workID)) {
+		t.Fatalf("the refused checkpoint changed the current start or its receipts: %+v", after)
 	}
 }
 
@@ -829,9 +850,9 @@ func seedDerivedRepairDisposal(t *testing.T, workID string) (workflowReturnRoute
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
 		t.Fatalf("the derived self-pair: %v", err)
 	}
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the self-pair = %+v, want one derived start at epoch 1", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	if start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("repair current start after the self-pair = %+v, want one receipt at epoch 1", start)
 	}
 	attemptID := "attempt:" + workID + ":2"
 	diagnosisS1DispatchAttempt(t, s, workID, "repair", attemptID, coordinator, "implement")
@@ -946,8 +967,8 @@ func TestDiagnosisLaneCannotStrandTheMergedRecord(t *testing.T) {
 	if got := readWorkVersion(t, s, workID); got != version {
 		t.Fatalf("the refused dispatch moved the work version %d -> %d", version, got)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "diagnosis"); len(starts) != 0 {
-		t.Fatalf("the refused dispatch left %d step starts, want none", len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "diagnosis"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("the refused dispatch left a current start or receipt: %+v", start)
 	}
 	var attempts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=?`, workID).Scan(&attempts); err != nil {
@@ -992,22 +1013,15 @@ func TestDispatchStillOpensTheFirstEpoch(t *testing.T) {
 		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", route.step)
 		s := fixture.store
 		dispatcher := fixture.owner
-		// A review dispatch on break_fix work owes the accepted
-		// implementation delivery the review gate joins, so the review
-		// route seeds one first and its start is the step's second.
-		seeded := 0
-		if route.lane == "review" {
-			seedAcceptedImplementationDelivery(t, s, workID, dispatcher)
-			seeded = 1
-		}
+		beforeReceipts := workflowStartReceiptIDs(t, s, workID)
 		diagnosisS1DispatchAttempt(t, s, workID, route.step, "attempt:"+workID+":1", dispatcher, route.lane)
-		starts := workflowStartedEventsAtStep(t, s, workID, route.step)
-		if len(starts) != 1+seeded {
-			t.Fatalf("%s starts after the dispatch = %+v, want the dispatch_worker start(s) only", route.step, starts)
+		last := workflowCurrentStartAtStep(t, s, workID, route.step)
+		afterReceipts := workflowStartReceiptIDs(t, s, workID)
+		if len(afterReceipts) != len(beforeReceipts)+1 || !slices.Equal(afterReceipts[:len(beforeReceipts)], beforeReceipts) || last == nil || afterReceipts[len(afterReceipts)-1] != last.EventID {
+			t.Fatalf("%s dispatch changed start receipts %v -> %v, current start=%+v", route.step, beforeReceipts, afterReceipts, last)
 		}
-		last := starts[len(starts)-1]
-		if last.ActionID != "dispatch_worker" || last.Epoch != int64(1+seeded) {
-			t.Fatalf("%s final start = %+v, want the route's dispatch_worker start at the epoch past the seeded attempt(s)", route.step, last)
+		if last.ActionID != "dispatch_worker" || last.Epoch != 1 {
+			t.Fatalf("%s current start = %+v, want the route's first dispatch_worker epoch", route.step, last)
 		}
 		dispatcherRef, err := WorkflowActorRef(dispatcher)
 		if err != nil {

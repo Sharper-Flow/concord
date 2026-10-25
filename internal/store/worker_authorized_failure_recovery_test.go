@@ -186,7 +186,7 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 		t.Fatalf("authorize checkpoint review: %v", err)
 	}
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id=? AND latest_dispatch_start_seq>0 ORDER BY latest_dispatch_start_seq DESC LIMIT 1`, workID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	failure := authorizedAbandonment(workID, "abandon-checkpoint-review", attemptID, "checkpoint review supplied no admissible dispatch evidence", 30)

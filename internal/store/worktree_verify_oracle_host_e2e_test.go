@@ -1127,7 +1127,7 @@ func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor Workf
 	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification"}[laneID])
 	ld := lane.Digest
 	var epoch int64
-	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := f.s.db.QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-target-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-target-dispatch-" + id, "actor_ref": actorRef})

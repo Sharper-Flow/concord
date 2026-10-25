@@ -13,7 +13,10 @@ func TestAdmissionEffectSequenceLogBlind(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT event_id,effect_seq FROM effect_receipts WHERE subject_type='work_item' AND subject_id='admission-work' ORDER BY effect_seq DESC LIMIT 1`).Scan(&eventID, &want); err != nil {
 		t.Fatal(err)
 	}
-	hideEffectLog(t, s)
+	var historyTables int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&historyTables); err != nil || historyTables != 0 {
+		t.Fatalf("retired event-log tables=%d, want zero: %v", historyTables, err)
+	}
 	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -30,6 +33,10 @@ func TestAdmissionEffectSequenceLogBlind(t *testing.T) {
 func TestAdmissionUnsettledWorkerLogBlind(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "admission-work")
+	var historyTables int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&historyTables); err != nil || historyTables != 0 {
+		t.Fatalf("retired event-log tables=%d, want zero: %v", historyTables, err)
+	}
 	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +44,7 @@ func TestAdmissionUnsettledWorkerLogBlind(t *testing.T) {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at)
-VALUES('admission-work','attempt','lane',?,'implementation','model','1.0','1.0','completed','now','now');
-ALTER TABLE domain_events RENAME TO admission_hidden_log;`, "sha256:"+strings.Repeat("0", 64)); err != nil {
+VALUES('admission-work','attempt','lane',?,'implementation','model','1.0','1.0','completed','now','now');`, "sha256:"+strings.Repeat("0", 64)); err != nil {
 		t.Fatal(err)
 	}
 	for _, state := range []string{"completed", "failed", "dispatched"} {

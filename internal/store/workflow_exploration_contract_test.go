@@ -47,7 +47,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 		if gotProblem != problem {
 			t.Fatalf("replayed problem=%q, want %q", gotProblem, problem)
 		}
-		rows, err := s.db.Query(`SELECT json_extract(payload,'$.action_id') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowActionCompleted)
+		rows, err := s.db.Query(`SELECT x.action_id FROM workflow_phase_exits x JOIN effect_receipts r ON r.effect_seq=x.exit_seq WHERE x.work_id=? AND r.kind=? ORDER BY x.exit_seq`, workID, WorkflowActionCompleted)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1014,7 +1014,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	if _, err := s.ReclaimWorktree(context.Background(), secondReclaim); err != nil {
 		t.Fatalf("second generation reclaim failed: %v", err)
 	}
-	rows, err := s.db.Query(`SELECT event_id FROM domain_events WHERE kind='work.worktree_reclaimed' ORDER BY seq`)
+	rows, err := s.db.Query(`SELECT event_id FROM effect_receipts WHERE kind='work.worktree_reclaimed' ORDER BY effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -355,7 +355,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 		t.Fatalf("step after accept_worker_result = %q, want verify", step)
 	}
 	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='review' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, attemptID).Scan(&bound); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='review' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, attemptID).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
 	if bound != 1 {

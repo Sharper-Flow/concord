@@ -910,8 +910,8 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	if legacyReclaim != first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-reclaimed" {
 		t.Fatalf("first incarnation identity=%q, want the legacy derivation", legacyReclaim)
 	}
-	var firstID, firstPayload, firstOccurredAt string
-	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&firstID, &firstPayload, &firstOccurredAt); err != nil {
+	var firstReceipt string
+	if err := s.db.QueryRow(`SELECT json_array(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts WHERE event_id=?`, legacyReclaim).Scan(&firstReceipt); err != nil {
 		t.Fatalf("first incarnation reclaim event: %v", err)
 	}
 
@@ -939,10 +939,10 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	}
 
 	var reclaims, releases int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_reclaimed' AND subject_id=?`, first.WorkID).Scan(&reclaims); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id=?`, first.WorkID).Scan(&reclaims); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND subject_id=?`, first.WorkID).Scan(&releases); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND subject_id=?`, first.WorkID).Scan(&releases); err != nil {
 		t.Fatal(err)
 	}
 	if reclaims != 2 || releases != 2 {
@@ -953,33 +953,34 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	if reopenedReclaim == legacyReclaim || reopenedRelease == first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-occupancy-released:ses-reopened" {
 		t.Fatalf("reopened incarnation identities=%q %q, want distinct from the first incarnation's", reopenedReclaim, reopenedRelease)
 	}
-	var reclaimPayload string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedReclaim).Scan(&reclaimPayload); err != nil {
+	var reclaimDigest, releaseDigest, facts, reclaimedAt, state string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='work.worktree_reclaimed' AND subject_id=? AND actor='principal/operator'`, reopenedReclaim, first.WorkID).Scan(&reclaimDigest); err != nil {
 		t.Fatalf("reopened incarnation reclaim event: %v", err)
 	}
-	var reclaimed worktreeReclaimedPayload
-	if err := json.Unmarshal([]byte(reclaimPayload), &reclaimed); err != nil {
+	if err := s.db.QueryRow(`SELECT git_facts,reclaimed_at,state FROM worktree_entries WHERE set_id=? AND project_id=? AND claim_op_id=?`, WorktreeSetID(first.WorkID), first.ProjectID, first.OperationID).Scan(&facts, &reclaimedAt, &state); err != nil {
 		t.Fatal(err)
 	}
-	if reclaimed.ClaimIncarnation != 1 {
-		t.Fatalf("reopened reclaim payload incarnation=%d, want 1", reclaimed.ClaimIncarnation)
+	if state != "reclaimed" || reclaimedAt == "" {
+		t.Fatalf("reclaimed entry state/time = %q/%q", state, reclaimedAt)
 	}
-	var releasePayload string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedRelease).Scan(&releasePayload); err != nil {
+	wantReclaim := worktreeReclaimedPayload{ExpectedVersion: reopened.WorkVersion, ResultingVersion: reopened.WorkVersion + 1, SetID: WorktreeSetID(first.WorkID), ProjectID: first.ProjectID, ClaimOpID: first.OperationID, ClaimIncarnation: 1, RequestID: "reclaim-incarnation-reopened", GitFacts: json.RawMessage(facts)}
+	wantDigest, err := effectPayloadDigest(mustJSONValue(wantReclaim))
+	if err != nil || reclaimDigest != wantDigest {
+		t.Fatalf("reopened reclaim digest=%q, want exact incarnation payload %q, err=%v", reclaimDigest, wantDigest, err)
+	}
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='work.worktree_occupancy_released' AND subject_id=?`, reopenedRelease, first.WorkID).Scan(&releaseDigest); err != nil {
 		t.Fatalf("reopened incarnation release event: %v", err)
 	}
-	var released worktreeOccupancyReleasedPayload
-	if err := json.Unmarshal([]byte(releasePayload), &released); err != nil {
+	wantRelease := worktreeOccupancyReleasedPayload{SetID: WorktreeSetID(first.WorkID), ProjectID: first.ProjectID, ClaimOpID: first.OperationID, ClaimIncarnation: 1, SessionRef: "ses-reopened"}
+	wantDigest, err = effectPayloadDigest(mustJSONValue(wantRelease))
+	if err != nil || releaseDigest != wantDigest {
+		t.Fatalf("reopened release digest=%q, want exact session/incarnation payload %q, err=%v", releaseDigest, wantDigest, err)
+	}
+	var afterReceipt string
+	if err := s.db.QueryRow(`SELECT json_array(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts WHERE event_id=?`, legacyReclaim).Scan(&afterReceipt); err != nil {
 		t.Fatal(err)
 	}
-	if released.ClaimIncarnation != 1 || released.SessionRef != "ses-reopened" {
-		t.Fatalf("reopened release payload=%+v, want incarnation 1 releasing ses-reopened", released)
-	}
-	var afterID, afterPayload, afterOccurredAt string
-	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&afterID, &afterPayload, &afterOccurredAt); err != nil {
-		t.Fatal(err)
-	}
-	if afterID != firstID || afterPayload != firstPayload || afterOccurredAt != firstOccurredAt {
+	if afterReceipt != firstReceipt {
 		t.Fatal("the reopen and the later reclaim must not touch the first incarnation's recorded reclaim row")
 	}
 

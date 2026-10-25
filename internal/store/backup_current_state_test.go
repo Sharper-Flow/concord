@@ -217,8 +217,9 @@ func TestBackupRestoreDoesNotRequireHistoryTable(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	seedBackupCurrentState(t, s)
-	if _, err := s.db.Exec(`DROP TABLE domain_events`); err != nil {
-		t.Fatal(err)
+	var historyTables int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&historyTables); err != nil || historyTables != 0 {
+		t.Fatalf("current schema retains %d history tables: %v", historyTables, err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 	if _, err := Backup(ctx, s, snapshot); err != nil {

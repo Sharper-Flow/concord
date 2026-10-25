@@ -115,13 +115,13 @@ func TestWorkerLocalEditTestCyclesLeaveNoStoreTrace(t *testing.T) {
 		}
 	}
 	before := snapshot()
-	startsBefore := workflowStartedEventsAtStep(t, s, workID, "repair")
+	startsBefore := workflowCurrentStartAtStep(t, s, workID, "repair")
 	requireUnchanged := func(when string, before localCyclesSnapshot) {
 		t.Helper()
 		if after := snapshot(); !reflect.DeepEqual(before, after) {
 			t.Fatalf("local cycles %s changed the store:\nbefore: %+v\nafter:  %+v", when, before, after)
 		}
-		if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); !reflect.DeepEqual(startsBefore, starts) {
+		if starts := workflowCurrentStartAtStep(t, s, workID, "repair"); !reflect.DeepEqual(startsBefore, starts) {
 			t.Fatalf("local cycles %s changed the step windows:\nbefore: %+v\nafter:  %+v", when, startsBefore, starts)
 		}
 	}
@@ -190,7 +190,7 @@ func TestWorkerLocalEditTestCyclesLeaveNoStoreTrace(t *testing.T) {
 	if correction, err := workflowCorrectionContext(ctx, s.db, workID, "repair"); err != nil || correction != nil {
 		t.Fatalf("correction after the completion = (%+v, %v), want none", correction, err)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); !reflect.DeepEqual(startsBefore, starts) {
+	if starts := workflowCurrentStartAtStep(t, s, workID, "repair"); !reflect.DeepEqual(startsBefore, starts) {
 		t.Fatalf("the completion changed the step windows:\nbefore: %+v\nafter:  %+v", startsBefore, starts)
 	}
 	after := snapshot()

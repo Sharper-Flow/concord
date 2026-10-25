@@ -366,6 +366,11 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 	}
 	version := readWorkVersion(t, f.store, f.workID)
 	op := fmt.Sprintf("record_verdict-%s-%d", f.workID, version)
+	var step string
+	var epoch int64
+	if err := f.store.db.QueryRow(`SELECT current_step,COALESCE((SELECT MAX(attempt_epoch) FROM workflow_step_epochs WHERE work_id=i.work_id AND step_id=i.current_step),1) FROM workflow_instances i WHERE work_id=?`, f.workID).Scan(&step, &epoch); err != nil {
+		t.Fatal(err)
+	}
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, indexes...), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -382,19 +387,14 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 	if !slices.Equal(got, want) || len(got) != criteria*perCriterion {
 		t.Fatalf("durable union=%v want %v", got, want)
 	}
-	var completed struct {
-		VerdictEntryCount  int      `json:"verdict_entry_count"`
-		ResultEvidenceRefs []string `json:"result_evidence_refs"`
-	}
-	if err := f.store.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, op+":completed").Scan(&raw); err != nil {
+	var digest string
+	if err := f.store.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND subject_id=? AND kind=?`, op+":completed", f.workID, WorkflowActionCompleted).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(raw, &completed); err != nil {
-		t.Fatal(err)
-	}
-	slices.Sort(completed.ResultEvidenceRefs)
-	if completed.VerdictEntryCount != criteria || !slices.Equal(completed.ResultEvidenceRefs, want) {
-		t.Fatalf("completion lost union or count: %+v", completed)
+	completion := map[string]any{"work_id": f.workID, "expected_version": version + int64(criteria), "resulting_version": version + int64(criteria) + 1, "step_id": step, "action_id": "record_verdict", "attempt_epoch": epoch, "actor_ref": ownerRefForTest(t, f.owner), "changed_refs": []string{f.workID}, "verdict_entry_count": criteria, "result_evidence_refs": want}
+	wantDigest, err := effectPayloadDigest(mustJSONValue(completion))
+	if err != nil || digest != wantDigest {
+		t.Fatalf("completion digest=%q, want exact union/count digest %q, err=%v", digest, wantDigest, err)
 	}
 	var recorded int
 	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
@@ -433,7 +433,7 @@ func TestWorkflowVerdictBatchMixedDefaultEvidenceIsPerEntry(t *testing.T) {
 		}
 	}
 	var minted int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.producer_run_ref') LIKE 'record_verdict-%'`, f.workID, WorkflowEvidenceBound).Scan(&minted); err != nil || minted != 0 {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.producer_run_ref') LIKE 'record_verdict-%'`, f.workID).Scan(&minted); err != nil || minted != 0 {
 		t.Fatalf("association minted %d bindings: %v", minted, err)
 	}
 }

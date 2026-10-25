@@ -1144,10 +1144,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	case "request_correction":
 		versions["contract"] = contractVersion
 	}
-	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
@@ -1163,13 +1159,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return coreError(base, "unauthorized", "worker actors cannot submit operator decisions or complete work", "contact_operator", false), nil
 		}
 	}
-	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
 		}
 		return replay, nil
 	}
+	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	// CD-0038 D3: budget admission for a mutation follows its idempotency
 	// lookup. A replay that matches the recorded digest returns the original
 	// result regardless of the ceiling, so a lowered ceiling can never strand

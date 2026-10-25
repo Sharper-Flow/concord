@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"math"
-	"slices"
 )
 
 // WorkflowStartTakeover names the attempt a fresh fenced start would take
@@ -36,7 +35,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 	if action.RequiredCapability == WorkerDispatchCapability {
 		canonical, err := canonicalWorkerWorktreePath(request.SessionWorktree)
 		if err != nil {
-			return nil, err
+			return nil, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
 		}
 		identity = workerWorktreeIdentity(canonical)
 	}
@@ -45,7 +44,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot open the takeover read transaction", true, "retry once the store is readable", err)
 	}
 	defer func() { _ = readTx.Rollback() }()
-	return workflowStartTakeover(ctx, readTx, action, request.WorkID, DeriveWorkflowActorRef(request.Actor.PrincipalRef, request.Actor.ClientRef, request.Actor.AgentRef, request.Actor.SessionRef), workflowDispatchLaneID(request.Payload), identity)
+	return workflowStartTakeover(ctx, readTx, action, request.WorkID, DeriveWorkflowActorRef(request.Actor.PrincipalRef, request.Actor.ClientRef, request.Actor.AgentRef, request.Actor.SessionRef), workflowDispatchAssignment(request.Payload), identity)
 }
 
 // workflowStartTakeover returns nil when no foreign takeover is required: no
@@ -63,7 +62,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 // session dispatched: its worker is running or its result awaits a decision.
 // A failed attempt is finished, and the next dispatch is a retry
 // whose approval binds the failed attempt.
-func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef, laneID, identity string) (*WorkflowStartTakeover, error) {
+func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, callerActorRef string, assignment workerRestartAssignment, identity string) (*WorkflowStartTakeover, error) {
 	var step, executionActor string
 	if err := q.QueryRowContext(ctx, `SELECT current_step,COALESCE(execution_actor_ref,'') FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &executionActor); err != nil {
 		if err == sql.ErrNoRows {
@@ -93,9 +92,8 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 		return nil, nil
 	}
 	if action.RequiredCapability == WorkerDispatchCapability {
-		// The caller's own unresolved child refuses at the write guard, so
-		// no takeover approval is requested over it.
-		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef, laneID, identity); err != nil || own != "" {
+		assignment.stepID = step
+		if own, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, callerActorRef, assignment, identity); err != nil || own != "" {
 			return nil, err
 		}
 		held, err := workflowLaneAttemptHeldFrom(ctx, q, workID, step, startSeq, start, callerActorRef)
@@ -154,8 +152,8 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 // transaction. A takeover needs the exact
 // approval minted for the current held attempt; a changed holder or epoch
 // invalidates that approval.
-func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef, laneID, identity string, approved *WorkflowStartTakeover) error {
-	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef, laneID, identity)
+func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, assignment workerRestartAssignment, identity string, approved *WorkflowStartTakeover) error {
+	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef, assignment, identity)
 	if err != nil {
 		return err
 	}
@@ -171,8 +169,8 @@ func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDef
 	return nil
 }
 
-func guardWorkerDispatchRestart(ctx context.Context, q queryer, workID, actorRef, laneID, identity string) error {
-	attemptID, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, actorRef, laneID, identity)
+func guardWorkerDispatchRestart(ctx context.Context, q queryer, workID, actorRef string, assignment workerRestartAssignment, identity string) error {
+	attemptID, err := workflowUnresolvedOwnWorkerAttempt(ctx, q, workID, actorRef, assignment, identity)
 	if err != nil {
 		return err
 	}
@@ -182,28 +180,43 @@ func guardWorkerDispatchRestart(ctx context.Context, q queryer, workID, actorRef
 	return nil
 }
 
-// workflowDispatchLaneID reads either the public selector or the internal
-// packet. Missing identity stays conservative until payload validation refuses.
-func workflowDispatchLaneID(payload json.RawMessage) string {
+// A job's stable identity survives revisions and contracts. Job-less pins bind
+// the work's step and lane; an attempt or packet digest is never an assignment.
+type workerRestartAssignment struct {
+	jobID, stepID, laneID string
+}
+
+func (a workerRestartAssignment) same(b workerRestartAssignment) bool {
+	if a.jobID != "" || b.jobID != "" {
+		return a.jobID != "" && a.jobID == b.jobID
+	}
+	return a.stepID == "" || b.stepID == "" || a.laneID == "" || b.laneID == "" || (a.stepID == b.stepID && a.laneID == b.laneID)
+}
+
+// workflowDispatchAssignment reads the packet's lane and job claims; the step is
+// the store's current step. Dispatch admission validates the job claim against
+// recorded assignment content.
+func workflowDispatchAssignment(payload json.RawMessage) workerRestartAssignment {
 	var fields struct {
-		LaneID string `json:"lane_id"`
 		Packet struct {
 			LaneID string `json:"lane_id"`
+			Inputs struct {
+				Job struct {
+					JobID string `json:"job_id"`
+				} `json:"worker_job"`
+			} `json:"inputs"`
 		} `json:"worker_packet"`
 	}
 	_ = json.Unmarshal(payload, &fields)
-	if fields.Packet.LaneID != "" {
-		return fields.Packet.LaneID
-	}
-	return fields.LaneID
+	return workerRestartAssignment{jobID: fields.Packet.Inputs.Job.JobID, laneID: fields.Packet.LaneID}
 }
 
 // workflowUnresolvedOwnWorkerAttempt examines every outstanding own start,
 // never just the latest epoch. Editing authority survives contract supersession;
-// read-only work can coexist with a different lane on the same claim. Missing
+// read-only work can coexist with a different assignment on any claim. Missing
 // claim identity cannot prove a separate claim; unknown lanes block conservatively.
-func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, actorRef, laneID, identity string) (string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lane_digest,COALESCE(json_extract(c.payload,'$.worker_worktree_identity'),'') FROM worker_attempts a
+func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, actorRef string, assignment workerRestartAssignment, identity string) (string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.lane_id,a.lane_digest,COALESCE(json_extract(c.payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(c.payload,'$.worker_job.job_id'),''),COALESCE(json_extract(c.payload,'$.step_id'),'') FROM worker_attempts a
 	 JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
 	 WHERE a.work_id=? AND a.lifecycle_state='dispatched'
 	 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq`, workID, actorRef)
@@ -212,15 +225,19 @@ func workflowUnresolvedOwnWorkerAttempt(ctx context.Context, q queryer, workID, 
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var attemptID, heldLane, digest, heldIdentity string
-		if err := rows.Scan(&attemptID, &heldLane, &digest, &heldIdentity); err != nil {
+		var attemptID, digest, heldIdentity string
+		var held workerRestartAssignment
+		if err := rows.Scan(&attemptID, &held.laneID, &digest, &heldIdentity, &held.jobID, &held.stepID); err != nil {
 			return "", workflowProjectionError(err, "cannot read the caller's unresolved started worker attempt")
 		}
-		if identity != "" && heldIdentity != "" && identity != heldIdentity {
-			continue
+		if _, err := LookupLane(held.laneID, digest); err != nil {
+			return attemptID, nil
 		}
-		lane, laneErr := LookupLane(heldLane, digest)
-		if laneErr != nil || slices.Contains(lane.Capabilities, "edit_scoped_files") || laneID == "" || heldLane == laneID {
+		if workerLaneEdits(held.laneID, digest) {
+			if identity == "" || heldIdentity == "" || identity == heldIdentity {
+				return attemptID, nil
+			}
+		} else if assignment.same(held) {
 			return attemptID, nil
 		}
 	}

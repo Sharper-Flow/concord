@@ -52,7 +52,7 @@ func TestSessionTakeoverReadsCurrentVacateRequest(t *testing.T) {
 				}
 			}
 			read := func() (any, error) {
-				return workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{}, work, "actor:another-session", "", "")
+				return workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{}, work, "actor:another-session", workerRestartAssignment{}, "")
 			}
 			got, err := read()
 			if err != nil {

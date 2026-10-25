@@ -173,7 +173,7 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	// approved takeover opens the newer epoch without fabricating its terminal.
 	taker := diagnosisS1Actor(workID, "takeover")
 	claim := dispatchSessionWorktree(t, s, workID)
-	approved, err := workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, mustActorRef(t, taker), lane.ID, workerWorktreeIdentity(claim))
+	approved, err := workflowStartTakeover(t.Context(), s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, mustActorRef(t, taker), workerRestartAssignment{jobID: job.JobID, stepID: "repair", laneID: lane.ID}, workerWorktreeIdentity(claim))
 	if err != nil || approved == nil {
 		t.Fatalf("read the exact foreign takeover: %+v, %v", approved, err)
 	}

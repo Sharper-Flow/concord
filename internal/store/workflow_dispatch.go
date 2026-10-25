@@ -552,7 +552,7 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
-		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchLaneID(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
+		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
 			return err
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -188,6 +189,33 @@ func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 	}
 	if workVersion(t, f.s, "work-1") != version || agentCurrentEffects(t, f.s) != effects {
 		t.Fatal("replay or refused own-child replacement changed durable progress")
+	}
+}
+
+func TestDispatchWorkerReplaySurvivesMissingSessionWorktree(t *testing.T) {
+	t.Parallel()
+	f := newDispatchTakeoverFixture(t)
+	const attempt = "attempt:work-1:replay-missing-worktree"
+	first, original := f.dispatch(t, f.owner, attempt, "replay-missing-worktree")
+	if first.Outcome != OutcomeOK {
+		t.Fatalf("initial dispatch: %+v", first.Error)
+	}
+	f.laneDispatch(t, "replay-missing-lane-dispatched", attempt, f.ownerGrant)
+	version, effects := workVersion(t, f.s, "work-1"), agentCurrentEffects(t, f.s)
+	missing, moved := f.owner.Worktree, f.owner.Worktree+"-moved"
+	if err := os.Rename(missing, moved); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(moved, missing); err != nil {
+			t.Error(err)
+		}
+	})
+	if replay := f.invoke(t, f.owner, original); replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("stored dispatch replay depended on the live worktree: %+v", replay)
+	}
+	if workVersion(t, f.s, "work-1") != version || agentCurrentEffects(t, f.s) != effects {
+		t.Fatal("stored dispatch replay changed durable progress")
 	}
 }
 

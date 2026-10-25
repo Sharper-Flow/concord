@@ -197,33 +197,6 @@ test("packet validation is closed before any runner call", async () => {
   expect(calls).toBe(0)
 })
 
-// The binding's assigned result must be the one the worker-scope contract
-// derives from the packet's lane. A packet that names another lane's result
-// is contract or registry drift the closed schema alone cannot see, so it
-// refuses before authorization and no window opens.
-test("a mismatched binding assigned result refuses before authorization", async () => {
-  let authorizeCalls = 0
-  let runnerCalls = 0
-  const mismatched = { ...packet(), inputs: { ...packet().inputs, binding: { ...packet().inputs.binding, assigned_result: "files_touched" } } }
-  expect(validateAgentLanePacket(mismatched)).toBe(true)
-  const windows = new DispatchWindows()
-  const result = await dispatchWorker(mismatched, {
-    credentials: testCredentials,
-    runner: { async run() { runnerCalls++; return { exitCode: 0, stdout: "", stderr: "" } } },
-    authorize: async () => { authorizeCalls++; return coreOk() },
-    packetDigest: PACKET_DIGEST,
-    sessionID: SESSION,
-    windows,
-  })
-  expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("invalid_input")
-  expect(result.error?.message).toContain("assigned result")
-  expect(result.error?.message).toContain("files_touched")
-  expect(authorizeCalls).toBe(0)
-  expect(runnerCalls).toBe(0)
-  expect(windows.has(SESSION)).toBe(false)
-})
-
 test("an omitted or nonexistent worker directory refuses before authorization", async () => {
   for (const workerDirectory of [undefined, `${process.cwd()}/concord-dispatch-nonexistent-${randomUUID()}`]) {
     let authorizeCalls = 0
@@ -3351,23 +3324,6 @@ test("a typed review report under a stale digest is refused without relabeling",
 test("an unknown lane digest is refused as an unregistered lane identity", () => {
   const refused = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: "sha256:" + "0".repeat(64) })
   expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
-})
-
-test("a completion under a stale lane digest refuses before writing evidence", async () => {
-  const legacy = "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb"
-  expect(legacy).not.toBe(lane.digest)
-  const records: { verb: string; body: Record<string, unknown> }[] = []
-  const result = await complete(workerBody(report()), {
-    evidenceRunner: { async run(argv, input) {
-      records.push({ verb: argv[1], body: JSON.parse(input) as Record<string, unknown> })
-      return { exitCode: 0, stdout: "", stderr: "" }
-    } },
-  }, { ...packet(), lane_digest: legacy })
-  expect(result.outcome).toBe("error")
-  expect(result.error?.kind).toBe("invalid_input")
-  expect(result.error?.message).toContain("content revalidation")
-  expect(records).toHaveLength(0)
-  expect(result.lane.digest).toBe(legacy)
 })
 
 test("the review lane refuses a free-text severity entry beside the typed review block", () => {

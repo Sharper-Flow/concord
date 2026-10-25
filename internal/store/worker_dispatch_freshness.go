@@ -421,7 +421,7 @@ func admitWorkerDispatchSubjectFreshness(ctx context.Context, tx *sql.Tx, reques
 		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the claimed worktree's live clean HEAD does not match the admitted dispatch subject "+subject, true, "re-qualify the candidate at the claimed worktree, then rebuild the packet and dispatch again")
 	}
 	if lane.CapabilityClass == "review" && workflowDefinitionProducesDelivery(definition) {
-		return validateReviewAcceptedDeliveryTx(ctx, tx, request.WorkID, subject, request.SessionWorktreeIdentity, proof.proof.observation)
+		return validateReviewAcceptedDeliveryTx(ctx, tx, request.WorkID, subject, request.SessionWorktreeIdentity)
 	}
 	return nil
 }
@@ -550,12 +550,9 @@ func workflowDefinitionProducesDelivery(definition WorkflowDefinition) bool {
 // Review consumes the current integrated candidate, or the qualified initial
 // baseline before Main has accepted any result. An earlier Implement result
 // is not a prerequisite for obtaining baseline continuation authority.
-func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, subject, worktreeIdentity string, observation *WorkerObservedDelivery) error {
+func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, subject, worktreeIdentity string) error {
 	if subject == "" {
 		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, "run worktree-verify on the clean accepted candidate, then rebuild the packet")
-	}
-	if observation == nil || observation.State != "clean" || observation.Commit != subject {
-		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the claimed worktree's live clean HEAD does not match the qualified review subject", true, "re-qualify the candidate at the claimed worktree, then rebuild the packet and dispatch again")
 	}
 	receipt, err := readCurrentOracleSubjectReceipt(ctx, tx, workID)
 	if err != nil {

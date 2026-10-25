@@ -115,7 +115,13 @@ func activeDispatchWorktreeEntry(ctx context.Context, q queryer, workID, project
 		return WorktreeEntry{}, err
 	}
 	for _, entry := range entries {
-		if entry.ProjectID == projectID && entry.State == worktreeEntryActive && workerWorktreeIdentity(filepath.Clean(entry.Path)) == identity {
+		if entry.ProjectID != projectID || entry.State != worktreeEntryActive {
+			continue
+		}
+		if workerWorktreeIdentity(filepath.Clean(entry.Path)) == identity {
+			return entry, nil
+		}
+		if canonical, err := canonicalWorkerWorktreePath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == identity {
 			return entry, nil
 		}
 	}

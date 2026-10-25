@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,5 +106,49 @@ func TestMemberClaimsDeriveIsolatedNativeIdentity(t *testing.T) {
 	entries, err := f.store.WorktreeEntries(t.Context(), f.workID)
 	if err != nil || len(entries) != 3 {
 		t.Fatalf("one set must retain integration plus two isolated members: %+v %v", entries, err)
+	}
+}
+
+func TestMemberDispatchCanonicalizesSymlinkedDataRoot(t *testing.T) {
+	f, group, owners := boundMemberClaimFixture(t)
+	alias := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(filepath.Dir(f.store.Path()), alias); err != nil {
+		t.Fatal(err)
+	}
+	aliased, err := Open(t.Context(), filepath.Join(alias, filepath.Base(f.store.Path())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { aliased.Close() })
+	f.store = aliased
+	repo, err := f.store.ProjectCanonicalPath(t.Context(), "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := newFakeWorktreeGit(repo)
+	git.branches["main"] = group.BaseSubject.Commit
+	member := group.Members[0]
+	claimed, err := f.store.ClaimWorktree(t.Context(), WorktreeClaimRequest{
+		OpID: "claim-aliased-member", WorkID: f.workID, ProjectID: member.ProjectID,
+		BaseSHA: group.BaseSubject.Commit, PrincipalRef: f.owner.PrincipalRef,
+		RequestID: "request-aliased-member", SessionRef: owners[0].SessionRef, Owner: owners[0],
+		ExpectedVersion: readWorkVersion(t, f.store, f.workID), Runner: git, Now: time.Unix(200, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(claimed.Entry.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	actor := WorkflowActor{PrincipalRef: f.owner.PrincipalRef, ClientRef: owners[0].ClientRef, AgentRef: owners[0].AgentRef, SessionRef: owners[0].SessionRef, ActorClass: ActorAgent}
+	req := WorkflowActionExecutionRequest{WorkID: f.workID, ActionID: "dispatch_worker", Actor: actor, SessionWorktree: claimed.Entry.Path,
+		Payload: mustJSONValue(map[string]any{"worker_packet": map[string]any{"inputs": map[string]any{"worker_job": member.WorkerJobBinding}}}),
+	}
+	if err := guardWorkflowMemberAction(t.Context(), f.store.db, req); err != nil {
+		t.Fatalf("own member claim beneath symlinked data root refused: %v", err)
+	}
+	req.SessionWorktree = repo
+	if err := guardWorkflowMemberAction(t.Context(), f.store.db, req); !hasFailureKind(err, KindUnauthorizedDispatch) {
+		t.Fatalf("member dispatch escaped into integration: %v", err)
 	}
 }

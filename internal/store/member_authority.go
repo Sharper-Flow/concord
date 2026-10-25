@@ -116,7 +116,8 @@ func guardWorkflowMemberAction(ctx context.Context, q queryer, request WorkflowA
 		return err
 	}
 	canonical, err := canonicalWorkerWorktreePath(request.SessionWorktree)
-	if err != nil || canonical != entry.Path {
+	claimed, claimErr := canonicalWorkerWorktreePath(entry.Path)
+	if err != nil || claimErr != nil || canonical != claimed {
 		return newFailure(KindUnauthorizedDispatch, "worker_dispatch", "member caller is not in its own claimed worktree", false, "resume the assigned member worktree before dispatch")
 	}
 	return nil

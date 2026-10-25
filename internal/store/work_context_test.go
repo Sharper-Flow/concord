@@ -1180,6 +1180,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("confirm the evidenced premise: %v", err)
 	}
+	bindCompletionClosure(t, fixture.store, fixture.workID, fixture.owner)
 	if err := journey.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, fixture.owner); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}

@@ -108,7 +108,7 @@ func builtinWorkflowParts() []WorkflowPart {
 			FailureEdge:       true,
 			Routes:            unhealthy},
 		{Ref: "part.close", Kind: WorkflowStepInternalSQLite, StepIDOptions: []string{"release", "complete"},
-			Actions:               []string{"complete", "record_work_context", "checkpoint_context", "cross_context_boundary"},
+			Actions:               []string{"bind_evidence", "complete", "record_work_context", "checkpoint_context", "cross_context_boundary"},
 			Routes:                unhealthy,
 			DisprovedPremiseRoute: true},
 	}

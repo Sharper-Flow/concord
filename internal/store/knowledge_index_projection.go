@@ -119,10 +119,9 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 			// Publication is proof-backed archive, not destruction (CD-0217):
 			// an identical relink is idempotent and research is never a side
 			// effect. Only an explicit research_retire batch deletes packs.
-			if req.WithinTx != nil {
-				return s.Transact(ctx, req.WithinTx)
-			}
-			return nil
+			return s.Transact(ctx, func(tx *Transaction) error {
+				return replayCompactionLinkTx(ctx, tx, req, note.ContentHash)
+			})
 		}
 		return newFailure(KindCompactionConflict, "publish_compaction_link", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")
 	}
@@ -148,9 +147,19 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion},
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return publishCompactionLinkTx(ctx, tx, req, operation)
+		return publishCompactionLinkTx(ctx, tx, req, operation, note.ContentHash)
 	}); err != nil {
 		return err
+	}
+	return nil
+}
+
+func replayCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, contentHash string) error {
+	if err := checkReviewedClosureContentHashQ(ctx, tx.tx, req.WorkID, contentHash); err != nil {
+		return err
+	}
+	if req.WithinTx != nil {
+		return req.WithinTx(tx)
 	}
 	return nil
 }
@@ -163,7 +172,10 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 // what can refuse here. That refusal keeps output authorized under a superseded
 // law revision out of Product truth when the cutover commits while the external
 // git write is still in flight.
-func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation) error {
+func publishCompactionLinkTx(ctx context.Context, tx *Transaction, req CompactionLinkRequest, operation Operation, contentHash string) error {
+	if err := checkReviewedClosureContentHashQ(ctx, tx.tx, req.WorkID, contentHash); err != nil {
+		return err
+	}
 	if req.Boundary == CompactionBoundaryRevalidated {
 		if err := CheckWorkflowConsequentialBoundaryTx(ctx, tx, req.WorkID); err != nil {
 			return err

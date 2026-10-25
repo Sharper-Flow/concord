@@ -202,7 +202,7 @@ criterion carries a typed exemption naming the structural proof. The checker
   (`TestPublishCanonicalNoteCommitsOneNote` and
   `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`,
   `internal/store/knowledge_index_test.go`), which fix the bounded note
-  payload the operator approves.
+  payload the publisher attests.
 - Criterion 2 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
   (`internal/store/pm8_pm9_absence_test.go`), which rejects receipt-shaped

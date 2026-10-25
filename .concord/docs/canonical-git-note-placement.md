@@ -183,7 +183,7 @@ Git and SQLite cannot share one atomic transaction. PM6 therefore defines a
 monotonic publish protocol rather than pretending cross-store atomicity:
 
 1. resolve one eligible home using §3;
-2. draft note; operator approves exact content/home;
+2. draft note; salvage and evidence review fix its exact content and home (PM9);
 3. commit the note to git;
 4. verify `commit_oid:note_path` exists, contains the expected `concord_work_id`, and
    hashes to `content_hash`;
@@ -230,7 +230,7 @@ verified is `missing` or `degraded`, never authoritative.
   authority coverage is complete and the object is absent; PM10 may recover from
   another clone/backup by commit OID and verify content hash.
 - **Home removal:** Product/Project home designation cannot be removed while it is
-  locked from operator approval (step 2) through SQLite linkage (step 5). Existing
+  locked from content review (step 2) through SQLite linkage (step 5). Existing
   note locators remain valid historical references even if the Project later leaves
   Product membership.
 
@@ -356,8 +356,9 @@ operator choice, and the falsifiers above remain controlling.
 
 - Given a publish that committed to git but not yet to SQLite
   When Q10 resolves the work item
-  Then the answer is `not_compacted`, because SQLite never records a locator
-  before git proof.
+  Then a verified note resolves `canonical`, and the unsettled publication
+  makes nothing eligible for cleanup. Work with no verified note resolves
+  `not_compacted`.
 
 - Given an orphan canonical-looking note from an interrupted publish
   When a retry runs
@@ -378,11 +379,12 @@ operator choice, and the falsifiers above remain controlling.
 - Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
   `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
   (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 2 is proved by the bound `Q10-not-compacted` scenario of
+- Criterion 2 is proved by
+  `TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag`
+  (`internal/store/knowledge_index_test.go`) and, for work with no verified
+  note, by the bound `Q10-not-compacted` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`), and by
-  `TestQ10OrphanWorkNoteRemainsNotCompacted`
-  (`internal/store/knowledge_index_test.go`).
+  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
 - Criterion 3 is proved by
   `TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes`
   (`internal/store/knowledge_index_test.go`) and

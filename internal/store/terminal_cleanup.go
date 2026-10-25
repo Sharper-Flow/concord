@@ -98,6 +98,16 @@ func cleanupPublishedTerminalWorkTx(ctx context.Context, transaction *Transactio
 	if !proof || !settled {
 		return newFailure(KindOperationConflict, op, "verified publication is changed or not settled", true, "settle the canonical publication before cleanup")
 	}
+	reviewedHash, err := reviewedTerminalContentHashQ(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if reviewedHash == "" {
+		return newFailure(KindMissingEvidence, op, "terminal work has no reviewed closure content hash", false, "retain execution without an authoritative reviewed terminal receipt")
+	}
+	if reviewedHash != hash {
+		return newFailure(KindOutcomeMismatch, op, "canonical publication differs from the reviewed closure", false, "publish the exact reviewed receipt bytes")
+	}
 	if err := terminalCleanupBlockersQ(ctx, tx, workID); err != nil {
 		return err
 	}

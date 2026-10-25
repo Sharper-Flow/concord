@@ -811,7 +811,16 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "accept_worker_result", "accept_worker_evidence":
 		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
-		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
+		events, err := workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
+		if err != nil {
+			return nil, err
+		}
+		if request.ActionID == "bind_evidence" && stepDeclaresAction(definition, stepID, "complete") {
+			if err := validateReviewedClosureBindings(ctx, tx, request.WorkID, actor, events); err != nil {
+				return nil, err
+			}
+		}
+		return events, nil
 	case "record_verdict":
 		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
 		if err != nil {

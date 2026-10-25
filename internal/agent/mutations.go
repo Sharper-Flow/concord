@@ -4393,6 +4393,16 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if resolvedHome.HomeProjectID != publish.HomeProjectID || resolvedHome.HomeLocatorID != publish.HomeLocatorID {
 			return coreError(base, "ambiguous_scope", "caller home does not match the deterministic terminal-work home", "resolve_ambiguity", false), nil
 		}
+		if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, publish.ContentDigest); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		contentHash := sha256.Sum256([]byte(publish.Content))
+		actualHash := "sha256:" + hex.EncodeToString(contentHash[:])
+		if actualHash != publish.ContentDigest {
+			if err := r.Store.CheckReviewedClosureContentHash(ctx, workID, actualHash); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+		}
 		claimScope["work_version"] = publish.ExpectedVersion
 		claimScope["content_digest"] = publish.ContentDigest
 		claimScope["home_project_id"] = resolvedHome.HomeProjectID
@@ -4576,6 +4586,9 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	note, proofErr := store.FindVerifiedWorkNote(ctx, home, reconcile.WorkID, proofDigest)
 	if proofErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "git_proof", nil, proofErr), nil
+	}
+	if err := r.Store.CheckReviewedClosureContentHash(ctx, reconcile.WorkID, note.ContentHash); err != nil {
+		return failureEnvelope(base, err), nil
 	}
 	if workVersion <= 0 {
 		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil

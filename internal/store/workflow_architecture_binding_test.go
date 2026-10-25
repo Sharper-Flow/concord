@@ -626,6 +626,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", ownerRef); err != nil {
 		t.Fatal(err)
 	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err == nil {
 		t.Fatal("completion accepted unsatisfied verification obligation")

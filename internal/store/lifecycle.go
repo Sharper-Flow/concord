@@ -475,6 +475,9 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *f
 				return err
 			}
 			definition = registered.Definition
+			if err := requireReviewedClosureQ(ctx, tx, event.SubjectID); err != nil {
+				return err
+			}
 		}
 		// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
 		// row on the lifecycle path. A completed instance proves the ordered

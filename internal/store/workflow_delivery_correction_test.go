@@ -68,6 +68,7 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 	if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	bindCompletionClosure(t, s, workID, f.owner)
 	if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 		t.Fatal(err)
 	}

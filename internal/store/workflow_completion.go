@@ -133,6 +133,9 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 
 	// Clause 1: durable, event-folded evidence bound to the approved contract.
+	if err := requireReviewedClosureQ(ctx, tx, event.SubjectID); err != nil {
+		return workflowClauseError(err, 1)
+	}
 	if err := verifyCompletionEvidence(ctx, tx, event.SubjectID, contract.RequiredEvidence, definition.RequiredEvidenceKinds, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 1)
 	}

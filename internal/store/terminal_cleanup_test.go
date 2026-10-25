@@ -81,7 +81,7 @@ func TestTerminalCleanupDefersPendingPublicationAndRejectsChangedProof(t *testin
 			case "proof_hash":
 				terminalCleanupSQL(t, s, `UPDATE archived_work SET content_hash='sha256:1111111111111111111111111111111111111111111111111111111111111111' WHERE id='work-done'`)
 			case "terminal_state":
-				terminalCleanupSQL(t, s, `UPDATE archived_work SET terminal_state='cancelled' WHERE id='work-done'`)
+				terminalCleanupSQL(t, s, `UPDATE archived_work SET terminal_state='completed' WHERE id='work-done'`)
 			case "version":
 				terminalCleanupSQL(t, s, `UPDATE durable_operations SET accepted_scope_snapshot=json_set(accepted_scope_snapshot,'$.work_version',4) WHERE work_id='work-done'`)
 			case "unreachable_git":
@@ -160,12 +160,10 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 	for _, kind := range []string{"bug", "research"} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
-			s, _ := terminalCleanupFixture(t)
+			s, _ := terminalCleanupFixtureForKind(t, kind)
 			shape := "shape-fixture"
 			var siblings []string
-			definitionRef := "workflow.break_fix"
 			if kind == "research" {
-				definitionRef = "workflow.research"
 				if err := captureDefectWork(t, s, "earlier-bug", "bug", defectIntakeJSON(shape, nil, ""), "proj-web"); err != nil {
 					t.Fatal(err)
 				}
@@ -173,23 +171,6 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 			}
 			intent, _ := json.Marshal(map[string]any{"defect": map[string]any{"failure_shape": shape, "sibling_ids": siblings}})
 			terminalCleanupSQL(t, s, `UPDATE work_items SET kind='`+kind+`',intent_json='`+string(intent)+`' WHERE id='work-done'`)
-			var registered RegisteredDefinition
-			for _, definition := range BuiltinWorkflowDefinitions() {
-				if definition.Ref == definitionRef {
-					var err error
-					registered, err = BuiltinWorkflowRegistry().Register(definition)
-					if err != nil {
-						t.Fatal(err)
-					}
-					break
-				}
-			}
-			if err := s.Transact(t.Context(), func(tx *Transaction) error {
-				return InitializeWorkflowTx(t.Context(), tx, WorkflowInitializationRequest{WorkID: "work-done", Definition: registered, Actor: WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: ActorAgent}, Now: time.Now().UTC()})
-			}); err != nil {
-				t.Fatal(err)
-			}
-			terminalCleanupSQL(t, s, `INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES('work-done',1,'binding-fixture','operator','{}')`)
 			if err := s.CleanupPublishedTerminalWork(t.Context(), "work-done"); err != nil {
 				t.Fatal(err)
 			}
@@ -233,10 +214,48 @@ func TestTerminalCleanupRetainsDefectAdmissionClassification(t *testing.T) {
 
 func terminalCleanupFixture(t *testing.T) (*Store, KnowledgeHome) {
 	t.Helper()
-	s := openTemp(t)
-	seedKnowledgeWork(t, s, "work-done", "Done")
+	return terminalCleanupFixtureForKind(t, "task")
+}
+
+func terminalCleanupFixtureForKind(t *testing.T, kind string) (*Store, KnowledgeHome) {
+	t.Helper()
+	content := canonicalWorkNote("work-done", "2026-08-07T00:00:00Z")
+	if kind != "research" {
+		content = strings.Replace(content, "terminal_state: completed", "terminal_state: cancelled", 1)
+	}
+	hash := nativeDigest([]byte(content))
+	var s *Store
+	if kind == "research" {
+		f, ref := seedCriterionAssociationAtStep(t, "work-done", mustBuiltinDefinition(t, "workflow.research"), "conclude")
+		s = f.store
+		seedComparisonObservation(t, s, "work-done")
+		if err := runVerdictActionAs(t, s, "work-done", "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
+			t.Fatalf("associate research criteria: %v", err)
+		}
+		if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), "work-done", "confirm_premise", f.owner, nil, "confirm", "", `{}`); err != nil {
+			t.Fatalf("confirm research premise: %v", err)
+		}
+		if err := closureBind(t, f, "work-done", "review", hash); err != nil {
+			t.Fatalf("bind research closure: %v", err)
+		}
+		if err := runVerdictActionAs(t, s, "work-done", "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, f.owner); err != nil {
+			t.Fatalf("complete research: %v", err)
+		}
+		// Keep the established Product/Project cleanup assertions while using
+		// the research fixture's real conclusion, binding and completion.
+		seedKnowledgeWorkLifecycle(t, s, "cleanup-scope", "Scope", false)
+		terminalCleanupSQL(t, s, `DELETE FROM work_projects WHERE work_id='work-done'`, `INSERT INTO work_projects VALUES('work-done','proj-web','primary')`)
+	} else {
+		s = openTemp(t)
+		seedKnowledgeWorkLifecycle(t, s, "work-done", "Done", false)
+		if kind == "bug" {
+			initializeCompositionWorkflow(t, s, "work-done", "workflow.break_fix", WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: ActorAgent})
+		}
+		cancelWithReviewedEvidence(t, s, "work-done", "operator", []string{hash})
+	}
+	requireTerminalHash(t, s, "work-done", hash)
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, ".concord/docs/work/work-done.md", canonicalWorkNote("work-done", "2026-08-07T00:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/work-done.md", content)
 	commitKnowledgeRepo(t, repo, "canonical outcome")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
@@ -244,11 +263,14 @@ func terminalCleanupFixture(t *testing.T) (*Store, KnowledgeHome) {
 	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
 		t.Fatal(err)
 	}
-	var hash string
-	if err := s.db.QueryRowContext(t.Context(), `SELECT content_hash FROM archived_work WHERE id='work-done'`).Scan(&hash); err != nil {
+	var indexedHash string
+	if err := s.db.QueryRowContext(t.Context(), `SELECT content_hash FROM archived_work WHERE id='work-done'`).Scan(&indexedHash); err != nil {
 		t.Fatal(err)
 	}
-	scope, _ := json.Marshal(map[string]any{"work_version": 3, "content_digest": hash, "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID})
+	if indexedHash != hash {
+		t.Fatalf("published hash=%q, reviewed hash=%q", indexedHash, hash)
+	}
+	scope, _ := json.Marshal(map[string]any{"work_version": readWorkVersion(t, s, "work-done"), "content_digest": hash, "home_project_id": home.HomeProjectID, "home_locator_id": home.HomeLocatorID})
 	claim, err := ClaimStepAuthorized(t.Context(), s, ClaimRequest{OpID: "publication", WorkID: "work-done", WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: StepCrossAuthority, AcceptedInputsDigest: hash, AcceptedScopeSnapshot: string(scope), PrincipalRef: "operator", Tool: "concord_work_compact", IdempotencyKey: "publish", RequestID: "publish-request", ObservedAt: time.Now().UTC(), ContractDigest: hash}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +308,40 @@ func TestTerminalCleanupDeletesOnlySettledExecution(t *testing.T) {
 		t.Fatalf("idempotent re-entry: %v", err)
 	}
 	assertFailureKind(t, publishedWorkAbsenceQ(t.Context(), s.db, "work-done", "test"), KindProjectionNotFound)
+}
+
+func TestTerminalCleanupRequiresMatchingReviewedReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		refs []string
+		kind FailureKind
+	}{
+		{"unbound", []string{}, KindMissingEvidence},
+		{"different_review", []string{"sha256:" + strings.Repeat("b", 64)}, KindOutcomeMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := terminalCleanupFixture(t)
+			version := readWorkVersion(t, s, "work-done")
+			reopen := workflowEvent("cleanup-review-reopen", "work.reopened", "work-done", map[string]any{
+				"from": "cancelled", "reason": "review the terminal receipt", "expected_version": version, "resulting_version": version + 1,
+			})
+			if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{reopen}, ExpectedVersions: workVersion("work-done", version)}); err != nil {
+				t.Fatal(err)
+			}
+			cancel := workflowEventWithActor("cleanup-review-cancel", "work.transitioned", "work-done", "operator", map[string]any{
+				"from": "needed", "to": "cancelled", "reason": "reviewed terminal receipt", "evidence_refs": tc.refs,
+				"expected_version": version + 1, "resulting_version": version + 2,
+			})
+			if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{cancel}, ExpectedVersions: workVersion("work-done", version+1)}); err != nil {
+				t.Fatal(err)
+			}
+			assertFailureKind(t, s.CleanupPublishedTerminalWork(t.Context(), "work-done"), tc.kind)
+			var count int
+			if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM work_items WHERE id='work-done'`).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("unreviewed execution collected: count=%d err=%v", count, err)
+			}
+		})
+	}
 }
 
 func TestTerminalCleanupRetiresUnreadKnowledgeTables(t *testing.T) {

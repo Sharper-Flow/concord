@@ -362,6 +362,7 @@ type completionGateCase struct {
 	verdictKind      string
 	openCondition    bool
 	conflictNotice   bool
+	omitClosure      bool
 	wantKind         FailureKind
 	wantClause       int
 }
@@ -734,6 +735,14 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if !testCase.omitClosure {
+		// Clause tests may deliberately leave verdict or premise absent. Arrange
+		// close before binding, then fault the specific gate inputs below.
+		if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", executor); err != nil {
+			t.Fatal(err)
+		}
+		bindCompletionClosure(t, s, workID, f.owner)
 	}
 	// Fault the mutable gate inputs only after the real current Review and
 	// proof path has run. Captured receipts and immutable events stay intact.

@@ -110,8 +110,8 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
-	if bound != 35 {
-		t.Fatalf("bound evidence events = %d, want 35 (five fixture bindings plus thirty bulk bindings)", bound)
+	if bound != 36 {
+		t.Fatalf("bound evidence events = %d, want 36 (six fixture bindings plus thirty bulk bindings)", bound)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)

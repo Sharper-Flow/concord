@@ -454,6 +454,8 @@ func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 
 func TestCompactionFencesFollowingWritesAfterCleanup(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	receipt := cancelledPublicationContent(t, newCancelledNotePublication(t, s, grant, home, "reviewed-receipt"))
+	reviewCancelledReceipt(t, s, receipt.ContentDigest)
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	response := publishCancelledNote(t, s, service, grant, key, home)
 	if response.Outcome != OutcomeOK {

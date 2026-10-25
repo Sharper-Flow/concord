@@ -424,6 +424,11 @@ func TestKnowledgeSchemaHasNoNoteBodyAndCompactionPersistsLink(t *testing.T) {
 
 func seedKnowledgeWork(t *testing.T, s *Store, id, title string) {
 	t.Helper()
+	seedKnowledgeWorkLifecycle(t, s, id, title, id == "work-done")
+}
+
+func seedKnowledgeWorkLifecycle(t *testing.T, s *Store, id, title string, completed bool) {
+	t.Helper()
 	ctx := context.Background()
 	events := []Event{
 		{EventID: "create-prod-" + id, Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "prod-alpha", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Alpha","stage_maturity":"production","stage_audience_commitment":"operator_only"}`)},
@@ -435,7 +440,7 @@ func seedKnowledgeWork(t *testing.T, s *Store, id, title string) {
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "prod-alpha"): 0, VersionRef(SubjectProject, "proj-web"): 0, VersionRef(SubjectWorkItem, id): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if id == "work-done" {
+	if completed {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "complete-" + id, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"from":"needed","to":"completed","reason":"fixture","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 2}}); err != nil {
 			t.Fatal(err)
 		}

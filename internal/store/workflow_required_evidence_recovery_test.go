@@ -355,6 +355,7 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	if err := f.run(ctx, "confirm_premise", "confirm-recovered", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("operator confirmation after recovery refused: %v", err)
 	}
+	bindCompletionClosure(t, s, workID, owner)
 	if err := f.run(ctx, "complete", "complete", f.version(ctx, t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 		t.Fatalf("normal workflow completion after recovery refused: %v", err)
 	}

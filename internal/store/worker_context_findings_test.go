@@ -316,6 +316,7 @@ func TestWorkerFailedFindingsReservedForWorkerError(t *testing.T) {
 	}
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
+	seedWork(t, s, "work-fail-abandoned")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-fail-abandoned", "attempt-fail-abandoned", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 
 func TestWorkerDetailRefusalNamesUTF8Bytes(t *testing.T) {
 	s := openTemp(t)
+	seedWork(t, s, "evidence-utf8")
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "detail-utf8-attempt"
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-utf8", attemptID, lane, nil)}}); err != nil {

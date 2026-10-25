@@ -163,6 +163,7 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "evidence-shape-attempt"
+			seedWork(t, s, "evidence-shape")
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}

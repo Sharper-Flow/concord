@@ -9,6 +9,30 @@ func sessionRelocationWriteFailure(err error) error {
 	return wrapFailure(KindUnavailable, "fold_event", "cannot record the session relocation state", true, "retry once the database is writable", err)
 }
 
+// advanceSessionRelocationCountTx retains the next published identity ordinal
+// independently of the latest request and the set of verified claim landings.
+func advanceSessionRelocationCountTx(ctx context.Context, tx *sql.Tx, event Event, sessionRef string) error {
+	var vacates, vacateLandings, claimLandings int
+	switch event.Kind {
+	case "work.session_vacated":
+		vacates = 1
+	case "work.session_vacate_landed":
+		vacateLandings = 1
+	case "work.session_claim_landed":
+		claimLandings = 1
+	default:
+		return newFailure(KindInvariantViolation, "fold_event", "cannot advance a relocation ordinal for this effect kind", false, "use the relocation writer for its declared kind")
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO session_relocation_counts(work_id,session_ref,vacate_count,vacate_landing_count,claim_landing_count) VALUES(?,?,?,?,?)
+		ON CONFLICT(work_id,session_ref) DO UPDATE SET vacate_count=vacate_count+excluded.vacate_count,
+		vacate_landing_count=vacate_landing_count+excluded.vacate_landing_count,claim_landing_count=claim_landing_count+excluded.claim_landing_count`,
+		event.SubjectID, sessionRef, vacates, vacateLandings, claimLandings)
+	if err != nil {
+		return sessionRelocationWriteFailure(err)
+	}
+	return nil
+}
+
 // writeSessionVacateRequestTx makes a landing-verified request the latest
 // request of its work item, session, Project, and source directory, pending
 // until a verified landing completes it. The writing effect's sequence orders
@@ -20,7 +44,7 @@ func writeSessionVacateRequestTx(ctx context.Context, tx *sql.Tx, event Event, p
 		event.SubjectID, p.SessionRef, p.ProjectID, p.SourceDirectory, p.DestinationDirectory, event.Seq); err != nil {
 		return sessionRelocationWriteFailure(err)
 	}
-	return nil
+	return advanceSessionRelocationCountTx(ctx, tx, event, p.SessionRef)
 }
 
 // writeSessionVacateLandingTx completes every request of the work item and
@@ -29,12 +53,15 @@ func writeSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, event Event, s
 	if _, err := tx.ExecContext(ctx, `UPDATE session_vacate_requests SET landed=1 WHERE work_id=? AND session_ref=?`, event.SubjectID, sessionRef); err != nil {
 		return sessionRelocationWriteFailure(err)
 	}
-	return nil
+	return advanceSessionRelocationCountTx(ctx, tx, event, sessionRef)
 }
 
 // writeSessionClaimLandingTx records that the session landed in the claim
 // generation the landing names. A missing claim identity proves no placement.
 func writeSessionClaimLandingTx(ctx context.Context, tx *sql.Tx, event Event, p sessionClaimLandedPayload) error {
+	if err := advanceSessionRelocationCountTx(ctx, tx, event, p.SessionRef); err != nil {
+		return err
+	}
 	if p.ClaimOpID == "" {
 		return nil
 	}

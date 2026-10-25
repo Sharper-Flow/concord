@@ -7076,6 +7076,46 @@ DELETE FROM fold_guard;
 `,
 	},
 	{
+		Version: 144,
+		Name:    "session_window_current_facts",
+		// Older writers cannot maintain handoff ordering or the advancing
+		// settlement count, so they must not write these current facts.
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+ALTER TABLE project_handoffs ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0;
+INSERT OR IGNORE INTO fold_guard(active) VALUES(1);
+CREATE TABLE session_relocation_counts (
+ work_id TEXT NOT NULL,
+ session_ref TEXT NOT NULL,
+ vacate_count INTEGER NOT NULL DEFAULT 0 CHECK(vacate_count>=0),
+ vacate_landing_count INTEGER NOT NULL DEFAULT 0 CHECK(vacate_landing_count>=0),
+ claim_landing_count INTEGER NOT NULL DEFAULT 0 CHECK(claim_landing_count>=0),
+ PRIMARY KEY(work_id,session_ref)
+);
+INSERT INTO session_relocation_counts(work_id,session_ref,vacate_count,vacate_landing_count,claim_landing_count)
+ SELECT subject_id,json_extract(payload,'$.session_ref'),
+  SUM(kind='work.session_vacated'),SUM(kind='work.session_vacate_landed'),SUM(kind='work.session_claim_landed')
+ FROM domain_events
+ WHERE kind IN ('work.session_vacated','work.session_vacate_landed','work.session_claim_landed') AND json_extract(payload,'$.session_ref') IS NOT NULL
+ GROUP BY subject_id,json_extract(payload,'$.session_ref');
+CREATE TRIGGER session_relocation_counts_guard_insert BEFORE INSERT ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_relocation_counts_guard_update BEFORE UPDATE ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER session_relocation_counts_guard_delete BEFORE DELETE ON session_relocation_counts BEGIN SELECT RAISE(ABORT, 'session_relocation_counts is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+UPDATE project_handoffs AS h SET recorded_seq=COALESCE((SELECT MAX(l.seq) FROM domain_events l WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=h.work_id AND json_extract(l.payload,'$.handoff_id')=h.handoff_id),0);
+ALTER TABLE worktree_ref_outcomes ADD COLUMN settlement_count INTEGER NOT NULL DEFAULT 0 CHECK(settlement_count>=0);
+WITH ref_prefixes AS (
+ SELECT set_id,project_id,claim_op_id,claim_incarnation,branch,substr(set_id,5)||':'||project_id||':'||claim_op_id||':worktree-removal-settled:'||branch||':' AS base FROM worktree_ref_outcomes
+)
+UPDATE worktree_ref_outcomes AS o SET settlement_count=(
+ SELECT COUNT(*) FROM domain_events e JOIN ref_prefixes r ON r.set_id=o.set_id AND r.project_id=o.project_id AND r.claim_op_id=o.claim_op_id AND r.claim_incarnation=o.claim_incarnation AND r.branch=o.branch
+ WHERE e.event_id>=r.base AND e.event_id<r.base||CAST(X'FF' AS TEXT) AND COALESCE(json_extract(e.payload,'$.claim_incarnation'),0)=o.claim_incarnation
+);
+DELETE FROM fold_guard;
+CREATE INDEX project_handoffs_recorded_seq ON project_handoffs (work_id, recorded_seq);
+`,
+	},
+	{
 		Version:        145,
 		Name:           "effect_receipts",
 		Breaking:       true,

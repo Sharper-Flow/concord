@@ -7320,6 +7320,7 @@ UPDATE work_items AS w SET
  transition_seq=COALESCE((SELECT seq FROM q7_transitions t WHERE t.work_id=w.id),0),
  transition_version=COALESCE((SELECT version FROM q7_transitions t WHERE t.work_id=w.id),1);
 DROP TABLE q7_transitions;
+CREATE INDEX effect_receipts_relation_seq ON effect_receipts(relation_seq) WHERE relation_seq IS NOT NULL;
 ALTER TABLE relations ADD COLUMN reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE relations ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
 UPDATE relations AS r SET

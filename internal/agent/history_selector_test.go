@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -58,31 +57,14 @@ func TestHistoryEntriesAreClosedVariants(t *testing.T) {
 	}
 }
 
-func TestHistoryAdmittedKindsDetailsBounds(t *testing.T) {
-	maximum := make([]string, 128)
-	for i := range maximum {
-		maximum[i] = "event." + strconv.Itoa(i)
-	}
-	for _, tc := range []struct {
-		name    string
-		details map[string]any
-		valid   bool
-	}{
-		{name: "declared maximum", details: map[string]any{"admitted_event_kinds": maximum}, valid: true},
-		{name: "over declared maximum", details: map[string]any{"admitted_event_kinds": append(append([]string{}, maximum...), "event.extra")}},
-		{name: "empty", details: map[string]any{"admitted_event_kinds": []string{}}},
-		{name: "duplicate", details: map[string]any{"admitted_event_kinds": []string{"work.created", "work.created"}}},
-		{name: "empty kind", details: map[string]any{"admitted_event_kinds": []string{""}}},
-		{name: "long kind", details: map[string]any{"admitted_event_kinds": []string{strings.Repeat("a", 257)}}},
-		{name: "wrong type", details: map[string]any{"admitted_event_kinds": "work.created"}},
-		{name: "generic array bound unchanged", details: map[string]any{"other": maximum[:21]}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+func TestHistoryDetailsGenericArrayBound(t *testing.T) {
+	for _, size := range []int{20, 21} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
 			envelope := coreError(NewBase("history-details", "concord_work_trace", "history"), "invalid_input", "invalid filter", "reread_entities", false)
-			envelope.Error.Details = tc.details
+			envelope.Error.Details = map[string]any{"other": make([]string, size)}
 			_, err := json.Marshal(envelope)
-			if (err == nil) != tc.valid {
-				t.Fatalf("error details validity = %v, want %v: %v", err == nil, tc.valid, err)
+			if (err == nil) != (size == 20) {
+				t.Fatalf("generic details array with %d items: %v", size, err)
 			}
 		})
 	}

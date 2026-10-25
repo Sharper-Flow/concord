@@ -1,11 +1,13 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -112,5 +114,84 @@ func TestQ7CurrentLifecycleOverwritesTrace(t *testing.T) {
 	}
 	if len(out.Entries) != 1 || out.Entries[0].Version != version || out.Entries[0].Lifecycle != "cancelled" || !slices.Equal(out.Entries[0].EvidenceRefs, []string{"proof:cancelled"}) {
 		t.Fatalf("current lifecycle retained an overwritten transition: %+v", out.Entries)
+	}
+}
+
+func TestQ7RelationReceiptJoinIsIndexed(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	rows, err := s.db.QueryContext(t.Context(), `EXPLAIN QUERY PLAN `+currentQ7EntriesSQL+` SELECT entry_id FROM entries`, "q7-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(detail, "SCAN f") {
+			t.Fatalf("relation receipts are scanned per relation: %s", detail)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQ7DirectionsOrderAcrossPages(t *testing.T) {
+	t.Parallel()
+	s, work := seedQ7CurrentRows(t)
+	compare := func(a, b HistoryEntry) int {
+		if order := cmp.Compare(a.Position.EffectSeq, b.Position.EffectSeq); order != 0 {
+			return order
+		}
+		if order := strings.Compare(a.EntryKind, b.EntryKind); order != 0 {
+			return order
+		}
+		return strings.Compare(a.EntryID, b.EntryID)
+	}
+	var oldest []HistoryEntry
+	for _, direction := range []string{"oldest_first", "newest_first"} {
+		t.Run(direction, func(t *testing.T) {
+			var entries []HistoryEntry
+			cursor, pages := "", 0
+			for {
+				page, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Direction: direction, Limit: 2, Cursor: cursor})
+				if err != nil {
+					t.Fatal(err)
+				}
+				pages++
+				entries = append(entries, page.Entries...)
+				if pages > 100 {
+					t.Fatal("pagination did not terminate")
+				}
+				if page.NextCursor == nil {
+					break
+				}
+				cursor = *page.NextCursor
+			}
+			if pages < 2 || len(entries) <= 2 {
+				t.Fatalf("ordering fixture must span pages: %d pages, %d entries", pages, len(entries))
+			}
+			for i := 1; i < len(entries); i++ {
+				order := compare(entries[i-1], entries[i])
+				if direction == "newest_first" {
+					order = -order
+				}
+				if order >= 0 {
+					t.Fatalf("%s lost strict tuple ordering at entry %d: %+v then %+v", direction, i, entries[i-1], entries[i])
+				}
+			}
+			if direction == "oldest_first" {
+				oldest = entries
+			} else {
+				slices.Reverse(entries)
+				if !reflect.DeepEqual(entries, oldest) {
+					t.Fatal("directions enumerate different retained entries")
+				}
+			}
+		})
 	}
 }

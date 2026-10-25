@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 )
@@ -31,11 +30,7 @@ func TestSameWorkWatermarksWithoutLog(t *testing.T) {
 				if reader == "work_pin" {
 					var pin WorkPin
 					if err := workPinReadIdentityTx(ctx, tx, "watermark-work", &pin); err != nil {
-						// Driving-session log reads are a separate conversion. This
-						// regression covers the watermark assigned before that phase.
-						if !strings.Contains(err.Error(), "cannot read driving coordinator sessions") || !strings.Contains(err.Error(), "no such table: domain_events") {
-							t.Fatal(err)
-						}
+						t.Fatal(err)
 					}
 					return pin.Watermark
 				}

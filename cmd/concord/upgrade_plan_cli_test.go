@@ -294,6 +294,7 @@ var migrationTailReversals = map[int][]string{
 		`ALTER TABLE workflow_phase_exits DROP COLUMN actor`,
 		`ALTER TABLE relations DROP COLUMN record_version`,
 		`ALTER TABLE relations DROP COLUMN reason`,
+		`DROP INDEX effect_receipts_relation_seq`,
 		`ALTER TABLE work_items DROP COLUMN transition_version`,
 		`ALTER TABLE work_items DROP COLUMN transition_seq`,
 		`ALTER TABLE work_items DROP COLUMN transition_evidence_refs`,

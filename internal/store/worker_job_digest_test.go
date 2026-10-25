@@ -50,8 +50,8 @@ func TestWorkerJobV1MeasurementBasisDigestSurvivesStoredRoundTrip(t *testing.T) 
 	if err := validateWorkerJobRecordedPayload(event, stored); err == nil || !strings.Contains(err.Error(), "measurement_basis are retired") {
 		t.Fatalf("live size-bearing recording = %v, want retired-member refusal", err)
 	}
-	stored.Objective = "A different outcome"
+	stored.MeasurementBasis.Paths[0].Class = "generated"
 	if got := DeriveWorkerJobDigest(stored); got == want {
-		t.Fatal("changed content retained the recorded digest")
+		t.Fatal("changed measurement basis retained the recorded digest")
 	}
 }

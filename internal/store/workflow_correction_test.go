@@ -1069,9 +1069,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if _, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 			t.Fatal("discovery admitted correction with an undisposed completed report")
 		}
-		if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "completed-report-disposition", WorkflowActionCompleted, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-09-23T00:00:00Z", 1, `{"action_id":"accept_worker_result","worker_attempt_id":"attempt:undisposed"}`); err != nil {
-			t.Fatal(err)
-		}
+		stalenessEvent(t, fixture.store, workID, WorkflowActionCompleted, `{"step_id":"complete","action_id":"accept_worker_result","worker_attempt_id":"attempt:undisposed"}`)
 		unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), fixture.store.db, workID, "test", 0)
 		if err != nil || unsettled {
 			t.Fatalf("accepted report remains unsettled: unsettled=%t err=%v", unsettled, err)

@@ -7289,6 +7289,59 @@ CREATE TRIGGER work_size_proof_facts_fold_delete BEFORE DELETE ON work_size_proo
  BEGIN SELECT RAISE(ABORT,'work_size_proof_facts is fold-only'); END;
 `,
 	},
+	{
+		Version:        149,
+		Name:           "workflow_admission_facts",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		Applies:        workflowAdmissionFactsMigrationReady,
+		SQL: `
+INSERT INTO fold_guard(active) VALUES(1);
+CREATE TABLE workflow_completed_exits (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ definition_ref TEXT NOT NULL,
+ step_id TEXT NOT NULL,
+ action_id TEXT NOT NULL,
+ exit_seq INTEGER NOT NULL,
+ PRIMARY KEY(work_id,definition_ref,step_id,action_id)
+);
+WITH exits AS (
+ SELECT e.subject_id AS work_id,json_extract(e.payload,'$.step_id') AS step_id,
+ json_extract(e.payload,'$.action_id') AS action_id,e.seq,
+ coalesce((SELECT json_extract(d.payload,'$.ref') FROM domain_events d
+ WHERE d.subject_type='work_item' AND d.subject_id=e.subject_id
+ AND d.kind='workflow.definition_selected' AND d.seq<=e.seq ORDER BY d.seq DESC LIMIT 1),'') AS definition_ref
+ FROM domain_events e JOIN work_items w ON w.id=e.subject_id
+ WHERE e.subject_type='work_item' AND e.kind='workflow.action_completed'
+)
+INSERT INTO workflow_completed_exits(work_id,definition_ref,step_id,action_id,exit_seq)
+ SELECT work_id,definition_ref,step_id,action_id,max(seq) FROM exits
+ GROUP BY work_id,definition_ref,step_id,action_id;
+CREATE TRIGGER workflow_completed_exits_guard_insert BEFORE INSERT ON workflow_completed_exits BEGIN SELECT RAISE(ABORT, 'workflow_completed_exits is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_completed_exits_guard_update BEFORE UPDATE ON workflow_completed_exits BEGIN SELECT RAISE(ABORT, 'workflow_completed_exits is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_completed_exits_guard_delete BEFORE DELETE ON workflow_completed_exits BEGIN SELECT RAISE(ABORT, 'workflow_completed_exits is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE workflow_coordinator_actions (
+ work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+ actor_ref TEXT NOT NULL,
+ last_effect_seq INTEGER NOT NULL,
+ last_action_id TEXT NOT NULL,
+ last_acted_at TEXT NOT NULL,
+ PRIMARY KEY(work_id,actor_ref)
+);
+INSERT INTO workflow_coordinator_actions(work_id,actor_ref,last_effect_seq,last_action_id,last_acted_at)
+ SELECT work_id,actor_ref,seq,action_id,occurred_at FROM (
+ SELECT e.subject_id AS work_id,e.actor AS actor_ref,e.seq,
+ coalesce(json_extract(e.payload,'$.action_id'),e.kind) AS action_id,e.occurred_at,
+ row_number() OVER (PARTITION BY e.subject_id,e.actor ORDER BY e.occurred_at DESC,e.seq DESC) AS position
+ FROM domain_events e JOIN work_items w ON w.id=e.subject_id
+ WHERE e.subject_type='work_item' AND e.kind IN ('workflow.action_started','workflow.action_completed','workflow.action_checkpointed','workflow.action_failed')
+ ) WHERE position=1;
+CREATE TRIGGER workflow_coordinator_actions_guard_insert BEFORE INSERT ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_coordinator_actions_guard_update BEFORE UPDATE ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_coordinator_actions_guard_delete BEFORE DELETE ON workflow_coordinator_actions BEGIN SELECT RAISE(ABORT, 'workflow_coordinator_actions is fold-only') WHERE NOT EXISTS(SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -2335,7 +2335,7 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 			struct {
 				query string
 				args  []any
-			}{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"m89-event-" + item.id, WorkflowActionCompleted, SubjectWorkItem, item.id, item.actor, "2026-09-16T00:00:01Z", 1, `{}`}},
+			}{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"m89-event-" + item.id, WorkflowActionCompleted, SubjectWorkItem, item.id, item.actor, "2026-09-16T00:00:01Z", 1, `{"step_id":"proposal","action_id":"record_proposal"}`}},
 			struct {
 				query string
 				args  []any

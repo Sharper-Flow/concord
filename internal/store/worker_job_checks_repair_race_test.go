@@ -17,7 +17,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
-	reviewSubjectClaim(t, s, workID)
+	native := newChecksRepairNativeFixture(t, s, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-second-open-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	acceptor := reviewGateAcceptor(workID)
 
@@ -40,7 +40,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	}
 	record := func(fields map[string]any, what string) {
 		t.Helper()
-		if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, fields); err != nil {
+		if err := native.record(t, fixture.owner, fields); err != nil {
 			t.Fatalf("record the %s: %v", what, err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	pin = issue1013Pin(t, s, workID)
 	attemptA := "attempt:" + workID + ":A"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptA, pin.Correction, worker, pin.Version, "checks-repair-second-open-A", revA)
-	completeChecksRepairAttemptObserved(t, s, workID, attemptA, "checks-repair-completed-"+attemptA)
+	completeChecksRepairAttemptObserved(t, s, workID, attemptA, "checks-repair-completed-"+attemptA, native.execute(t, attemptA))
 
 	// Repair B records while A is still unaccepted — the legal window the
 	// race rides: A's repair holds no acceptance, so the recording guard
@@ -110,7 +110,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	pin = issue1013Pin(t, s, workID)
 	attemptB := "attempt:" + workID + ":B"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, pin.Correction, worker, pin.Version, "checks-repair-second-open-B", revB)
-	completeChecksRepairAttemptObserved(t, s, workID, attemptB, "checks-repair-completed-"+attemptB)
+	completeChecksRepairAttemptObserved(t, s, workID, attemptB, "checks-repair-completed-"+attemptB, native.execute(t, attemptB))
 
 	version := readWorkVersion(t, s, workID)
 	seq := maxEventSeq(t, s, workID)

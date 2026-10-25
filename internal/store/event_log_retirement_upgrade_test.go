@@ -404,7 +404,7 @@ func TestEventLogRetirementUpgradeWriterRollbackAndIdentity(t *testing.T) {
 			}
 			defer tx.Rollback()
 			seq := retirementUpgradeApplyProduct(t, tx, e)
-			if int64(seq) <= highWater {
+			if seq <= highWater {
 				t.Errorf("allocated sequence = %d, want > deleted high-water %d", seq, highWater)
 			}
 			if err := tx.Rollback(); err != nil {

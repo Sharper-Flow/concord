@@ -41,10 +41,10 @@ func (s SubjectType) valid() bool {
 	return ok
 }
 
-// Event is one row of the append-only log.
+// Event describes one mutation applied to current rows in its transaction.
 type Event struct {
-	// Seq is populated when an event is read from the log. It is not caller
-	// supplied and is never persisted as part of the event payload.
+	// Seq is allocated by the write seam or read from an effect receipt. It is
+	// not caller supplied and is never part of the event payload.
 	Seq Sequence
 	// EventID is the caller-supplied stable identity. Repeating an append with
 	// the same identity is reported as a duplicate rather than creating a
@@ -129,9 +129,9 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	return appendPreparedEvent(ctx, tx, e)
 }
 
-// appendPreparedEvent owns the single effect writer. Registered folds that
+// appendPreparedEvent owns the single effect writer. Registered writers that
 // derive a typed effect use it without recursively resolving the registry
-// that binds those folds during package initialization.
+// that binds those writers during package initialization.
 func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	// The retirement can also be a property of the payload or the subject
 	// rather than of the event kind: a generic work.created whose

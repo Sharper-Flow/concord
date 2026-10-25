@@ -103,10 +103,9 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 // refuses activation: either half can still mutate the work. The work item's
 // lifecycle is the terminal authority: workflow_instance states such as
 // outside_repair are held dispositions, not terminal ones, so an item still
-// in progress blocks wherever its instance state sits. Terminal work opens,
-// reads, and rebuilds. Plain opens stay permissive so recorded history and
-// the frozen journal witnesses open, read, and rebuild; the per-mutation
-// refusal lives in the workflow admission.
+// in progress blocks wherever its instance state sits. Terminal work opens
+// and reads. Plain opens stay permissive; the per-mutation refusal lives in
+// the workflow admission.
 func checkWorkflowAuthoringCutover(ctx context.Context, q queryer) error {
 	work, err := cutoverBlockedWork(ctx, q)
 	if err != nil {
@@ -325,10 +324,10 @@ func compatibilityReadFailure(err error) error {
 	return wrapFailure(KindUnavailable, "binary_compatibility", "cannot inspect shared-state binary compatibility", false, "contact_operator", err)
 }
 
-// Writer identity is diagnostic storage metadata, not replay authority. It
+// Writer identity is diagnostic storage metadata, not workflow authority. It
 // commits with the representation it names; legacy state remains unknown.
 func recordRuntimeStateWriter(ctx context.Context, tx *sql.Tx, surface, ref string, required int64, digest string) error {
-	// An older schema can be folded during explicit migration/replay. It has
+	// An older schema can be written during explicit migration. It has
 	// no writer provenance yet; compatibility never relies on this metadata.
 	present, err := columnPresent(ctx, tx, "runtime_state_writers", "binary_version")
 	if err != nil || !present {

@@ -58,3 +58,52 @@ func TestEventLogRetirementFreshStore(t *testing.T) {
 		t.Fatalf("unguarded update = %v", err)
 	}
 }
+
+func TestEventLogRetirementReceiptProtection(t *testing.T) {
+	for _, mode := range []string{"fresh", "upgraded"} {
+		t.Run(mode, func(t *testing.T) {
+			var db *sql.DB
+			if mode == "upgraded" {
+				db, _ = retirementUpgradeFixture(t)
+				retirementUpgradeMigrate(t, db)
+			} else {
+				db = openTemp(t).db
+			}
+			tx, err := db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			e := testEvent()
+			retirementUpgradeApplyProduct(t, tx, e)
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			for _, guarded := range []bool{false, true} {
+				probe, err := db.BeginTx(t.Context(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer probe.Rollback()
+				if guarded {
+					if _, err := probe.Exec(`INSERT INTO write_guard VALUES(1)`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := probe.Exec(`UPDATE effect_receipts SET actor='tampered' WHERE event_id=?`, e.EventID); err == nil || !strings.Contains(err.Error(), "immutable") {
+					t.Fatalf("receipt update (guarded=%t) = %v", guarded, err)
+				}
+				_, deleteErr := probe.Exec(`DELETE FROM effect_receipts WHERE event_id=?`, e.EventID)
+				if guarded && deleteErr != nil {
+					t.Fatalf("guarded cleanup = %v", deleteErr)
+				}
+				if !guarded && (deleteErr == nil || !strings.Contains(deleteErr.Error(), "write-seam-only")) {
+					t.Fatalf("unguarded cleanup = %v", deleteErr)
+				}
+				if err := probe.Rollback(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

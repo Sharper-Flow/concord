@@ -79,7 +79,9 @@ func retireEventLog(ctx context.Context, q migrationRunner, ddl string) error {
 		}
 	}
 	var invalid bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check('workflow_overlap_resolutions'))
+ OR EXISTS(SELECT 1 FROM pragma_foreign_key_check('external_observations'))
+ OR EXISTS(SELECT 1 FROM pragma_foreign_key_check('work_size_overrides'))
  OR EXISTS(SELECT 1 FROM sqlite_schema WHERE name IN ('domain_events','fold_guard')
  OR instr(lower(sql),'domain_events')>0 OR instr(lower(sql),'fold_guard')>0 OR instr(sql,'fold-only')>0)`).Scan(&invalid); err != nil {
 		return err

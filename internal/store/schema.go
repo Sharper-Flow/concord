@@ -7492,6 +7492,11 @@ DROP TABLE work_size_overrides;
 ALTER TABLE work_size_overrides_v151 RENAME TO work_size_overrides;
 
 ALTER TABLE fold_guard RENAME TO write_guard;
+CREATE TRIGGER effect_receipts_no_update BEFORE UPDATE ON effect_receipts
+BEGIN SELECT RAISE(ABORT, 'effect_receipts is immutable'); END;
+CREATE TRIGGER effect_receipts_guard_delete BEFORE DELETE ON effect_receipts
+BEGIN SELECT RAISE(ABORT, 'effect_receipts is write-seam-only')
+ WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
 DROP TRIGGER domain_events_no_update;
 DROP TRIGGER domain_events_no_delete;
 DROP TRIGGER domain_events_advance_effect_sequence;

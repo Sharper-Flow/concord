@@ -78,7 +78,7 @@ func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction str
 func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted, action).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT attempt_epoch FROM workflow_step_epochs WHERE work_id=? AND json_extract(latest_start_payload,'$.action_id')=? ORDER BY latest_start_seq DESC LIMIT 1`, workID, action).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch
@@ -155,7 +155,7 @@ func reviewGateRefusal(t *testing.T, j *candidateJourney, route deliveryEntryRou
 	version := readWorkVersion(t, j.s, j.workID)
 	deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
 	var before int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	err := route.exit(t, j.s, j.workID, attempt, epoch, j.fixture.owner, nil, false)
@@ -164,7 +164,7 @@ func reviewGateRefusal(t *testing.T, j *candidateJourney, route deliveryEntryRou
 		t.Fatalf("%s exit = %v, want %s naming %q", route.name, err, kind, detail)
 	}
 	var after int
-	if err := j.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := j.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before || readWorkVersion(t, j.s, j.workID) != version || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {

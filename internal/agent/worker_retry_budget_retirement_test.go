@@ -61,7 +61,7 @@ func TestRepeatedFailedWorkersUseOrdinaryLaunchAuthority(t *testing.T) {
 			t.Fatalf("terminal ingestion %d: %v", round, err)
 		}
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND (json_extract(payload,'$.retry_convergence') IS NOT NULL OR json_extract(payload,'$.checks_repair_review.funded') IS NOT NULL)`); got != 0 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT (SELECT count(*) FROM worker_authorizations WHERE work_id='work-1' AND (json_extract(payload,'$.retry_convergence') IS NOT NULL OR json_extract(payload,'$.checks_repair_review.funded') IS NOT NULL))+(SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND (json_extract(payload,'$.retry_convergence') IS NOT NULL OR json_extract(payload,'$.checks_repair_review.funded') IS NOT NULL))`); got != 0 {
 		t.Fatalf("ordinary launches produced %d budget authority markers", got)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {

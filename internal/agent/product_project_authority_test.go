@@ -271,13 +271,13 @@ func TestAmbiguousProductRefusesMutationBeforeEffects(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	env.SelectedProductID = ""
-	before := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	before := agentCurrentEffects(t, s)
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"ambiguous-membership"}`)}, env)
 	if err != nil || response.Error == nil || response.Error.Kind != "ambiguous_scope" {
 		t.Fatalf("ambiguous mutation response=%+v err=%v", response, err)
 	}
-	if after := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); after != before {
-		t.Fatalf("ambiguous mutation wrote domain events: before=%d after=%d", before, after)
+	if after := agentCurrentEffects(t, s); after != before {
+		t.Fatalf("ambiguous mutation changed current rows or receipts: before=%s after=%s", before, after)
 	}
 }
 

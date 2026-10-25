@@ -97,7 +97,7 @@ func eventIDExists(ctx context.Context, q queryer, eventID string) (bool, error)
 			return false, nil
 		}
 		return false, wrapFailure(KindUnavailable, "event_id_exists",
-			"cannot probe domain_events for event id", true,
+			"cannot probe effect_receipts for event id", true,
 			"retry once the database is readable", err)
 	}
 	return exists, nil

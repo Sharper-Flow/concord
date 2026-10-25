@@ -50,7 +50,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -229,13 +229,13 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
 	// The git-derived projection rows pin the exact committed identity the
 	// reading resolution discovers in the snapshot. The knowledge tables are
-	// fold-only, so the writes run under the fold guard and release it.
+	// write-seam-only, so the writes run under the write guard and release it.
 	stmts := []struct {
 		tag  string
 		sql  string
 		args []any
 	}{
-		{"guard", `INSERT INTO fold_guard(active) VALUES(1) ON CONFLICT(active) DO NOTHING`, nil},
+		{"guard", `INSERT INTO write_guard(active) VALUES(1) ON CONFLICT(active) DO NOTHING`, nil},
 		{"law update", `UPDATE law_subjects SET content_hash=?, scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, []any{out.lawHash, out.lawCommit, homeProject, homeLocator, out.lawID}},
 		{"archived", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
 			VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, []any{out.lawID, homeProject, homeLocator, ".concord/docs/spec.md", out.lawCommit, out.lawHash}},
@@ -243,11 +243,11 @@ func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workCo
 			VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, knowledgeProjectionVersion}},
 		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
 			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
-		{"guard release", `DELETE FROM fold_guard`, nil},
+		{"guard release", `DELETE FROM write_guard`, nil},
 	}
 	for _, stmt := range stmts {
 		if _, err := s.DatabaseForTesting().Exec(stmt.sql, stmt.args...); err != nil {
-			_, _ = s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+			_, _ = s.DatabaseForTesting().Exec(`DELETE FROM write_guard`)
 			t.Fatalf("law home projection statement %q failed: %v", stmt.tag, err)
 		}
 	}
@@ -345,7 +345,7 @@ func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID
 			t.Fatalf("registered source projection statement %q failed: %v", tag, err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	exec("registration", `INSERT OR REPLACE INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'2026-10-01T00:00:00Z')`, projectID, locatorID)
@@ -355,7 +355,7 @@ func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID
 	exec("watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
 		VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, projectID, locatorID, lawCommit, knowledgeProjectionVersion)
 	exec("law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`, projectID, locatorID, lawID, "product", workContextTestChild, lawHash)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -498,7 +498,7 @@ func TestRecordWorkContextAppendsTypedDeclaration(t *testing.T) {
 		t.Fatalf("record_work_context refused: %v", err)
 	}
 	var stored string
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, fixture.workID, WorkflowWorkContextRecorded).Scan(&stored); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_payload FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&stored); err != nil {
 		t.Fatalf("declaration event missing: %v", err)
 	}
 	if !strings.Contains(stored, "the unbounded log scan was rejected") || !strings.Contains(stored, "the reading carries the bounded reason") {
@@ -742,7 +742,7 @@ func TestRecordWorkContextFindingRefsSelectEarlierFindings(t *testing.T) {
 		t.Fatalf("first declaration refused: %v", err)
 	}
 	var firstSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&firstSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
 	valid0 := fmt.Sprintf("finding:%d:0", firstSeq)
@@ -778,7 +778,7 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatalf("first declaration refused: %v", err)
 	}
 	var firstSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&firstSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
 	// A terminal report between the declarations contributes findings only
@@ -841,7 +841,7 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatal("a report finding superseded by a later declaration rode the current view")
 	}
 	var frontier int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, fixture.workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&frontier); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT source_frontier FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&frontier); err != nil {
 		t.Fatal(err)
 	}
 	if view.SourceEventFrontier != frontier {
@@ -940,7 +940,7 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 	}
 	declare("first")
 	var firstSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&firstSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
 	refs := make([]string, 16)
@@ -1209,9 +1209,8 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 			t.Fatalf("finding %q after close has status %q (present %v), want reported; findings %v", statement, status, ok, statements)
 		}
 	}
-	// No event outside the declaration and worker-report kinds carries the
-	// markers, and no knowledge-side promotion row exists.
-	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT kind, payload FROM domain_events WHERE subject_id=? AND (payload LIKE '%CON887-%')`, fixture.workID)
+	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT ? AS kind,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_payload LIKE '%CON887-%'
+UNION ALL SELECT ?,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=? AND terminal_payload LIKE '%CON887-%'`, WorkflowWorkContextRecorded, fixture.workID, WorkerCompleted, fixture.workID, WorkerCompleted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1228,7 +1227,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(carrying) != 2 || !carrying[WorkflowWorkContextRecorded] || !carrying[WorkerCompleted] {
-		t.Fatalf("event kinds carrying context markers = %v, want only the declaration and worker report", carrying)
+		t.Fatalf("retained context marker sources = %v, want the declaration and worker report", carrying)
 	}
 	for _, probe := range []string{
 		`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (active_unit LIKE '%CON887-%' OR hypothesis LIKE '%CON887-%' OR diagnosis LIKE '%CON887-%' OR strategy LIKE '%CON887-%')`,
@@ -1299,7 +1298,7 @@ func TestTerminalCompletionFindingsBindRegistryDomains(t *testing.T) {
 		}
 	}
 	var refused int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND event_id LIKE 'ctx-domain-refused-%'`, fixture.workID).Scan(&refused); err != nil || refused != 0 {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND event_id LIKE 'ctx-domain-refused-%'`, fixture.workID).Scan(&refused); err != nil || refused != 0 {
 		t.Fatalf("refused completion records=%d, want zero: %v", refused, err)
 	}
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
@@ -1341,7 +1340,7 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	// through the lane-actor seam, with the packet digest the window
 	// recorded and the binding it authorized.
 	var packetDigest string
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowActionCompleted, attempt).Scan(&packetDigest); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, fixture.workID, attempt).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
 	var dispatchLane LaneDefinition

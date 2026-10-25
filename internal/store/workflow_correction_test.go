@@ -180,7 +180,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,7 +196,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:review"},
@@ -216,7 +216,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}
 
 	var workerAttempt, diagnosis string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM domain_events WHERE event_id=?`, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'),json_extract(payload,'$.correction_diagnosis') FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='reject_worker_result' AND event_id=?`, workID, attemptID, "reject:"+workID+":completed").Scan(&workerAttempt, &diagnosis); err != nil {
 		t.Fatal(err)
 	}
 	if workerAttempt != attemptID || diagnosis == "" {
@@ -398,7 +398,7 @@ func convergenceSupersedeBasis(t *testing.T, s *Store, workID string, owner Work
 		t.Fatal(err)
 	}
 	seedIssue31DomainRegistry(t, s)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
 		t.Fatal(err)
 	}
 	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
@@ -760,7 +760,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	}
 
 	var verdicts, predecessorPredicates, attempts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &attempts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &attempts); err != nil {
 		t.Fatal(err)
 	}
 	_, _, definitionRef, definitionDigest := completeStepInstancePin(t, s, workID)
@@ -783,7 +783,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatalf("contracts after supersession: active=%d version=%d predecessor superseded_by=%d", activeCount, activeVersion, supersededBy)
 	}
 	var verdictsAfter, predecessorPredicatesAfter, attemptsAfter int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdictsAfter, &predecessorPredicatesAfter, &attemptsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdictsAfter, &predecessorPredicatesAfter, &attemptsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if verdictsAfter != verdicts || predecessorPredicatesAfter != predecessorPredicates || attemptsAfter != attempts {
@@ -967,7 +967,7 @@ func TestCompleteStepContractCorrectionReopensCompletedInstance(t *testing.T) {
 	const workID = "complete-correction-reopen"
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
@@ -1042,7 +1042,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		const workID = "complete-correction-live-attempt"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM write_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
 		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
@@ -1058,7 +1058,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		const attemptID = "attempt:undisposed"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM fold_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
 		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
@@ -1080,7 +1080,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-terminal"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='completed' WHERE id=?; DELETE FROM fold_guard`, workID); err != nil {
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='completed' WHERE id=?; DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
@@ -1116,7 +1116,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 		defer tx.Rollback()
 		operationID := "complete-correction-no-approval"
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -1142,7 +1142,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 		defer tx.Rollback()
 		operationID := "complete-correction-stale-version"
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version + 1, ActionID: "supersede_contract", Payload: completeStepSuccessorPayload(workID), Actor: fixture.owner, OperatorActor: &fixture.operator,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -1158,7 +1158,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-missing-supersession"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
-		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET route_conventions='["complete_step_correction"]' WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, workID); err != nil {
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET route_conventions='["complete_step_correction"]' WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 		_, err := workflowCompleteStepCorrectionEvidenceCutoff(context.Background(), fixture.store.db, workID, 1)
@@ -1191,7 +1191,7 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'rejected worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM write_guard`, workID, ownerRef, workID); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -1199,7 +1199,7 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: 12, ActionID: "reject_worker_result", Payload: mustJSONValue(map[string]any{
 			"attempt_id": attemptID, "attempt_epoch": 2, "diagnosis": "the result misses the boundary case", "strategy": "change the helper and add a test",
 			"predicate_ids": []string{"predicate:primary/slash"}, "evidence_refs": []string{"evidence:review"},
@@ -1259,7 +1259,7 @@ func TestInfrastructureFailuresRetainCorrectionSource(t *testing.T) {
 func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, stepID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch
@@ -1526,13 +1526,13 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
 		DELETE FROM law_domain_homes WHERE law_id='spec:one';
 		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1685,7 +1685,7 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 					failedAt = "2026-10-13T00:00:01Z"
 					failureKind = "abandoned"
 				}
-				if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
+				if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM write_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -1704,34 +1704,35 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "later-history", test.laterKind, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-10-13T00:00:01Z", 1, payload); err != nil {
+				tx, err := db.BeginTx(ctx, nil)
+				if err != nil {
 					t.Fatal(err)
 				}
-				if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='later-history'`).Scan(&beforeSeq); err != nil {
+				defer tx.Rollback()
+				scope, err := beginWrite(ctx, tx)
+				if err != nil {
 					t.Fatal(err)
 				}
+				event := Event{EventID: "later-history", Kind: test.laterKind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: fixture.owner.PrincipalRef, OccurredAt: time.Date(2026, 10, 13, 0, 0, 1, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+				beforeSeq, err = appendPreparedEvent(ctx, tx, event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				event.Seq = beforeSeq
 				if test.laterKind == WorkflowVerdictRecorded {
-					if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?; DELETE FROM fold_guard`, beforeSeq, workID); err != nil {
+					if _, err := tx.Exec(`UPDATE workflow_predicate_verdicts SET verdict_seq=? WHERE work_id=?`, beforeSeq, workID); err != nil {
 						t.Fatal(err)
 					}
 				} else {
-					tx, err := db.BeginTx(ctx, nil)
-					if err != nil {
+					if err := writeWorkerAuthorizationTx(ctx, tx, event, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
 						t.Fatal(err)
 					}
-					defer tx.Rollback()
-					if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-						t.Fatal(err)
-					}
-					if err := writeWorkerAuthorizationTx(ctx, tx, Event{Seq: beforeSeq, EventID: "later-history", SubjectID: workID, Payload: payload}, workflowActionCompletedPayload{ActionID: test.action, WorkerAttemptID: "attempt:history"}); err != nil {
-						t.Fatal(err)
-					}
-					if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-						t.Fatal(err)
-					}
-					if err := tx.Commit(); err != nil {
-						t.Fatal(err)
-					}
+				}
+				if err := scope.close(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
 				}
 			}
 			for _, boundary := range []struct {
@@ -1784,14 +1785,14 @@ func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRo
 	t.Helper()
 	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	attachWorkflowLawPin(t, fixture.store, workID, "sha256:"+strings.Repeat("a", 64))
-	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
 		DELETE FROM law_domain_homes WHERE law_id='spec:one';
 		DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
 		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
-		DELETE FROM fold_guard`, workID, workID); err != nil {
+		DELETE FROM write_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 	return fixture
@@ -1815,7 +1816,7 @@ func TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute(t *testing
 	const workID = "complete-correction-missing-marker"
 	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	withoutRoute := json.RawMessage(strings.Replace(string(completeStepSuccessorPayload(workID)), `"route_conventions":["complete_step_correction"]`, `"route_conventions":[]`, 1))
@@ -1946,7 +1947,7 @@ func TestCompletedInstanceDuplicateRecoveryStaysOffThePin(t *testing.T) {
 	if activeCount != 2 {
 		t.Fatalf("off-shape duplicate fixture active contracts = %d, want 2", activeCount)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	pin := issue1013Pin(t, s, workID)

@@ -26,7 +26,7 @@ func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
 		t.Fatalf("ordinary retry = %+v", result.Error)
 	}
 	version := workVersion(t, s, "work-1")
-	events := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1'`)
+	events := agentCurrentEffects(t, s)
 	if result := dispatchMutation(t, s, service, launch, env); result.Outcome != OutcomeOK || !result.Replayed {
 		t.Fatalf("exact launch replay = %+v", result)
 	}
@@ -36,7 +36,7 @@ func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='attempt:work-1:unknown-launch' AND lifecycle_state='in_flight'`); got != 1 {
 		t.Fatalf("unknown launch has %d in-flight rows, want one", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='worker.dispatched' AND json_extract(payload,'$.attempt_id')='attempt:work-1:unknown-launch'`); got != 0 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND dispatch_event_id IS NOT NULL AND attempt_id='attempt:work-1:unknown-launch'`); got != 0 {
 		t.Fatalf("unknown launch has %d materializations, want zero", got)
 	}
 	env.RequestID = "request:blind-launch"
@@ -44,7 +44,7 @@ func TestOrdinaryRetryReplayPreservesUnknownLaunchFence(t *testing.T) {
 	if result := dispatchMutation(t, s, service, request(blind, version), env); result.Error == nil || result.Error.Kind != "operation_conflict" || !strings.Contains(result.Error.Message, "unresolved launch outcome") {
 		t.Fatalf("blind launch = %+v, want unresolved launch conflict", result.Error)
 	}
-	if workVersion(t, s, "work-1") != version || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1'`) != events || verifyWallDispatchCompletions(t, s, blind) != 0 {
+	if workVersion(t, s, "work-1") != version || agentCurrentEffects(t, s) != events || verifyWallDispatchCompletions(t, s, blind) != 0 {
 		t.Fatal("replay or blind launch changed workflow effects")
 	}
 	if after := verifyWallPinCorrection(t, s); after.SourceEventID != correction.SourceEventID || after.FailedAttemptID != failedID || after.FailedAttemptEpoch != correction.FailedAttemptEpoch {

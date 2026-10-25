@@ -70,9 +70,7 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 		t.Fatalf("current job satisfaction=%d, want latest acceptance=%d", satisfiedSeq, latestSeq)
 	}
 	assertWorkerWindowsMigration143Parity(t, s)
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_acceptance_events`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	withoutLog, err := deriveWorkerFailureIntegration(t.Context(), s.db, work, integrationAttributionObservation(failed.LeaseID))
 	if err != nil || !reflect.DeepEqual(before, withoutLog) {
 		t.Fatalf("log-blind frozen population=%+v err=%v; want %+v", withoutLog, err, before)
@@ -82,13 +80,13 @@ func TestWorkerRepeatedAcceptancePreservesFrozenPopulation(t *testing.T) {
 		t.Fatalf("original acceptance source no longer verifies after repeated acceptance: %v", err)
 	}
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {
-		if err := enterFold(t.Context(), tx.tx); err != nil {
+		if err := enterWrite(t.Context(), tx.tx); err != nil {
 			return err
 		}
 		if _, err := tx.tx.ExecContext(t.Context(), `DELETE FROM effect_receipts WHERE effect_seq=?`, firstSeq); err != nil {
 			return err
 		}
-		return leaveFold(t.Context(), tx.tx)
+		return leaveWrite(t.Context(), tx.tx)
 	}); err != nil {
 		t.Fatal(err)
 	}

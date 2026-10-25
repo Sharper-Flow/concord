@@ -44,26 +44,18 @@ func stalenessSeedContract(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	// The walk that moved the instance recorded the actor through the real
-	// fold; workflow_actors is fold-only, so the contract row reuses it.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','[]','2026-01-01T00:00:00Z',?,'[]','[]',0,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check"}'); DELETE FROM fold_guard`, workID, "The premise the test contract states.", actorRef, workID); err != nil {
+	// fold; workflow_actors is write-seam-only, so the contract row reuses it.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','[]','2026-01-01T00:00:00Z',?,'[]','[]',0,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check"}'); DELETE FROM write_guard`, workID, "The premise the test contract states.", actorRef, workID); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // stalenessEvent supplies trusted current descriptors without authorizing an
 // action. The live-writer tests separately exercise admission and persistence.
-func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
+func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) Event {
 	t.Helper()
-	var nextSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0)+1 FROM domain_events`).Scan(&nextSeq); err != nil {
-		t.Fatal(err)
-	}
 	actorRef, err := WorkflowActorRef(stepFixtureActor())
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`,
-		workID+":"+kind+":"+fmt.Sprint(nextSeq), kind, string(SubjectWorkItem), workID, actorRef, "2026-01-02T00:00:00Z", payload); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.db.BeginTx(t.Context(), nil)
@@ -71,10 +63,19 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	event := Event{Seq: nextSeq, EventID: workID + ":" + kind + ":" + fmt.Sprint(nextSeq), Kind: kind, SubjectID: workID, Actor: actorRef, PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	var lastSeq int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts`).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	event := Event{EventID: workID + ":" + kind + ":after:" + fmt.Sprint(lastSeq), Kind: kind, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(payload)}
+	nextSeq, err := appendPreparedEvent(t.Context(), tx, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Seq = nextSeq
 	switch kind {
 	case WorkflowActionStarted:
 		var start workflowActionStartedPayload
@@ -135,12 +136,13 @@ func stalenessEvent(t *testing.T, s *Store, workID, kind, payload string) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	return event
 }
 
 func stalenessActionPayload(step, action string) string {
@@ -161,7 +163,7 @@ func stalenessCapabilityDispatch(t *testing.T, s *Store, workID, attemptID strin
 // dispatched-then-accepted delivery at the named producing step.
 func stalenessSeedWorkerDeliveryAt(t *testing.T, s *Store, workID, attemptID, step string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z'); DELETE FROM fold_guard`, workID, attemptID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'lane:test','sha256:0000000000000000000000000000000000000000000000000000000000000000','implementation','model:test','1.0','1.0','completed','2026-01-02T00:00:00Z','2026-01-02T00:00:01Z'); DELETE FROM write_guard`, workID, attemptID); err != nil {
 		t.Fatal(err)
 	}
 	stalenessCapabilityDispatch(t, s, workID, attemptID)
@@ -208,8 +210,9 @@ func TestUnfencedCheckpointEpochUsesCausalPrefix(t *testing.T) {
 	assertEpoch(61)
 	stalenessEvent(t, s, workID, WorkflowActionCheckpointed, `{"step_id":"acceptance","attempt_epoch":61}`)
 	assertEpoch(62)
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO retired_domain_events`); err != nil {
-		t.Fatal(err)
+	var logs int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logs); err != nil || logs != 0 {
+		t.Fatalf("event log tables=%d, want zero: %v", logs, err)
 	}
 	assertEpoch(62)
 	if _, err := workflowCheckpointAttemptEpoch(context.Background(), s.db, definition, workflowStep(definition, "execution"), workID, "execution"); !hasFailureKind(err, KindIllegalLifecycleTransition) {
@@ -434,13 +437,13 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	if state.CorrectionRequestRecovery {
 		t.Fatal("an old ok verdict opened correction without an unhealthy verdict")
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 		SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
 		UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1;
-		DELETE FROM fold_guard`, workID, workID, workID); err != nil {
+		DELETE FROM write_guard`, workID, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch", "contract_version": 2})

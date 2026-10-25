@@ -88,7 +88,7 @@ func TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents(t *testi
 		t.Fatalf("external verification failed: %+v", verified.Error)
 	}
 
-	eventsBefore := scalarRow(t, s, `SELECT count(*) FROM domain_events`)
+	eventsBefore := agentCurrentEffects(t, s)
 	response, err := Dispatch(ctx, s, service, InvokeRequest{
 		Tool:      "concord_work_trace",
 		Operation: "external_observations",
@@ -116,7 +116,7 @@ func TestWorkTraceExternalObservationsReadPreservesD9StateWithoutEvents(t *testi
 	if observation.FreshnessState != string(store.VerificationVerified) {
 		t.Fatalf("freshness_state=%q, want verified", observation.FreshnessState)
 	}
-	if eventsAfter := scalarRow(t, s, `SELECT count(*) FROM domain_events`); eventsAfter != eventsBefore {
-		t.Fatalf("external observation read changed domain_events from %d to %d", eventsBefore, eventsAfter)
+	if eventsAfter := agentCurrentEffects(t, s); eventsAfter != eventsBefore {
+		t.Fatalf("external observation read changed current rows or receipts: before=%s after=%s", eventsBefore, eventsAfter)
 	}
 }

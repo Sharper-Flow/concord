@@ -57,11 +57,11 @@ func writeProtectingHostLease(t *testing.T, s *Store) {
 func insertWorktreeOccupantWithIdentity(t *testing.T, s *Store, workID, sessionRef string, pid int, pidStart uint64) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, '1970-01-01T00:00:00Z', ?, ?, 1
 		  FROM worktree_entries WHERE set_id=? AND state='active';
-		DELETE FROM fold_guard`, sessionRef, pid, pidStart, WorktreeSetID(workID)); err != nil {
+		DELETE FROM write_guard`, sessionRef, pid, pidStart, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -142,7 +142,7 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 		t.Fatalf("entry=%+v, want reclaimed", entry)
 	}
 	var released int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-ended'`).Scan(&released); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND event_id=?`, occupancyReleasedEventID("work-w", claimed.Entry.ProjectID, claimed.Entry.ClaimOpID, "ses-ended", 0)).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != 1 {

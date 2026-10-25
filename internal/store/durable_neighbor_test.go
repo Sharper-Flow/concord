@@ -156,7 +156,7 @@ func durableNeighborOperations() []neighborOperation {
 					_, err := ClaimStepAuthorized(ctx, s, claim, func(tx *Transaction) error {
 						called = true
 						var count int
-						return tx.tx.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&count)
+						return tx.tx.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&count)
 					})
 					return err
 				}

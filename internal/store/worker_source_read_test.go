@@ -41,7 +41,7 @@ func TestReadWorkerReadingReturnsOnlyThePinnedDeclaredPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var eventsBefore int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	for ordinal, witness := range witnesses {
@@ -84,7 +84,7 @@ func TestReadWorkerReadingReturnsOnlyThePinnedDeclaredPage(t *testing.T) {
 		}
 	}
 	var eventsAfter int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore {
 		t.Fatalf("read changed the event log: before=%d after=%d error=%v", eventsBefore, eventsAfter, err)
 	}
 }
@@ -132,9 +132,9 @@ func TestReadWorkerReadingRefusesUnboundSelectorsBeforeGit(t *testing.T) {
 		}
 	}
 	if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -152,9 +152,9 @@ func TestReadWorkerReadingRevalidatesRegistrationAfterGit(t *testing.T) {
 	defer f.store.Close()
 	request.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-			mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+			mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 			mustTxExec(t, tx, `UPDATE project_locators SET updated_at='2030-01-01T00:00:00Z' WHERE project_id=?`, f.sources.repoProject)
-			mustTxExec(t, tx, `DELETE FROM fold_guard`)
+			mustTxExec(t, tx, `DELETE FROM write_guard`)
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -171,9 +171,9 @@ func TestReadWorkerReadingRevalidatesAttemptLivenessAfterGit(t *testing.T) {
 	defer f.store.Close()
 	request.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		if err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-			mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+			mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 			mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, request.WorkID, request.AttemptID)
-			mustTxExec(t, tx, `DELETE FROM fold_guard`)
+			mustTxExec(t, tx, `DELETE FROM write_guard`)
 			return nil
 		}); err != nil {
 			t.Fatal(err)

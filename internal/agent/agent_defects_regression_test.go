@@ -355,7 +355,7 @@ func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`)
-	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	beforeEvents := agentCurrentEffects(t, s)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil {
 		t.Fatalf("expected typed error, got outcome=%s err=%+v", resp.Outcome, resp.Error)
@@ -376,7 +376,7 @@ func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	if !found {
 		t.Fatalf("error.violations missing blocks:work-2->work-1: %v", resp.Error.Violations)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 1 {
+	if agentCurrentEffects(t, s) != beforeEvents || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 1 {
 		t.Fatal("cycle refusal committed a partial resolution")
 	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {

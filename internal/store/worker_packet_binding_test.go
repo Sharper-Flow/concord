@@ -179,8 +179,11 @@ func dispatchBindingAttempt(t *testing.T, s *Store, seed cd0059DispatchSeed, att
 func dispatchStartedCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker").Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=? AND r.kind=? AND (
+		EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.work_id=r.subject_id AND a.start_seq=r.effect_seq) OR
+		EXISTS(SELECT 1 FROM workflow_step_epochs e WHERE e.work_id=r.subject_id AND e.latest_dispatch_start_seq=r.effect_seq) OR
+		EXISTS(SELECT 1 FROM workflow_action_obligations o WHERE o.work_id=r.subject_id AND o.effect_seq=r.effect_seq AND json_extract(o.payload,'$.action_id')='dispatch_worker'))`,
+		workID, WorkflowActionStarted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -191,11 +194,11 @@ func dispatchStartedCount(t *testing.T, s *Store, workID string) int {
 func seedActiveContract(t *testing.T, s *Store, workID string, version int64, premise string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/binding", "client/binding", "agent/binding", "session/binding")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-09T00:00:00Z'); DELETE FROM fold_guard`,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-09T00:00:00Z'); DELETE FROM write_guard`,
 		actorRef, "principal/binding", "client/binding", "agent/binding", "session/binding"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,'internal_sqlite','[]','[]','2026-09-09T00:00:00Z',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,'internal_sqlite','[]','[]','2026-09-09T00:00:00Z',?,'[]','[]',1,'prototype_internal'); DELETE FROM write_guard`,
 		workID, version, premise, actorRef); err != nil {
 		t.Fatal(err)
 	}

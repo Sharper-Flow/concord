@@ -826,7 +826,7 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	for rows.Next() {
 		var id, intentJSON string
 		if err := rows.Scan(&id, &intentJSON); err != nil {
-			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "repair the live projection from its event log", err)
+			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "restore the current rows from a verified snapshot", err)
 		}
 		if i, ok := byID[id]; ok {
 			if err := decodeRecordedIntent(&items[i], intentJSON); err != nil {
@@ -865,7 +865,7 @@ func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
 func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
-		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "repair the live projection from its event log", err)
+		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	item.Task = intent.Task
 	item.ValueStatement = intent.ValueStatement
@@ -907,7 +907,7 @@ func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) (
 	for rows.Next() {
 		var w WorkItem
 		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Version, &w.Priority, &w.Urgency, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
-			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "repair the live projection from its event log", err)
+			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "restore the current rows from a verified snapshot", err)
 		}
 		w.Terminal = terminalState(w.Lifecycle)
 		w.Active = w.Lifecycle == "in_progress"

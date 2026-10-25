@@ -324,7 +324,7 @@ func jobWindowAcceptanceBoundary(t *testing.T, s *Store, workID string) int64 {
 func maxEventSeq(t *testing.T, s *Store, workID string) int64 {
 	t.Helper()
 	var seq int64
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&seq); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&seq); err != nil {
 		t.Fatalf("read max event seq for %s: %v", workID, err)
 	}
 	return seq
@@ -442,7 +442,7 @@ func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 func appendLaneBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, lane LaneDefinition, job *WorkerJobBinding) error {
 	t.Helper()
 	var packetDigest string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
 	}
 	dispatch := Event{EventID: "job-window-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{

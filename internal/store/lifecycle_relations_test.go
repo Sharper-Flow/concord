@@ -182,7 +182,7 @@ func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 	seedWork(t, s, "work")
 	err := applyWorkEvent(t, s, workTransitionEvent("stale", "work", "needed", "in_progress", 1, 2), workVersion("work", 0))
 	assertFailureKind(t, err, KindVersionConflict)
-	assertTableCount(t, s, "domain_events", 5)
+	assertTableCount(t, s, "effect_receipts", 5)
 	var lifecycle string
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle, version FROM work_items WHERE id = 'work'`).Scan(&lifecycle, &version); err != nil {
@@ -261,7 +261,7 @@ func TestRelationAddedRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 	seedWork(t, s, "b")
 	err := applyWorkEvent(t, s, relationAddedEvent("stale", "blocks", "a", "b", 0, 1), nil)
 	assertFailureKind(t, err, KindVersionConflict)
-	assertTableCount(t, s, "domain_events", 7)
+	assertTableCount(t, s, "effect_receipts", 7)
 	assertTableCount(t, s, "relations", 0)
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id = 'a'`).Scan(&version); err != nil {
@@ -312,12 +312,12 @@ func TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors(t *testing.T) {
 
 	err := applyWorkEvent(t, s, workSupersededEvent("b-a", "b", "a", 2, 3), workVersion("a", 2))
 	assertFailureKind(t, err, KindCycleDetected)
-	assertTableCount(t, s, "domain_events", 10)
+	assertTableCount(t, s, "effect_receipts", 10)
 	assertTableCount(t, s, "relations", 1)
 
 	err = applyWorkEvent(t, s, workSupersededEvent("c-b", "c", "b", 3, 4), workVersion("b", 3))
 	assertFailureKind(t, err, KindSupersessionTargetAlreadySuperseded)
-	assertTableCount(t, s, "domain_events", 10)
+	assertTableCount(t, s, "effect_receipts", 10)
 }
 
 func TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent(t *testing.T) {

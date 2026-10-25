@@ -22,7 +22,7 @@ import (
 func crossAttemptDispatchEpoch(t *testing.T, s *Store, workID, attemptID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&epoch); err != nil {
 		t.Fatalf("read the dispatch epoch for %s: %v", attemptID, err)
 	}
 	return epoch
@@ -31,7 +31,7 @@ func crossAttemptDispatchEpoch(t *testing.T, s *Store, workID, attemptID string)
 func crossAttemptDispatchedLaneActor(t *testing.T, s *Store, workID, attemptID string) string {
 	t.Helper()
 	var laneActor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, attemptID).Scan(&laneActor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(dispatch_payload,'$.lane_actor_ref'),'') FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneActor); err != nil {
 		t.Fatalf("read the dispatched lane actor for %s: %v", attemptID, err)
 	}
 	return laneActor
@@ -39,16 +39,21 @@ func crossAttemptDispatchedLaneActor(t *testing.T, s *Store, workID, attemptID s
 
 func crossAttemptEventPayload(t *testing.T, s *Store, workID, kind, attemptID string) []byte {
 	t.Helper()
-	// Each kind carries its own typed attempt identity member: action
-	// completions name worker_attempt_id, while the worker evidence payloads
-	// name attempt_id. Select the key the named kind carries instead of
-	// falling back to any event.
-	identityKey := "$.attempt_id"
-	if kind == WorkflowActionCompleted {
-		identityKey = "$.worker_attempt_id"
+	query := ""
+	args := []any{workID, attemptID}
+	switch kind {
+	case WorkflowActionCompleted:
+		query = `SELECT payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`
+	case WorkerDispatched:
+		query = `SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND attempt_id=?`
+	case WorkerCompleted, WorkerFailed:
+		query = `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=?`
+		args = append(args, kind)
+	default:
+		t.Fatalf("no current worker payload owner for %s", kind)
 	}
 	var payload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'`+identityKey+`')=? ORDER BY seq`, workID, kind, attemptID).Scan(&payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(query, args...).Scan(&payload); err != nil {
 		t.Fatalf("read the %s payload for %s: %v", kind, attemptID, err)
 	}
 	return payload
@@ -125,7 +130,7 @@ func (f crossAttemptFixture) authorizeDispatch(t *testing.T, attemptID string, l
 func (f crossAttemptFixture) materializeDispatch(t *testing.T, attemptID string, lane LaneDefinition, dispatcher WorkflowActor) {
 	t.Helper()
 	var packetDigest string
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, f.workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, f.workID, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
 	dispatched := Event{EventID: "cross-attempt-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
@@ -221,10 +226,21 @@ func (f crossAttemptFixture) acceptAttemptRequest(t *testing.T, expectedVersion 
 
 func (f crossAttemptFixture) eventCount(t *testing.T, kind, actionID string) int64 {
 	t.Helper()
-	query, args := `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, []any{f.workID, kind}
+	query, args := `SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, []any{f.workID, kind}
 	if actionID != "" {
-		query += ` AND json_extract(payload,'$.action_id')=?`
-		args = append(args, actionID)
+		if kind != WorkflowActionCompleted {
+			t.Fatalf("action-specific count requires a completion, got %s", kind)
+		}
+		switch actionID {
+		case "dispatch_worker":
+			query, args = `SELECT count(*) FROM worker_authorizations WHERE work_id=?`, []any{f.workID}
+		case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure":
+			query, args = `SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id=?`, []any{f.workID, actionID}
+		case "record_verdict":
+			query, args = `SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, []any{f.workID, WorkflowVerdictRecorded}
+		default:
+			t.Fatalf("no current action-count owner for %s", actionID)
+		}
 	}
 	var count int64
 	if err := f.s.DatabaseForTesting().QueryRow(query, args...).Scan(&count); err != nil {
@@ -236,7 +252,7 @@ func (f crossAttemptFixture) eventCount(t *testing.T, kind, actionID string) int
 func (f crossAttemptFixture) rejectionCount(t *testing.T, attemptID string, epoch int64) int64 {
 	t.Helper()
 	var count int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.attempt_epoch')=?`, f.workID, WorkflowActionCompleted, attemptID, epoch).Scan(&count); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' AND attempt_id=? AND json_extract(payload,'$.attempt_epoch')=?`, f.workID, attemptID, epoch).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -429,7 +445,7 @@ func TestCrossAttemptResultDisposition(t *testing.T) {
 		t.Fatalf("review findings after the rejection = %#v, want the reported finding preserved as completed", reviewAfter.Review.Findings)
 	}
 	var reviewDisposals int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptV).Scan(&reviewDisposals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND attempt_id=?`, workID, attemptV).Scan(&reviewDisposals); err != nil {
 		t.Fatal(err)
 	}
 	if reviewDisposals != 0 {
@@ -880,13 +896,13 @@ func TestCrossAttemptRejectionTargetActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(context.Background(), `UPDATE worker_attempts SET dispatch_payload=json_set(dispatch_payload,'$.lane_actor_ref','') WHERE work_id=? AND attempt_id=?`, workID, f.attemptR); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	damaged, err := workflowRejectableWorkerResults(context.Background(), tx, workID, f.definition, f.step, "test", 0)
@@ -1113,7 +1129,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	f.completeReport(t, f.attemptR, f.researchLane, 21)
 	epochR := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR)
 	var laneR string
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptR).Scan(&laneR); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(dispatch_payload,'$.lane_actor_ref') FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&laneR); err != nil {
 		t.Fatal(err)
 	}
 	fields, err := json.Marshal(map[string]any{"attempt_id": f.attemptV, "worker_packet": joinPacketFor(t, f.s, workID, f.step, f.attemptV, f.reviewLane.ID, f.reviewLane.Digest)})
@@ -1156,7 +1172,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	}
 	epochV := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptV)
 	var laneV string
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptV).Scan(&laneV); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(dispatch_payload,'$.lane_actor_ref') FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, f.attemptV).Scan(&laneV); err != nil {
 		t.Fatal(err)
 	}
 	retryAttempt := f.attemptR + ":retry"
@@ -1290,7 +1306,7 @@ func TestCrossAttemptRejectRetryCombinedAtomicity(t *testing.T) {
 		t.Fatal("the combined rejection rewrote the review report bytes")
 	}
 	var reviewDisposals int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, f.attemptV).Scan(&reviewDisposals); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND attempt_id=?`, workID, f.attemptV).Scan(&reviewDisposals); err != nil {
 		t.Fatal(err)
 	}
 	if reviewDisposals != 0 {
@@ -1360,8 +1376,8 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	}
 
 	// Witness B: one contract supersession closes the interval.
-	stalenessEvent(t, w.s, witnessWorkID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
-	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET supersession_seq=(SELECT MAX(seq) FROM domain_events WHERE subject_id=?) WHERE work_id=? AND superseded_by IS NULL; DELETE FROM fold_guard`, witnessWorkID, witnessWorkID); err != nil {
+	supersession := stalenessEvent(t, w.s, witnessWorkID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET supersession_seq=? WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, supersession.Seq, witnessWorkID); err != nil {
 		t.Fatal(err)
 	}
 	if results := w.rejectableResults(t, 0); len(results) != 0 {
@@ -1372,12 +1388,12 @@ func TestCrossAttemptRejectionIntervalBoundaries(t *testing.T) {
 	// step's latest start, at that start's own epoch.
 	const attemptE = "attempt:cross-attempt-interval-witness:9"
 	stalenessEvent(t, w.s, witnessWorkID, string(WorkerDispatched), `{"attempt_id":"`+attemptE+`"}`)
-	stalenessEvent(t, w.s, witnessWorkID, string(WorkerCompleted), `{"attempt_id":"`+attemptE+`","readback_model":"model/witness"}`)
-	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	terminal := stalenessEvent(t, w.s, witnessWorkID, string(WorkerCompleted), `{"attempt_id":"`+attemptE+`","readback_model":"model/witness"}`)
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE worker_attempts SET lane_id='lane:witness',capability_class='research',readback_model='model/witness',lifecycle_state='completed',completed_at='2026-01-02T00:00:01Z',dispatch_payload='{}',
- terminal_seq=(SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?),terminal_payload=?
+ terminal_seq=?,terminal_payload=?
  WHERE work_id=? AND attempt_id=?;
-DELETE FROM fold_guard`, witnessWorkID, WorkerCompleted, attemptE, string(mustJSONValue(map[string]any{"attempt_id": attemptE, "readback_model": "model/witness"})), witnessWorkID, attemptE); err != nil {
+DELETE FROM write_guard`, terminal.Seq, string(terminal.Payload), witnessWorkID, attemptE); err != nil {
 		t.Fatal(err)
 	}
 	if results := w.rejectableResults(t, 0); !crossAttemptResultsContain(results, attemptE, heldEpoch) {
@@ -1390,8 +1406,8 @@ DELETE FROM fold_guard`, witnessWorkID, WorkerCompleted, attemptE, string(mustJS
 	}
 
 	// Witness D: a non-dispatch action start closes the interval again.
-	stalenessEvent(t, w.s, witnessWorkID, string(WorkflowActionStarted), stalenessActionPayload("investigate", "record_finding"))
-	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET latest_non_dispatch_start_seq=(SELECT MAX(seq) FROM domain_events WHERE subject_id=?) WHERE work_id=?; DELETE FROM fold_guard`, witnessWorkID, witnessWorkID); err != nil {
+	start := stalenessEvent(t, w.s, witnessWorkID, string(WorkflowActionStarted), stalenessActionPayload("investigate", "record_finding"))
+	if _, err := w.s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET latest_non_dispatch_start_seq=? WHERE work_id=?; DELETE FROM write_guard`, start.Seq, witnessWorkID); err != nil {
 		t.Fatal(err)
 	}
 	if results := w.rejectableResults(t, 0); len(results) != 0 {
@@ -1556,7 +1572,7 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 
 	// The transaction compares only values read before BeginTx.
 	var completionSeq, completionEpoch int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, f.attemptR).Scan(&completionSeq, &completionEpoch); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&completionSeq, &completionEpoch); err != nil {
 		t.Fatalf("read the research dispatch authorization completion: %v", err)
 	}
 	if epochR := crossAttemptDispatchEpoch(t, f.s, workID, f.attemptR); completionEpoch != epochR {
@@ -1567,11 +1583,11 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 	// the common current-prefix read must retain exactly this start-derived
 	// epoch even when the completion's own epoch is damaged.
 	var startStep string
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.step_id') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, f.attemptR).Scan(&startStep); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.step_id') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, f.attemptR).Scan(&startStep); err != nil {
 		t.Fatalf("read the research authorization's step: %v", err)
 	}
 	var startEpoch int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted, startStep, completionSeq).Scan(&startEpoch); err != nil {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(start_payload,'$.attempt_epoch'),0) FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=? AND start_seq>0 AND start_seq<?`, workID, f.attemptR, startStep, completionSeq).Scan(&startEpoch); err != nil {
 		t.Fatalf("read the research authorization's start epoch: %v", err)
 	}
 	if startEpoch != completionEpoch {
@@ -1622,7 +1638,7 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	damage, err := tx.ExecContext(ctx, `UPDATE worker_authorizations SET payload=json_set(payload,'$.attempt_epoch',?) WHERE work_id=? AND attempt_id=?`, completionEpoch+1, workID, f.attemptR)
@@ -1632,7 +1648,7 @@ func TestCrossAttemptDispatchWindowEpochBounds(t *testing.T) {
 	if moved, err := damage.RowsAffected(); err != nil || moved != 1 {
 		t.Fatalf("the epoch damage touched %d rows (%v), want exactly the research authorization completion", moved, err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := findAuthorizedDispatchWindowBefore(ctx, tx, workID, f.attemptR, completionSeq+1); err == nil {
@@ -1742,22 +1758,45 @@ func TestCrossAttemptAdvanceTruthTable(t *testing.T) {
 // rollback transaction; no production or admission route authors them.
 func authorJobBoundRejection(ctx context.Context, t *testing.T, tx *sql.Tx, workID, attemptID, step string, epoch, at int64) {
 	t.Helper()
+	scope, err := beginWrite(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dispatchPayload := mustJSONValue(map[string]any{
 		"work_id": workID, "step_id": step, "action_id": "dispatch_worker",
 		"attempt_epoch": epoch, "worker_attempt_id": attemptID,
 		"worker_job": map[string]any{"job_id": "job:cross-attempt-unbound-witness", "revision": 1, "digest": "sha256:" + strings.Repeat("w", 64)},
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		workID+":witness-dispatch-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), CurrentEventPayloadVersion(WorkflowActionCompleted), dispatchPayload); err != nil {
+	dispatch := Event{EventID: workID + ":witness-dispatch-job", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:witness", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkflowActionCompleted), Payload: dispatchPayload}
+	dispatch.Seq, err = appendPreparedEvent(ctx, tx, dispatch)
+	if err != nil {
 		t.Fatalf("insert the witness dispatch binding: %v", err)
+	}
+	var action workflowActionCompletedPayload
+	if err := json.Unmarshal(dispatchPayload, &action); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWorkerAuthorizationTx(ctx, tx, dispatch, action); err != nil {
+		t.Fatal(err)
 	}
 	rejectionPayload := mustJSONValue(map[string]any{
 		"work_id": workID, "step_id": step, "action_id": "reject_worker_result",
 		"attempt_epoch": epoch, "worker_attempt_id": attemptID,
 	})
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		workID+":witness-reject-job", string(WorkflowActionCompleted), string(SubjectWorkItem), workID, "worker:witness", time.Unix(at, 0).UTC().Format(time.RFC3339Nano), CurrentEventPayloadVersion(WorkflowActionCompleted), rejectionPayload); err != nil {
+	rejection := Event{EventID: workID + ":witness-reject-job", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:witness", OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkflowActionCompleted), Payload: rejectionPayload}
+	rejection.Seq, err = appendPreparedEvent(ctx, tx, rejection)
+	if err != nil {
 		t.Fatalf("insert the witness job-bound rejection: %v", err)
+	}
+	action = workflowActionCompletedPayload{}
+	if err := json.Unmarshal(rejectionPayload, &action); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWorkerAuthorizationTx(ctx, tx, rejection, action); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1865,7 +1904,7 @@ func TestCrossAttemptRejectionIntervalClosesOnAdvanceAndReturn(t *testing.T) {
 		stalenessEvent(t, w.s, w.workID, string(WorkflowActionCompleted), string(mustJSONValue(payload)))
 		var seq int64
 		var eventID string
-		if err := w.s.DatabaseForTesting().QueryRow(`SELECT seq,event_id FROM domain_events WHERE subject_id=? ORDER BY seq DESC LIMIT 1`, w.workID).Scan(&seq, &eventID); err != nil {
+		if err := w.s.DatabaseForTesting().QueryRow(`SELECT effect_seq,event_id FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? ORDER BY effect_seq DESC LIMIT 1`, w.workID).Scan(&seq, &eventID); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := w.s.DatabaseForTesting().BeginTx(t.Context(), nil)
@@ -1873,7 +1912,7 @@ func TestCrossAttemptRejectionIntervalClosesOnAdvanceAndReturn(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
 		if row.closes {
@@ -1886,7 +1925,7 @@ func TestCrossAttemptRejectionIntervalClosesOnAdvanceAndReturn(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

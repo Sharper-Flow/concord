@@ -1258,7 +1258,7 @@ func verifyWorkerFailureIntegrationResultSourceTx(ctx context.Context, q queryer
 		return workerFailureBoundFailure("integration result source " + source.Locator + " names no acceptance event at or before the correction")
 	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited acceptance event", true, "retry once the event log is readable", err)
+		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited acceptance event", true, "retry once the current rows are readable", err)
 	}
 	if source.Digest != "" && source.Digest != workerFailurePayloadDigest(payload) {
 		return workerFailureBoundFailure("integration result source " + source.Locator + " digest " + source.Digest + " differs from the retained payload bytes of the acceptance event")
@@ -1316,14 +1316,11 @@ func verifyDerivedFailureAttributionReferenceTx(ctx context.Context, tx *sql.Tx,
 
 // verifyCoordinatorFailureAttributionTx verifies one coordinator correction
 // completion's recorded attribution against its owners. The attempt joins
-// and the subject reference read the event log and projections with the
-// same SQL on the live fold and on rebuild. The integration identity
-// re-derives from the cited run's verify lease. Rebuild reads that same
-// operational authority from its staged snapshot, so both folds verify the
-// exact population and run digest without current-host reads. beforeSeq is
-// the citing correction's own sequence: a stored source event recorded
-// after it is a future citation no fold accepts, and the pre-append derive
-// passes zero because the correction does not exist in the log yet.
+// and the subject reference read current rows. The integration identity
+// re-derives from the cited run's verify lease without current-host reads.
+// beforeSeq is the citing correction's own effect sequence: a source recorded
+// after it is a future citation the writer refuses. Pre-write derivation
+// passes zero because the correction has not been recorded yet.
 func verifyCoordinatorFailureAttributionTx(ctx context.Context, q queryer, workID, actionID, workerAttemptID string, block *WorkerFailureAttribution, beforeSeq int64) error {
 	if block.Observation == nil || block.Observation.Observer != WorkerFailureObserverCoordinator {
 		return workerFailureBoundFailure("failure_attribution on a correction completion observes as the coordinator; host and worker observations ride their own terminal records")

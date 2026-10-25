@@ -15,12 +15,12 @@ func deleteCompactionMandatedLaw(t *testing.T, s *store.Store, home store.Knowle
 		query string
 		args  []any
 	}{
-		{`INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{`INSERT INTO write_guard(active) VALUES(1)`, nil},
 		{`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:operator','client:compaction','agent:operator','session:compaction','operator','2026-08-19T00:00:00Z')`, []any{actor}},
 		{`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-cancelled',1,'compaction claim boundary','internal_sqlite','[]','[]','2026-08-19T00:00:00Z',?,'["spec:one"]','[]',1,'prototype_internal')`, []any{actor}},
 		{`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('work-cancelled',1,'spec:one','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')`, nil},
 		{`DELETE FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id='spec:one'`, []any{home.HomeProjectID, home.HomeLocatorID}},
-		{`DELETE FROM fold_guard`, nil},
+		{`DELETE FROM write_guard`, nil},
 	}
 	for _, statement := range statements {
 		if _, err := s.DatabaseForTesting().Exec(statement.query, statement.args...); err != nil {
@@ -42,7 +42,7 @@ func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&operationsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,7 +69,7 @@ func TestCompactionPublishClaimRefusesStaleLawRevision(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&operationsAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if operationsAfter != operationsBefore {

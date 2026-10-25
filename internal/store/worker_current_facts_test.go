@@ -194,9 +194,7 @@ func assertWorkerFactsLogBlind(t *testing.T, s *Store, checks map[string]func() 
 		}
 		want[name] = value
 	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	for name, read := range checks {
 		t.Run(name, func(t *testing.T) {
 			got, err := read()
@@ -236,36 +234,8 @@ func TestWorkerCurrentFactsMigrationBackfillsStoredBytes(t *testing.T) {
 		`SELECT json_object('disposition',result_disposition) FROM workflow_instances ORDER BY work_id`,
 	}
 	want := workerFactsQueryRows(t, s, queries)
-	// Archived/removed work can still have retained events but owns no current
-	// rows. Such history must not create an orphan authorization during upgrade.
-	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
-('removed-auth','workflow.action_completed','work_item','removed-work','worker:test','2026-10-01T00:00:00Z',1,'{"action_id":"dispatch_worker","worker_attempt_id":"attempt:removed","step_id":"repair","attempt_epoch":1}'),
-('removed-start','workflow.action_started','work_item','removed-work','worker:test','2026-10-01T00:00:00Z',1,'{"step_id":"repair","attempt_epoch":1}')`); err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(workerCurrentFactsFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
-	var workerCurrentFacts string
-	for _, m := range migrations {
-		if m.Name == "worker_current_facts" {
-			workerCurrentFacts = m.SQL
-		}
-	}
-	if _, err := tx.Exec(workerCurrentFacts); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertWorkerFactsCorpus139(t)
+	assertEventLogAbsent(t, s)
 	got := workerFactsQueryRows(t, s, queries)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("backfill changed current bytes:\ngot %v\nwant %v", got, want)
@@ -279,28 +249,11 @@ func TestWorkerCurrentFactsMigrationBackfillsStoredBytes(t *testing.T) {
 		`DELETE FROM workflow_step_epochs`,
 	}
 	for _, query := range guardWrites {
-		if _, err := s.db.Exec(query); err == nil || !strings.Contains(err.Error(), "is fold-only") {
-			t.Fatalf("%s: %v; want a fold-only refusal", query, err)
+		if _, err := s.db.Exec(query); err == nil || !strings.Contains(err.Error(), "is write-seam-only") {
+			t.Fatalf("%s: %v; want a write-seam-only refusal", query, err)
 		}
 	}
 }
-
-const workerCurrentFactsFixtureReversal = `
-DROP TABLE worker_authorizations;
-DROP TABLE workflow_step_epochs;
-ALTER TABLE worker_job_revisions DROP COLUMN recorded_payload;
-ALTER TABLE worker_attempts DROP COLUMN dispatch_payload;
-ALTER TABLE worker_attempts DROP COLUMN dispatch_event_id;
-ALTER TABLE worker_attempts DROP COLUMN dispatch_actor;
-ALTER TABLE worker_attempts DROP COLUMN dispatch_seq;
-ALTER TABLE worker_attempts DROP COLUMN dispatch_payload_version;
-ALTER TABLE worker_attempts DROP COLUMN terminal_payload;
-ALTER TABLE worker_attempts DROP COLUMN terminal_event_id;
-ALTER TABLE worker_attempts DROP COLUMN terminal_payload_version;
-ALTER TABLE worker_attempts DROP COLUMN terminal_kind;
-ALTER TABLE worker_attempts DROP COLUMN failure_recorded;
-ALTER TABLE workflow_instances DROP COLUMN result_disposition;
-`
 
 func workerFactsQueryRows(t *testing.T, s *Store, queries []string) [][]string {
 	t.Helper()

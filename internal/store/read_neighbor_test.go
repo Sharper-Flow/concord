@@ -59,7 +59,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		scope, err := beginFold(ctx, tx.tx)
+		scope, err := beginWrite(ctx, tx.tx)
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	var watermark int64
-	if err := s.db.QueryRow("SELECT max(seq) FROM domain_events").Scan(&watermark); err != nil {
+	if err := s.db.QueryRow("SELECT max(effect_seq) FROM effect_receipts").Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
 	backupDestination := filepath.Join(t.TempDir(), "neighbor-backup.db")

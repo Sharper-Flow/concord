@@ -37,7 +37,7 @@ func TestTransactionalLawBoundaryRequiresSourceSetProof(t *testing.T) {
 	// Positive control: a fresh source set with an established proof passes
 	// the transaction-scoped check.
 	seedKnowledgeWork(t, s, "proof-stale-work", "Proof stale work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-stale-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-stale-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verifiedCtx, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-stale-work")
@@ -206,7 +206,7 @@ func TestRebuildKeepsOtherSourceScopeRows(t *testing.T) {
 	}
 	// Publication membership admits the shared work ID to the archive;
 	// each source still projects its own note and scope rows.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO compaction_publications(work_id) VALUES('scope-shared-work'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO compaction_publications(work_id) VALUES('scope-shared-work'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
@@ -303,7 +303,7 @@ func TestVerifiedSourceSetProofRefusesLaterConflict(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "proof-conflict")
 	seedKnowledgeWork(t, s, "proof-conflict-work", "Proof conflict")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-conflict-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-conflict-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-conflict-work")

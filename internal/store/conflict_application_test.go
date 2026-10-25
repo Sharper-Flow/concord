@@ -2,17 +2,13 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
-// The conflict application record is event-only: one work.conflict_applied
-// event in domain_events carries the recorded rule ID, the model-owned size it
-// was applied against, and the settlement outcome. These tests pin that record
-// through the generic append route (the frozen v1 validator and the fold) and
-// through the live recorder.
+// Conflict receipts bind the exact rule, effective size, and settlement outcome
+// accepted through generic append and the live recorder.
 
 // conflictApplicationPayload builds one closed v1 payload: rule_id,
 // rule_source_hash, catalog_generation, size_assessment_sequence,
@@ -59,27 +55,31 @@ func seedSizedWork(t *testing.T, s *Store, id string) WorkSize {
 	return size
 }
 
-func storedConflictApplication(t *testing.T, s *Store, eventID string) (ConflictApplication, map[string]any) {
+func conflictReceiptDigest(t *testing.T, s *Store, eventID string) string {
 	t.Helper()
-	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, eventID).Scan(&raw); err != nil {
+	var digest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind=?`, eventID, WorkConflictApplied).Scan(&digest); err != nil {
 		t.Fatalf("read the recorded conflict application %s: %v", eventID, err)
 	}
-	var fields map[string]any
-	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
-		t.Fatalf("recorded payload %s is not a JSON object: %v", eventID, err)
+	return digest
+}
+
+func assertConflictReceiptPayload(t *testing.T, s *Store, eventID string, expected map[string]any) {
+	t.Helper()
+	want, err := effectPayloadDigest(mustJSONValue(expected))
+	if got := conflictReceiptDigest(t, s, eventID); err != nil || got != want {
+		t.Fatalf("conflict %s payload digest=%q, want exact closed payload %q: %v", eventID, got, want, err)
 	}
-	var record ConflictApplication
-	if err := json.Unmarshal([]byte(raw), &record); err != nil {
-		t.Fatalf("recorded payload %s does not decode: %v", eventID, err)
-	}
-	return record, fields
+}
+
+func liveConflictPayload(request ConflictApplicationRequest, size WorkSize, sequence int) map[string]any {
+	return conflictApplicationPayload(map[string]any{"rule_id": request.RuleID, "rule_source_hash": conflictRuleSourceHash, "catalog_generation": conflictRuleCatalogGeneration, "size_assessment_sequence": sequence, "size": string(size), "outcome": request.Outcome, "settlement_ref": request.SettlementRef})
 }
 
 func countConflictEvents(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, WorkConflictApplied).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, WorkConflictApplied).Scan(&count); err != nil {
 		t.Fatalf("count conflict application events: %v", err)
 	}
 	return count
@@ -91,19 +91,9 @@ func TestConflictApplicationRecordPersistsRuleSizeAndOutcome(t *testing.T) {
 	if err := applyWorkEvent(t, s, conflictAppliedEvent("conflict-1", "conflict", nil), nil); err != nil {
 		t.Fatalf("record the conflict application: %v", err)
 	}
-	record, fields := storedConflictApplication(t, s, "conflict-1")
-	if record.RuleID != "R1" || record.Size != WorkSizeSmall || record.Outcome == "" {
-		t.Fatalf("recorded trio %+v; want rule R1, size %q, and a nonblank outcome", record, WorkSizeSmall)
-	}
-	if record.RuleSourceHash == "" || record.CatalogGeneration != 1 || record.SizeAssessmentSequence != 1 ||
-		record.ModelVersion != WorkSizeModelVersion || record.SettlementRef == "" {
-		t.Fatalf("recorded application is incomplete: %+v", record)
-	}
-	if len(fields) != 8 {
-		t.Fatalf("recorded payload carries %d fields; the closed v1 shape has exactly 8", len(fields))
-	}
+	assertConflictReceiptPayload(t, s, "conflict-1", conflictApplicationPayload(nil))
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events, want 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications, want 1", got)
 	}
 }
 
@@ -120,13 +110,10 @@ func TestConflictApplicationV2RecordsEffectiveSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, eventID).Scan(&version); err != nil || version != 2 {
+	if err := s.db.QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, eventID).Scan(&version); err != nil || version != 2 {
 		t.Fatalf("conflict payload version=%d err=%v", version, err)
 	}
-	record, fields := storedConflictApplication(t, s, eventID)
-	if len(fields) != 8 || record.Size != WorkSizeSmall || record.SizeAssessmentSequence != 1 || record.ModelVersion != WorkSizeModelVersion {
-		t.Fatalf("v2 lost model-owned size: %+v", record)
-	}
+	assertConflictReceiptPayload(t, s, eventID, liveConflictPayload(ConflictApplicationRequest{RuleID: "A2-3", Outcome: "settled", SettlementRef: "settlement-v2"}, WorkSizeSmall, 1))
 }
 
 func TestConflictApplicationDoesNotAdvanceWorkVersion(t *testing.T) {
@@ -227,7 +214,7 @@ func TestConflictApplicationEventIdentityRefusesDuplicateAndDivergentReplay(t *t
 	assertFailureKind(t, err, KindIdempotencyConflict)
 	assertFoldGuardEmpty(t, s)
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events after refused replays, want 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after refused replays, want 1", got)
 	}
 }
 
@@ -242,7 +229,7 @@ func TestConflictApplicationRollsBackTheWholeOperation(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
 	if got := countConflictEvents(t, s); got != 0 {
-		t.Fatalf("domain_events keeps %d conflict application row(s) after a refused operation; the transaction must roll back", got)
+		t.Fatalf("effect_receipts keeps %d conflict application row(s) after a refused operation; the transaction must roll back", got)
 	}
 	if got := readWorkVersion(t, s, "rollback"); got != 2 {
 		t.Fatalf("refused operation left the work version at %d, want 2", got)
@@ -263,18 +250,19 @@ func TestConflictApplicationSurvivesLaterAssessmentAndReopen(t *testing.T) {
 	if err := applyWorkEvent(t, s, conflictAppliedEvent("durable-1", "durable", nil), nil); err != nil {
 		t.Fatalf("record the conflict application: %v", err)
 	}
-	before, _ := storedConflictApplication(t, s, "durable-1")
+	assertConflictReceiptPayload(t, s, "durable-1", conflictApplicationPayload(nil))
+	before := conflictReceiptDigest(t, s, "durable-1")
 	later := workSizeInputsFixture()
 	later.Declared.EstimatedProductionLines = 61
 	if err := applyWorkEvent(t, s, workSizedEvent("durable-later", "durable", WorkSizeModelVersion, WorkSizeLarger, later), nil); err != nil {
 		t.Fatalf("record the later assessment: %v", err)
 	}
-	after, _ := storedConflictApplication(t, s, "durable-1")
+	after := conflictReceiptDigest(t, s, "durable-1")
 	if after != before {
 		t.Fatalf("later assessment changed the recorded application: %+v, want %+v", after, before)
 	}
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events, want 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications, want 1", got)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -284,7 +272,7 @@ func TestConflictApplicationSurvivesLaterAssessmentAndReopen(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
-	again, _ := storedConflictApplication(t, reopened, "durable-1")
+	again := conflictReceiptDigest(t, reopened, "durable-1")
 	if again != before {
 		t.Fatalf("reopened store reads %+v, want the recorded %+v", again, before)
 	}
@@ -305,10 +293,7 @@ func TestConflictApplicationKeepsTheHistoricalSizeAfterALaterAssessment(t *testi
 	if err != nil || !ok || current.Size != WorkSizeLarger || current.Sequence != 2 {
 		t.Fatalf("current size %+v ok=%v err=%v; want larger at sequence 2", current, ok, err)
 	}
-	record, _ := storedConflictApplication(t, s, "history-1")
-	if record.Size != WorkSizeSmall || record.SizeAssessmentSequence != 1 {
-		t.Fatalf("recorded application %+v; the historical copy must keep size %q at sequence 1", record, WorkSizeSmall)
-	}
+	assertConflictReceiptPayload(t, s, "history-1", conflictApplicationPayload(nil))
 }
 
 // conflictApplicationRequest builds one trusted-caller settlement request.
@@ -355,24 +340,9 @@ func TestRecordConflictApplicationTxRecordsTheLiveBinding(t *testing.T) {
 	if len(ids) != 1 || ids[0] == "" {
 		t.Fatalf("recorded event IDs %v, want the single derived identity", ids)
 	}
-	record, fields := storedConflictApplication(t, s, ids[0])
-	if record.RuleID != "R1" || record.Outcome == "" {
-		t.Fatalf("recorded trio %+v; want rule R1 and a nonblank outcome", record)
-	}
-	// The recorder freezes its own reads: the live table's source hash and
-	// catalog generation, and the work's model-owned size assessment.
-	if record.RuleSourceHash != conflictRuleSourceHash || record.CatalogGeneration != conflictRuleCatalogGeneration {
-		t.Fatalf("recorded binding hash %q generation %d; want the live table's %q/%d",
-			record.RuleSourceHash, record.CatalogGeneration, conflictRuleSourceHash, conflictRuleCatalogGeneration)
-	}
-	if record.SizeAssessmentSequence != 1 || record.ModelVersion != WorkSizeModelVersion || record.Size != WorkSizeSmall {
-		t.Fatalf("recorded size copy %+v; want the size assessment at sequence 1", record)
-	}
-	if len(fields) != 8 {
-		t.Fatalf("recorded payload carries %d fields; the closed v1 shape has exactly 8", len(fields))
-	}
+	assertConflictReceiptPayload(t, s, ids[0], liveConflictPayload(conflictApplicationRequest("recorder", "settlement-recorder", nil), WorkSizeSmall, 1))
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events, want 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications, want 1", got)
 	}
 	if got := readWorkVersion(t, s, "recorder"); got != 2 {
 		t.Fatalf("recorder moved the work version to %d; the record must not advance it", got)
@@ -399,7 +369,8 @@ func TestConflictApplicationRecordsEffectiveSize(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			before, _ := storedConflictApplication(t, s, beforeIDs[0])
+			assertConflictReceiptPayload(t, s, beforeIDs[0], liveConflictPayload(conflictApplicationRequest(workID, "before-override", nil), sizes.model, 1))
+			before := conflictReceiptDigest(t, s, beforeIDs[0])
 			insertWorkSizeOverrideApproval(t, s, workID, 1)
 			if err := runWorkSizeOverride(t, s, workSizeOverrideRequest(t, s, workID, "operator-size", sizes.operator)); err != nil {
 				t.Fatal(err)
@@ -408,15 +379,12 @@ func TestConflictApplicationRecordsEffectiveSize(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, fields := storedConflictApplication(t, s, afterIDs[0])
-			if after.Size != sizes.operator || after.SizeAssessmentSequence != 1 || after.ModelVersion != WorkSizeModelVersion || len(fields) != 8 {
-				t.Fatalf("recorded %+v (%d fields), want effective size %q beside model assessment 1", after, len(fields), sizes.operator)
-			}
+			assertConflictReceiptPayload(t, s, afterIDs[0], liveConflictPayload(conflictApplicationRequest(workID, "after-override", nil), sizes.operator, 1))
 			// A generic append cannot substitute the model answer for the
 			// operator size governing this event position.
 			err = applyWorkEvent(t, s, conflictAppliedEvent("wrong-effective-size", workID, map[string]any{"size": string(sizes.model)}), nil)
 			assertFailureKind(t, err, KindInvariantViolation)
-			storedBefore, _ := storedConflictApplication(t, s, beforeIDs[0])
+			storedBefore := conflictReceiptDigest(t, s, beforeIDs[0])
 			if storedBefore != before {
 				t.Fatalf("override changed the earlier settlement: %+v, want %+v", storedBefore, before)
 			}
@@ -439,7 +407,7 @@ func TestRecordConflictApplicationTxRetryReturnsTheOriginalRecord(t *testing.T) 
 		t.Fatalf("retry returned %v, want the original %v", again, first)
 	}
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events after the retry, want the original 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after the retry, want the original 1", got)
 	}
 }
 
@@ -454,12 +422,9 @@ func TestRecordConflictApplicationTxRefusesADivergentRetry(t *testing.T) {
 		r.Outcome = "settled: a changed outcome"
 	}))
 	assertFailureKind(t, err, KindIdempotencyConflict)
-	record, _ := storedConflictApplication(t, s, first[0])
-	if record.Outcome != "settled: rule R1 applied through the recorder" {
-		t.Fatalf("divergent retry rewrote the recorded outcome to %q", record.Outcome)
-	}
+	assertConflictReceiptPayload(t, s, first[0], liveConflictPayload(conflictApplicationRequest("divergent", "settlement-divergent", nil), WorkSizeSmall, 1))
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events after the divergent retry, want 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after the divergent retry, want 1", got)
 	}
 }
 
@@ -537,16 +502,11 @@ func TestRecordConflictApplicationTxRecordsAcrossAssessmentSequences(t *testing.
 	if len(second) != 1 || second[0] == first[0] {
 		t.Fatalf("recorded identities %v then %v, want a distinct second settlement at the later sequence", first, second)
 	}
-	record, _ := storedConflictApplication(t, s, second[0])
-	if record.SizeAssessmentSequence != 2 || record.Size != WorkSizeLarger {
-		t.Fatalf("second settlement %+v, want the later larger assessment at sequence 2", record)
-	}
-	firstRecord, _ := storedConflictApplication(t, s, first[0])
-	if firstRecord.SizeAssessmentSequence != 1 || firstRecord.Size != WorkSizeSmall {
-		t.Fatalf("first settlement %+v, want the historical small copy at sequence 1", firstRecord)
-	}
+	request := conflictApplicationRequest("sequence", "settlement-seq", nil)
+	assertConflictReceiptPayload(t, s, second[0], liveConflictPayload(request, WorkSizeLarger, 2))
+	assertConflictReceiptPayload(t, s, first[0], liveConflictPayload(request, WorkSizeSmall, 1))
 	if got := countConflictEvents(t, s); got != 2 {
-		t.Fatalf("domain_events holds %d conflict application events, want 2", got)
+		t.Fatalf("effect_receipts holds %d conflict applications, want 2", got)
 	}
 }
 
@@ -634,13 +594,11 @@ func TestRecordConflictApplicationTxRecordsAllThreeSizesWithValidA2Rules(t *test
 		if err != nil {
 			t.Fatalf("record %s against %s work: %v", tc.rule, tc.size, err)
 		}
-		record, _ := storedConflictApplication(t, s, ids[0])
-		if record.RuleID != tc.rule || record.Size != tc.size || record.SizeAssessmentSequence != 1 {
-			t.Fatalf("recorded %+v; want rule %s at size %q, sequence 1", record, tc.rule, tc.size)
-		}
+		request := conflictApplicationRequest(workID, workID+"-conflict", func(r *ConflictApplicationRequest) { r.RuleID = tc.rule })
+		assertConflictReceiptPayload(t, s, ids[0], liveConflictPayload(request, tc.size, 1))
 	}
 	if got := countConflictEvents(t, s); got != len(cases) {
-		t.Fatalf("domain_events holds %d conflict application events, want %d", got, len(cases))
+		t.Fatalf("effect_receipts holds %d conflict applications, want %d", got, len(cases))
 	}
 }
 
@@ -671,6 +629,6 @@ func TestRecordConflictApplicationTxEnforcesLiveBoundsAndUTF8(t *testing.T) {
 		t.Fatalf("record at the %d-byte bound: %v", conflictOutcomeMaxBytes, err)
 	}
 	if got := countConflictEvents(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events, want the one record at the bound", got)
+		t.Fatalf("effect_receipts holds %d conflict applications, want the one record at the bound", got)
 	}
 }

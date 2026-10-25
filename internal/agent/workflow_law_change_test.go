@@ -62,10 +62,10 @@ func testWorkflowLawChangeApproval(t *testing.T, serious bool, tier string) {
 	}
 	hash := "sha256:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project-1','domain-locator-product-1','law:test','decision','accepted','.concord/docs/law-test.md','Fixture law',?,'fixture',?);
 INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project-1','domain-locator-product-1','law:test','product-1',root_domain_id,?,'fixture' FROM domain_registries WHERE product_id='product-1';
-DELETE FROM fold_guard`, hash, tier, hash); err != nil {
+DELETE FROM write_guard`, hash, tier, hash); err != nil {
 		t.Fatal(err)
 	}
 	fields := workflowContractFieldsFixture()
@@ -140,7 +140,7 @@ DELETE FROM fold_guard`, hash, tier, hash); err != nil {
 			}
 		}
 		var eventActor, changeJSON string
-		if err := db.QueryRow(`SELECT actor FROM domain_events WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY seq DESC LIMIT 1`, store.WorkflowContractApproved, store.WorkflowContractSuperseded).Scan(&eventActor); err != nil {
+		if err := db.QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowContractApproved, store.WorkflowContractSuperseded).Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
 		wantActor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)

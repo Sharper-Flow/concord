@@ -159,9 +159,9 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 		payload["evidence_source"] = OutsideRepairEvidenceSource
 	}
 	event := workflowTypedEvent(request.EventID, kind, request.WorkID, operator.ref, request.OccurredAt, version+1, payload)
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version}}, scope)
 }
@@ -291,7 +291,7 @@ func foldOutsideRepairDispositionSet(ctx context.Context, tx *sql.Tx, event Even
 	return err
 }
 
-func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowOutsideRepairReconcilePayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -313,7 +313,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 		return err
 	}
 	if scope == nil || scope.tx != tx || scope.depth == 0 {
-		return newFailure(KindInvalidOperation, "outside_repair", "reconciliation requires its owning fold scope", false, "use the typed outside-repair reconciliation")
+		return newFailure(KindInvalidOperation, "outside_repair", "reconciliation requires its owning write scope", false, "use the typed outside-repair reconciliation")
 	}
 	previous := scope.outsideRepairLifecycleEvent
 	scope.outsideRepairLifecycleEvent = &event

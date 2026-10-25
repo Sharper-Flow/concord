@@ -285,8 +285,8 @@ func researchScopeSnapshot(t *testing.T, s *store.Store, packID string) research
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT pack_id||'/'||consumer_work_id||'/'||revision||'/'||use_role||'/'||required||'/'||accepted_at AS x FROM active_research_consumers ORDER BY pack_id,consumer_work_id,revision)`, nil, &e.pinCount, &e.pins)
 	load(`SELECT version FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerVersion)
 	load(`SELECT current_step FROM workflow_instances WHERE work_id=?`, []any{researchScopeConsumer}, &e.consumerStep)
-	load(`SELECT count(*) FROM domain_events`, nil, &e.events)
-	load(`SELECT count(*) FROM domain_events WHERE subject_id=?`, []any{researchScopeConsumer}, &e.consumerEvents)
+	load(`SELECT last FROM store_sequences WHERE name='effect'`, nil, &e.events)
+	load(`SELECT effect_seq FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerEvents)
 	load(`SELECT count(*) FROM idempotency_records`, nil, &e.receipts)
 	load(`SELECT count(*) FROM durable_operations`, nil, &e.durableOps)
 	load(`SELECT count(*),COALESCE(sum(used_count),0) FROM agent_approval_challenges`, nil, &e.approvalRows, &e.approvalUses)
@@ -728,7 +728,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		seedResearchScopePack(t, f.store, pack, "owner-none", researchScopeMarkerA+" orphan question", researchScopeMarkerA+" orphan finding")
 		// A missing membership is corrupt retained state, not a legal work
 		// creation: isolate the fault after the fixture passes admission.
-		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM fold_guard`); err != nil {
+		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		before := researchScopeSnapshot(t, f.store, pack)

@@ -118,7 +118,7 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = tx.Rollback() })
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest)
@@ -131,7 +131,7 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 		if _, err := tx.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,?,predicate_id,ordinal,outcome_kind,CASE WHEN predicate_id='predicate:first' THEN ? ELSE outcome_payload END FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1`, tc.version, tc.payload, workID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 		if err := tx.Commit(); err != nil {

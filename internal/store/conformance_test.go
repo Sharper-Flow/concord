@@ -530,8 +530,14 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 		t.Fatalf("payload compatibility = %+v, want two current accepted and eight non-current refused; results=%+v", report.Scenarios["payload_compatibility"], results)
 	}
 	for _, result := range results {
-		if result.Profile != "current" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
-			t.Fatalf("non-current payload worker %d (%s) mutated the event log", result.Worker, result.Profile)
+		if result.Profile != "current" {
+			count, err := countEffectReceipts(s, fmt.Sprintf("compat-%d-work", result.Worker))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("non-current payload worker %d (%s) wrote an effect receipt", result.Worker, result.Profile)
+			}
 		}
 	}
 
@@ -1254,7 +1260,7 @@ func assertLifecycleRelationEffects(ctx context.Context, s *Store) error {
 	for worker := 0; worker < 10; worker++ {
 		prefix := fmt.Sprintf("lifecycle-%d", worker)
 		var events int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
 			return err
 		}
 		if events != 9 {
@@ -1446,7 +1452,9 @@ func killBeforeCommitAndRetry(ctx context.Context, path string, s *Store) error 
 	if err := cmd.Wait(); err == nil {
 		return errors.New("kill worker unexpectedly committed")
 	}
-	if got := countDomainEvents(s, "kill-membership"); got != 0 {
+	if got, err := countEffectReceipts(s, "kill-membership"); err != nil {
+		return err
+	} else if got != 0 {
 		return fmt.Errorf("killed transaction left %d membership events", got)
 	}
 	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation("kill-conformance", "kill-membership")); err != nil {
@@ -1562,10 +1570,12 @@ func dbIdentity(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func countDomainEvents(s *Store, eventID string) int {
+func countEffectReceipts(s *Store, eventID string) (int, error) {
 	var count int
-	_ = s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&count)
-	return count
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, eventID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("read effect receipt %s: %w", eventID, err)
+	}
+	return count, nil
 }
 
 func maxAttemptEpoch(t *testing.T, s *Store, opID string) int64 {

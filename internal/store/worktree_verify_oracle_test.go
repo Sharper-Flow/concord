@@ -93,7 +93,7 @@ func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!=""
 // attempt plus a distinct verification assignment to execute it.
 func (f *nativeOracleFixture) qualify(t *testing.T, branch, cwd, recipePath, caseID, testName string) {
 	t.Helper()
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-claim',?,?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(f.work), branch, f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
@@ -167,7 +167,7 @@ func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor Workf
 	digest := nativeDigest(canonical)
 	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "review": "review", "verify": "verification"}[laneID])
 	var epoch int64
-	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := f.s.db.QueryRow(`SELECT coalesce(max(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-dispatch-" + id, "actor_ref": actorRef})
@@ -185,6 +185,35 @@ func (f *nativeOracleFixture) authorizeLane(t *testing.T, id string, actor Workf
 	completion.Payload, _ = json.Marshal(completionPayload)
 	if err := applyWorkflowTestOperationDirect(context.Background(), f.s, Operation{Events: []Event{start, completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.work): version}}); err != nil {
 		t.Fatal(err)
+	}
+	// The current descriptors retain payloads; receipts retain their exact
+	// headers, canonical digests, and order, never a second payload source.
+	var retained, retainedStart []byte
+	var retainedSeq, retainedStartSeq int64
+	var retainedLane, retainedLaneDigest, retainedCapability string
+	if err := f.s.db.QueryRow(`SELECT d.payload,d.seq,d.start_payload,d.start_seq,a.lane_id,a.lane_digest,a.capability_class
+FROM worker_authorizations d JOIN worker_attempts a ON a.work_id=d.work_id AND a.attempt_id=d.attempt_id
+JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq
+WHERE d.work_id=? AND d.attempt_id=? AND d.event_id=?`, f.work, "attempt-"+id, completion.EventID).Scan(&retained, &retainedSeq, &retainedStart, &retainedStartSeq, &retainedLane, &retainedLaneDigest, &retainedCapability); err != nil {
+		t.Fatal(err)
+	}
+	if !oracleEntryIdentical(json.RawMessage(retained), completion.Payload) || !oracleEntryIdentical(json.RawMessage(retainedStart), start.Payload) || retainedLane != lane.ID || retainedLaneDigest != lane.Digest || retainedCapability != lane.CapabilityClass {
+		t.Fatal("retained authorization differs from its exact dispatch/start/lane tuple")
+	}
+	for _, expected := range []Event{event, start, completion} {
+		receipt, found, err := readEffectReceipt(context.Background(), f.s.db, expected.EventID)
+		if err != nil || !found {
+			t.Fatalf("authorization receipt %s: found=%t err=%v", expected.EventID, found, err)
+		}
+		if diffs := receipt.identityDifferences(expected); len(diffs) != 0 {
+			t.Fatalf("authorization receipt %s differs in %v", expected.EventID, diffs)
+		}
+		if (expected.EventID == start.EventID && receipt.event.Seq != retainedStartSeq) || (expected.EventID == completion.EventID && receipt.event.Seq != retainedSeq) || (expected.EventID == event.EventID && receipt.event.Seq >= retainedStartSeq) {
+			t.Fatalf("authorization receipt %s has a mismatched effect sequence", expected.EventID)
+		}
+	}
+	if retainedStartSeq <= 0 || retainedSeq <= retainedStartSeq {
+		t.Fatal("retained authorization does not follow its exact dispatch start")
 	}
 	return NativeOracleRequest{Phase: "execute", AttemptID: "attempt-" + id, AttemptEpoch: epoch, WorkerPacketDigest: digest, WorkerJobBinding: &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}, ControlID: b.Control.ControlID, PreparationRunRef: f.prepare.OperationRef}
 }
@@ -315,7 +344,7 @@ func TestNativeOracleGenuineExecutionAndImmutableReplay(t *testing.T) {
 	if err != nil || !oracleEntryIdentical(r, replay) || f.launches != 1 {
 		t.Fatalf("replay %+v err=%v launches=%d", replay, err, f.launches)
 	}
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);UPDATE worktree_entries SET state='reclaimed' WHERE set_id=?;DELETE FROM fold_guard`, WorktreeSetID(f.work)); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);UPDATE worktree_entries SET state='reclaimed' WHERE set_id=?;DELETE FROM write_guard`, WorktreeSetID(f.work)); err != nil {
 		t.Fatal(err)
 	}
 	page, err := f.s.InspectWorktree(context.Background(), WorktreeInspectRequest{WorkID: f.work, ProjectID: "project", Mode: "oracle_output", RunRef: r.OperationRef, Stream: "stdout", Length: 16384})

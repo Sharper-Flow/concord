@@ -17,8 +17,8 @@ func registryFixtureHash() string { return "sha256:" + strings.Repeat("b", 64) }
 // registryRescannedHash is the hash a later Domain registry rescan publishes.
 func registryRescannedHash() string { return "sha256:" + strings.Repeat("c", 64) }
 
-// execStaleRegistryInFold applies raw projection statements under the fold
-// guard, the seam every registry-seeding fixture uses for fold-only tables.
+// execStaleRegistryInFold applies raw projection statements under the write
+// guard, the seam every registry-seeding fixture uses for write-seam-only tables.
 func execStaleRegistryInFold(t *testing.T, s *Store, statements ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -26,7 +26,7 @@ func execStaleRegistryInFold(t *testing.T, s *Store, statements ...string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func execStaleRegistryInFold(t *testing.T, s *Store, statements ...string) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 	version := readWorkVersion(t, s, workID)
 	identity := fmt.Sprintf("%s-%d", workID, version)
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, workID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	startAction := "start_repair"
@@ -190,7 +190,7 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 		t.Fatalf("reject_worker_result under the subject's own stale pin: %v", err)
 	}
 	var settled int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&settled); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' AND attempt_id=?`, workID, attemptID).Scan(&settled); err != nil {
 		t.Fatal(err)
 	}
 	if settled != 1 {
@@ -248,7 +248,7 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 		t.Fatalf("attempt state after the settled rejection = %q, want the untouched completed report", attemptState)
 	}
 	var verdictActions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','reject_worker_result') AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&verdictActions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id IN ('accept_worker_result','reject_worker_result') AND attempt_id=?`, workID, attemptID).Scan(&verdictActions); err != nil {
 		t.Fatal(err)
 	}
 	if verdictActions != 1 {
@@ -273,7 +273,7 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 		t.Fatalf("accept_worker_result under the subject's own stale pin: %v", err)
 	}
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, workID, attemptID).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 1 {
@@ -345,7 +345,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
 	}
 	var recorded int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 0 {
@@ -405,7 +405,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(2, view.ResearchFindings[0].ViewID), 0, reviewer); err != nil {
 		t.Fatalf("late record_verdict after the re-pin: %v", err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.contract_version')=2`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_predicate_verdicts WHERE work_id=? AND contract_version=2`, workID).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 1 {

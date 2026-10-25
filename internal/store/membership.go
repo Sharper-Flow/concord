@@ -310,7 +310,7 @@ func validateMembershipInvariantQueries(ctx context.Context, q queryer) error {
 		}
 		return newFailure(KindMembershipInvariant, "membership_invariants",
 			fmt.Sprintf("%s %s has no required membership", check.name, id), false,
-			"compose creation with its initial membership or repair the database from a valid event log")
+			"compose creation with its initial membership or restore a verified snapshot")
 	}
 	return nil
 }

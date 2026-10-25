@@ -11,8 +11,7 @@ import (
 // CD-0213 D3: a managed work unit carries at most one Linear issue identity,
 // the key, UUID, and URL the agent read from the Linear MCP server. Concord
 // stores the identity as reported and makes no Linear call. The table is
-// direct authority: it holds no foreign key, so a rebuild from the event log
-// leaves it untouched.
+// direct authority and holds no foreign key.
 
 // LinearIssueLink is one work item's recorded Linear issue identity.
 type LinearIssueLink struct {
@@ -141,9 +140,9 @@ func RecordLinearIssueLinkTx(ctx context.Context, transaction *Transaction, link
 	} else if err != sql.ErrNoRows {
 		return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot inspect recorded Linear issue identities", true, "retry once the database is readable", err)
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	if err := scope.enter(ctx); err != nil {
 		return LinearIssueLink{}, err

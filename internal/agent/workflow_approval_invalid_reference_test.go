@@ -63,7 +63,7 @@ func agentDurableStateSnapshot(t *testing.T, s *store.Store) string {
 	t.Helper()
 	var out []string
 	for _, query := range []string{
-		`SELECT count(*) || ':' || coalesce(max(seq), 0) FROM domain_events`,
+		`SELECT (SELECT count(*) FROM effect_receipts) || ':' || last FROM store_sequences WHERE name='effect'`,
 		`SELECT count(*) FROM durable_operations`,
 		`SELECT count(*) || ':' || coalesce(sum(version), 0) FROM work_items`,
 		`SELECT coalesce(group_concat(work_id || '=' || current_step, ','), '') FROM (SELECT work_id, current_step FROM workflow_instances ORDER BY work_id)`,

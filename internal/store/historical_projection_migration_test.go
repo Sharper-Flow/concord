@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 )
@@ -181,7 +180,6 @@ func TestRecordedHistoricalProjectionMigrationPreservesRows(t *testing.T) {
 			t.Fatalf("migration changed %s row bytes: %s, want %s", attempt, got, row)
 		}
 	}
-	if !reflect.DeepEqual(log, histEventRows(t, s)) {
-		t.Fatal("migration changed the recorded event rows")
-	}
+	assertHistoricalReceipts(t, db, log)
+	assertEventLogAbsent(t, s)
 }

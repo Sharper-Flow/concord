@@ -75,13 +75,13 @@ func TestCurrentShapeClaimLandingGenerationCheckPreserved(t *testing.T) {
 	}
 	event := Event{EventID: "stale-generation-landing", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-current", OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: eventKindRegistry["work.session_claim_landed"].CurrentVersion,
 		Payload: mustJSONValue(sessionClaimLandedPayload{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "wt-op-stale", SessionRef: "ses-current", SourceDirectories: []string{}, LandedDirectory: claimed.Entry.Path, HostPID: 7, HostPIDStart: 999})}
-	before := histEventRows(t, s)
+	before := currentEffectRows(t, s)
 	err = ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "claim generation the landed path no longer carries") {
 		t.Fatalf("stale-generation landing = %v", err)
 	}
-	if len(histEventRows(t, s)) != len(before) {
+	if len(currentEffectRows(t, s)) != len(before) {
 		t.Fatal("refused generation wrote an event")
 	}
 }
@@ -123,14 +123,14 @@ func TestLiveOccupancyReleaseEmitsVersionTwo(t *testing.T) {
 	}
 	insertWorktreeOccupantWithIdentity(t, s, "work-w", "ses-ended", pid, start-1)
 	seedWorktreeLifecycle(t, s)
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM worktree_occupancy WHERE session_ref='ses-claim'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_occupancy WHERE session_ref='ses-claim'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-release-version", ExpectedVersion: 4, Now: time.Unix(25, 0).UTC(), Runner: git}); err != nil {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow(`SELECT payload_version FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-ended'`).Scan(&version); err != nil {
+	if err := s.db.QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND event_id=?`, occupancyReleasedEventID("work-w", "project-w", claim.OpID, "ses-ended", 0)).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 2 {
@@ -151,7 +151,7 @@ func TestLiveClaimLandingEmitsVersionTwo(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow(`SELECT payload_version FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&version); err != nil {
+	if err := s.db.QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id='work-w'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 2 {

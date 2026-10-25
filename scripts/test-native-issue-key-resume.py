@@ -37,22 +37,28 @@ class FixtureTests(unittest.TestCase):
         value["error"]["recovery_action"]["kind"] = "contact_operator"
         self.assertFalse(fixture.can_replay(value, "ses-real", "/target", "/target", {"directory": "/target", "sessionID": "ses-real"}))
 
-    def test_snapshot_requires_claim_and_event_tables_and_is_read_only(self):
+    def test_snapshot_requires_current_claim_and_effect_tables_and_is_read_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "synthetic.db"
-            tables = ("work_items", "worktree_entries", "worktree_occupancy", "linear_issue_links", "domain_events")
+            tables = ("work_items", "worktree_entries", "worktree_occupancy", "linear_issue_links", "effect_receipts", "store_sequences")
             with fixture.sqlite3.connect(db) as conn:
                 for name in tables:
                     conn.execute(f'CREATE TABLE "{name}" (value TEXT)')
                     conn.execute(f'INSERT INTO "{name}" VALUES (?)', (name,))
             snapshot = fixture.snapshot(db)
             self.assertEqual(set(snapshot), set(tables))
-            self.assertEqual(snapshot["domain_events"], [("domain_events",)])
+            self.assertEqual(snapshot["effect_receipts"], [("effect_receipts",)])
+            self.assertEqual(snapshot["store_sequences"], [("store_sequences",)])
             self.assertEqual(fixture.snapshot(db), snapshot)
-            with fixture.sqlite3.connect(db) as conn:
-                conn.execute("DROP TABLE domain_events")
-            with self.assertRaises(fixture.sqlite3.OperationalError):
-                fixture.snapshot(db)
+            with patch.object(fixture.sqlite3, "connect", wraps=fixture.sqlite3.connect) as connect:
+                self.assertEqual(fixture.snapshot(db), snapshot)
+            connect.assert_called_once_with(db.as_uri() + "?mode=ro", uri=True)
+            for table in tables:
+                with self.subTest(missing=table), fixture.sqlite3.connect(db) as conn:
+                    conn.execute(f'DROP TABLE "{table}"')
+                    with self.assertRaises(fixture.sqlite3.OperationalError):
+                        fixture.snapshot(db)
+                    conn.execute(f'CREATE TABLE "{table}" (value TEXT)')
 
     def test_disposable_stamp_calls_real_installer_function(self):
         with tempfile.TemporaryDirectory() as tmp:

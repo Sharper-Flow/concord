@@ -42,12 +42,12 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing registry rows: %v", want)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	insert := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,1,1,?,?,NULL)`

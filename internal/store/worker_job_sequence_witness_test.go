@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ import (
 func sequenceWitnessEventCount(t *testing.T, s *Store, workID string) int64 {
 	t.Helper()
 	var count int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -37,7 +38,7 @@ func sequenceWitnessAttemptCount(t *testing.T, s *Store, workID string) int {
 func sequenceWitnessAcceptEventID(t *testing.T, s *Store, workID, attemptID string) string {
 	t.Helper()
 	var eventID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&eventID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM worker_attempt_dispositions d JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq WHERE d.work_id=? AND d.attempt_id=? AND d.action_id='accept_worker_result' AND r.kind=? AND r.subject_type=? AND r.subject_id=d.work_id`, workID, attemptID, WorkflowActionCompleted, string(SubjectWorkItem)).Scan(&eventID); err != nil {
 		t.Fatalf("the accepted result completion for %s: %v", attemptID, err)
 	}
 	return eventID
@@ -131,8 +132,8 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	if got := sequenceWitnessEventCount(t, s, workID); got != eventsBefore {
 		t.Fatalf("the blocked dispatch left %d events (before %d); the refusal keeps no partial writes", got, eventsBefore)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 0 {
-		t.Fatalf("the blocked dispatch opened %d step windows, want none", len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("the blocked dispatch opened a current step window or start receipt: %+v", start)
 	}
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != 0 {
 		t.Fatalf("the blocked dispatch left %d attempt bindings, want none", got)
@@ -204,7 +205,7 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	}
 	for _, actionID := range []string{"record_delivery", "reject_worker_result", "request_correction", "record_worker_failure"} {
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, actionID).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_phase_exits WHERE work_id=? AND action_id=?)+(SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id=?)`, workID, actionID, workID, actionID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 0 {
@@ -255,7 +256,8 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 
 	versionBefore := readWorkVersion(t, s, workID)
 	eventsBefore := sequenceWitnessEventCount(t, s, workID)
-	startsBefore := len(workflowStartedEventsAtStep(t, s, workID, "execution"))
+	startBefore := workflowCurrentStartAtStep(t, s, workID, "execution")
+	startsBefore := workflowStartReceiptIDs(t, s, workID)
 	attemptsBefore := sequenceWitnessAttemptCount(t, s, workID)
 	const combinedOperation = "sequence-unready-combined-" + workID
 	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(attempt, epoch, json.RawMessage(`{"lane_id":"implement"}`)), combinedOperation); err == nil {
@@ -272,14 +274,14 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 	if got := sequenceWitnessEventCount(t, s, workID); got != eventsBefore {
 		t.Fatalf("the refused combined call left %d events (before %d); the refusal keeps no partial writes", got, eventsBefore)
 	}
-	if got := len(workflowStartedEventsAtStep(t, s, workID, "execution")); got != startsBefore {
-		t.Fatalf("the refused combined call left %d step windows (before %d)", got, startsBefore)
+	if got := workflowCurrentStartAtStep(t, s, workID, "execution"); got == nil || startBefore == nil || *got != *startBefore || !slices.Equal(workflowStartReceiptIDs(t, s, workID), startsBefore) {
+		t.Fatalf("the refused combined call changed the current start or exact receipts: %+v -> %+v", startBefore, got)
 	}
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != attemptsBefore {
 		t.Fatalf("the refused combined call left %d attempt bindings (before %d)", got, attemptsBefore)
 	}
 	var rejectionCompletions, retryAttemptRows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attempt).Scan(&rejectionCompletions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='reject_worker_result'`, workID, attempt).Scan(&rejectionCompletions); err != nil {
 		t.Fatal(err)
 	}
 	if rejectionCompletions != 0 {
@@ -307,8 +309,8 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != attemptsBefore {
 		t.Fatalf("the rejection-only escape left %d attempt bindings (before %d), want no retry attempt", got, attemptsBefore)
 	}
-	if got := len(workflowStartedEventsAtStep(t, s, workID, "execution")); got != startsBefore {
-		t.Fatalf("the rejection-only escape left %d step windows (before %d), want no dispatch start", got, startsBefore)
+	if got := workflowCurrentStartAtStep(t, s, workID, "execution"); got == nil || startBefore == nil || *got != *startBefore || !slices.Equal(workflowStartReceiptIDs(t, s, workID), startsBefore) {
+		t.Fatalf("the rejection-only escape changed the current start or exact receipts: %+v -> %+v", startBefore, got)
 	}
 }
 

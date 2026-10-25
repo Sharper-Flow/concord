@@ -252,7 +252,7 @@ func recordSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, req SessionVa
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: eventID, Kind: "work.session_vacate_landed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.SessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	return out, nil

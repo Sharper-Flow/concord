@@ -67,7 +67,7 @@ func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {
 			payload["terminal_state"] = terminal
 			completion.Payload = mustJSONValue(payload)
 			var eventsBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
 				t.Fatal(err)
 			}
 
@@ -79,7 +79,7 @@ func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {
 
 			var lifecycle, state string
 			var eventsAfter int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.instance_state, (SELECT count(*) FROM domain_events WHERE subject_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &eventsAfter); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.instance_state, (SELECT count(*) FROM effect_receipts WHERE subject_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &eventsAfter); err != nil {
 				t.Fatal(err)
 			}
 			if lifecycle != "in_progress" || state == "completed" || eventsAfter != eventsBefore {

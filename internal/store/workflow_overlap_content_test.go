@@ -98,7 +98,7 @@ func assertContentCurrent(t *testing.T, s *Store) {
 	if count != 1 || from != 1 || to != 1 || invalidated.Valid {
 		t.Fatalf("judgment audit pins changed: count=%d versions=%d/%d invalidated=%v", count, from, to, invalidated)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("resolution events=%d err=%v", count, err)
 	}
 }
@@ -198,13 +198,13 @@ func overlapFixtureExec(t *testing.T, s *Store, query string, args ...any) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

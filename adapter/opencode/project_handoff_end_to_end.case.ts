@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
+import { createHash } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -17,7 +18,7 @@ import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
-import { dbValue, fixturePublicKeyBase64, nativeTaskSelector, type JSONRecord } from "./end-to-end.fixture"
+import { dbValue, fixturePublicKeyBase64, nativeTaskSelector, workerEffects, type JSONRecord } from "./end-to-end.fixture"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
@@ -403,34 +404,28 @@ routeDeclaration("host-started session receives real core context without out-of
       } else if (argv[1] === "session-prepare") {
         // CD-0061 D4's identity evidence is an ordinary, non-durable commit
         // (session_identity.go), not a Product/workflow projection mutation.
-        const added = after.domain_events.filter((row) => !before.domain_events.includes(row))
-        expect(added).toHaveLength(1)
-        const event = JSON.parse(added[0])
-        expect(event).toMatchObject({ kind: "session.orchestrator_identity_asserted", subject_type: "session", subject_id: workID, payload_version: 1 })
         const receipts = after.effect_receipts.filter((row) => !before.effect_receipts.includes(row))
         expect(receipts).toHaveLength(1)
+        const receipt = JSON.parse(receipts[0])
+        const actorFields = [["principal_ref", "principal/orchestrator"], ["client_ref", "client/concord-session"], ["agent_ref", `agent/${AGENT}`], ["session_ref", `session/${PRODUCT_ID}`]]
+        const actorBytes = "actor-v1\0" + actorFields.map(([key, value]) => `${key}=${Buffer.byteLength(value)}:${value}|`).join("")
         expect(JSON.parse(receipts[0])).toEqual({
-          event_id: event.event_id, effect_seq: event.seq, kind: event.kind,
-          subject_type: event.subject_type, subject_id: event.subject_id,
-          actor: event.actor, payload_version: event.payload_version,
+          event_id: expect.stringMatching(new RegExp(`^session-orchestrator-identity:${workID}:\\d+$`)),
+          effect_seq: expect.any(Number), kind: "session.orchestrator_identity_asserted",
+          subject_type: "session", subject_id: workID,
+          actor: `actor:${createHash("sha256").update(actorBytes).digest("hex")}`, payload_version: 1,
           payload_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
           delivery_assertion: 0,
           relation_seq: null,
         })
         before.effect_receipts.push(receipts[0])
         before.effect_receipts.sort()
-        before.domain_events.push(added[0])
-        before.domain_events.sort()
         expect(before.store_sequences).toHaveLength(2)
         before.store_sequences = before.store_sequences.map((row) => {
           const sequence = JSON.parse(row)
           if (sequence.name !== "effect") return row
-          expect(sequence.last + 1).toBe(event.seq)
-          return JSON.stringify({ ...sequence, last: event.seq })
-        }).sort()
-        before.sqlite_sequence = before.sqlite_sequence.map((row) => {
-          const sequence = JSON.parse(row)
-          return sequence.name === "domain_events" ? JSON.stringify({ ...sequence, seq: event.seq }) : row
+          expect(sequence.last + 1).toBe(receipt.effect_seq)
+          return JSON.stringify({ ...sequence, last: receipt.effect_seq })
         }).sort()
         expect(before.store_revision).toHaveLength(1)
         before.store_revision = before.store_revision.map((row) => {
@@ -603,7 +598,7 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect((captured.invoke?.call_envelope ?? {} as JSONRecord).session_ref).toBe(RECEIVE_SESSION_B)
     expect((captured.invoke?.input as JSONRecord).handoff_id).toBe(handoffID)
     expect((captured.invoke?.input as JSONRecord).idempotency_key).toBe(projectHandoffConsumeKey(workID, handoffID))
-    const consumedEvents = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n as number
+    const consumedEvents = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n as number
     expect(consumedEvents).toBe(1)
     expect(dbValue(dbPath, `SELECT consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
 
@@ -617,7 +612,7 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
     const destination = (vacated.result as JSONRecord).destination_directory as string
     expect(destination).toBeTruthy()
-    const landings = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n as number
+    const landings = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n as number
     expect(landings).toBe(1)
     expect(occupantOf(SOURCE_PROJECT)).toBe("")
 
@@ -695,7 +690,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     const vacated = parseToolResult(await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "restart-source-vacate" } } } as any, sourceContext))
     expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
     expect(host.sessions[SOURCE_SESSION].directory).toBe(vacated.result.destination_directory)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n).toBe(1)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n).toBe(1)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_occupancy WHERE session_ref='${SOURCE_SESSION}'`).n).toBe(0)
     const path = join(fixture.root, "restart-fixture.json")
     await Bun.write(path, JSON.stringify(fixture))
@@ -728,7 +723,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
   const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
   const invoke = (tool: string, request: any, context: any, directory?: string) => invokeConcordOperation(tool, request, context, directory)
   const handoff = () => dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
-  const consumedCount = () => dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n
+  const consumedCount = () => dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n
   const expectedHandoff = {
     handoff_id: handoffID,
     bounded_job: "verify the receiving repository's adapter surface",
@@ -801,7 +796,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: RECEIVE_SESSION, callID: "handoff-original-task", args }, output, { windows: dispatchWindows(), credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner, concordBinary: binary })
     const completion = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
     expect(completion.outcome, JSON.stringify(completion)).toBe("ok")
-    const dispatchEvent = dbValue(dbPath, `SELECT event_id,payload FROM domain_events WHERE kind='worker.dispatched' AND subject_id='${workID}'`)
+    const dispatchEvent = workerEffects(dbPath, workID).find((row) => row.kind === "worker.dispatched")!
     const provenance = JSON.parse(dispatchEvent.payload).host_provenance.sources
     expect(provenance).toContainEqual(expect.objectContaining({ kind: "agents_md", path: join(fixture.receiveWorktree, "AGENTS.md") }))
     expect(provenance.some((source: JSONRecord) => source.path === join(fixture.sourceWorktree, "AGENTS.md"))).toBe(false)
@@ -809,7 +804,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     fixture.originalParentMessages = host.sessions[RECEIVE_SESSION].messages
     fixture.originalChildMessages = host.sessions[workerID].messages
     fixture.originalDispatch = dispatchEvent
-    fixture.originalCompletion = dbValue(dbPath, `SELECT event_id,payload FROM domain_events WHERE kind='worker.completed' AND subject_id='${workID}'`)
+    fixture.originalCompletion = workerEffects(dbPath, workID).find((row) => row.kind === "worker.completed")!
     fixture.attemptID = packet.attempt_id
   } else {
     expect(phase).toBe("recover")
@@ -825,12 +820,12 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(result.result.worker_recovery.coordinator_session).toBe(RECEIVE_SESSION)
     expect(result.result.worker_recovery.dispatch_event_id).toBe(fixture.originalDispatch.event_id)
     expect(result.result.worker_recovery.terminal_event_id).toBe(fixture.originalCompletion.event_id)
-    expect(dbValue(dbPath, `SELECT event_id,payload FROM domain_events WHERE kind='worker.dispatched' AND subject_id='${workID}'`)).toEqual(fixture.originalDispatch)
-    expect(dbValue(dbPath, `SELECT event_id,payload FROM domain_events WHERE kind='worker.completed' AND subject_id='${workID}'`)).toEqual(fixture.originalCompletion)
+    expect(workerEffects(dbPath, workID).find((row) => row.kind === "worker.dispatched")).toEqual(fixture.originalDispatch)
+    expect(workerEffects(dbPath, workID).find((row) => row.kind === "worker.completed")).toEqual(fixture.originalCompletion)
     expect(host.sessions[RECEIVE_SESSION].messages).toEqual(fixture.originalParentMessages)
     expect(host.sessions["worker-handoff-original"].messages).toEqual(fixture.originalChildMessages)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(1)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='worker.completed' AND subject_id='${workID}'`).n).toBe(1)
+    expect(workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed")).toHaveLength(1)
     expect(host.taskCalls).toBe(1)
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)

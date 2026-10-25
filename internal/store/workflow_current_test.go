@@ -42,9 +42,9 @@ func TestWorkItemUsesCurrentDefinitionWithoutInflightPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state)
-		VALUES('current-definition-work',?,?,'proposal','planned'); DELETE FROM fold_guard`, first.Ref, entry.Digest); err != nil {
+		VALUES('current-definition-work',?,?,'proposal','planned'); DELETE FROM write_guard`, first.Ref, entry.Digest); err != nil {
 		t.Fatal(err)
 	}
 	next := cloneWorkflowDefinition(first)

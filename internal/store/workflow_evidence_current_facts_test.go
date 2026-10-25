@@ -93,16 +93,7 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 		`SELECT json_array(event_id,payload_digest) FROM effect_receipts WHERE subject_type='work_item' AND subject_id IN (SELECT id FROM work_items) ORDER BY effect_seq`,
 	}
 	want := workerFactsQueryRows(t, s, queries)
-	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
- ('removed-evidence','workflow.evidence_bound','work_item','removed-work','actor:removed','2026-10-01T00:00:00Z',1,'{}'),
- ('removed-observation','workflow.staleness_observed','work_item','removed-work','actor:removed','2026-10-01T00:00:00Z',1,'{"rule_id":"staleness:removed"}'),
- ('removed-completion','workflow.action_completed','work_item','removed-work','actor:removed','2026-10-01T00:00:00Z',1,'{"action_id":"confirm_premise"}')`); err != nil {
-		t.Fatal(err)
-	}
-	repopulateWorkflowCurrentFactsForTest(t, s)
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO domain_events_hidden`); err != nil {
-		t.Fatal(err)
-	}
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	observations, err := workflowStalenessObservationState(ctx, s.db, work)
 	if err != nil || len(observations) != 1 || observations["staleness:current"].Drifted || observations["staleness:current"].ObservedAt != time.Unix(199, 0).UTC().Format(time.RFC3339Nano) {
 		t.Fatalf("latest observation must follow effect order, not wall clock: %+v, %v", observations, err)
@@ -112,71 +103,8 @@ func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	}
 }
 
-func repopulateWorkflowCurrentFactsForTest(t *testing.T, s *Store) {
+func assertWorkflowCurrentFactsWithIndependentMigration142(t *testing.T, s *Store) {
 	t.Helper()
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(q7CurrentMetadataFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`
-CREATE TEMP TABLE relation_positions_fixture AS SELECT event_id,relation_seq FROM effect_receipts WHERE relation_seq IS NOT NULL;
-DROP TABLE workflow_phase_exits;
-DROP TABLE workflow_artifact_actions;
-DROP TABLE workflow_action_obligations;
-DROP TABLE workflow_worker_actors;
-DROP TABLE workflow_step_completions;
-DROP TABLE workflow_correction_state;
-DROP TABLE workflow_predicate_verdicts;
-DROP TABLE workflow_delivery_state;
-DROP TABLE compaction_publications;
-DROP TABLE workflow_evidence_bindings;
-DROP TABLE workflow_staleness_observations;
-DROP TABLE effect_receipts;
-ALTER TABLE workflow_contracts DROP COLUMN supersession_seq;
-ALTER TABLE workflow_contracts DROP COLUMN last_healthy_seq;
-ALTER TABLE workflow_instances DROP COLUMN completion_payload;
-ALTER TABLE workflow_instances DROP COLUMN completion_occurred_at;
-ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
-ALTER TABLE work_observations DROP COLUMN recorded_seq;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_seq;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_event_id;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_start_payload;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_seq;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_event_id;
-ALTER TABLE workflow_step_epochs DROP COLUMN latest_dispatch_start_payload;
-`); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 142 || m.Version == 145 || m.Version == 147 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := backfillEffectReceiptDigests(t.Context(), tx); err != nil {
-		t.Fatal(err)
-	}
-	// Migration 146 positions relations on the receipt; carry the positions
-	// across the receipt rebuild instead of renumbering them.
-	if _, err := tx.Exec(`
-ALTER TABLE effect_receipts ADD COLUMN relation_seq INTEGER;
-UPDATE effect_receipts AS r SET relation_seq=(SELECT p.relation_seq FROM temp.relation_positions_fixture p WHERE p.event_id=r.event_id);
-DROP TABLE temp.relation_positions_fixture;`); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 150 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
+	assertEvidenceCorpus142(t)
 }

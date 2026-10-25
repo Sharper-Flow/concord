@@ -21,17 +21,17 @@ func historyContractFixture(t *testing.T, name string) (*Store, string) {
 }
 
 // setHistoryContractPin rewrites one contract version's definition pin
-// through the fold guard, the shape of a row recorded before pins existed or
+// through the write guard, the shape of a row recorded before pins existed or
 // a pin the registry no longer holds.
 func setHistoryContractPin(t *testing.T, s *Store, workID string, version int64, ref, digest string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	_, updateErr := db.Exec(`UPDATE workflow_contracts SET definition_ref=?,definition_digest=? WHERE work_id=? AND contract_version=?`, ref, digest, workID, version)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Errorf("remove fold guard: %v", err)
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Errorf("remove write guard: %v", err)
 	}
 	if updateErr != nil {
 		t.Fatal(updateErr)

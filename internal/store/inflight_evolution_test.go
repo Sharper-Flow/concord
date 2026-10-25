@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -134,28 +133,11 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	})
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-inflight.db")
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
 	// Build the pre-tail schema from the registered migrations: the prefix
 	// steps apply directly and the final registered step stays for Migrate
 	// to execute below.
-	prefix := migrations[:len(migrations)-1]
 	tail := migrations[len(migrations)-1]
-	for _, migration := range prefix {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-11T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	db := openMigratedTo(t, path, len(migrations)-1)
 	s := &Store{db: db, path: path}
 	if err := ensureInstallationKey(ctx, db); err != nil {
 		t.Fatal(err)
@@ -233,7 +215,7 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 
 	// History remains readable across the change.
 	var events int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&events); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events < 2 {
@@ -287,8 +269,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		}),
 		selection,
 	}
-	scope, err := beginFold(ctx, tx)
-	if err != nil {
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, event := range events {
@@ -307,11 +288,20 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		if event.EventID == selection.EventID {
 			continue
 		}
-		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
-			t.Fatal(err)
+		switch event.Kind {
+		case "work_project.added":
+			if _, err := tx.Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'project','primary'); UPDATE work_items SET version=2 WHERE id=?`, workID, workID); err != nil {
+				t.Fatal(err)
+			}
+		case WorkflowActorRecorded:
+			if _, err := tx.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?); UPDATE work_items SET version=3 WHERE id=?`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef, actor.ActorClass, event.OccurredAt.UTC().Format(time.RFC3339Nano), workID); err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatalf("unsupported historical fixture %s", event.Kind)
 		}
 	}
-	if err := scope.close(ctx); err != nil {
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	startStep, err := workflowDefinitionStartStep(definition.Definition)

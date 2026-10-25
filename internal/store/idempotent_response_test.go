@@ -51,9 +51,7 @@ func TestIdempotentResponseCompletionIsAtomicAndIdentityBound(t *testing.T) {
 	if err := s.Transact(ctx, func(tx *Transaction) error { return CompleteMutationResponseTx(ctx, tx, completed) }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE domain_events`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	prior, found, err = s.LookupMutationIdempotency(ctx, key)
 	if err != nil || !found || prior.ResultPayload != completed.ResultPayload || prior.ChangedRefs != completed.ChangedRefs || prior.AuthorizedScopeSnapshot != completed.AuthorizedScopeSnapshot || prior.CanonicalDigest != reservation.CanonicalDigest || prior.OperationID != reservation.OperationID {
 		t.Fatalf("completed response lost identity without history: %+v found=%t err=%v", prior, found, err)

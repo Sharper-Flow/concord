@@ -121,7 +121,7 @@ func Child(t *testing.T, fileURI func(string) string) {
 	}
 	defer func() { _, _ = conn.ExecContext(ctx, "ROLLBACK") }()
 	var count int
-	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&count); err != nil {
+	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	fmt.Println("READY")

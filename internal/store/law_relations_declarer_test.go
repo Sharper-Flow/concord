@@ -77,7 +77,7 @@ func TestLawRelationsDeclarerMigrationKeepsExistingRowsNull(t *testing.T) {
 	if declarer.Valid {
 		t.Fatalf("a pre-migration relation carries declarer %q, want NULL", declarer.String)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','refines','x','c')`); err != nil {
@@ -86,7 +86,7 @@ func TestLawRelationsDeclarerMigrationKeepsExistingRowsNull(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','b','refines','x','c','a')`); err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
 		t.Fatalf("law_relations accepted a declarer that is neither endpoint, or refused it for another reason: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

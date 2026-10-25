@@ -527,11 +527,11 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	// A contract replacement holds the same-key replay closed on the stale
 	// bind: the cached success would otherwise authorize execution under a
 	// contract the receiver can no longer consume.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 	INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 	SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 	UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='work-1' AND contract_version=1;
-	DELETE FROM fold_guard;`); err != nil {
+	DELETE FROM write_guard;`); err != nil {
 		t.Fatal(err)
 	}
 	staleReplay := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
@@ -539,7 +539,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 		t.Fatalf("stale replay=%+v, want the stale-bind refusal", staleReplay.Error)
 	}
 	var consumedEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id='work-1'`).Scan(&consumedEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id='work-1'`).Scan(&consumedEvents); err != nil {
 		t.Fatal(err)
 	}
 	if consumedEvents != 1 {

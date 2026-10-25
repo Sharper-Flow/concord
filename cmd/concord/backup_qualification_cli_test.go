@@ -17,15 +17,15 @@ import (
 
 // The SQLite file remains structurally readable, but its current membership
 // rows violate foreign keys. History payloads do not decide this refusal.
-func seedSnapshotForeignKeyCorruption(t *testing.T, path string) []string {
+func seedSnapshotForeignKeyCorruption(t *testing.T, path, guardTable string) []string {
 	t.Helper()
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`PRAGMA foreign_keys=OFF; INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missing-project','primary'); DELETE FROM fold_guard;`); err != nil {
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF; INSERT INTO ` + guardTable + `(active) VALUES(1);
+INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missing-project','primary'); DELETE FROM ` + guardTable); err != nil {
 		t.Fatal(err)
 	}
 	for _, check := range []string{"integrity_check", "quick_check"} {
@@ -90,7 +90,7 @@ func TestRestoreRefusesCurrentStateCorruptionWithAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failures := seedSnapshotForeignKeyCorruption(t, snapshot)
+	failures := seedSnapshotForeignKeyCorruption(t, snapshot, "write_guard")
 	raw, err := os.ReadFile(snapshot)
 	if err != nil {
 		t.Fatal(err)

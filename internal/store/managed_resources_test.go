@@ -40,7 +40,7 @@ func TestCreateManagedResourceAndAddConsumerAreEventBacked(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM managed_resources WHERE resource_id='resource-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind IN ('managed_resource.created','managed_resource.consumer_added')`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind IN ('managed_resource.created','managed_resource.consumer_added')`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if ownerCount != 1 || consumerCount != 1 || version != 2 || events != 2 {
@@ -108,7 +108,7 @@ func anchorHomePair(t *testing.T, s *Store, projectID, locatorID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?,?,1,'t','t')`, projectID, projectID); err != nil {
@@ -124,7 +124,7 @@ func anchorHomePair(t *testing.T, s *Store, projectID, locatorID string) {
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?, 'canonical_path', ?, ?, 't', 't')`, locatorID, projectID, "/test/"+locatorID, "/test/"+locatorID); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

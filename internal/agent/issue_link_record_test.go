@@ -128,7 +128,7 @@ func seedLinkWorkItem(t *testing.T, s *store.Store, workID, projectID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', 'Link agent title', 'needed', 0, 'standard', 1, '{"title":"Link agent title","value_statement":"Link value","kind":"task","priority":0,"urgency":"standard"}', '2026-09-16T00:00:00Z', '2026-09-16T00:00:00Z')`, workID); err != nil {
@@ -137,7 +137,7 @@ func seedLinkWorkItem(t *testing.T, s *store.Store, workID, projectID string) {
 	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

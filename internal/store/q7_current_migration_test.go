@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -21,22 +22,6 @@ func seedPreQ7WorkCreated(t *testing.T, tx *sql.Tx, event Event) {
 		t.Fatal(err)
 	}
 }
-
-const q7CurrentMetadataFixtureReversal = `
-ALTER TABLE workflow_phase_exits DROP COLUMN record_version;
-ALTER TABLE workflow_phase_exits DROP COLUMN contract_version;
-ALTER TABLE workflow_phase_exits DROP COLUMN step_id;
-ALTER TABLE workflow_phase_exits DROP COLUMN actor;
-ALTER TABLE relations DROP COLUMN record_version;
-ALTER TABLE relations DROP COLUMN reason;
-DROP INDEX effect_receipts_relation_seq;
-ALTER TABLE work_items DROP COLUMN transition_version;
-ALTER TABLE work_items DROP COLUMN transition_seq;
-ALTER TABLE work_items DROP COLUMN transition_evidence_refs;
-ALTER TABLE work_items DROP COLUMN transition_actor;
-ALTER TABLE work_items DROP COLUMN transition_reason;
-ALTER TABLE work_items DROP COLUMN transition_from;
-`
 
 func seedQ7CurrentRows(t *testing.T) (*Store, string) {
 	t.Helper()
@@ -75,8 +60,9 @@ func TestQ7CurrentRowsWithoutLog(t *testing.T) {
 			t.Fatalf("fixture lacks %s", kind)
 		}
 	}
-	if _, err := s.db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
-		t.Fatal(err)
+	var logTables int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logTables); err != nil || logTables != 0 {
+		t.Fatalf("current store retained event log: count=%d err=%v", logTables, err)
 	}
 	after, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
 	if err != nil {
@@ -105,7 +91,7 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
@@ -115,28 +101,6 @@ func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
 	}
 	if gotRows := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(gotRows, wantRows) {
 		t.Fatalf("migration150 metadata:\ngot %v\nwant %v", gotRows, wantRows)
-	}
-}
-
-func repopulateQ7CurrentMetadata(t *testing.T, s *Store) {
-	t.Helper()
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(q7CurrentMetadataFixtureReversal); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version == 150 {
-			if err := applyMigration(t.Context(), tx, m); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -155,7 +119,7 @@ func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	if started.Lifecycle != "in_progress" || started.From == nil || *started.From != "needed" || started.Version <= 1 {
 		t.Fatalf("first workflow action lost lifecycle metadata: %+v", started)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	if got := read(); !reflect.DeepEqual(got, started) {
 		t.Fatalf("start backfill: got %+v, want %+v", got, started)
 	}
@@ -168,7 +132,7 @@ func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	if want.From == nil || *want.From != "in_progress" {
 		t.Fatalf("supersession lost prior lifecycle: %+v", want)
 	}
-	repopulateQ7CurrentMetadata(t, s)
+	assertQ7Corpus150(t)
 	if got := read(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("supersession backfill: got %+v, want %+v", got, want)
 	}
@@ -194,7 +158,6 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	const work = "q7-created-from"
-	seedWork(t, s, "q7-creation-peer")
 	event := workCreatedEvent(work, "q7-created-from-event")
 	var fields map[string]any
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
@@ -202,10 +165,15 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	}
 	fields["from"] = "unrelated-source"
 	event.Payload, _ = json.Marshal(fields)
+	parents := []Event{locatorProductEvent("product"), locatorProjectEvent("project"), locatorMembershipEvent("product", "project")}
+	if err := ApplyOperation(t.Context(), s, Operation{Events: parents}); err != nil {
+		t.Fatal(err)
+	}
+	events := []Event{event, operationEvent("q7-created-membership", "work_project.added", SubjectWorkItem, work, map[string]any{
+		"work_id": work, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
+	})}
 	if err := ApplyOperation(t.Context(), s, Operation{
-		Events: []Event{event, operationEvent("q7-created-membership", "work_project.added", SubjectWorkItem, work, map[string]any{
-			"work_id": work, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-		})},
+		Events:           events,
 		ExpectedVersions: workVersion(work, 0),
 	}); err != nil {
 		t.Fatal(err)
@@ -214,8 +182,24 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	if err != nil || len(want.Entries) != 1 || want.Entries[0].From != nil {
 		t.Fatalf("creation metadata: %+v, %v", want.Entries, err)
 	}
-	repopulateQ7CurrentMetadata(t, s)
-	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work})
+	// Every original source effect is available in this fixture. Seed only
+	// data into a real pre-receipt prefix; 145 and 150 backfill normally.
+	path := filepath.Join(t.TempDir(), "q7-creation-144.db")
+	db := openMigratedTo(t, path, 144)
+	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects"}, nil, "fold_guard")
+	for _, source := range append(parents, events...) {
+		var seq int64
+		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, source.EventID).Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, seq, source.EventID, source.Kind, source.SubjectType, source.SubjectID, source.Actor, source.OccurredAt.UTC().Format(time.RFC3339Nano), source.PayloadVersion, string(source.Payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (&Store{db: db, path: path}).QueryQ7(t.Context(), Q7Request{Work: work})
 	if err != nil || !reflect.DeepEqual(got.Result, want.Result) {
 		t.Fatalf("creation metadata backfill: %+v, %v", got.Entries, err)
 	}

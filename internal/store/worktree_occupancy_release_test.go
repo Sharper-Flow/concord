@@ -108,7 +108,9 @@ func TestLegacyRowReleasesOnEndedRecordingProcess(t *testing.T) {
 		t.Fatalf("the ended recording process must release the legacy row: %v", err)
 	}
 	var released int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-old'`).Scan(&released); err != nil {
+	wantRelease := worktreeOccupancyReleasedPayload{SetID: WorktreeSetID(req.WorkID), ProjectID: req.ProjectID, ClaimOpID: req.OpID, SessionRef: req.SessionRef}
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=? AND kind='work.worktree_occupancy_released' AND subject_type='work_item' AND subject_id=? AND actor='principal-1' AND payload_version=2 AND payload_digest=?`,
+		occupancyReleasedEventID(req.WorkID, req.ProjectID, req.OpID, req.SessionRef, 0), req.WorkID, historicalFixturePayloadDigest(t, string(mustJSONValue(wantRelease)))).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != 1 {

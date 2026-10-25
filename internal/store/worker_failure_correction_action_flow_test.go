@@ -79,7 +79,7 @@ func runCorrectionActionFullBoundary(t *testing.T, s *Store, fixture workflowRet
 func readStoredCorrectionCompletion(t *testing.T, s *Store, workID, actionID string) map[string]json.RawMessage {
 	t.Helper()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, actionID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id=? ORDER BY seq DESC LIMIT 1`, workID, actionID).Scan(&raw); err != nil {
 		t.Fatalf("read the stored %s completion: %v", actionID, err)
 	}
 	var members map[string]json.RawMessage
@@ -94,10 +94,10 @@ func readStoredCorrectionCompletion(t *testing.T, s *Store, workID, actionID str
 func attributionVerdictAndEvidenceCounts(t *testing.T, s *Store, workID string) (int64, int64) {
 	t.Helper()
 	var verdicts, evidence int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidence); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidence); err != nil {
 		t.Fatal(err)
 	}
 	return verdicts, evidence
@@ -236,6 +236,7 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 		Tool: "concord_work_transition", IdempotencyKey: "request-correction-attribution-key", RequestID: "req-request-correction-attribution",
 		AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: time.Unix(45, 0).UTC(),
 	}
+	step := currentStep(t, s, workID)
 	err := AuthorizeWorkflowActionAtBoundaryTx(context.Background(), s, BuiltinWorkflowRegistry(), preflight, nil, func(tx *Transaction) error {
 		_, inner := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), execution)
 		return inner
@@ -244,17 +245,39 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 		t.Fatalf("the full request_correction action refused: %v", err)
 	}
 
-	members := readStoredCorrectionCompletion(t, s, workID, "request_correction")
-	raw, present := members["failure_attribution"]
-	if !present {
-		t.Fatal("the stored request_correction completion records no failure_attribution")
-	}
-	var block WorkerFailureAttribution
-	if err := json.Unmarshal(raw, &block); err != nil {
+	var observation WorkerFailureObservation
+	if err := json.Unmarshal(mustJSONValue(fields["failure_attribution"]), &observation); err != nil {
 		t.Fatal(err)
 	}
-	if block.Origin != WorkerFailureAttributionRecorded || block.Identity == nil || block.Identity.Kind != WorkerFailureIdentityIntegration || block.Identity.Integration == nil {
-		t.Fatalf("stored attribution = %+v, want the recorded integration identity", block)
+	var acceptedRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM worker_attempt_dispositions d JOIN effect_receipts r ON r.effect_seq=d.first_acceptance_seq WHERE d.work_id=? AND d.attempt_id=? AND d.action_id='accept_worker_result'`, workID, attemptID).Scan(&acceptedRef); err != nil {
+		t.Fatal(err)
+	}
+	block := WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &observation, Identity: &WorkerFailureIdentity{
+		Kind: WorkerFailureIdentityIntegration, Integration: &WorkerFailureIntegrationIdentity{
+			NativeRun:    WorkerFailureSubjectRef{Kind: WorkerFailureSubjectNativeRun, Locator: worktreeVerifyOperationRef(failed.LeaseID), Digest: integrationRetainedResultDigest(t, s, failed.LeaseID)},
+			InputResults: []WorkerFailureInputResult{{Job: job, ResultRef: acceptedRef}},
+		},
+	}}
+	var epoch, seq int64
+	var actor, digest string
+	if err := s.db.QueryRow(`SELECT e.attempt_epoch,r.effect_seq,r.actor,r.payload_digest FROM workflow_step_epochs e JOIN effect_receipts r ON r.subject_id=e.work_id WHERE e.work_id=? AND e.step_id=? AND r.event_id=? AND r.kind=?`, workID, step, execution.OperationID+":completed", WorkflowActionCompleted).Scan(&epoch, &seq, &actor, &digest); err != nil {
+		t.Fatal(err)
+	}
+	ownerRef := ownerRefForTest(t, fixture.owner)
+	wantDigest, err := effectPayloadDigest(mustJSONValue(map[string]any{
+		"work_id": workID, "expected_version": execution.ExpectedVersion, "resulting_version": execution.ExpectedVersion + 1,
+		"step_id": step, "action_id": "request_correction", "attempt_epoch": epoch,
+		"result_evidence_refs": []string{"evidence:" + execution.OperationID}, "changed_refs": []string{workID}, "actor_ref": ownerRef,
+		"correction_diagnosis": fields["diagnosis"], "correction_strategy": fields["strategy"],
+		"correction_predicate_ids": fields["predicate_ids"], "correction_evidence_refs": fields["evidence_refs"], "failure_attribution": block,
+	}))
+	if err != nil || actor != ownerRef || digest != wantDigest {
+		t.Fatalf("correction receipt actor=%q digest=%q, want %q and exact derived integration payload %q: %v", actor, digest, ownerRef, wantDigest, err)
+	}
+	var exitSeq int64
+	if err := s.db.QueryRow(`SELECT exit_seq FROM workflow_phase_exits WHERE work_id=? AND action_id='request_correction'`, workID).Scan(&exitSeq); err != nil || exitSeq != seq {
+		t.Fatalf("correction exit=%d, want exact receipt sequence %d: %v", exitSeq, seq, err)
 	}
 	integration := block.Identity.Integration
 	if integration.NativeRun.Locator != worktreeVerifyOperationRef(failed.LeaseID) || integration.NativeRun.Digest != integrationRetainedResultDigest(t, s, failed.LeaseID) {
@@ -264,10 +287,6 @@ func TestCorrectionAttributionFullActionRequestCorrectionWitness(t *testing.T) {
 	// watermark; the Review accepted after the run is outside it.
 	if len(integration.InputResults) != 1 || integration.InputsUnavailable {
 		t.Fatalf("input population = (unavailable=%v results=%+v), want exactly the accepted delivery below the watermark", integration.InputsUnavailable, integration.InputResults)
-	}
-	var acceptedRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' ORDER BY seq LIMIT 1`, workID, WorkflowActionCompleted).Scan(&acceptedRef); err != nil {
-		t.Fatal(err)
 	}
 	if integration.InputResults[0].ResultRef != acceptedRef {
 		t.Fatalf("input result ref = %q, want the work's accepted delivery %q", integration.InputResults[0].ResultRef, acceptedRef)

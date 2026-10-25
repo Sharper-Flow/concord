@@ -34,7 +34,7 @@ func TestResumeRestoresMissingWorktreeOnRecordedBranch(t *testing.T) {
 			runTestGit(t, claimed.Entry.Path, "commit", "-qm", "fixture work")
 			tip := runTestGit(t, repo, "rev-parse", "refs/heads/"+claimed.Entry.Branch)
 			var before int
-			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.RemoveAll(claimed.Entry.Path); err != nil {
@@ -55,7 +55,7 @@ func TestResumeRestoresMissingWorktreeOnRecordedBranch(t *testing.T) {
 				t.Fatalf("entry=%+v err=%v", entry, err)
 			}
 			var after int
-			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil || after != before {
+			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil || after != before {
 				t.Fatalf("restoration wrote store events: before=%d after=%d err=%v", before, after, err)
 			}
 			replay, err := s.RestoreResumeWorktree(ctx, claimed.WorkID, claimed.Entry, nil)

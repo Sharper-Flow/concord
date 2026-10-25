@@ -1058,7 +1058,7 @@ func (f *nativeTargetFixture) seedAuthority(t *testing.T, seed workflowReturnRou
 // conforming store cannot assert a ready preparation of its own.
 func (f *nativeTargetFixture) seedTargetAuthority(t *testing.T) {
 	t.Helper()
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-target-claim','target-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(f.work), f.head, f.repo, f.repo); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','native-target-claim','target-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(f.work), f.head, f.repo, f.repo); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.VerifyWorktree(context.Background(), f.request("subject", nil)); err != nil {
@@ -1127,7 +1127,7 @@ func (f *nativeTargetFixture) authorizeLane(t *testing.T, id string, actor Workf
 	lane := reviewGateLane(t, map[string]string{"implement": "implementation", "verify": "verification"}[laneID])
 	ld := lane.Digest
 	var epoch int64
-	if err := f.s.db.QueryRow(`SELECT coalesce(max(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='repair'`, f.work, WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := f.s.db.QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id='repair'`, f.work).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	start := workflowEventWithActor("native-target-start-"+id, WorkflowActionStarted, f.work, actorRef, map[string]any{"work_id": f.work, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": digest, "idempotency_identity": "native-target-dispatch-" + id, "actor_ref": actorRef})

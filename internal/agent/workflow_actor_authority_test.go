@@ -36,7 +36,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		t.Fatalf("definition=%q", definition)
 	}
 	var eventKinds []string
-	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id=? ORDER BY seq`, workID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM effect_receipts WHERE subject_id=? ORDER BY effect_seq`, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		t.Fatalf("first action response=%+v err=%v", acted, err)
 	}
 	var completed, currentStep int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id=? AND current_step='alignment'`, workID).Scan(&currentStep); err != nil {
@@ -98,7 +98,7 @@ func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKin
 			(SELECT count(*) FROM work_items),
 			(SELECT count(*) FROM workflow_instances),
 			(SELECT count(*) FROM workflow_contracts),
-			(SELECT count(*) FROM domain_events),
+			(SELECT last FROM store_sequences WHERE name='effect'),
 			total_changes()`).Scan(&state.works, &state.instances, &state.contracts, &state.events, &state.changes); err != nil {
 			t.Fatal(err)
 		}

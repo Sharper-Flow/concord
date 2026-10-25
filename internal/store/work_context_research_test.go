@@ -146,7 +146,7 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 		if err != nil {
 			return err
 		}
-		if _, err := applyWorkflowOperationTx(ctx, rawTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}, newFoldScope(rawTx)); err != nil {
+		if _, err := applyWorkflowOperationTx(ctx, rawTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}, newWriteScope(rawTx)); err != nil {
 			return err
 		}
 		// The production post-append view check, invoked exactly where the
@@ -227,7 +227,7 @@ func assertUnresolvedEntryCarriesNoContent(t *testing.T, entry map[string]any, r
 func latestDeclarationSeq(t *testing.T, f workContextFixture) int64 {
 	t.Helper()
 	var seq int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, f.workID, WorkflowWorkContextRecorded).Scan(&seq); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, f.workID).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
 	return seq
@@ -237,7 +237,7 @@ func latestDeclarationSeq(t *testing.T, f workContextFixture) int64 {
 func declarationEventCount(t *testing.T, f workContextFixture) int {
 	t.Helper()
 	var count int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, f.workID, WorkflowWorkContextRecorded).Scan(&count); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, f.workID, WorkflowWorkContextRecorded).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -895,7 +895,7 @@ func researchBoundCarrierDeclaration(t *testing.T, f workContextFixture, stateme
 		t.Fatalf("carrier declaration refused: %v", err)
 	}
 	var seq int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, f.workID, WorkflowWorkContextRecorded).Scan(&seq); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, f.workID).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
 	return seq
@@ -1025,11 +1025,11 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			t.Fatalf("ranked review report refused: %v", err)
 		}
 		var rankedSeq int64
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkerCompleted).Scan(&rankedSeq); err != nil {
+		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(terminal_seq) FROM worker_attempts WHERE work_id=? AND terminal_kind=?`, fixture.workID, WorkerCompleted).Scan(&rankedSeq); err != nil {
 			t.Fatal(err)
 		}
 		var seq int64
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&seq); err != nil {
+		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&seq); err != nil {
 			t.Fatal(err)
 		}
 		refs := make([]string, 0, 16)
@@ -1170,7 +1170,7 @@ func TestWorkContextResearchSharedBounds(t *testing.T) {
 			t.Fatalf("legacy carrier declaration refused: %v", err)
 		}
 		var carrierSeq int64
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&carrierSeq); err != nil {
+		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&carrierSeq); err != nil {
 			t.Fatal(err)
 		}
 		findings := make([]map[string]any, 0, 9)
@@ -1467,7 +1467,7 @@ func assertZeroDispatchEffects(t *testing.T, f workContextFixture) {
 		t.Fatalf("worker attempts = %d, want zero behind the refusal", attempts)
 	}
 	var authorizations int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, f.workID, WorkflowActionCompleted).Scan(&authorizations); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=?`, f.workID).Scan(&authorizations); err != nil {
 		t.Fatal(err)
 	}
 	if authorizations != 0 {
@@ -1480,7 +1480,7 @@ func assertZeroDispatchEffects(t *testing.T, f workContextFixture) {
 // terminal evidence survives unchanged.
 func mandatoryRetainedSnapshot(t *testing.T, f workContextFixture) map[string]string {
 	t.Helper()
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT event_id,payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, f.workID, WorkerCompleted)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT terminal_event_id,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=? ORDER BY terminal_seq`, f.workID, WorkerCompleted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1512,7 +1512,7 @@ func legacyGapStatement(index int) string {
 func mandatoryOverflowRefs(t *testing.T, f workContextFixture) []string {
 	t.Helper()
 	var seqs []int64
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_array_length(payload,'$.context_findings')>0 ORDER BY seq`, f.workID, WorkflowWorkContextRecorded)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT r.effect_seq FROM effect_receipts r WHERE r.subject_id=? AND r.kind=? AND EXISTS(SELECT 1 FROM work_context_findings f WHERE f.work_id=r.subject_id AND f.source_seq=r.effect_seq AND f.finding_class='generic') ORDER BY r.effect_seq`, f.workID, WorkflowWorkContextRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1561,7 +1561,7 @@ func seedMandatoryResearchOverflow(t *testing.T, f workContextFixture, key strin
 	declare()
 	declare()
 	var seqs []int64
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? AND json_array_length(payload,'$.context_findings')>0 ORDER BY seq`, f.workID, WorkflowWorkContextRecorded)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT r.effect_seq FROM effect_receipts r WHERE r.subject_id=? AND r.kind=? AND EXISTS(SELECT 1 FROM work_context_findings f WHERE f.work_id=r.subject_id AND f.source_seq=r.effect_seq AND f.finding_class='generic') ORDER BY r.effect_seq`, f.workID, WorkflowWorkContextRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}

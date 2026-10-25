@@ -99,20 +99,22 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 type workflowReplayEffects struct {
 	Events, Operations, Attempts, Dispatches int
 	Version                                  int64
+	CurrentRows                              string
 }
 
 func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffects {
 	t.Helper()
 	var counts workflowReplayEffects
-	for table, target := range map[string]*int{"domain_events": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
+	for table, target := range map[string]*int{"effect_receipts": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(target); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
 		t.Fatal(err)
 	}
 	counts.Version = workOneVersion(t, s)
+	counts.CurrentRows = agentCurrentEffects(t, s)
 	return counts
 }
 
@@ -441,7 +443,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 0 {
@@ -498,7 +500,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		}
 		t.Fatalf("workflow replay response=%+v err=%v", replay, err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 {
@@ -742,7 +744,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 func countWorkflowEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

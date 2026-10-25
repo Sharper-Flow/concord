@@ -32,7 +32,7 @@ func seedResearchContextDomainRegistry(t *testing.T, f researchScopeEnv) (root, 
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('research-context-fixture','project-a','canonical_path','/fixture/research-context','/fixture/research-context','now','now')`); err != nil {
@@ -47,7 +47,7 @@ func seedResearchContextDomainRegistry(t *testing.T, f researchScopeEnv) (root, 
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -294,7 +294,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 		}
 		afterFirst := researchScopeSnapshot(t, f.store, linked)
 		var events int64
-		if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, researchScopeConsumer).Scan(&events); err != nil {
+		if err := f.store.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM work_items WHERE id=?`, researchScopeConsumer).Scan(&events); err != nil {
 			t.Fatal(err)
 		}
 		replay := researchScopeInvoke(t, f, "workflow_action", input)
@@ -303,7 +303,7 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 		}
 		researchScopeAssertNoEffects(t, afterFirst, researchScopeSnapshot(t, f.store, linked))
 		var replayEvents int64
-		if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, researchScopeConsumer).Scan(&replayEvents); err != nil {
+		if err := f.store.DatabaseForTesting().QueryRow(`SELECT effect_seq FROM work_items WHERE id=?`, researchScopeConsumer).Scan(&replayEvents); err != nil {
 			t.Fatal(err)
 		}
 		if replayEvents != events {

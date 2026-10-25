@@ -17,9 +17,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			version := seedAgentWorkflow(t, s, grant)
 			// Model the historical kind in the temporary projection. Capture of
 			// a new initiative is independently refused at the append boundary.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 				UPDATE work_items SET kind='initiative' WHERE id='work-1';
-				DELETE FROM fold_guard`); err != nil {
+				DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			before := countWorkflowEvents(t, s)
@@ -53,9 +53,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 	s, _, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	before := countWorkflowEvents(t, s)

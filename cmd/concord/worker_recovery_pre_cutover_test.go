@@ -41,8 +41,7 @@ func canonicalPacketDigest(t *testing.T, packet map[string]any) string {
 // seedPreCutoverDispatchWindow records the dispatch_worker authorization for
 // one attempt against the exact canonical digest of the retained packet, the
 // way the pre-cutover coordinator recorded it. The digest is written at
-// insert time: the domain log is append-only, so no seeding step may rewrite
-// a recorded authorization.
+// insert time beside its immutable receipt; no seeding step rewrites a receipt.
 func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packetDigest string) {
 	t.Helper()
 	ctx := context.Background()
@@ -92,7 +91,7 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-1', 'Concord', 'prototype', 'operator_only', 1, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`); err != nil {
@@ -119,18 +118,8 @@ func seedPreCutoverDispatchWindow(t *testing.T, dbPath, workID, attemptID, packe
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 1, ?)`, "dispatch-start-"+attemptID, workID, actorRef, []byte(startPayload)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, attemptID, "dispatch-start-"+attemptID, "dispatch-completed-"+attemptID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	seedCLIAuthorization(t, tx, workID, attemptID, actorRef, startPayload, completionPayload)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -166,33 +155,15 @@ func seedPreCutoverDispatchedAttempt(t *testing.T, dbPath, workID, eventID, atte
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES (?,?,?,?,?,'2026-10-01T00:00:00Z',5,?)`,
-		eventID, store.WorkerDispatched, "work_item", workID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
-		t.Fatalf("seed pre-cutover dispatch event: %v", err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq) VALUES (?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL,?,?,?,5,last_insert_rowid())`,
-		workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload)); err != nil {
+	seq := seedCLIReceipt(t, tx, store.Event{EventID: eventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "client:" + workerEvidenceClientRef + ":operator-1", PayloadVersion: 5, Payload: []byte(mustJSON(t, payload))})
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq) VALUES (?,?,?,?,?,?,?,?,'dispatched','','','2026-10-01T00:00:00Z',NULL,NULL,?,?,?,5,?)`,
+		workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, readback, pair[0], pair[1], eventID, "client:"+workerEvidenceClientRef+":operator-1", mustJSON(t, payload), seq); err != nil {
 		t.Fatalf("seed pre-cutover attempt row: %v", err)
 	}
-	// Migration 145 backfills this identity for an older binary's dispatch.
-	var decoded any
-	decoder := json.NewDecoder(strings.NewReader(mustJSON(t, payload)))
-	decoder.UseNumber()
-	if err := decoder.Decode(&decoded); err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := json.Marshal(decoded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(canonical)
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,? FROM domain_events WHERE event_id=?`, "sha256:"+hex.EncodeToString(sum[:]), eventID); err != nil {
-		t.Fatalf("seed migrated dispatch identity: %v", err)
-	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -345,14 +316,25 @@ func TestWorkerRecoveryFinishesPreCutoverJobBoundDispatchedAttempt(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, recordErr := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('pre-cutover-job','worker.job_recorded','work_item','work-1','operator','2026-09-30T00:00:00Z',1,?)`, mustJSON(t, recording))
-	if recordErr == nil {
-		_, recordErr = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
-SELECT subject_id,json_extract(payload,'$.job_id'),json_extract(payload,'$.revision'),json_extract(payload,'$.contract_version'),json_extract(payload,'$.objective'),json_extract(payload,'$.stopping_condition'),json_extract(payload,'$.project_scope'),json_extract(payload,'$.path_scope'),json_extract(payload,'$.predicate_ids'),json_extract(payload,'$.checks'),json_extract(payload,'$.prerequisites'),json_extract(payload,'$.unresolved_refs'),json_extract(payload,'$.digest'),'recorded',occurred_at,payload,seq,event_id
-FROM domain_events WHERE event_id='pre-cutover-job';
-DELETE FROM fold_guard;`)
+	tx, recordErr := s.DatabaseForTesting().Begin()
+	if recordErr != nil {
+		t.Fatal(recordErr)
 	}
+	defer tx.Rollback()
+	if _, recordErr = tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	raw := mustJSON(t, recording)
+	seq := seedCLIReceipt(t, tx, store.Event{EventID: "pre-cutover-job", Kind: store.WorkerJobRecorded, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", PayloadVersion: 1, Payload: []byte(raw)})
+	_, recordErr = tx.Exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
+SELECT 'work-1',json_extract(?1,'$.job_id'),json_extract(?1,'$.revision'),json_extract(?1,'$.contract_version'),json_extract(?1,'$.objective'),json_extract(?1,'$.stopping_condition'),json_extract(?1,'$.project_scope'),json_extract(?1,'$.path_scope'),json_extract(?1,'$.predicate_ids'),json_extract(?1,'$.checks'),json_extract(?1,'$.prerequisites'),json_extract(?1,'$.unresolved_refs'),json_extract(?1,'$.digest'),'recorded','2026-09-30T00:00:00Z',?1,?2,'pre-cutover-job'`, raw, seq)
+	if recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	if _, recordErr = tx.Exec(`DELETE FROM write_guard`); recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	recordErr = tx.Commit()
 	_ = s.Close()
 	if recordErr != nil {
 		t.Fatal(recordErr)
@@ -385,7 +367,7 @@ DELETE FROM fold_guard;`)
 	defer s.Close()
 	var lifecycle, reportVersion string
 	var completionJob string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT a.lifecycle_state, a.report_schema_version, json_extract(c.payload,'$.worker_job.job_id') FROM worker_attempts a JOIN domain_events c ON c.kind=? AND json_extract(c.payload,'$.attempt_id')='attempt-1' WHERE a.attempt_id='attempt-1'`, store.WorkerCompleted).Scan(&lifecycle, &reportVersion, &completionJob); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.lifecycle_state, a.report_schema_version, json_extract(a.terminal_payload,'$.worker_job.job_id') FROM worker_attempts a JOIN effect_receipts c ON c.event_id=a.terminal_event_id AND c.effect_seq=a.terminal_seq AND c.kind=? WHERE a.attempt_id='attempt-1'`, store.WorkerCompleted).Scan(&lifecycle, &reportVersion, &completionJob); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "completed" || reportVersion != pair[1] || completionJob != job.JobID {

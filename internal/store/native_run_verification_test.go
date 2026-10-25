@@ -90,7 +90,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}
 
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}}, newFoldScope(tx.tx))
+		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}}, newWriteScope(tx.tx))
 		return applyErr
 	}); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}}, newFoldScope(tx.tx))
+		})}}, newWriteScope(tx.tx))
 		return bindErr
 	}); err == nil {
 		t.Fatal("unverified native_run evidence satisfied a completion gate")
@@ -158,7 +158,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}}, newFoldScope(tx.tx))
+		})}}, newWriteScope(tx.tx))
 		return bindErr
 	}); err != nil {
 		t.Fatalf("verified native_run evidence was still refused: %v", err)

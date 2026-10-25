@@ -372,7 +372,7 @@ func recordReclaimedRefOutcomesTx(ctx context.Context, tx *sql.Tx, p worktreeRec
 }
 
 // upsertWorktreeRefOutcomeTx writes one per-ref outcome row. The rows are
-// fold-only projection state: the worktree_reclaimed fold inserts them, the
+// write-seam-only current state: the worktree_reclaimed writer inserts them, the
 // worktree_removal_settled fold updates them, and nothing else writes them.
 func upsertWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, row worktreeRefOutcome) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,claim_incarnation,branch,phase,tip,reason,path,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)
@@ -859,7 +859,7 @@ func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReq
 	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef, req.HostPID, hostPIDStart)
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false); err != nil {
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newWriteScope(tx), false); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?, updated_at=? WHERE op_id=?`, worktreeStateVerified, now.Format(time.RFC3339Nano), req.OpID); err != nil {
@@ -1648,7 +1648,7 @@ func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *Worktr
 		EventID: settledRefOutcomeEventID(base, fromPhase, settlement.Phase, sequence, removal.ClaimIncarnation),
 		Kind:    "work.worktree_removal_settled", SubjectType: SubjectWorkItem, SubjectID: removal.WorkID,
 		Actor: removal.PrincipalRef, OccurredAt: nowFromClock(nil), PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false)
+	}}}, newWriteScope(tx), false)
 	return err
 }
 
@@ -3317,7 +3317,7 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: eventID, Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.SessionRef, OccurredAt: now, PayloadVersion: 2, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -3737,7 +3737,7 @@ func appendReclaimedTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimReque
 	payload, _ := json.Marshal(worktreeReclaimedPayload{ExpectedVersion: req.ExpectedVersion, ResultingVersion: req.ExpectedVersion + 1, SetID: setID, ProjectID: req.ProjectID, ClaimOpID: claimOpID, ClaimIncarnation: incarnation, RequestID: req.RequestID, GitFacts: facts})
 	_, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: reclaimedEventID(req.WorkID, req.ProjectID, claimOpID, incarnation), Kind: "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false)
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newWriteScope(tx), false)
 	return err
 }
 
@@ -3765,7 +3765,7 @@ func releaseWorktreeOccupancyRowTx(ctx context.Context, tx *sql.Tx, req Worktree
 		OccurredAt:     now,
 		PayloadVersion: 2,
 		Payload:        payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return err
 	}
 	return nil

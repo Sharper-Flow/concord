@@ -26,7 +26,7 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	}
 	defer tx.Rollback()
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
-	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: operatorActor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -55,7 +55,7 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 	t.Helper()
 	var version, events, operations int64
 	var step string
-	if err := s.db.QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM domain_events WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
+	if err := s.db.QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
 		t.Fatal(err)
 	}
 	return fmt.Sprintf("version=%d step=%s events=%d operations=%d", version, step, events, operations)
@@ -66,19 +66,26 @@ func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) str
 func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]any {
 	t.Helper()
 	const version = int64(2)
-	var raw string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowContractApproved).Scan(&raw); err != nil {
+	contract, err := readWorkflowContractVersion(t.Context(), s.db, id, 1)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var approved map[string]any
-	if err := json.Unmarshal([]byte(raw), &approved); err != nil {
-		t.Fatal(err)
-	}
-	payload := map[string]any{"contract_version": version, "premise": premise, "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:return-route-artifact"}}
-	for _, field := range []string{"outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "decision_domains", "architecture_binding"} {
-		if value, ok := approved[field]; ok {
-			payload[field] = value
+	predicates := make([]any, len(contract.OutcomePredicates))
+	for i, predicate := range contract.OutcomePredicates {
+		var outcome map[string]any
+		decoder := json.NewDecoder(strings.NewReader(predicate.OutcomePayload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&outcome); err != nil {
+			t.Fatal(err)
 		}
+		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": outcome}
+	}
+	payload := map[string]any{"contract_version": version, "premise": premise, "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:return-route-artifact"}, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
+	if contract.DecisionDomains != nil {
+		payload["decision_domains"] = contract.DecisionDomains
+	}
+	if contract.ArchitectureBinding != nil {
+		payload["architecture_binding"] = contract.ArchitectureBinding
 	}
 	return payload
 }
@@ -250,7 +257,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 		t.Fatalf("association without contract_version: %v", err)
 	}
 	var recorded int64
-	if err := f.store.db.QueryRow(`SELECT json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+	if err := f.store.db.QueryRow(`SELECT contract_version FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq DESC LIMIT 1`, id).Scan(&recorded); err != nil {
 		t.Fatal(err)
 	}
 	if recorded != 2 {

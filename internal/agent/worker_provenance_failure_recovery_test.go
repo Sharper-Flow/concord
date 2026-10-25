@@ -33,7 +33,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+			beforeEvents := agentCurrentEffects(t, s)
 			digest := "sha256:" + strings.Repeat("a", 64)
 			provenance := &store.WorkerHostProvenance{Digest: digest, Sources: []store.WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "synthetic-host-surface"}}}
 			if defect == "invalid_digest" {
@@ -61,7 +61,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				t.Fatalf("dispatch refusal=%v, want the provenance boundary", err)
 			}
 			after, err := store.ReadWorkPin(ctx, s, "work-1")
-			if err != nil || after.Version != before.Version || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+			if err != nil || after.Version != before.Version || agentCurrentEffects(t, s) != beforeEvents {
 				t.Fatalf("refused dispatch changed durable state: before=%d after=%d error=%v", before.Version, after.Version, err)
 			}
 			var attempt store.WorkerAttempt
@@ -81,7 +81,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{completion}}); !strings.Contains(fmt.Sprint(err), "worker attempt lifecycle is not admissible for this terminal event") {
 				t.Fatalf("completion without admitted dispatch evidence=%v, want the lifecycle fence", err)
 			}
-			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+			if agentCurrentEffects(t, s) != beforeEvents {
 				t.Fatal("refused completion persisted evidence")
 			}
 			// The host's terminal evidence precedes the typed abandonment receipt.
@@ -150,14 +150,14 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if got := verifyWallChallenges(t, s); got != challengesBefore {
 				t.Fatalf("engineering retry minted approval challenges: %d -> %d", challengesBefore, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != 0 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != 0 {
 				t.Fatalf("recovery fabricated %d accepted evidence events", got)
 			}
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 2 {
 				t.Fatalf("recovery created %d attempts, want the failed and fresh identities", got)
 			}
 			var epoch int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil || epoch != 2 {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil || epoch != 2 {
 				t.Fatalf("fresh retry epoch=%d error=%v, want 2", epoch, err)
 			}
 		})

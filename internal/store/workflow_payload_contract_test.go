@@ -181,7 +181,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&beforeEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,7 +190,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"outcome_predicates":[{"predicate_id":"predicate:required-payload","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:required-payload","immutable_subject_ref":"commit:required-payload","expected_result":"pass"}}]}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:required-payload", IdempotencyIdentity: "required-payload", OperationID: "required-payload",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
@@ -203,7 +203,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&afterEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, SubjectWorkItem, workID).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if afterVersion != beforeVersion || afterEvents != beforeEvents {
@@ -261,7 +261,7 @@ func TestRecordProposalPersistsAndReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:proposal-read", IdempotencyIdentity: "proposal-read", OperationID: "proposal-read",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "proposal-read",

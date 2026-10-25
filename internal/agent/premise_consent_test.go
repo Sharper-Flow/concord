@@ -97,7 +97,7 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 	env.PrincipalRef = ""
 	spineOK(t, invokeWorkflowIssue31(t, s, service, env, retryJSON(input)))
 	var actorClass, confirmedBy, eventActor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class,pc.confirmed_by,e.actor FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by JOIN domain_events e ON e.subject_id=pc.work_id AND e.kind=? WHERE pc.work_id=?`, store.WorkflowPremiseConfirmed, workID).Scan(&actorClass, &confirmedBy, &eventActor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.actor_class,pc.confirmed_by,e.actor FROM workflow_premise_confirmations pc JOIN workflow_actors a ON a.actor_ref=pc.confirmed_by JOIN effect_receipts e ON e.subject_id=pc.work_id AND e.kind=? WHERE pc.work_id=?`, store.WorkflowPremiseConfirmed, workID).Scan(&actorClass, &confirmedBy, &eventActor); err != nil {
 		t.Fatalf("read confirmed operator identity: %v", err)
 	}
 	if actorClass != string(store.ActorOperator) || confirmedBy != eventActor || confirmedBy == store.DeriveWorkflowActorRef(env.PrincipalRef, env.ClientRef, env.AgentRef, env.SessionRef) {
@@ -127,7 +127,7 @@ func premiseConsentSnapshot(t *testing.T, s *store.Store) map[string]string {
 		"challenges": `SELECT challenge_ref,status,used_count FROM agent_approval_challenges ORDER BY challenge_ref`,
 		"approvals":  `SELECT approval_ref,used_count FROM agent_approvals ORDER BY approval_ref`,
 	}
-	for _, table := range []string{"domain_events", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_decision_records", "workflow_premise_confirmations"} {
+	for _, table := range []string{"effect_receipts", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_external_conditions", "workflow_impact_edges", "workflow_impact_notices", "workflow_decision_records", "workflow_premise_confirmations"} {
 		queries[table] = fmt.Sprintf(`SELECT count(*) FROM %s`, table)
 	}
 	for key, query := range queries {

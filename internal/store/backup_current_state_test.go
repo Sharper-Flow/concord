@@ -14,10 +14,10 @@ import (
 func seedBackupCurrentState(t *testing.T, s *Store) {
 	t.Helper()
 	seedWork(t, s, "snapshot-active-work")
-	_, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	_, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
 		VALUES('snapshot-active-work','attempt:snapshot','implement',?,'engineering','','2.0','2.0','in_flight','2026-10-22T00:00:00Z');
-		DELETE FROM fold_guard`, "sha256:"+strings.Repeat("a", 64))
+		DELETE FROM write_guard`, "sha256:"+strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +59,8 @@ func TestBackupRestorePreservesMaterializedCurrentState(t *testing.T) {
 func TestRestoreStageRejectsCurrentStateTampering(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, mutation string }{
-		{"active attempt lost", `INSERT INTO fold_guard VALUES(1); DELETE FROM worker_attempts; DELETE FROM fold_guard`},
-		{"active attempt changed", `INSERT INTO fold_guard VALUES(1); UPDATE worker_attempts SET dispatched_at='2026-10-23T00:00:00Z'; DELETE FROM fold_guard`},
+		{"active attempt lost", `INSERT INTO write_guard VALUES(1); DELETE FROM worker_attempts; DELETE FROM write_guard`},
+		{"active attempt changed", `INSERT INTO write_guard VALUES(1); UPDATE worker_attempts SET dispatched_at='2026-10-23T00:00:00Z'; DELETE FROM write_guard`},
 		{"direct authority lost", `DELETE FROM idempotency_records`},
 		{"direct authority changed", `UPDATE idempotency_records SET canonical_digest='tampered'`},
 		{"schema changed", `DROP INDEX worker_attempts_work`},
@@ -109,9 +109,9 @@ func TestBackupOccupancyPreservesCurrentRowsAndRefusesLoss(t *testing.T) {
 	}
 	worktreeID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1")
 	// Current occupancy is authority even without an event that recreates it.
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES(?,'session:current-occupant','2026-10-22T00:00:00Z',0);
-DELETE FROM fold_guard`, worktreeID); err != nil {
+DELETE FROM write_guard`, worktreeID); err != nil {
 		t.Fatal(err)
 	}
 	query := `SELECT * FROM worktree_occupancy WHERE session_ref='session:current-occupant'`
@@ -132,7 +132,7 @@ DELETE FROM fold_guard`, worktreeID); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1); DELETE FROM worktree_occupancy; DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard VALUES(1); DELETE FROM worktree_occupancy; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -217,8 +217,9 @@ func TestBackupRestoreDoesNotRequireHistoryTable(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	seedBackupCurrentState(t, s)
-	if _, err := s.db.Exec(`DROP TABLE domain_events`); err != nil {
-		t.Fatal(err)
+	var historyTables int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&historyTables); err != nil || historyTables != 0 {
+		t.Fatalf("current schema retains %d history tables: %v", historyTables, err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 	if _, err := Backup(ctx, s, snapshot); err != nil {

@@ -225,8 +225,8 @@ func execDomainFold(ctx context.Context, s *store.Store, statements ...domainSta
 		return fmt.Errorf("pm1fixture: begin Domain fixture transaction: %w", err)
 	}
 	defer tx.Rollback()
-	all := append([]domainStatement{{"fold guard", `INSERT INTO fold_guard(active) VALUES(1)`, nil}}, statements...)
-	all = append(all, domainStatement{"leave fold", `DELETE FROM fold_guard`, nil})
+	all := append([]domainStatement{{"fold guard", `INSERT INTO write_guard(active) VALUES(1)`, nil}}, statements...)
+	all = append(all, domainStatement{"leave fold", `DELETE FROM write_guard`, nil})
 	for _, statement := range all {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			return fmt.Errorf("pm1fixture: seed %s: %w", statement.name, err)

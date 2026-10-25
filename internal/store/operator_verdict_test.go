@@ -67,7 +67,7 @@ func runOperatorVerdictForPredicate(t *testing.T, s *Store, workID string, owner
 	}
 	defer tx.Rollback()
 	payload, _ := json.Marshal(map[string]any{"predicate_id": predicateID, "verdict_kind": "ok", "evaluation_evidence": []string{evidenceRef}})
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_verdict", Payload: payload, Actor: owner, OperatorActor: &operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + workID, IdempotencyIdentity: "operator-verdict-" + workID, OperationID: "operator-verdict-" + workID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "operator-verdict-" + workID, RequestID: "request:operator-verdict-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
@@ -85,13 +85,13 @@ func setWorkflowStepForOperatorVerdictTest(t *testing.T, s *Store, workID, stepI
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id=?`, stepID, workID); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -27,9 +27,6 @@ type workCreatedPayload struct {
 	ExternalRef      string        `json:"external_ref,omitempty"`
 	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
 	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
-	// ResizeOf decodes a historical v4 payload only; the resize core is
-	// retired (CD-0242 D6) and no new event carries the member.
-	ResizeOf string `json:"resize_of,omitempty"`
 }
 
 // validateWorkCreatedPayload enforces the defect intake kind rules.
@@ -212,14 +209,11 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
 			"supply raised_from_work_id only when acknowledging a live external reference conflict")
 	}
-	// ResizeOf decodes a historical v4 payload: a resize successor replays
-	// as an ordinary creation of the intent its payload carries (CD-0242
-	// D6 retired the resize core). No new event carries the member.
 	// Refuse an external reference a live work item already owns unless the
 	// capture acknowledges that owner.
 	if payload.ExternalRef != "" {
 		var existingWorkID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL AND id<>? LIMIT 1`, payload.ExternalRef, payload.ResizeOf).Scan(&existingWorkID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
 				"retry once the database is readable", err)
@@ -318,7 +312,7 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(current.intentJSON), &intent); err != nil {
 		return wrapFailure(KindInvariantViolation, "fold_event", "stored work intent is not readable", false,
-			"rebuild the work item projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	// A live revision cannot change the kind of an item that carries a
 	// captured defect classification: a research item converting to bug
@@ -426,7 +420,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -692,7 +686,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	) ORDER BY precedence LIMIT 1`, event.SubjectID, event.SubjectID).Scan(&successor, &successorKind)
 	if err == sql.ErrNoRows {
 		return newFailure(KindRelationNotFound, "fold_event", "superseded work has no active supersession edge", false,
-			"repair the projection from its event log before reopening")
+			"restore the current rows from a verified snapshot before reopening")
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect the active supersession edge", true,
@@ -963,7 +957,7 @@ func validateWorkVersion(subjectID string, current, expected, resulting int64) e
 	return nil
 }
 
-func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *foldScope) error {
+func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *writeScope) error {
 	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, lifecycle, scope); err != nil {
 		return err
 	}
@@ -1012,7 +1006,7 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 	return nil
 }
 
-func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *foldScope) error {
+func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *writeScope) error {
 	if scope.permitsOutsideRepairLifecycle(tx, event, lifecycle) {
 		return nil
 	}

@@ -80,33 +80,25 @@ func readWorkFromStore(t *testing.T, s *store.Store, id string) (string, int64) 
 	return lifecycle, version
 }
 
-// readTransitionEvents returns the number of work.transitioned events
-// in the domain log for the given work id, plus the evidence_refs of the
-// latest one. Bindings use this to assert atomicity of the durable
-// effect (a single transition event with the requested evidence
-// attached).
+// readTransitionEvents joins transition receipts to the current lifecycle's
+// evidence. Bindings check exactly one acknowledged effect and its row content.
 func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count int, latestEvidenceRefs []string) {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT payload FROM domain_events WHERE kind='work.transitioned' AND subject_id=? ORDER BY seq ASC`, workID)
-	if err != nil {
-		t.Fatalf("read transition events for %s: %v", workID, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.transitioned' AND subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
+		t.Fatal(err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			t.Fatalf("scan transition event payload: %v", err)
-		}
-		count++
-		var payload struct {
-			EvidenceRefs []string `json:"evidence_refs"`
-		}
-		if err := json.Unmarshal([]byte(raw), &payload); err == nil {
-			latestEvidenceRefs = payload.EvidenceRefs
-		}
+	var raw string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT transition_evidence_refs FROM work_items WHERE id=?`, workID).Scan(&raw); err != nil {
+		t.Fatal(err)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows.Err: %v", err)
+	if err := json.Unmarshal([]byte(raw), &latestEvidenceRefs); err != nil {
+		t.Fatal(err)
+	}
+	if count > 0 {
+		var matches bool
+		if err := s.DatabaseForTesting().QueryRow(`SELECT EXISTS(SELECT 1 FROM work_items w JOIN effect_receipts r ON r.effect_seq=w.transition_seq AND r.subject_id=w.id WHERE w.id=? AND r.subject_type='work_item' AND r.kind='work.transitioned' AND r.actor=w.transition_actor)`, workID).Scan(&matches); err != nil || !matches {
+			t.Fatalf("current transition has no matching receipt: matches=%v err=%v", matches, err)
+		}
 	}
 	return count, latestEvidenceRefs
 }

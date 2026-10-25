@@ -491,7 +491,7 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachments", true, "retry once the database is readable", err)
 		}
 		if err := json.Unmarshal([]byte(environments), &edge.Environments); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachment environments", true, "repair the attachment projection from its events", err)
+			return out, wrapFailure(KindUnavailable, "C22.DomainAttachments", "cannot decode resource attachment environments", true, "restore the current rows from a verified snapshot", err)
 		}
 		out.Attachments.ResourceEdges = append(out.Attachments.ResourceEdges, edge)
 	}

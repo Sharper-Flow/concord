@@ -293,7 +293,7 @@ func TestWorkObservationPageRejectsMalformedStoredLists(t *testing.T) {
 	// pass every column CHECK but cannot decode into the string lists the
 	// fold writes. Each column is corrupted alone on the first row the page
 	// reads, so one run proves the refs decoder and one the tags decoder.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_observations SET refs='[1,2]' WHERE observation_id=?; DELETE FROM fold_guard`, newest.ID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_observations SET refs='[1,2]' WHERE observation_id=?; DELETE FROM write_guard`, newest.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 10})
@@ -301,7 +301,7 @@ func TestWorkObservationPageRejectsMalformedStoredLists(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {
 		t.Fatalf("paged read err=%v want typed %s", err, KindInvariantViolation)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_observations SET refs='["ref-ok"]', tags='[true]' WHERE observation_id=?; DELETE FROM fold_guard`, newest.ID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_observations SET refs='["ref-ok"]', tags='[true]' WHERE observation_id=?; DELETE FROM write_guard`, newest.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 10}); !errors.As(err, &failure) || failure.Kind != KindInvariantViolation {

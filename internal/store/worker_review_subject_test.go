@@ -134,26 +134,23 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	result, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
-		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw))
+	event := Event{EventID: workID + ":review-accept:" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: operatorRef, OccurredAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), PayloadVersion: 2, Payload: raw}
+	seq, err := appendPreparedEvent(t.Context(), tx, event)
 	if err != nil {
 		t.Fatalf("record acceptance of %s: %v", attemptID, err)
 	}
-	seq, err := result.LastInsertId()
-	if err != nil {
-		t.Fatal(err)
-	}
+	event.Seq = seq
 	var action workflowActionCompletedPayload
 	if err := json.Unmarshal(raw, &action); err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, Event{SubjectID: workID, Seq: seq, Actor: operatorRef}, action); err != nil {
+	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, event, action); err != nil {
 		t.Fatalf("record current Review acceptance of %s: %v", attemptID, err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -452,7 +449,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 			t.Fatalf("unprepared combined rejection error = %v, want %s refusing the whole operation without its sealed preparation", err, KindInvalidOperation)
 		}
 		var rejections, retryAttempts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, fixture.workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, fixture.workID).Scan(&rejections); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, fixture.workID).Scan(&retryAttempts); err != nil {
@@ -553,9 +550,9 @@ func TestReviewDispatchAfterContractSupersessionPinsCurrentSubject(t *testing.T)
 	// A superseded work item cannot review at all: the instance lifecycle
 	// gate refuses every workflow action — the review dispatch's own job
 	// record here — before any review effect exists.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET instance_state='superseded' WHERE work_id=?;
-		DELETE FROM fold_guard`, fixture.workID); err != nil {
+		DELETE FROM write_guard`, fixture.workID); err != nil {
 		t.Fatal(err)
 	}
 	fields := map[string]any{

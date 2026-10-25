@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -18,6 +20,14 @@ func testEvent() Event {
 		OccurredAt:     time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
 		PayloadVersion: 1,
 		Payload:        []byte(`{"display_name":"First Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`),
+	}
+}
+
+func assertEventLogAbsent(t *testing.T, s *Store) {
+	t.Helper()
+	var count int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("event-log schema objects = %d, err = %v, want none", count, err)
 	}
 }
 
@@ -67,8 +77,7 @@ func TestAppendEventAssignsMonotonicSequence(t *testing.T) {
 	}
 }
 
-// The event log is the sole authority, so an append that is part of a rolled
-// back transaction must leave nothing behind.
+// A rolled-back append must leave neither a receipt nor an allocated sequence.
 func TestAppendEventIsTransactional(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -86,11 +95,15 @@ func TestAppendEventIsTransactional(t *testing.T) {
 	}
 
 	var count int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if count != 0 {
 		t.Errorf("events after rollback = %d, want 0", count)
+	}
+	var sequence int64
+	if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&sequence); err != nil || sequence != 0 {
+		t.Fatalf("effect sequence after rollback = %d, err = %v", sequence, err)
 	}
 }
 
@@ -188,47 +201,13 @@ func TestAppendEventRejectsUnregisteredEventsBeforeMutation(t *testing.T) {
 			}
 
 			var count int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil {
 				t.Fatalf("count events in rejected transaction: %v", err)
 			}
 			if count != 0 {
 				t.Errorf("events after rejected append = %d, want 0", count)
 			}
 		})
-	}
-}
-
-// PM3 requires an append-only log. Convention is not enough: the database must
-// refuse rewrites even when a caller reaches past the append boundary.
-func TestDomainEventsRejectUpdateAndDelete(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-
-	if _, err := appendInTx(t, s, testEvent()); err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
-	}
-
-	for _, tc := range []struct {
-		name string
-		stmt string
-	}{
-		{"update", `UPDATE domain_events SET actor = 'someone-else'`},
-		{"delete", `DELETE FROM domain_events`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {
-				t.Fatalf("%s on domain_events succeeded; the log is not append-only", tc.name)
-			}
-		})
-	}
-
-	var count int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
-		t.Fatalf("count events: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("events = %d, want 1", count)
 	}
 }
 
@@ -244,31 +223,29 @@ func TestAppendEventRoundTripsEveryField(t *testing.T) {
 	}
 
 	var got Event
-	var occurredAt string
+	var digest string
 	err = s.DatabaseForTesting().QueryRowContext(ctx, `
-		SELECT event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload
-		FROM domain_events WHERE seq = ?`, seq).
-		Scan(&got.EventID, &got.Kind, &got.SubjectType, &got.SubjectID, &got.Actor,
-			&occurredAt, &got.PayloadVersion, &got.Payload)
+		SELECT effect_seq, event_id, kind, subject_type, subject_id, actor, payload_version, payload_digest
+		FROM effect_receipts WHERE effect_seq = ?`, seq).
+		Scan(&got.Seq, &got.EventID, &got.Kind, &got.SubjectType, &got.SubjectID, &got.Actor,
+			&got.PayloadVersion, &digest)
 	if err != nil {
 		t.Fatalf("read back event: %v", err)
 	}
 
-	if got.EventID != want.EventID || got.Kind != want.Kind ||
+	if got.Seq != seq || got.EventID != want.EventID || got.Kind != want.Kind ||
 		got.SubjectType != want.SubjectType || got.SubjectID != want.SubjectID ||
 		got.Actor != want.Actor || got.PayloadVersion != want.PayloadVersion {
 		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", got, want)
 	}
-	if string(got.Payload) != string(want.Payload) {
-		t.Errorf("payload = %s, want %s", got.Payload, want.Payload)
-	}
-	if occurredAt != want.OccurredAt.UTC().Format(time.RFC3339Nano) {
-		t.Errorf("occurred_at = %q, want %q", occurredAt, want.OccurredAt.UTC().Format(time.RFC3339Nano))
+	canonical := `{"display_name":"First Product","stage_audience_commitment":"operator_only","stage_maturity":"prototype"}`
+	sum := sha256.Sum256([]byte(canonical))
+	if wantDigest := "sha256:" + hex.EncodeToString(sum[:]); digest != wantDigest {
+		t.Errorf("payload digest = %q, want %q", digest, wantDigest)
 	}
 }
 
-// Timestamps are stored in a single normalized form so ordering and comparison
-// never depend on the caller's location.
+// The Product writer owns UTC storage, not the receipt append seam.
 func TestAppendEventNormalizesTimeZone(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -278,17 +255,23 @@ func TestAppendEventNormalizesTimeZone(t *testing.T) {
 	e := testEvent()
 	e.OccurredAt = time.Date(2026, 8, 7, 19, 0, 0, 0, zone)
 
-	seq, err := appendInTx(t, s, e)
-	if err != nil {
-		t.Fatalf("AppendEvent() error = %v", err)
+	project := projectCreatedEvent("time-project", "time-project-created")
+	project.OccurredAt = e.OccurredAt
+	membership := operationEvent("time-membership", "product_project.added", SubjectProduct, e.SubjectID, map[string]any{
+		"product_id": e.SubjectID, "project_id": project.SubjectID, "role": "primary", "reason": "test",
+		"expected_version": 1, "resulting_version": 2,
+	})
+	membership.OccurredAt = e.OccurredAt
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{e, project, membership}}); err != nil {
+		t.Fatalf("ApplyOperation() error = %v", err)
 	}
 
-	var occurredAt string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE seq = ?`, seq).Scan(&occurredAt); err != nil {
+	var createdAt, updatedAt string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT created_at, updated_at FROM products WHERE id = ?`, e.SubjectID).Scan(&createdAt, &updatedAt); err != nil {
 		t.Fatalf("read back time: %v", err)
 	}
-	if want := "2026-08-07T12:00:00Z"; occurredAt != want {
-		t.Errorf("occurred_at = %q, want %q", occurredAt, want)
+	if want := "2026-08-07T12:00:00Z"; createdAt != want || updatedAt != want {
+		t.Errorf("Product times = (%q, %q), want (%q, %q)", createdAt, updatedAt, want, want)
 	}
 }
 

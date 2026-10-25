@@ -45,12 +45,12 @@ func TestSessionVacateRequestLeavesOccupancyStanding(t *testing.T) {
 		t.Fatalf("the vacate request released a stale row on another work item: %q", got)
 	}
 	var version int
-	var landed string
-	if err := s.db.QueryRow(`SELECT payload_version, COALESCE(json_extract(payload,'$.landed_directory'),'') FROM domain_events WHERE kind='work.session_vacated' AND event_id='vacate-request-stands'`).Scan(&version, &landed); err != nil {
+	var landed bool
+	if err := s.db.QueryRow(`SELECT r.payload_version,v.landed FROM session_vacate_requests v JOIN effect_receipts r ON r.effect_seq=v.request_seq WHERE r.kind='work.session_vacated' AND r.event_id='vacate-request-stands' AND v.work_id='work-w' AND v.session_ref='ses-x' AND v.project_id='project-w' AND v.source_directory=? AND v.destination_directory='/data/repo-main'`, claimPath(s)).Scan(&version, &landed); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 || landed != "" {
-		t.Fatalf("recorded request version=%d landed_directory=%q, want version 2 with no landing", version, landed)
+	if version != 2 || landed {
+		t.Fatalf("recorded request version=%d landed=%v, want version 2 with no landing", version, landed)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 		t.Fatalf("err=%v, want invalid_operation for the completed request with later-claim rows", err)
 	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT vacate_landing_count FROM session_relocation_counts WHERE work_id='work-w' AND session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -187,7 +187,7 @@ func TestSessionVacateLandingRefusesACompletedRequestWithLaterClaimRows(t *testi
 		t.Fatalf("the repeated landing released the later claim's row: %q", got)
 	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT COALESCE(SUM(vacate_landing_count),0) FROM session_relocation_counts WHERE session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -266,7 +266,7 @@ func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 		t.Fatalf("replay result=%+v, want already_recorded", replay)
 	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT vacate_landing_count FROM session_relocation_counts WHERE work_id='work-w' AND session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {

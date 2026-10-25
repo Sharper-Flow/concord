@@ -47,7 +47,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 		if gotProblem != problem {
 			t.Fatalf("replayed problem=%q, want %q", gotProblem, problem)
 		}
-		rows, err := s.db.Query(`SELECT json_extract(payload,'$.action_id') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowActionCompleted)
+		rows, err := s.db.Query(`SELECT x.action_id FROM workflow_phase_exits x JOIN effect_receipts r ON r.effect_seq=x.exit_seq WHERE x.work_id=? AND r.kind=? ORDER BY x.exit_seq`, workID, WorkflowActionCompleted)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -328,7 +328,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			}
 			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 				var operatorEvents int
-				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
 					t.Fatal(err)
 				}
 				if operatorEvents != 0 {

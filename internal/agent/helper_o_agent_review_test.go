@@ -177,7 +177,7 @@ func oAgentReview(t *testing.T, f *oAgentFixtureState, disposition string, prove
 		t.Fatalf("O Review authorization: %s (%v)", authorized.Result, err)
 	}
 	var epoch int64
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, f.work, store.WorkflowActionCompleted, attempt).Scan(&epoch); err != nil || epoch == 0 {
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, f.work, attempt).Scan(&epoch); err != nil || epoch == 0 {
 		t.Fatalf("O Review epoch: %d (%v)", epoch, err)
 	}
 	dispatch := store.Event{EventID: "o-host-dispatched-" + attempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: f.work,

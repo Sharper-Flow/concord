@@ -20,9 +20,7 @@ func TestQ7CurrentStateWithoutLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
-		t.Fatal(err)
-	}
+	assertEventLogAbsent(t, s)
 	after, err := s.QueryQ7(ctx, Q7Request{Work: "q7-current"})
 	if err != nil {
 		t.Fatal(err)

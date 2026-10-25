@@ -94,7 +94,7 @@ func TestReviewLaneCompletionRequiresTheTypedReviewBlock(t *testing.T) {
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, second+"-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, workID, second, second+"-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -128,7 +128,7 @@ func TestNonReviewLaneCompletionWithoutReviewBlockIsUnchanged(t *testing.T) {
 		t.Fatalf("completion without a review block was refused on a lane that requires none: %v", err)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, attemptID+"-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, workID, attemptID, attemptID+"-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(stored), `"review":`) {
@@ -272,7 +272,7 @@ func TestStaleReviewLaneDigestRefusesWithoutChangingEvidence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, current, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_digest=? WHERE attempt_id=?; DELETE FROM fold_guard`, legacyDigest, attemptID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET lane_digest=? WHERE attempt_id=?; DELETE FROM write_guard`, legacyDigest, attemptID); err != nil {
 		t.Fatal(err)
 	}
 	before := workerProjectionSnapshot(t, s)

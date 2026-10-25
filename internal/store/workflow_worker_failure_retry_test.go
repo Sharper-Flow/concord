@@ -60,7 +60,7 @@ func s2WorkerFailedAttributedLive(t *testing.T, s *Store, workID, attemptID, det
 // one attempt and returns their step, epoch, actor, and event id.
 func s2DerivedFailureRecords(t *testing.T, s *Store, workID, attemptID string) []map[string]any {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref'),event_id FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq`, workID, WorkflowActionCompleted, attemptID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.step_id'),json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref'),event_id FROM worker_attempt_dispositions WHERE work_id=? AND action_id='record_worker_failure' AND attempt_id=? ORDER BY seq`, workID, attemptID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +105,8 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	lane := reviewGateLane(t, "implementation")
 	attempt := "attempt:" + workID + ":1"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, dispatcher, 0, "s2-derive-dispatch-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 || starts[0].Epoch != 1 {
-		t.Fatalf("repair starts after the dispatch = %+v, want one dispatch start at epoch 1", starts)
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("repair current start after the dispatch = %+v, want one dispatch receipt at epoch 1", start)
 	}
 	detail := "the lane failed before a judgeable result existed"
 	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
@@ -171,9 +171,9 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	// intermediate Review (CD-0242 D6).
 	dispatchJobBoundAttempt(t, s, workID, "repair", first, nil, dispatcher, 0, "s2-skip-dispatch-1-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
 	dispatchJobBoundAttempt(t, s, workID, "repair", second, nil, dispatcher, 0, "s2-skip-dispatch-2-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
-	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
-	if len(starts) != 2 || starts[1].Epoch != 2 {
-		t.Fatalf("repair starts = %+v, want two dispatch starts with the second at epoch 2", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "repair")
+	if start == nil || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
+		t.Fatalf("repair current start = %+v, want two receipts and current epoch 2", start)
 	}
 	// Attempt 1 fails after attempt 2's window superseded its epoch. The
 	// terminal carries the recorded observation the promoted pin requires;
@@ -327,7 +327,7 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	// owner here.
 	// The rejection recorded.
 	var rejects int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&rejects); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' AND attempt_id=?`, workID, attempt).Scan(&rejects); err != nil {
 		t.Fatal(err)
 	}
 	if rejects != 1 {
@@ -337,13 +337,13 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	// transaction: one start at the next epoch and one completion carrying
 	// the lane identity, the recorded packet digest, and the same job
 	// revision.
-	starts := workflowStartedEventsAtStep(t, s, workID, "execution")
-	if len(starts) != 2 || starts[1].ActionID != "dispatch_worker" || starts[1].Epoch != 2 {
-		t.Fatalf("execution starts after the combined call = %+v, want the retry dispatch start at epoch 2", starts)
+	start := workflowCurrentStartAtStep(t, s, workID, "execution")
+	if start == nil || start.ActionID != "dispatch_worker" || start.Epoch != 2 || len(workflowStartReceiptIDs(t, s, workID)) != 2 {
+		t.Fatalf("execution current start after the combined call = %+v, want two receipts and retry dispatch epoch 2", start)
 	}
 	var packetDigest, jobID, laneID string
 	var jobRevision int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),''),json_extract(payload,'$.worker_job.job_id'),json_extract(payload,'$.worker_job.revision'),json_extract(payload,'$.worker_lane_id') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, retryAttempt).Scan(&packetDigest, &jobID, &jobRevision, &laneID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),''),json_extract(payload,'$.worker_job.job_id'),json_extract(payload,'$.worker_job.revision'),json_extract(payload,'$.worker_lane_id') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, retryAttempt).Scan(&packetDigest, &jobID, &jobRevision, &laneID); err != nil {
 		t.Fatalf("the retry dispatch completion: %v", err)
 	}
 	if packetDigest == "" || laneID != "implement" {
@@ -411,10 +411,10 @@ func TestCombinedRejectRetryAfterRepeatedRejections(t *testing.T) {
 		t.Fatalf("combined retry after repeated rejections: %v", err)
 	}
 	var rejections, retries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, third).Scan(&rejections); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result' AND attempt_id=?`, workID, third).Scan(&rejections); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionCompleted).Scan(&retries); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=?`, workID).Scan(&retries); err != nil {
 		t.Fatal(err)
 	}
 	if rejections != 1 || retries != 4 {
@@ -546,7 +546,7 @@ func TestCombinedRejectDerivedRetryIdentityStaysBounded(t *testing.T) {
 	workflowActionEvents := func(t *testing.T) int {
 		t.Helper()
 		var events int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND json_extract(payload,'$.action_id') IN ('reject_worker_result','dispatch_worker')`, workID).Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&events); err != nil {
 			t.Fatal(err)
 		}
 		return events

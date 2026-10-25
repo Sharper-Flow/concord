@@ -29,19 +29,19 @@ func authorityFamilyDefinition(t *testing.T, ref string) (string, bool) {
 	return "", false
 }
 
-// seedAuthorityLawAdditions writes the fold-only projection chain one
+// seedAuthorityLawAdditions writes the write-seam-only projection chain one
 // contract's law additions occupy: the architecture binding, its reservation,
 // and the additions row the resolver reads. This is synthetic fixture
 // evidence about the rule, never a claim of real approval.
 func seedAuthorityLawAdditions(t *testing.T, s *Store, workID string, version int64, productID string, lawIDs ...string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	bindingHash := "sha256:" + strings.Repeat("b", 64)

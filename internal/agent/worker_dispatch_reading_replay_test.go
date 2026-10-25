@@ -74,12 +74,12 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'the replay journey delivers its checked change','internal_sqlite','[]','[]','now',?1,'[]','[]',0,'prototype_internal');
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:replay-journey","immutable_subject_ref":"commit:replay-journey","expected_result":"pass"}');
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?2,'project-1','claim:replay-journey','replay-journey',?3,?4,'repo:replay-journey','active',?5);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		grantActorRef,
 		store.WorktreeSetID("work-1"), strings.Repeat("a", 40), claimDir, fixedTime().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
 		t.Fatalf("seed contract and claim: %v", err)
@@ -144,10 +144,10 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	}
 
 	var eventsBefore, dispatchesBefore int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker'`).Scan(&dispatchesBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id='work-1'`).Scan(&dispatchesBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,10 +165,10 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatalf("replay result %s differs from the original %s", replay.Result, first.Result)
 	}
 	var eventsAfter, dispatchesAfter int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker'`).Scan(&dispatchesAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id='work-1'`).Scan(&dispatchesAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore || dispatchesAfter != dispatchesBefore {

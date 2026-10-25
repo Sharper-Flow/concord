@@ -194,7 +194,7 @@ func writeDriftGit(t *testing.T, dbPath, driftSQL string) string {
 	script := fmt.Sprintf(`#!/bin/sh
 real_git="/usr/bin/git"
 if [ "$3" = "rev-parse" ] && [ "$4" = "--verify" ]; then
-  sqlite3 %q "%s" || exit 90
+  sqlite3 %q "BEGIN; INSERT INTO write_guard(active) VALUES(1); %s DELETE FROM write_guard; COMMIT;" || exit 90
 fi
 exec "$real_git" "$@"
 `, dbPath, driftSQL)
@@ -235,10 +235,10 @@ func assertZeroTerminalEffects(t *testing.T, dbPath, nonce string) {
 	}
 	defer s.Close()
 	var terminals, derived, nonces int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind IN (?,?) AND json_extract(payload,'$.attempt_id')=?`, store.WorkerCompleted, store.WorkerFailed, attemptID).Scan(&terminals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND a.work_id='work-1' AND r.kind IN (?,?) AND a.attempt_id=?`, store.WorkerCompleted, store.WorkerFailed, attemptID).Scan(&terminals); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&derived); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT coalesce(sum(failure_recorded),0) FROM worker_attempts WHERE work_id='work-1' AND attempt_id=?`, attemptID).Scan(&derived); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_nonce_replay WHERE nonce=?`, nonce).Scan(&nonces); err != nil {
@@ -543,6 +543,10 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("a claim drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
 		}
+		var claim string
+		if err := mustOpenCutoverStore(t, dbPath).QueryRow(`SELECT claim_op_id FROM worktree_entries WHERE set_id=?`, store.WorktreeSetID("work-1")).Scan(&claim); err != nil || claim != "drifted-claim" {
+			t.Fatalf("claim drift did not commit: claim=%q err=%v", claim, err)
+		}
 		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftc1")
 	})
 
@@ -550,12 +554,16 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		dbPath := freshMigratedCLIDatabase(t)
 		request, assertion, key := completeImplementationAttempt(t, dbPath, "nonce-observe-driftw1")
 		commitWorktreeFixtureTree(t, cliFixtureWorktree(t, dbPath), "anchor head")
-		driftSQL := `UPDATE domain_events SET payload=json_set(payload,'$.worker_context_frontier',999) WHERE event_id='dispatch-completed-attempt-1';`
+		driftSQL := `UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_context_frontier',999) WHERE event_id='dispatch-completed-attempt-1';`
 		t.Setenv("PATH", writeDriftGit(t, dbPath, driftSQL)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		request["event_id"] = "complete-observe-drift-window"
 		code, out, stderr := runCompleteJSON(t, request, assertion, key)
 		if code == 0 {
 			t.Fatalf("a window drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
+		}
+		var frontier int64
+		if err := mustOpenCutoverStore(t, dbPath).QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE event_id='dispatch-completed-attempt-1'`).Scan(&frontier); err != nil || frontier != 999 {
+			t.Fatalf("window drift did not commit: frontier=%d err=%v", frontier, err)
 		}
 		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftw1")
 	})
@@ -578,7 +586,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 			}
 			defer s.Close()
 			var recorded int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id='complete-observe-forge'`).Scan(&recorded); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id='complete-observe-forge'`).Scan(&recorded); err != nil {
 				t.Fatal(err)
 			}
 			if recorded != 0 {
@@ -646,7 +654,7 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 		}
 		defer s.Close()
 		var completions int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.attempt_id')='attempt-1'`, store.WorkerCompleted).Scan(&completions); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND a.work_id='work-1' AND r.kind=? AND a.attempt_id='attempt-1'`, store.WorkerCompleted).Scan(&completions); err != nil {
 			t.Fatal(err)
 		}
 		if completions != 1 {

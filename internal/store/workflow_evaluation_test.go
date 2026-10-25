@@ -14,6 +14,7 @@ func TestMainAuthorityPreservesWorkerBoundaryWithoutExecutorExclusion(t *testing
 	const worker = "actor:worker"
 	for _, statement := range []string{
 		`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER NOT NULL)`,
+		`CREATE TABLE workflow_member_callers(actor_ref TEXT PRIMARY KEY,work_id TEXT,project_id TEXT,group_id TEXT,member_id TEXT)`,
 		`CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,execution_actor_ref TEXT)`,
 		`ALTER TABLE domain_events RENAME TO domain_events_unavailable`,
 	} {

@@ -106,6 +106,30 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if view.SourceEventFrontier != emptySeq || len(view.Findings) != 3 || view.Findings[0].Statement != "current declaration" || view.Findings[1].FindingID != selected || view.Findings[2].FindingID != fmt.Sprintf("finding:%d:0", failedSeq) {
 		t.Fatalf("anchor/selection/report order or empty-report frontier changed: %+v", view)
 	}
+	// Compare migration148's retained facts before current subject-selection
+	// columns exist. The current view is checked after the full migration chain.
+	facts := func(db *sql.DB) []string {
+		t.Helper()
+		rows, err := db.Query(`SELECT json_array('state',work_id,declaration_seq,declaration_id,declaration_payload,source_frontier) FROM work_context_state
+			UNION ALL SELECT json_array('finding',work_id,source_seq,ordinal,finding_class,finding) FROM work_context_findings ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	wantFacts := facts(f.store.db)
 	// CD-0242 D2 retires replay construction only. Prefix144 lets the real
 	// 145/146 chain derive receipts and coordinates before 148 selects claims.
 	var currentPopulation int
@@ -144,9 +168,8 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, before) {
 		t.Fatal("context backfill changed original payload bytes, source identity, actor, sequence or time")
 	}
-	got, err := readWorkContextView(ctx, db, f.workID)
-	if err != nil || !reflect.DeepEqual(got, view) {
-		t.Fatalf("migration148 anchor/selection/terminal frontier differs: got %+v err %v; want %+v", got, err, view)
+	if got := facts(db); !reflect.DeepEqual(got, wantFacts) {
+		t.Fatalf("migration148 declaration/selection/terminal facts differ: got %q; want %q", got, wantFacts)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -154,7 +177,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	assertHistoricalReceipts(t, db, before)
 	assertEventLogAbsent(t, f.store)
 	assertEventLogAbsent(t, upgraded)
-	got, err = readWorkContextView(ctx, db, f.workID)
+	got, err := readWorkContextView(ctx, db, f.workID)
 	if err != nil || !reflect.DeepEqual(got, view) {
 		t.Fatalf("backfilled/log-blind view differs: got %+v err %v; want %+v", got, err, view)
 	}
@@ -168,8 +191,31 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	}
 	mutant := prefix()
 	advanceHistoricalPrefix(t, mutant.db, 147)
-	if err := applyMigration(ctx, contextFindingSelectionMutant{mutant.db}, migrations[147]); err != nil {
+	mutantTx, err := mutant.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mutantTx.Rollback()
+	m := migrations[147]
+	if err := applyMigration(ctx, contextFindingSelectionMutant{mutantTx}, m); err != nil {
 		t.Fatalf("context selection mutant failed before comparison: %v", err)
+	}
+	// Record the executed migration so the unchanged current tail cannot
+	// rerun migration148 and repair the deliberately excluded population.
+	if err := advanceStoreRevision(ctx, mutantTx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mutantTx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,breaking,applied_at) VALUES(?,?,?,?,?)`, m.Version, m.Name, m.checksum(), m.Breaking, "2026-10-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mutantTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if reflect.DeepEqual(facts(mutant.db), wantFacts) {
+		t.Fatal("migration148 failed-report exclusion escaped the retained-facts oracle")
+	}
+	if err := Migrate(ctx, mutant.db); err != nil {
+		t.Fatal(err)
 	}
 	broken, err := readWorkContextView(ctx, mutant.db, f.workID)
 	if err != nil || broken == nil {

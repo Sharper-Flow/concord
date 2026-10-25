@@ -200,6 +200,8 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM relations WHERE work_id_from=?1 OR work_id_to=?1`,
 		`DELETE FROM work_messages WHERE sender_work_id=?1 OR recipient_work_id=?1`,
 		`DELETE FROM resource_claims WHERE holder_work_id=?1`,
+		`DELETE FROM workflow_group_members WHERE work_id=?1`,
+		`DELETE FROM workflow_member_groups WHERE work_id=?1`,
 		`DELETE FROM workflow_contract_predicates WHERE work_id=?1`,
 		`DELETE FROM workflow_contract_law_revisions WHERE work_id=?1`,
 		`DELETE FROM workflow_candidate_sets WHERE work_id=?1 OR (candidate_kind='work_item' AND candidate_ref=?1)`,

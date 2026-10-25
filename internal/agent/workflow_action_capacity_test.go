@@ -100,7 +100,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 			"worker_packet":              packet + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		PathBounds: map[string]int{
-			recordJob + "/fields" + lawSourceHash: digestWire,
+			recordJob + "/fields/oneOf" + lawSourceHash: digestWire,
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
 			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,
 		},

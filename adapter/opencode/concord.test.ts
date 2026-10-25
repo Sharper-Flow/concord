@@ -2732,6 +2732,12 @@ const resumeSuccess = () => ({
   branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 2 },
 })
 
+const resumeCallEnvelope = () => ({
+  schema_version: "1.0", request_id: "session-1-message-1", client_ref: expect.any(String), principal_ref: "",
+  session_ref: "session-1", agent_ref: "agent-1", directory: WORKTREE, worktree: WORKTREE,
+  ambient_project_id: "project-1", selected_product_id: "product-1", scope_version: "1", manifest_digest: manifestDigest,
+})
+
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
@@ -2762,7 +2768,8 @@ test("work start resume derives the entry by work_id and moves the session", asy
   // second session of the receiving Project can only render the shared
   // bind after its landing records placement — and renders nothing here.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
-  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
+  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
+  expect(JSON.parse(calls[4].input)).toEqual(JSON.parse(calls[1].input))
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "", agent: "agent-1" })
@@ -3124,10 +3131,10 @@ test("work start issue-key resume uses the CLI identity through verified landing
   const result: any = await rawHostResult(adapter.work_start.execute({ issue_key: "EX-3" }, landedContextFor()))
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", session_id: "session-1", linear_issue: recordedLinearIssue() })
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
-  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1" })
+  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "", agent: "agent-1" })
   expect(JSON.parse(calls[3].input)).toMatchObject({ work_id: "work-1", session_ref: "session-1", landed_directory: WORKTREE, host_pid: process.pid })
-  expect(JSON.parse(calls[4].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
+  expect(JSON.parse(calls[4].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
 })
@@ -3165,7 +3172,7 @@ test("work start issue-key resume forwards core resolution refusals before claim
     expect(result.error.message).toBe(stderr)
     expect(result.work_id).toBeUndefined()
     expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
-    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1" })
+    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
     expect(moved).toEqual([])
     expect(armedClaimedWorktree("session-1")).toBeNull()
   }

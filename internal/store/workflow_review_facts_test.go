@@ -18,7 +18,9 @@ CREATE TABLE workflow_design_records(work_id TEXT,work_version INTEGER,approach 
 CREATE TABLE workflow_contract_law_revisions(work_id TEXT,contract_version INTEGER,law_id TEXT,content_hash TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload TEXT,terminal_event_id TEXT);
-CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT,recorded_payload TEXT,digest TEXT);
+CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,correction_ref TEXT,recorded_payload TEXT,digest TEXT);
+CREATE TABLE workflow_member_groups(work_id TEXT,group_id TEXT,controller_actor_ref TEXT,base_subject TEXT,permission TEXT,review_ref TEXT,recorded_seq INTEGER,PRIMARY KEY(work_id,group_id));
+CREATE TABLE workflow_group_members(work_id TEXT,group_id TEXT,member_id TEXT,job_id TEXT,job_revision INTEGER,job_digest TEXT,project_id TEXT,actor_ref TEXT,confirmed INTEGER);
 ` + workflowReviewFactsDDL); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +160,7 @@ func TestG32ImplementationCandidateAndReviewGroupOrder(t *testing.T) {
 		}
 	}
 	accept("review:a")
-	if _, err := db.Exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,group_permission,group_review_ref,correction_ref) VALUES('work-history','group:one',1,'continue',?,'')`, refs["review:a"]); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_member_groups(work_id,group_id,permission,review_ref) VALUES('work-history','group:one','continue',?)`, refs["review:a"]); err != nil {
 		t.Fatal(err)
 	}
 	if state := read(); !state.ExecutionProgressed || !state.ContinueConsumed || state.GroupID != "group:one" {
@@ -207,6 +209,51 @@ func TestG32ReviewFactsGuardAndRollback(t *testing.T) {
 	got, err := readWorkflowReviewFacts(t.Context(), db, "work-history")
 	if err != nil || got.Candidate != nil || got.Accepted != nil || len(got.Findings) != 0 {
 		t.Fatalf("rolled back Review escaped its transaction: %+v, %v", got, err)
+	}
+}
+
+func TestG32OrdinaryAssignmentGroupSingleOwner(t *testing.T) {
+	db, _ := g32ReviewFixture(t)
+	if _, err := db.Exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,correction_ref) VALUES('work-history','job:ordinary',1,'')`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	event := Event{SubjectID: "work-history", Actor: "main:ordinary", Seq: 1}
+	payload := workflowActionCompletedPayload{WorkerCapabilityClass: "implementation", WorkerJob: &WorkerJobBinding{JobID: "job:ordinary", Revision: 1}}
+	if err := recordWorkflowAssignmentGroup(t.Context(), tx, event, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var controller string
+	var base sql.NullString
+	var seq int64
+	if err := db.QueryRow(`SELECT controller_actor_ref,base_subject,recorded_seq FROM workflow_member_groups WHERE work_id='work-history' AND group_id='job:ordinary'`).Scan(&controller, &base, &seq); err != nil || controller != event.Actor || base.Valid || seq != event.Seq {
+		t.Fatalf("ordinary admission invented a base or lost its actual author/sequence: %q, %v, %d, %v", controller, base, seq, err)
+	}
+	if _, err := db.Exec(`UPDATE worker_job_revisions SET correction_ref='correction:old';
+INSERT INTO worker_job_revisions(work_id,job_id,revision,correction_ref) VALUES('work-history','job:ordinary',2,'correction:new');
+INSERT INTO worker_job_revisions(work_id,job_id,revision,correction_ref) VALUES('work-history','job:correction-only',1,'correction:only')`); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary := state.Groups["job:ordinary"]
+	if ordinary.Permission != "first_entry" || ordinary.GroupID != "" || ordinary.CorrectionRef != "correction:new" || state.Groups["job:correction-only"].CorrectionRef != "correction:only" || !state.ExecutionProgressed {
+		t.Fatalf("ordinary identity, current correction, or admission lost: %+v", state.Groups)
+	}
+	if err := workflowAdmitReview(state, "job:ordinary"); err != nil {
+		t.Fatalf("ordinary group cannot reuse its own admission: %v", err)
+	}
+	if err := workflowAdmitReview(state, "job:unrelated"); err == nil {
+		t.Fatal("another job reused first-entry admission")
 	}
 }
 

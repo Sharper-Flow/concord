@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -516,6 +517,13 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 			list := make([]any, int(minimum))
 			for i := range list {
 				list[i] = crossFieldSampleValue(defs, items)
+				if unique, _ := node["uniqueItems"].(bool); unique {
+					if binding, ok := list[i].(map[string]any); ok {
+						if _, hasJob := binding["job_id"]; hasJob {
+							binding["job_id"] = fmt.Sprintf("job:cross-field-%d", i)
+						}
+					}
+				}
 			}
 			return list
 		}

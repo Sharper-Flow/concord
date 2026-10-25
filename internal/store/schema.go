@@ -7752,6 +7752,98 @@ ALTER TABLE worktree_claims ADD COLUMN executor_pid INTEGER NOT NULL DEFAULT 0 C
 ALTER TABLE worktree_claims ADD COLUMN executor_pid_start INTEGER NOT NULL DEFAULT 0 CHECK(typeof(executor_pid_start)='integer' AND ((executor_pid=0 AND executor_pid_start=0) OR (executor_pid>0 AND executor_pid_start>0)));
 `,
 	},
+	{
+		Version:        155,
+		Name:           "workflow_member_claims",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+ALTER TABLE worktree_claims ADD COLUMN member_id TEXT NOT NULL DEFAULT '';
+DROP INDEX worktree_claims_one_active;
+CREATE UNIQUE INDEX worktree_claims_one_active ON worktree_claims(work_id,project_id,member_id)
+    WHERE state IN ('pending','verified');
+
+-- Entries have no inbound foreign keys or secondary indexes/write guards.
+-- Occupancy retains its exact claim-op identity independently of this key.
+CREATE TABLE worktree_entries_rebuilt (
+    set_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    claim_op_id TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    path TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('active','reclaimed')),
+    verified_at TEXT NOT NULL,
+    reclaimed_at TEXT,
+    git_facts TEXT NOT NULL DEFAULT '{}',
+    member_id TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(set_id,project_id,member_id)
+);
+INSERT INTO worktree_entries_rebuilt(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts)
+SELECT set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts FROM worktree_entries;
+DROP TABLE worktree_entries;
+ALTER TABLE worktree_entries_rebuilt RENAME TO worktree_entries;
+
+CREATE TABLE workflow_member_groups (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+    group_id TEXT NOT NULL,
+    controller_actor_ref TEXT REFERENCES workflow_actors(actor_ref),
+    base_subject TEXT CHECK(base_subject IS NULL OR json_valid(base_subject)),
+    permission TEXT NOT NULL CHECK(permission IN ('','first_entry','continue')),
+    review_ref TEXT NOT NULL DEFAULT '',
+    recorded_seq INTEGER CHECK(recorded_seq IS NULL OR recorded_seq>0),
+    PRIMARY KEY(work_id,group_id)
+);
+-- Ordinary one-job admissions retain only the latest revision's current
+-- permission and review. Job recording does not prove an admission's
+-- controller, qualified native base, or effect sequence; those stay absent.
+INSERT INTO workflow_member_groups(work_id,group_id,permission,review_ref)
+SELECT j.work_id,j.job_id,j.group_permission,j.group_review_ref
+FROM worker_job_revisions j
+WHERE j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
+    AND (j.group_permission<>'' OR j.group_review_ref<>'');
+ALTER TABLE worker_job_revisions DROP COLUMN group_permission;
+ALTER TABLE worker_job_revisions DROP COLUMN group_review_ref;
+
+CREATE TABLE workflow_group_members (
+    work_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    job_revision INTEGER NOT NULL CHECK(job_revision>0),
+    job_digest TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    actor_ref TEXT REFERENCES workflow_actors(actor_ref),
+    confirmed INTEGER NOT NULL DEFAULT 0 CHECK(confirmed IN (0,1)),
+    PRIMARY KEY(work_id,group_id,member_id),
+    UNIQUE(work_id,group_id,job_id),
+    FOREIGN KEY(work_id,group_id) REFERENCES workflow_member_groups(work_id,group_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX workflow_group_members_actor ON workflow_group_members(actor_ref) WHERE actor_ref IS NOT NULL;
+
+-- Retained caller narrowing must not retain work-owned execution or vanish
+-- when that execution is collected. The actor's original tuple stays owned
+-- by workflow_actors; only the current scope is stored here.
+CREATE TABLE workflow_member_callers (
+    actor_ref TEXT PRIMARY KEY REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    work_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    member_id TEXT NOT NULL
+);
+
+CREATE TRIGGER workflow_member_groups_guard_insert BEFORE INSERT ON workflow_member_groups FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_groups is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_member_groups_guard_update BEFORE UPDATE ON workflow_member_groups FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_groups is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_member_groups_guard_delete BEFORE DELETE ON workflow_member_groups FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_groups is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_group_members_guard_insert BEFORE INSERT ON workflow_group_members FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_group_members is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_group_members_guard_update BEFORE UPDATE ON workflow_group_members FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_group_members is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_group_members_guard_delete BEFORE DELETE ON workflow_group_members FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_group_members is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_member_callers_guard_insert BEFORE INSERT ON workflow_member_callers FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_callers is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_member_callers_guard_update BEFORE UPDATE ON workflow_member_callers FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_callers is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_member_callers_guard_delete BEFORE DELETE ON workflow_member_callers FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_callers is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

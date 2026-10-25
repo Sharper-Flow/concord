@@ -48,11 +48,15 @@ func snapshotClaimNative(ctx context.Context, q queryer, req WorktreeClaimReques
 }
 
 func refuseForeignNativeClaim(ctx context.Context, q queryer, req WorktreeClaimRequest, location WorktreeLocation) error {
+	memberID, err := worktreeClaimMemberScope(ctx, q, req)
+	if err != nil {
+		return err
+	}
 	var held bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_claims WHERE (op_id<>? OR principal_ref='worktree_claim_compensation') AND state IN ('pending','verified') AND
-		(pinned_path=? OR (repository_id=? AND pinned_branch=?) OR (work_id=? AND project_id=?))) OR
+	err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_claims WHERE (op_id<>? OR principal_ref='worktree_claim_compensation') AND state IN ('pending','verified') AND
+		(pinned_path=? OR (repository_id=? AND pinned_branch=?) OR (work_id=? AND project_id=? AND member_id=?))) OR
 		EXISTS(SELECT 1 FROM worktree_entries WHERE claim_op_id<>? AND state='active' AND (path=? OR (repository_id=? AND branch=?)))`,
-		req.OpID, location.Path, location.Repo, location.Branch, req.WorkID, req.ProjectID,
+		req.OpID, location.Path, location.Repo, location.Branch, req.WorkID, req.ProjectID, memberID,
 		req.OpID, location.Path, location.Repo, location.Branch).Scan(&held)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "worktree_claim", "cannot read native claim ownership", true, "retry once claim ownership is readable", err)
@@ -105,8 +109,8 @@ func reserveClaimCompensationTx(ctx context.Context, tx *sql.Tx, created Worktre
 		return err
 	}
 	var owned bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_claims WHERE op_id<>? AND state IN ('pending','verified') AND (pinned_path=? OR (repository_id=? AND pinned_branch=?) OR (work_id=? AND project_id=?))) OR EXISTS(SELECT 1 FROM worktree_entries WHERE state='active' AND (path=? OR (repository_id=? AND branch=?)))`,
-		reservation, created.Path, created.RepoRoot, created.Branch, created.WorkID, created.ProjectID, created.Path, created.RepoRoot, created.Branch).Scan(&owned); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_claims WHERE op_id<>? AND state IN ('pending','verified') AND (pinned_path=? OR (repository_id=? AND pinned_branch=?) OR (work_id=? AND project_id=? AND member_id=?))) OR EXISTS(SELECT 1 FROM worktree_entries WHERE state='active' AND (path=? OR (repository_id=? AND branch=?)))`,
+		reservation, created.Path, created.RepoRoot, created.Branch, created.WorkID, created.ProjectID, created.MemberID, created.Path, created.RepoRoot, created.Branch).Scan(&owned); err != nil {
 		return err
 	}
 	if owned {
@@ -157,8 +161,8 @@ func reserveClaimCompensationTx(ctx context.Context, tx *sql.Tx, created Worktre
 		return newFailure(KindStaleContext, "worktree_claim", "creation predates a native compensation generation", false, "retry the original claim with fresh native preparation")
 	}
 	stamp := now.Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,executor_pid,executor_pid_start) VALUES(?,?,?,?,?,?,?,?,'pending','worktree_claim_compensation',?,?,?,?,?)`,
-		reservation, created.WorkID, created.ProjectID, WorktreeSetID(created.WorkID), created.RepoRoot, created.Branch, created.Base, created.Path, created.ClaimOpID, stamp, stamp, executor.pid, executor.start); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,executor_pid,executor_pid_start,member_id) VALUES(?,?,?,?,?,?,?,?,'pending','worktree_claim_compensation',?,?,?,?,?,?)`,
+		reservation, created.WorkID, created.ProjectID, WorktreeSetID(created.WorkID), created.RepoRoot, created.Branch, created.Base, created.Path, created.ClaimOpID, stamp, stamp, executor.pid, executor.start, created.MemberID); err != nil {
 		return err
 	}
 	for _, resource := range []struct{ kind, repo, ref string }{{"path", "", created.Path}, {"branch", created.RepoRoot, created.Branch}} {

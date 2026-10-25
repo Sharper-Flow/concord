@@ -95,7 +95,7 @@ const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		AND EXISTS (SELECT 1 FROM worktree_entries e
 			WHERE e.set_id=? AND e.project_id=l.project_id AND e.path=l.path
 			AND e.branch=json_extract(l.result_json,'$.branch')
-			AND e.state='active')
+			AND e.state='active' AND e.member_id='')
 		ORDER BY d.rowid DESC LIMIT 1`
 
 func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {

@@ -852,6 +852,10 @@ function selectedProductID() {
 
 type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: string; mainWorktree: boolean }
 
+function concordCallEnvelope(context: ToolContext, sessionDirectory: string, ambient: AmbientContext, selectedProduct: string) {
+  return { schema_version: "1.0", request_id: `${context.sessionID}-${context.messageID}`, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
+}
+
 async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessionDirectory: string): Promise<AmbientContext> {
   let result
   try {
@@ -895,7 +899,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   try { ambient = ambientOverride ?? await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
-  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
+  const envelope: any = concordCallEnvelope(context, sessionDirectory, ambient, selectedProduct)
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   // An unreadable session_vacate answer leaves the committed relocation
   // request's state to the replay, so the refusal names that recovery
@@ -1756,7 +1760,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (resume) {
       const selector = args as WorkStartResumeArgs
       // The CLI resolves the selector within the calling session's scope.
-      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, ...selector, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, ...selector, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, productID) }), context.abort, { cwd: context.directory })
       if (resumed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (resumed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
@@ -1882,7 +1886,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // handoff-free, and a boot whose landing did not record stays on the
     // warning path above.
     if (resume && !renderedHandoff && landingRecorded) {
-      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, target.product_id) }), context.abort, { cwd: context.directory })
       if (refreshed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
       if (refreshed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
       let refreshedValue: unknown

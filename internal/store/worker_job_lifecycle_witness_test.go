@@ -80,10 +80,8 @@ func TestReviewUnsatisfiedJobPhaseExit(t *testing.T) {
 	}
 }
 
-// A recorded revision keeps the parent contract authority it was recorded
-// under (CD-0205 D1): after the operator supersedes the contract, the stale
-// revision is no longer ready and the core refuses to authorize its dispatch
-// until a new revision is recorded under the active contract.
+// CD-0242 D7 preserves applicable proof when its dependencies do not change.
+// Superseding a contract counter alone cannot revoke an unchanged job.
 func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	const id = "review-stale-job-authority"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
@@ -99,17 +97,15 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ready) != 0 {
-		t.Fatalf("superseded-authority revisions stayed ready: %+v", ready[0].Binding)
+	if len(ready) != 1 || ready[0].Binding != *job {
+		t.Fatalf("unchanged job lost authority after counter-only supersession: %+v", ready)
 	}
-	// The dispatch boundary refuses the stale revision even when a caller
-	// builds the packet from the recorded revision directly.
+	// Dispatch consumes that same recorded binding without relabelling its
+	// native preparations or recording a replacement revision.
 	packet := dispatchWorkerPacket(t, s, id, "repair", "attempt:"+id+":stale")
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, id, *job, "implement")
-	if err := dispatchJobPacketForTest(t, s, id, "attempt:"+id+":stale", f.owner, "review-stale-dispatch", packet); err == nil {
-		t.Fatalf("core authorized an old-contract job after contract supersession")
-	} else {
-		t.Logf("old job dispatch refused: %v", err)
+	if err := dispatchJobPacketForTest(t, s, id, "attempt:"+id+":stale", f.owner, "review-stale-dispatch", packet); err != nil {
+		t.Fatalf("unchanged job dispatch refused after contract supersession: %v", err)
 	}
 }
 

@@ -103,6 +103,12 @@ func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T)
 			"terminal_payload": `'{ "workflow_definition_version": 26, '||substr(terminal_payload,2)`,
 		},
 		"runtime_state_writers": {"version": "CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END"},
+		// Ordinary dispatch admission lives on the source group owner. Jobs
+		// without that admission retain the historical empty defaults.
+		"worker_job_revisions": {
+			"group_permission": `COALESCE((SELECT g.permission FROM fixture_source.workflow_member_groups g WHERE g.work_id=fixture_source.worker_job_revisions.work_id AND g.group_id=fixture_source.worker_job_revisions.job_id),'')`,
+			"group_review_ref": `COALESCE((SELECT g.review_ref FROM fixture_source.workflow_member_groups g WHERE g.work_id=fixture_source.worker_job_revisions.work_id AND g.group_id=fixture_source.worker_job_revisions.job_id),'')`,
+		},
 	}
 	// Historical payloads include retired keys and whitespace. Their receipts
 	// must bind those exact inputs at INSERT, without updating immutable receipts.

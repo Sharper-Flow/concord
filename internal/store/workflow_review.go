@@ -47,7 +47,7 @@ func workflowRequireMain(ctx context.Context, q queryer, workID, actor string) e
 	if worker {
 		return reviewFailure(KindUnauthorized, "a worker cannot accept results, associate criterion proof, or complete work", "return the attributed report to Main")
 	}
-	return nil
+	return requireNonMemberMain(ctx, q, actor)
 }
 
 func reviewDigest(value any) string {

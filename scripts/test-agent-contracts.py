@@ -1597,7 +1597,8 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
         ordinary = [branch for branch in current if "acceptance_oracle" in _fields_object(branch).get("required", [])]
         self.assertEqual(len(ordinary), 1)
-        for branch in current:
+        splits = [branch for branch in current if "split" in _fields_object(branch).get("required", [])]
+        for branch in ordinary + splits:
             fields = _schema_sample(_fields_object(branch), payload_schema)
             historical = copy.deepcopy(fields)
             if "split" in historical:
@@ -1619,7 +1620,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
     def test_no_merged_union_admits_combinations_no_definition_allows(self):
         defs = payload_schema["$defs"]
         branches = _condition_branches(_action_condition(defs, "record_worker_job"))
-        oracle_branch = branches[0]
+        oracle_branch = next(branch for branch in branches if "acceptance_oracle" in _fields_object(branch).get("required", []))
         # A malformed oracle value passes no definition: the current variant
         # refuses the value, and the retained shapes never declared the
         # field at all. A merged optional-union would admit both payloads.
@@ -3292,7 +3293,13 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             for key in schema.get("required", []):
                 result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
             return result
-        if kind == "array": return [self._sample(schema.get("items", {"type": "string"}), path) for _ in range(schema.get("minItems", 0))]
+        if kind == "array":
+            items = schema.get("items", {"type": "string"})
+            values = [self._sample(items, path) for _ in range(schema.get("minItems", 0))]
+            if items.get("$ref") == "#/$defs/workflow_member_job_binding":
+                for index, member in enumerate(values):
+                    member["job_id"] = f"job-{index + 1}"
+            return values
         if kind == "integer": return schema.get("minimum", 0)
         if kind == "boolean": return True
         if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"

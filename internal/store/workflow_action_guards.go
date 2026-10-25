@@ -1353,7 +1353,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	if workflowActionOmitsGenericCompletion(in.request.ActionID) {
 		return events, "", nil
 	}
-	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	fields, fieldsErr := workflowActionObject(in.payload)
 	if fieldsErr != nil {
 		return events, "", fieldsErr
@@ -1361,6 +1360,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
+	}
+	if in.request.ActionID == "record_worker_job" {
+		var err error
+		events, err = appendWorkflowMemberCompletion(in, fields, events, completionValues)
+		if err != nil {
+			return events, "", err
+		}
 	}
 	if in.request.ActionID == "record_verdict" {
 		// The batched form declares its entry count on the completion, so the
@@ -1564,6 +1570,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 		}
 	}
+	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil
 }

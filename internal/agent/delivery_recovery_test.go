@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -108,7 +109,13 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	ctx := context.Background()
-	seedCurrentWorkflowDomainFixture(t, s)
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
 
 	worktree := t.TempDir()
 	grant.Worktree = worktree
@@ -118,25 +125,12 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	grantActorRef, err := store.WorkflowActorRef(grantActor)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: currentDefinition, Actor: grantActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved gate return objective','internal_sqlite','["review"]','[]','now',?,'[]','[]',0,'prototype_internal')`, grantActorRef); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:gate-recovery","immutable_subject_ref":"commit:gate-recovery","expected_result":"pass"}')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`, store.WorktreeSetID("work-1"), "project-1", "claim:gate-recovery", "gate-recovery", strings.Repeat("a", 40), worktree, "repo:gate-recovery", fixedTime().Format(time.RFC3339Nano)); err != nil {
@@ -196,6 +190,17 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		deliveryRecoveryCompletion(t, s, grant, attemptID, capabilityClass)
 	}
 
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "gate-recovery")
+	contractFields := workflowContractFieldsFixture()
+	contractFields["premise"] = "approved gate return objective"
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "pass"}}}
+	contractFields["required_evidence"] = []string{"review"}
+	contractFields["rigor_class"] = "prototype_internal"
+	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "gate-recovery-contract"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
+	}
+
 	// The execution pass, its bound review evidence, and the refinement pass.
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
@@ -238,7 +243,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"attempt_id": "attempt:work-1:gate-review", "attempt_epoch": refineEpoch,
 		"diagnosis": "the review rejects the refined result", "strategy": "implement the review findings and resubmit",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
-	}, reviewer, nil, "gate-reject")
+	}, reviewer, "gate-reject")
 	dispatch("refine", "attempt:work-1:gate-repair", "implementation")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery repair accept: %+v", response.Error)
@@ -270,7 +275,7 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
-	}, grantActor, nil, "gate-recovery-successor")
+	}, grantActor, "gate-recovery-successor")
 	stale, err := store.ReadWorkPin(ctx, s, "work-1")
 	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
 		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)

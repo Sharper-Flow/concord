@@ -15,6 +15,7 @@ CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
 CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER);
 CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload TEXT);
 CREATE TABLE workflow_design_records(work_id TEXT,work_version INTEGER,approach TEXT,decisions TEXT,touched_refs TEXT,recorded_at TEXT);
+CREATE TABLE workflow_contract_law_revisions(work_id TEXT,contract_version INTEGER,law_id TEXT,content_hash TEXT);
 CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,payload TEXT);
 CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,terminal_kind TEXT,terminal_payload TEXT,terminal_event_id TEXT);
 CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,group_permission TEXT,group_review_ref TEXT,correction_ref TEXT,recorded_payload TEXT,digest TEXT);
@@ -247,6 +248,46 @@ func TestG32ReviewBackfillUsesCallerGuard(t *testing.T) {
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// CD-0242 D10: Review consumes the law the active contract pins. A changed
+// pin hash stales the accepted Review; an unchanged pin keeps it current.
+func TestChangedPinnedLawStalesAcceptedReview(t *testing.T) {
+	db, appendEvent := g32ReviewFixture(t)
+	if _, err := db.Exec(`INSERT INTO workflow_contracts VALUES('work-history',1,NULL);
+INSERT INTO workflow_contract_predicates VALUES('work-history',1,'predicate:primary','exists','{"kind":"exists","surface":"source","subjects":["owner"]}');
+INSERT INTO workflow_contract_law_revisions VALUES('work-history',1,'spec:one','sha256:` + strings.Repeat("a", 64) + `')`); err != nil {
+		t.Fatal(err)
+	}
+	deps, err := workflowReviewDependencies(t.Context(), db, "work-history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deps.ArchitectureNotApplicable || deps.ArchitectureDigest == "" {
+		t.Fatalf("pinned law left no architecture basis: %+v", deps)
+	}
+	report := reviewBlockFixture()
+	report.Dependencies = deps
+	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:law", WorkerCapabilityClass: "review"})
+	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:law", Review: report})
+	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:law"})
+	current := func() bool {
+		t.Helper()
+		state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
+		if err != nil || state.Accepted == nil {
+			t.Fatalf("review state = %+v, %v", state, err)
+		}
+		return state.DependenciesCurrent
+	}
+	if !current() {
+		t.Fatal("unchanged law pin staled the accepted Review")
+	}
+	if _, err := db.Exec(`UPDATE workflow_contract_law_revisions SET content_hash='sha256:` + strings.Repeat("b", 64) + `'`); err != nil {
+		t.Fatal(err)
+	}
+	if current() {
+		t.Fatal("changed law pin left the accepted Review current")
 	}
 }
 

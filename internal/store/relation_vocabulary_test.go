@@ -56,19 +56,27 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
-		('collision-overlap','workflow.overlap_resolved','work_item','collision-from','operator','2026-01-01T00:00:00Z',1,'{}'),
-		('collision-successor-event','workflow.successor_linked','work_item','collision-from','operator','2026-01-01T00:00:01Z',1,'{}')`); err != nil {
+		('collision-overlap','workflow.overlap_resolved','work_item','collision-from','operator','2026-01-01T00:00:00Z',1,'{"resulting_version":2}'),
+		('collision-successor-event','workflow.successor_linked','work_item','collision-from','operator','2026-01-01T00:00:01Z',1,'{"resulting_version":3}')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,relation_seq)
 	 SELECT event_id,seq,kind,subject_type,subject_id,actor,payload_version,row_number() OVER(ORDER BY seq) FROM domain_events;`); err != nil {
 		t.Fatal(err)
 	}
-	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:00Z")}
+	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:00Z"), Payload: []byte(`{"resulting_version":2}`)}
+	for _, malformed := range []struct {
+		payload []byte
+		kind    FailureKind
+	}{{nil, KindInvalidPayload}, {[]byte(`{}`), KindInvariantViolation}} {
+		invalid := overlap
+		invalid.Payload = malformed.payload
+		assertFailureKind(t, insertRelation(t.Context(), tx, invalid, relationPayload{From: "collision-from", To: "collision-to", Kind: "compatible_with"}), malformed.kind)
+	}
 	if err := insertRelation(context.Background(), tx, overlap, relationPayload{From: "collision-from", To: "collision-to", Kind: "compatible_with"}); err != nil {
 		t.Fatalf("insert overlap relation: %v", err)
 	}
-	successor := Event{EventID: "collision-successor-event", Kind: WorkflowSuccessorLinked, Seq: 2, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:01Z")}
+	successor := Event{EventID: "collision-successor-event", Kind: WorkflowSuccessorLinked, Seq: 2, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:01Z"), Payload: []byte(`{"resulting_version":3}`)}
 	if err := insertWorkflowForwardRelation(context.Background(), tx, successor, "collision-successor"); err != nil {
 		t.Fatalf("insert successor relation: %v", err)
 	}

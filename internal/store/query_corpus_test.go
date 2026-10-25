@@ -170,7 +170,7 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 	case "PM1.Q6":
 		return s.QueryQ6(ctx, store.Q6Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Work: stringInput(input, "work")})
 	case "PM1.Q7":
-		return s.QueryQ7(ctx, store.Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
+		return s.QueryQ7(ctx, store.Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), RecordKinds: stringSliceInput(input, "record_kinds"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q8":
 		return s.QueryQ8(ctx, store.Q8Request{Work: stringInput(input, "work"), RelationKinds: stringSliceInput(input, "relation_kinds"), Direction: stringInput(input, "direction")})
 	case "PM1.Q9":

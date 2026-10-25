@@ -24,71 +24,41 @@ func TestQ7OmitsUnboundWorkflow(t *testing.T) {
 	}
 }
 
-// TestQ7ContinuationPagesHoldTheNextEvents walks every history page of
-// ordinary lifecycle events through its cursor: each page holds exactly the
-// next events in the requested direction and kind filter, and only the last
-// page carries no cursor.
-func TestQ7ContinuationPagesHoldTheNextEvents(t *testing.T) {
+// CD-0242 D2 retires the exact transition trace. Paging retains only current rows.
+func TestQ7ContinuationPagesHoldCurrentEntries(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	const work = "q7-pages"
-	seedWork(t, s, work)
-	for i, event := range []Event{
-		workTransitionEvent("q7-start", work, "needed", "in_progress", 2, 3),
-		workTransitionEvent("q7-finish", work, "in_progress", "completed", 3, 4),
-		workReopenedEvent("q7-reopen", work, "completed", 4, 5),
-		workTransitionEvent("q7-restart", work, "needed", "in_progress", 5, 6),
-		workTransitionEvent("q7-cancel", work, "in_progress", "cancelled", 6, 7),
-	} {
-		if err := applyWorkEvent(t, s, event, workVersion(work, int64(i+2))); err != nil {
-			t.Fatalf("apply %s: %v", event.EventID, err)
-		}
-	}
-	all := []string{"create-" + work, "q7-start", "q7-finish", "q7-reopen", "q7-restart", "q7-cancel"}
-	transitions := []string{"q7-start", "q7-finish", "q7-restart", "q7-cancel"}
-	reversed := func(ids []string) []string {
-		out := make([]string, len(ids))
-		for i, id := range ids {
-			out[len(ids)-1-i] = id
-		}
-		return out
-	}
+	s := seedQueryFixture(t)
+	const work = "blocked"
 	for _, tc := range []struct {
 		name      string
 		direction string
 		kinds     []string
-		want      []string
 	}{
-		{name: "default kinds oldest first", direction: "oldest_first", want: all},
-		{name: "default kinds newest first", direction: "newest_first", want: reversed(all)},
-		{name: "one kind oldest first", direction: "oldest_first", kinds: []string{"work.transitioned"}, want: transitions},
-		{name: "one kind newest first", direction: "newest_first", kinds: []string{"work.transitioned"}, want: reversed(transitions)},
+		{name: "all oldest first", direction: "oldest_first"},
+		{name: "all newest first", direction: "newest_first"},
+		{name: "relations oldest first", direction: "oldest_first", kinds: []string{"relation"}},
+		{name: "relations newest first", direction: "newest_first", kinds: []string{"relation"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			const limit = 2
-			var want [][]string
-			for start := 0; start < len(tc.want); start += limit {
-				want = append(want, tc.want[start:min(start+limit, len(tc.want))])
+			full, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, RecordKinds: tc.kinds, Limit: 100})
+			if err != nil {
+				t.Fatal(err)
 			}
-			var got [][]string
+			var got []HistoryEntry
 			cursor := ""
-			for len(got) <= len(want) {
-				out, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, EventKinds: tc.kinds, Limit: limit, Cursor: cursor})
+			for len(got) <= len(full.Entries) {
+				out, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, RecordKinds: tc.kinds, Limit: 1, Cursor: cursor})
 				if err != nil {
 					t.Fatalf("page %d: %v", len(got)+1, err)
 				}
-				ids := []string{}
-				for _, event := range out.Events {
-					ids = append(ids, event.EventID)
-				}
-				got = append(got, ids)
+				got = append(got, out.Entries...)
 				if out.NextCursor == nil {
 					break
 				}
 				cursor = *out.NextCursor
 			}
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("pages = %v, want %v with no cursor after the last page", got, want)
+			if !reflect.DeepEqual(got, full.Entries) {
+				t.Fatalf("pages = %v, want %v with no cursor after the last page", got, full.Entries)
 			}
 		})
 	}

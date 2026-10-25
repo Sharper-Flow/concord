@@ -15,9 +15,9 @@ import (
 // A fresh dispatch_worker opens the step's next attempt epoch, so over an
 // unfinished attempt another session holds it takes that attempt's
 // completion away: the CD-0013 criterion 25 takeover the start rule already
-// governs. A re-dispatch over the caller's own attempt, a retry after a
-// recorded failure, and a dispatch after the holder relinquished
-// stay as they were.
+// governs. The caller's own unfinished child instead requires exact recovery
+// before a fresh dispatch (CD-0242 D6). A recorded failure permits retry,
+// and the holder's relinquishment releases the takeover requirement.
 
 type dispatchTakeoverFixture struct {
 	s          *store.Store
@@ -63,11 +63,26 @@ func (f dispatchTakeoverFixture) invoke(t *testing.T, env CallEnvelope, input ma
 
 func (f dispatchTakeoverFixture) dispatch(t *testing.T, env CallEnvelope, attemptID, key string) (Envelope, map[string]any) {
 	t.Helper()
+	pin, err := store.ReadWorkPin(context.Background(), f.s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	input := map[string]any{
-		"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": "dispatch_worker", "idempotency_key": key,
-		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, f.s, attemptID, nil)},
+		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": key,
+		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, f.s, attemptID, pin.Correction)},
 	}
 	return f.invoke(t, env, input), input
+}
+
+func (f dispatchTakeoverFixture) failLane(t *testing.T, eventID, attemptID string) {
+	t.Helper()
+	failure := agentWorkerFailedAttributedEvent(eventID, store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})
+	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
+		return err
+	}); err != nil {
+		t.Fatalf("fail lane: %v", err)
+	}
 }
 
 // laneDispatch records the worker session's own worker.dispatched for the
@@ -137,13 +152,14 @@ func TestDispatchWorkerOverAnotherSessionsInFlightAttemptRequiresBoundApproval(t
 }
 
 // Once the worker records its dispatch, the lane holds the unfinished
-// attempt until a result decision relinquishes it; the dispatching session
-// still re-dispatches freely over its own attempt.
+// attempt until a result decision relinquishes it. The original caller can
+// replay its authorization, but cannot open another over the unfinished child.
 func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 	t.Parallel()
 	f := newDispatchTakeoverFixture(t)
 	const attemptID = "attempt:work-1:owner"
-	if first, _ := f.dispatch(t, f.owner, attemptID, "owner-dispatch"); first.Outcome != OutcomeOK {
+	first, original := f.dispatch(t, f.owner, attemptID, "owner-dispatch")
+	if first.Outcome != OutcomeOK {
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
 	heldEpoch, _ := latestExecutionStart(t, f.s)
@@ -152,8 +168,15 @@ func TestDispatchWorkerOverAnotherSessionsLiveLaneBindsTheLane(t *testing.T) {
 	challenge, _ := f.dispatch(t, f.other, "attempt:work-1:other", "other-dispatch")
 	requireTakeoverChallenge(t, challenge, laneActor, heldEpoch)
 
-	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != OutcomeOK {
-		t.Fatalf("owner re-dispatch over its own live lane = %+v, want ok without approval", again.Error)
+	version, effects := workVersion(t, f.s, "work-1"), agentCurrentEffects(t, f.s)
+	if replay := f.invoke(t, f.owner, original); replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("original started authorization replay = %+v", replay)
+	}
+	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Error == nil || again.Error.Kind != "operation_conflict" {
+		t.Fatalf("owner re-dispatch over its own live lane = %+v, want operation_conflict", again.Error)
+	}
+	if workVersion(t, f.s, "work-1") != version || agentCurrentEffects(t, f.s) != effects {
+		t.Fatal("replay or refused own-child replacement changed durable progress")
 	}
 }
 
@@ -168,8 +191,9 @@ func TestDispatchWorkerTakeoverApprovalRefusesAfterHeldAttemptMoves(t *testing.T
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("unapproved dispatch takeover = %+v, want approval_required", challenge.Error)
 	}
-	// The holder re-dispatches its own attempt after the challenge, so the
-	// approval names an epoch that is no longer held.
+	// A recorded terminal permits the holder's retry. The earlier takeover
+	// approval must not authorize replacement of that different held epoch.
+	f.failLane(t, "owner-lane-failed", "attempt:work-1:owner")
 	if again, _ := f.dispatch(t, f.owner, "attempt:work-1:owner-again", "owner-redispatch"); again.Outcome != OutcomeOK {
 		t.Fatalf("owner re-dispatch: %+v", again.Error)
 	}
@@ -223,13 +247,7 @@ func TestDispatchWorkerAfterFailedAttemptConsumesCorrectionWithoutConsent(t *tes
 		t.Fatalf("owner dispatch_worker: %+v", first.Error)
 	}
 	f.laneDispatch(t, "owner-lane-dispatched", attemptID)
-	failure := agentWorkerFailedAttributedEvent("owner-lane-failed", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})
-	if err := f.s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
-		return err
-	}); err != nil {
-		t.Fatalf("fail lane: %v", err)
-	}
+	f.failLane(t, "owner-lane-failed", attemptID)
 	pin, err := store.ReadWorkPin(context.Background(), f.s, "work-1")
 	if err != nil || pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
 		t.Fatalf("failed attempt correction = %+v err=%v", pin.Correction, err)

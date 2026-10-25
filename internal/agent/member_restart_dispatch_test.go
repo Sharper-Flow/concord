@@ -35,18 +35,25 @@ func TestSameSessionServiceRestartRefusesUnresolvedStartedAssignment(t *testing.
 	f.service.Now = time.Now
 	resolveProjectAuthority(f.service, store.ProjectResolution{ProjectID: "project-1"})
 
-	const replacement = "attempt:fresh-after-restart"
-	packet := bindPacketToRecordedState(t, f.s, map[string]any{
-		"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": replacement,
-		"lane_id": lane.ID, "lane_digest": lane.Digest,
-		"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
-	})
-	refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": replacement, "worker_packet": packet})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("fresh dispatch while the same caller's started assignment is unresolved: outcome=%s error=%+v", refused.Outcome, refused.Error)
-	}
-	after := f.read(t).Pinned.Pin
-	if after.Version != before.Version || !reflect.DeepEqual(after.Attempt, before.Attempt) || !reflect.DeepEqual(after.Review, before.Review) {
-		t.Fatal("refused restarted dispatch changed original attempt, accepted progress, or work version")
+	for _, replacement := range []string{"attempt:fresh-after-restart", "attempt:another-fresh-key"} {
+		packet := bindPacketToRecordedState(t, f.s, map[string]any{
+			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": replacement,
+			"lane_id": lane.ID, "lane_digest": lane.Digest,
+			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
+		})
+		refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": replacement, "worker_packet": packet})
+		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "operation_conflict" {
+			t.Fatalf("fresh dispatch while the same caller's started assignment is unresolved: outcome=%s error=%+v", refused.Outcome, refused.Error)
+		}
+		after := f.read(t).Pinned.Pin
+		if after.Version != before.Version || !reflect.DeepEqual(after.Attempt, before.Attempt) || !reflect.DeepEqual(after.Review, before.Review) {
+			t.Fatal("refused restarted dispatch changed original attempt, accepted progress, or work version")
+		}
+		var attempts, authorizations int
+		if err := f.s.DatabaseForTesting().QueryRow(`SELECT
+		 (SELECT count(*) FROM worker_attempts WHERE work_id=?),
+		 (SELECT count(*) FROM worker_authorizations WHERE work_id=?)`, f.work, f.work).Scan(&attempts, &authorizations); err != nil || attempts != 1 || authorizations != 1 {
+			t.Fatalf("refused dispatch minted attempts=%d authorizations=%d, error=%v", attempts, authorizations, err)
+		}
 	}
 }

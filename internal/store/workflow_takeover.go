@@ -39,7 +39,7 @@ func WorkflowStartTakeoverRead(ctx context.Context, s *Store, action WorkflowAct
 	return workflowStartTakeover(ctx, readTx, action, workID, callerActorRef)
 }
 
-// workflowStartTakeover returns nil when the caller may start freely: no
+// workflowStartTakeover returns nil when no foreign takeover is required: no
 // attempt has started on the current entry of the step, the caller holds the
 // attempt's writing authority, or the holder relinquished it. The attempt's
 // holder is its starter until a lane dispatched after the start takes the
@@ -139,6 +139,23 @@ func workflowLaneAttemptHeldFrom(ctx context.Context, q queryer, workID, step st
 // approval minted for a held attempt that has since changed authorizes
 // nothing.
 func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, approved *WorkflowStartTakeover) error {
+	if action.RequiredCapability == WorkerDispatchCapability {
+		// A caller's own unfinished child is not a takeover. Its durable
+		// authorization survives a host restart even when the adapter window
+		// does not, and a later start must not hide that unresolved effect.
+		// Check at the write boundary, after exact request replay has resolved.
+		var attemptID string
+		err := q.QueryRowContext(ctx, `SELECT a.attempt_id FROM worker_attempts a
+		 JOIN worker_authorizations c ON c.work_id=a.work_id AND c.attempt_id=a.attempt_id
+		 WHERE a.work_id=? AND a.lifecycle_state='dispatched' AND a.terminal_seq=0
+		 AND json_extract(c.start_payload,'$.actor_ref')=? ORDER BY c.seq LIMIT 1`, workID, actorRef).Scan(&attemptID)
+		if err == nil {
+			return newFailure(KindOperationConflict, "worker_dispatch", "the caller's started worker attempt "+attemptID+" has no terminal outcome", false, "reconcile the original Task through worker_reconcile, or close the exact attempt through admitted worker_abandon before authorizing another attempt")
+		}
+		if err != sql.ErrNoRows {
+			return workflowProjectionError(err, "cannot inspect the caller's unresolved started worker attempts")
+		}
+	}
 	takeover, err := workflowStartTakeover(ctx, q, action, workID, actorRef)
 	if err != nil {
 		return err

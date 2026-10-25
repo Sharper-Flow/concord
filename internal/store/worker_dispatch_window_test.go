@@ -1219,6 +1219,13 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 		t.Fatal(err)
 	}
 	assertWorkerAttemptState(t, s, workID, backendAttempt, "dispatched")
+	ownerRef, err := WorkflowActorRef(seed.ownerActor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guardStartTakeover(ctx, s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, ownerRef, nil); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("original caller can relaunch its unresolved started child: %v", err)
+	}
 	// Once A's launch is known, takeover still needs its exact held identity.
 	frontendDigest := cd781DispatchPacketDigest(t, s, workID, frontendAttempt)
 	takeover, err := workflowStartTakeover(ctx, s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, coordinatorBRef)
@@ -1238,6 +1245,9 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 		t.Fatalf("coordinator B approved dispatch_worker was refused: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, frontendAttempt, "in_flight")
+	if err := guardStartTakeover(ctx, s.db, WorkflowActionDefinition{RequiredCapability: WorkerDispatchCapability}, workID, ownerRef, nil); !hasFailureKind(err, KindOperationConflict) {
+		t.Fatalf("a later coordinator start hid the original caller's unresolved child: %v", err)
+	}
 
 	// The packet check is intact on the attempt's own window: evidence
 	// quoting a foreign packet refuses even though the attempt matches.

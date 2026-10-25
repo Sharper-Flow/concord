@@ -660,6 +660,9 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_entries WHERE set_id=?`, WorktreeSetID(workID)); err != nil {
 		return projectionDeleteFailure("worktree_entries", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_claim_native_fences WHERE set_id=?`, WorktreeSetID(workID)); err != nil {
+		return projectionDeleteFailure("worktree_claim_native_fences", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_items WHERE id=?`, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the work item", false, "reconcile remaining foreign-key owners", err)
 	}

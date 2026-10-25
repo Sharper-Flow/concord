@@ -1830,13 +1830,14 @@ func assertCleanupRefRetained(t *testing.T, repo, branch, tip, reason string, ru
 func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
 	for _, createdBranch := range []bool{true, false} {
 		t.Run(strconv.FormatBool(createdBranch), func(t *testing.T) {
+			s, _, _ := worktreeFixture(t)
 			repo := initBootstrapStoreRepo(t)
 			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
 			const branch = "concord/cleanup-claim"
 			runTestGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
 			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
-			err := CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
+			err := s.CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "compensation-test", RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
 			if err != cause || cause.EffectPossible {
 				t.Fatalf("cleanup error=%v effectPossible=%v, want unchanged no-effect cause", err, cause.EffectPossible)
 			}
@@ -1854,6 +1855,7 @@ func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
 func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 	for _, reason := range cleanupRefRefusalCases() {
 		t.Run(reason, func(t *testing.T) {
+			s, _, _ := worktreeFixture(t)
 			repo := initBootstrapStoreRepo(t)
 			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
@@ -1864,7 +1866,7 @@ func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 				tip, _ = mutateCleanupRef(t, repo, branch, base, reason)
 			}}
 			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
-			err := CompensateWorktreeClaimCreation(context.Background(), runner, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: true}, cause)
+			err := s.CompensateWorktreeClaimCreation(context.Background(), runner, WorktreeClaimCreation{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "compensation-test", RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: true}, cause)
 			assertCleanupRefRetained(t, repo, branch, tip, reason, runner)
 			if err != cause || !cause.EffectPossible {
 				t.Errorf("cleanup error=%v effectPossible=%v, want original failure with possible effect", err, cause.EffectPossible)
@@ -1979,7 +1981,7 @@ func TestClaimWorktreeRawTxReportsCreatedNativeState(t *testing.T) {
 	}
 	_ = native
 	cause := errors.New("cannot commit claim")
-	if compErr := CompensateWorktreeClaimCreation(ctx, git, *created, cause); compErr != cause {
+	if compErr := s.CompensateWorktreeClaimCreation(ctx, git, *created, cause); compErr != cause {
 		var failure *Failure
 		if errors.As(compErr, &failure) && failure.EffectPossible {
 			t.Fatalf("compensation could not prove removal: %v", compErr)

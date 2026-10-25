@@ -7732,6 +7732,26 @@ DROP TABLE archived_work_components;
 DROP TABLE compaction_publications;
 `,
 	},
+	{
+		Version:        154,
+		Name:           "worktree_claim_native_fences",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE worktree_claim_native_fences (
+    resource_kind TEXT NOT NULL CHECK(resource_kind IN ('path','branch')),
+    repository_id TEXT NOT NULL,
+    resource_ref TEXT NOT NULL CHECK(length(resource_ref)>0),
+    set_id TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK(typeof(generation)='integer' AND generation>0),
+    CHECK((resource_kind='path' AND repository_id='') OR (resource_kind='branch' AND length(repository_id)>0)),
+    PRIMARY KEY(resource_kind,repository_id,resource_ref)
+);
+CREATE INDEX worktree_claim_native_fences_set ON worktree_claim_native_fences(set_id);
+ALTER TABLE worktree_claims ADD COLUMN executor_pid INTEGER NOT NULL DEFAULT 0 CHECK(typeof(executor_pid)='integer' AND executor_pid>=0);
+ALTER TABLE worktree_claims ADD COLUMN executor_pid_start INTEGER NOT NULL DEFAULT 0 CHECK(typeof(executor_pid_start)='integer' AND ((executor_pid=0 AND executor_pid_start=0) OR (executor_pid>0 AND executor_pid_start>0)));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

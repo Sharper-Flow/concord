@@ -257,6 +257,7 @@ func deleteTerminalExecutionTx(ctx context.Context, tx *sql.Tx, workID string) e
 		`DELETE FROM worktree_ref_outcomes WHERE set_id=?2`,
 		`DELETE FROM worktree_entries WHERE set_id=?2`,
 		`DELETE FROM worktree_claims WHERE work_id=?1`,
+		`DELETE FROM worktree_claim_native_fences WHERE set_id=?2`,
 		`DELETE FROM durable_operations WHERE work_id=?1`,
 		`DELETE FROM work_projects WHERE work_id=?1 AND NOT EXISTS(SELECT 1 FROM work_items w WHERE w.id=?1 AND ` + retainedDefectClassificationSQL + `)`,
 		`DELETE FROM work_items AS w WHERE id=?1 AND NOT ` + retainedDefectClassificationSQL,

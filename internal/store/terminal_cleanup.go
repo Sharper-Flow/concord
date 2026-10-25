@@ -111,7 +111,7 @@ func cleanupPublishedTerminalWorkTx(ctx context.Context, transaction *Transactio
 	if err := terminalCleanupBlockersQ(ctx, tx, workID); err != nil {
 		return err
 	}
-	scope := newFoldScope(tx)
+	scope := newWriteScope(tx)
 	if err := scope.enter(ctx); err != nil {
 		return err
 	}

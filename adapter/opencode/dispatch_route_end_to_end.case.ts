@@ -20,7 +20,7 @@ import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
 import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
-import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
+import { dbRows, dbValue, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, workerEffects, type JSONRecord } from "./end-to-end.fixture"
 
 const PRODUCT_ID = "product-e2e"
 const PROJECT_ID = "project-e2e"
@@ -65,7 +65,7 @@ function dbExec(dbPath: string, sql: string, args: unknown[] = []): void {
 function seedInvestigationArtifact(dbPath: string, workID: string): void {
   const db = new Database(dbPath)
   try {
-    db.run("INSERT INTO fold_guard(active) VALUES(1)")
+    db.run("INSERT INTO write_guard(active) VALUES(1)")
     const registryHash = "sha256:" + "e".repeat(64)
     db.run("INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('e2e-locator',?,'canonical_path','/fixture','/fixture','2026-09-09T00:00:00Z','2026-09-09T00:00:00Z')", [PROJECT_ID])
     db.run("INSERT OR IGNORE INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,'e2e-locator',?,'root','1.0',?,'test')", [PRODUCT_ID, PROJECT_ID, PRODUCT_ID, registryHash])
@@ -74,7 +74,7 @@ function seedInvestigationArtifact(dbPath: string, workID: string): void {
     db.run("INSERT OR IGNORE INTO work_projects(work_id,project_id,role) VALUES(?,?,'secondary')", [`${workID}-compared`, PROJECT_ID])
     const investigationRefs = JSON.stringify(["root", `${workID}-compared`])
     db.run("INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,'2026-09-09T00:00:00Z')", ["obs:" + workID.slice(-12) + "cmp0", workID, "investigation before question", investigationRefs, "[]"])
-    db.run("DELETE FROM fold_guard")
+    db.run("DELETE FROM write_guard")
   } finally {
     db.close()
   }
@@ -549,7 +549,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     configureConcordAdapter({ runner })
     const invoke = (tool: string, args: any, context: any, directory?: string) => invokeConcordOperation(tool, args, context, directory) as Promise<JSONRecord>
     const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
-    const events = () => dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n
+    const events = () => dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n
     const action = async (context: any, name: string, key: string, fields: JSONRecord) => {
       const response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: name, idempotency_key: key, fields } }, context)
       expect(response.outcome, JSON.stringify(response)).toBe("ok")
@@ -566,20 +566,20 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       context.workerSessionID = `${key}-worker`
       return dispatchRouteTask(typedLane, workID, worktree, version(), key, `${key}-task`, context, invoke, (packet, agent) => host.opening(context, packet, agent))
     }
-    const epoch = (task: RouteTaskDispatch) => dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.worker_attempt_id')='${task.packet.attempt_id}' AND json_extract(payload,'$.action_id')='dispatch_worker'`).n
+    const epoch = (task: RouteTaskDispatch) => dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${task.packet.attempt_id}'`).n
     const accept = (context: any, task: RouteTaskDispatch, key: string, name = "accept_worker_result") => action(context, name, key, { attempt_id: task.packet.attempt_id, attempt_epoch: epoch(task) })
     const predicate = { ...WORKFLOW_PREDICATE, outcome_kind: "exists", outcome_payload: { kind: "exists", surface: "git:tree", subjects: ["path:.concord/docs/dispatch-marker.txt"] } }
     const observations = await Promise.all([a, b].map((context) => invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID } }, context)))
     expect(observations.map((response) => response.outcome)).toEqual(["ok", "ok"])
     await driveWorkflowToContract(workID, invoke, a, APPROVED_OBJECTIVE, [predicate], ["verification", "review"], [".concord/docs/dispatch-marker.txt"], ["go test ./oraclekit"])
     const contestedVersion = version()
-    const boundBefore = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.evidence_bound'`).n
+    const boundBefore = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}' AND kind='workflow.evidence_bound'`).n
     const contenders = await Promise.all([a, b].map((context) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: contestedVersion, action_id: "bind_evidence", fields: { evidence_kind: "verification" }, idempotency_key: `g01-contested-${context.sessionID}` } }, context)))
     expect(contenders.filter((response) => response.outcome === "ok")).toHaveLength(1)
     const loser = contenders.find((response) => response.outcome === "error")!
     expect(loser.error.kind).toBe("version_conflict")
     expect(loser.error.effect_state).toBe("none")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.evidence_bound'`).n).toBe(boundBefore + 1)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}' AND kind='workflow.evidence_bound'`).n).toBe(boundBefore + 1)
     let oracle: JSONRecord
     let previousSubject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
     let firstProducer: RouteTaskDispatch | undefined
@@ -618,7 +618,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       if (pass === 1) {
         expect(receipt.outcome).toBe("error")
         expect(receipt.error.details.effect_state).toBe("unknown")
-        const before = dbRows(dbPath, `SELECT event_id,kind,payload FROM domain_events WHERE subject_id='${workID}' ORDER BY seq`)
+        const before = { receipts: dbRows(dbPath, `SELECT * FROM effect_receipts WHERE subject_id='${workID}' ORDER BY effect_seq`), workers: workerEffects(dbPath, workID) }
         const counts = host.counts()
         const recovery = { binary, dbPath, worktree, sessionID: a.sessionID, ...retained, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: producer.packet.attempt_id, task_part_id: producer.callID, idempotency_key: "g01-retained-reconcile" } } }
         for (let replay = 0; replay < 2; replay++) {
@@ -633,18 +633,18 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
           expect(retained.parent.messages.at(-1).parts[0].state.output).toBe(producer.retainedOutput)
           expect(retained.child.messages.at(-1).parts[0].text).toBe(reportText(report))
         }
-        expect(dbRows(dbPath, `SELECT event_id,kind,payload FROM domain_events WHERE subject_id='${workID}' ORDER BY seq`)).toEqual(before)
+        expect({ receipts: dbRows(dbPath, `SELECT * FROM effect_receipts WHERE subject_id='${workID}' ORDER BY effect_seq`), workers: workerEffects(dbPath, workID) }).toEqual(before)
         expect(host.counts()).toEqual(counts)
         expect(producer.packet.attempt_id).not.toBe(firstProducer!.packet.attempt_id)
         expect(producer.packet.inputs.correction.diagnosis).toBe("The checkpoint review blocks this subject.")
       } else expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
       await action(a, "bind_evidence", `${key}-bind`, { evidence_kind: "verification" })
       await accept(a, producer, `${key}-accept`)
-      const productionEvent = dbRows(dbPath, `SELECT event_id,payload FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='accept_worker_result' ORDER BY seq DESC LIMIT 1`)[0]
+      const productionEvent = dbRows(dbPath, `SELECT d.event_id,d.payload FROM worker_attempt_dispositions d JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq WHERE d.work_id='${workID}' AND d.attempt_id='${producer.packet.attempt_id}' AND d.action_id='accept_worker_result' AND r.kind='workflow.action_completed'`)[0]
       expect(JSON.parse(productionEvent.payload).worker_attempt_id).toBe(producer.packet.attempt_id)
       expect(dbValue(dbPath, `SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${producer.packet.inputs.worker_job.job_id}'`).satisfied_result_ref).toBe(productionEvent.event_id)
       expect(calls.find((call) => call.argv[1] === "worker-complete" && call.input.attempt_id === producer.packet.attempt_id)!.input.worker_job).toEqual(reportWorkerJob(producer.packet))
-      const completedProducer = JSON.parse(dbValue(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${producer.packet.attempt_id}'`).payload)
+      const completedProducer = JSON.parse(workerEffects(dbPath, workID).find((row) => row.kind === "worker.completed" && JSON.parse(row.payload).attempt_id === producer.packet.attempt_id)!.payload)
       expect(completedProducer.worker_job).toEqual(reportWorkerJob(producer.packet))
       expect(completedProducer.evidence).toEqual(report.evidence)
       expect(completedProducer.evidence[0].detail).toContain(`commit:${subject}`)
@@ -741,10 +741,10 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
     const replay = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: completeVersion, action_id: "complete", idempotency_key: "g01-complete", fields: { impact_verdict: "non-breaking" } } }, b)
     expect(replay.outcome).toBe("ok")
     expect(events()).toBe(finalEvents)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.completed'`).n).toBe(1)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}' AND kind='workflow.completed'`).n).toBe(1)
     expect(host.counts()).toEqual({ coordinatorSessions: 3, taskLaunches: 8, sessionCreates: 0 })
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(8)
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed'`).n).toBe(8)
+    expect(workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed")).toHaveLength(8)
     expect(new Set(calls.filter((call) => call.argv[1] === "invoke").map((call) => call.input.call_envelope.session_ref))).toEqual(new Set([a.sessionID, b.sessionID, c.sessionID]))
     expect(lastProducer!.workerSessionID).not.toBe(lastVerify!.workerSessionID)
   } finally {
@@ -838,7 +838,7 @@ routeDeclaration("composes implementation and independent review through one ord
       expect(failedAttempt.lifecycle_state).toBe("failed")
       expect(failedAttempt.failure_kind).toBe("invalid_report")
       expect(failedAttempt.failure_detail).toContain(reportFailure === "missing" ? "no agent-lane-report.v1 report" : "malformed designated report frame")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${failedDispatch.packet.attempt_id}'`).n).toBe(0)
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}' AND terminal_kind='worker.completed' AND attempt_id='${failedDispatch.packet.attempt_id}'`).n).toBe(0)
     }
     let dispatchResponse: JSONRecord | undefined
     const implementationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
@@ -883,7 +883,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(packet.inputs.constraints).toBeUndefined()
     expect(((packet.inputs as JSONRecord).worker_job as JSONRecord).job_id).toBe(ROUTE_WORKER_JOB_ID)
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
-    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
+    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${packet.attempt_id}'`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([predicate.predicate_id])
     const report = routeWorkerReport(lane, packet, subjectCommit)
     const implementationReceipt = await completeRouteTask(implementation, report, realRunner, binary)
@@ -891,7 +891,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
     expect(attempt.lifecycle_state).toBe("completed")
     expect(attempt.readback_model).toBe(READBACK_MODEL)
-    const provenance = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='worker.dispatched' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
+    const provenance = workerEffects(dbPath, workID).filter((row) => row.kind === "worker.dispatched" && JSON.parse(row.payload).attempt_id === packet.attempt_id)
     const provenancePayload = JSON.parse(provenance[0].payload as string)
     expect(provenancePayload.host_provenance.sources).toContainEqual({ kind: "unenumerated", path: "https://example.invalid/synthetic-instructions" })
 
@@ -899,7 +899,7 @@ routeDeclaration("composes implementation and independent review through one ord
     response = await transition(evidenceVersion, "bind_evidence", "e2e-bind-evidence", { evidence_kind: "verification" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const currentVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const implementationEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
+    const implementationEpoch = dbValue(dbPath, `SELECT json_extract(start_payload,'$.attempt_epoch') AS epoch FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${packet.attempt_id}'`).epoch as number
     response = await transition(currentVersion, "accept_worker_result", "e2e-accept-worker", { attempt_id: packet.attempt_id, attempt_epoch: implementationEpoch })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     // The job-bound accept is local acceptance (CD-0205): it satisfies the
@@ -911,12 +911,12 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(reviewInput.outcome, JSON.stringify(reviewInput)).toBe("ok")
     const reviewInputRef = (reviewInput.result as JSONRecord).operation_ref as string
     const assertDeliveryVerification = async () => {
-      const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+      const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
       const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
       expect(skippedVerifyDelivery.outcome, JSON.stringify(skippedVerifyDelivery)).toBe("error")
       expect(skippedVerifyDelivery.error.kind).toBe("missing_evidence")
       expect(skippedVerifyDelivery.error.message).toContain("verification")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
       // Integration needs a bound producer receipt for the actual candidate.
       const failedVerify = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "show-ref", "--verify", "refs/heads/missing-synthetic-branch"], idempotency_key: "e2e-failed-integration-verify" } }, context)
       expect(failedVerify.outcome, JSON.stringify(failedVerify)).toBe("ok")
@@ -932,12 +932,12 @@ routeDeclaration("composes implementation and independent review through one ord
       const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
       const staleSubjectBinding = await transition(integrationVersion, "bind_evidence", "e2e-bind-stale-subject", { evidence_kind: "verification", evidence_ref: integrationRef, immutable_subject_ref: `commit:${staleSubjectCommit}` })
       expect(staleSubjectBinding.outcome, JSON.stringify(staleSubjectBinding)).toBe("ok")
-      const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+      const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
       const staleSubjectDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-with-stale-subject", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
       expect(staleSubjectDelivery.outcome, JSON.stringify(staleSubjectDelivery)).toBe("error")
       expect(staleSubjectDelivery.error.kind).toBe("missing_evidence")
       expect(staleSubjectDelivery.error.message).toBe("the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
+      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
       response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
       expect(response.outcome, JSON.stringify(response)).toBe("ok")
     }
@@ -983,27 +983,27 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(correctiveReview.packet.work_id).toBe(workID)
     expect(correctiveReview.packet.attempt_id).not.toBe(packet.attempt_id)
     expect(correctiveReview.packet.inputs.outcome_predicates).toEqual([predicate])
-    const correctiveEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
+    const correctiveEpoch = dbValue(dbPath, `SELECT json_extract(start_payload,'$.attempt_epoch') AS epoch FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${correctiveReview.packet.attempt_id}'`).epoch as number
     const correctiveAcceptVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    const eventsBeforeWrongReviewer = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+    const eventsBeforeWrongReviewer = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
     const implementationAsReview = await transition(correctiveAcceptVersion, "accept_worker_result", "e2e-implementation-as-review", { attempt_id: packet.attempt_id, attempt_epoch: correctiveEpoch })
     expect(implementationAsReview.outcome, JSON.stringify(implementationAsReview)).toBe("error")
     expect(implementationAsReview.error.message).toBe("worker attempt dispatch is stale")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
     const staleCorrectiveEpoch = await transition(correctiveAcceptVersion, "accept_worker_result", "e2e-stale-review-epoch", { attempt_id: correctiveReview.packet.attempt_id, attempt_epoch: correctiveEpoch + 1 })
     expect(staleCorrectiveEpoch.outcome, JSON.stringify(staleCorrectiveEpoch)).toBe("error")
     expect(staleCorrectiveEpoch.error.message).toContain("epoch")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsBeforeWrongReviewer)
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "rev-parse", "HEAD"], idempotency_key: "e2e-corrective-review-verify" } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(((response.result as JSONRecord).output as string).trim()).toBe(subjectCommit)
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "accept_worker_result", "e2e-accept-corrective-review", { attempt_id: correctiveReview.packet.attempt_id, attempt_epoch: correctiveEpoch })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const eventsAfterCorrectiveAccept = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+    const eventsAfterCorrectiveAccept = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
     const blockedDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-corrective-delivery-refusal", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
     expect(blockedDelivery.outcome, JSON.stringify(blockedDelivery)).toBe("error")
     expect(blockedDelivery.error.message).toContain("open in-scope blocking finding")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterCorrectiveAccept)
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsAfterCorrectiveAccept)
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_worker_job", "e2e-resolving-worker-job", {
       job_id: "job:route-e2e-resolving-review",
       predicate_ids: packet.inputs.worker_job.predicate_ids,
@@ -1021,7 +1021,7 @@ routeDeclaration("composes implementation and independent review through one ord
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const resolvingJob = resolvingReview.packet.inputs.worker_job
     const resolvingControl = resolvingJob.acceptance_oracle.controls[0]
-    const resolvingEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
+    const resolvingEpoch = dbValue(dbPath, `SELECT json_extract(start_payload,'$.attempt_epoch') AS epoch FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${resolvingReview.packet.attempt_id}'`).epoch as number
     const openFinding = resolvingReview.packet.inputs.work_context.findings.find((finding: JSONRecord) => finding.status === "open" && finding.oracle?.classification === "delivery_blocker")
     expect(openFinding).toBeDefined()
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
@@ -1077,7 +1077,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect((selfVerdict.error as JSONRecord).kind).toBe("missing_evidence")
     response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { verdicts: [{ predicate_id: predicate.predicate_id, receipt_refs: [resolvingRunRef] }] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
+    const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM workflow_predicate_verdicts WHERE work_id='${workID}' AND predicate_id='${predicate.predicate_id}' ORDER BY verdict_seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string
     expect(verdictActorClass).toBe("agent")
     const verdictVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
@@ -1101,14 +1101,14 @@ routeDeclaration("composes implementation and independent review through one ord
     response = await transition(completeVersion, "complete", "e2e-complete", { impact_verdict: "non-breaking" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(dbValue(dbPath, `SELECT instance_state FROM workflow_instances WHERE work_id='${workID}'`).instance_state).toBe("completed")
-    const completionEvents = dbRows(dbPath, `SELECT event_id,payload FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.completed'`)
+    const completionEvents = dbRows(dbPath, `SELECT * FROM effect_receipts WHERE subject_id='${workID}' AND kind='workflow.completed'`)
     expect(completionEvents).toHaveLength(1)
-    const deliveryEvents = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_delivery'`)
+    const deliveryEvents = dbRows(dbPath, `SELECT payload FROM workflow_delivery_state WHERE work_id='${workID}'`)
     expect(deliveryEvents.map((row) => JSON.parse(row.payload as string).delivery_artifact)).toContain("https://github.com/synthetic/concord/pull/898")
-    const implementationEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${packet.attempt_id}'`)
+    const implementationEvent = workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed" && JSON.parse(row.payload).attempt_id === packet.attempt_id)
     const implementationEvidence = JSON.parse(implementationEvent[0].payload as string).evidence as JSONRecord[]
     expect(implementationEvidence.some((entry) => entry.detail.includes(`commit:${subjectCommit}`))).toBe(true)
-    const finalReviewEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${resolvingReview.packet.attempt_id}'`)
+    const finalReviewEvent = workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed" && JSON.parse(row.payload).attempt_id === resolvingReview.packet.attempt_id)
     const finalReviewPayload = JSON.parse(finalReviewEvent[0].payload as string)
     expect(finalReviewPayload.review.disposition).toBe("ready_for_final_proof")
     expect((finalReviewPayload.evidence as JSONRecord[]).some((entry) => entry.detail.includes(`commit:${subjectCommit}`))).toBe(true)
@@ -1121,17 +1121,17 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(reopenedContinuity.outcome).toBe("ok")
     const attemptCountBeforeReplay = dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n as number
     const dispatchCountBeforeReplay = realCalls.filter((call) => call.argv[1] === "worker-dispatch").length
-    const eventCountBeforeReplay = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n as number
+    const eventCountBeforeReplay = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
     response = await transition(completeVersion, "complete", "e2e-complete", { impact_verdict: "non-breaking" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
-    expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventCountBeforeReplay)
-    expect(dbRows(dbPath, `SELECT event_id FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.completed'`)).toEqual([{ event_id: completionEvents[0].event_id }])
+    expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventCountBeforeReplay)
+    expect(dbRows(dbPath, `SELECT * FROM effect_receipts WHERE subject_id='${workID}' AND kind='workflow.completed'`)).toEqual(completionEvents)
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM worker_attempts WHERE work_id='${workID}'`).n).toBe(attemptCountBeforeReplay)
     expect(realCalls.filter((call) => call.argv[1] === "worker-dispatch")).toHaveLength(dispatchCountBeforeReplay)
     const replayedReceipt = await runProcess([binary, "receipt"], JSON.stringify({ work_id: workID }), worktree, { CONCORD_DB_PATH: dbPath })
     expect(replayedReceipt.exitCode, replayedReceipt.stderr).toBe(0)
     expect(replayedReceipt.stdout).toBe(renderedReceipt.stdout)
-    const verdicts = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded'`)
+    const verdicts = dbRows(dbPath, `SELECT payload FROM workflow_predicate_verdicts WHERE work_id='${workID}'`)
     expect(verdicts.map((row) => JSON.parse(row.payload as string).predicate_id)).toContain(predicate.predicate_id)
     const workerDispatch = realCalls.find((call) => call.argv[1] === "worker-dispatch")?.input
     const workerComplete = realCalls.find((call) => call.argv[1] === "worker-complete")?.input
@@ -1256,7 +1256,9 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     // the dispatch refuses through the same admission owner on the normal
     // route, and no window arms.
     const snapshot = () => ({
-      events: dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events ORDER BY seq"),
+      effects: dbRows(dbPath, "SELECT * FROM effect_receipts ORDER BY effect_seq"),
+      sequences: dbRows(dbPath, "SELECT * FROM store_sequences ORDER BY name"),
+      revision: dbRows(dbPath, "SELECT * FROM store_revision"),
       work: dbRows(dbPath, "SELECT id,version,lifecycle FROM work_items ORDER BY id"),
       packs: dbRows(dbPath, "SELECT * FROM active_research_packs ORDER BY pack_id"),
       revisions: dbRows(dbPath, "SELECT * FROM active_research_revisions ORDER BY pack_id,revision"),
@@ -1397,8 +1399,10 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
       // Reconciliation replays signed evidence, not a new host Task.
       expect(result.core_commands.filter((command: string) => command === "worker-dispatch")).toHaveLength(1)
       expect(result.core_commands.filter((command: string) => command === "worker-complete")).toHaveLength(1)
-      const { receipts: beforeReceipts, ...beforeState } = before
-      const { receipts: afterReceipts, ...afterState } = snapshot()
+      // Preparation/replay receipts publish a new read revision, not an effect.
+      const { receipts: beforeReceipts, revision: beforeRevision, ...beforeState } = before
+      const { receipts: afterReceipts, revision: afterRevision, ...afterState } = snapshot()
+      expect(afterRevision[0].revision).toBeGreaterThanOrEqual(beforeRevision[0].revision)
       expect(afterState).toEqual(beforeState)
       // Preparation receipts record reconciliation and replay observations.
       expect(afterReceipts.filter((receipt) => receipt.operation_kind !== "worker_reconcile")).toEqual(beforeReceipts.filter((receipt) => receipt.operation_kind !== "worker_reconcile"))
@@ -1420,7 +1424,7 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
       const output = typeof raw === "string" ? raw : (raw as JSONRecord).output as string
       return JSON.parse(output.slice(0, output.indexOf("\n") === -1 ? output.length : output.indexOf("\n"))) as JSONRecord
     }
-    const workerEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='${worker.packet.attempt_id}' ORDER BY seq DESC LIMIT 1`).epoch
+    const workerEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${worker.packet.attempt_id}'`).epoch
     expect(Number.isInteger(workerEpoch)).toBe(true)
     const rejectAction = (key: string) => ({ work_id: workID, expected_version: workVersion(), action_id: "reject_worker_result", idempotency_key: key, fields: { attempt_id: worker.packet.attempt_id, attempt_epoch: workerEpoch, diagnosis: "The synthetic result missed the selected research obligation.", strategy: "Reproduce the result against the selected research.", predicate_ids: [WORKFLOW_PREDICATE.predicate_id], evidence_refs: ["evidence:g07-retry"], retry: { lane_id: lane.id } } })
     await writePack("research_freshness_set", "g07-stale-retry", { revision: 1, freshness: "stale" })
@@ -1624,7 +1628,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
           blocked = true
           reader = new Database(dbPath, { readonly: true })
           reader.exec("BEGIN")
-          reader.query("SELECT count(*) FROM domain_events").get()
+          reader.query("SELECT revision FROM store_revision").get()
         }
         const result = await baseRunner.run(argv, input, signal)
         if (loseAcknowledgement) {
@@ -1659,7 +1663,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(pending.outcome).toBe("error")
       expect(pending.error.details.effect_state).toBe("unknown")
       expect(windows.inFlightAttempt(SESSION_ID)).not.toBeNull()
-      const before = dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")
+      const before = workerEffects(dbPath, workID)
       expect(before.map((event) => event.kind)).toEqual(blockedVerb === "worker-dispatch" ? ["worker.dispatched"] : ["worker.dispatched", "worker.completed"])
       const child = JSON.parse(exportedSession(packet))
       child.info = { id: "worker-session", parentID: SESSION_ID, directory: worktree }
@@ -1675,7 +1679,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(refusedBudget.outcome, JSON.stringify(refusedBudget)).toBe("error")
       expect(refusedBudget.error.kind, JSON.stringify(refusedBudget)).toBe("budget_refused")
       expect(refusedBudget.error.effect_state).toBe("none")
-      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      expect(workerEffects(dbPath, workID)).toEqual(before)
       const contextDeadline = await recover({
         ...fixture,
         contextReadDelayMs: 2_000,
@@ -1689,7 +1693,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(contextDeadline.signal_count).toBe(1)
       expect(contextDeadline.abort_elapsed_ms).not.toBeNull()
       expect(contextDeadline.abort_elapsed_ms).toBeLessThan(1_600)
-      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      expect(workerEffects(dbPath, workID)).toEqual(before)
       const { envelope: expired, abort_elapsed_ms: elapsed, aborted_phase: phase, signal_count: signalCount } = await recover({
         ...fixture,
         hostReadDelayMs: 2_000,
@@ -1711,19 +1715,19 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(signalCount).toBe(1)
       expect(elapsed).not.toBeNull()
       expect(elapsed).toBeLessThan(1_600)
-      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      expect(workerEffects(dbPath, workID)).toEqual(before)
       await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/changed-after-worker"] }))
       for (let repeat = 0; repeat < 3; repeat++) {
         const { envelope: receipt } = await recover()
         expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
         expect(receipt.result.worker_recovery.lifecycle_state).toBe("completed")
       }
-      const after = dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")
+      const after = workerEffects(dbPath, workID)
       expect(after.map((event) => event.kind)).toEqual(["worker.dispatched", "worker.completed"])
       expect(after.slice(0, before.length)).toEqual(before)
       expect(nativeTaskCalls).toBe(1)
       expect(dbValue(dbPath, "SELECT count(*) AS n FROM worker_attempts").n).toBe(1)
-      expect(dbValue(dbPath, "SELECT count(*) AS n FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker'").n).toBe(1)
+      expect(dbValue(dbPath, "SELECT count(*) AS n FROM worker_authorizations WHERE work_id=?", workID).n).toBe(1)
     } finally {
       if (reader) { reader.exec("ROLLBACK"); reader.close() }
       configureConcordAdapter({ reset: true })
@@ -1823,7 +1827,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     })
 
     // The core recorded the authorized attempt against all eight predicates.
-    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
+    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM worker_authorizations WHERE work_id='${workID}' AND attempt_id='${packet.attempt_id}'`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual(EIGHT_ROUTE_PREDICATES.map((predicate) => predicate.predicate_id))
 
     // The authorized packet round-trips completion: the worker session opens

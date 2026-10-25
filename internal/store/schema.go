@@ -85,10 +85,16 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 			return nil
 		}
 	}
+	if m.Name == "event_log_retirement" {
+		return retireEventLog(ctx, q, m.SQL)
+	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",
 			fmt.Sprintf("migration %d (%s) failed", m.Version, m.Name), false,
 			"correct the migration definition", err)
+	}
+	if m.Name == "effect_receipts" {
+		return backfillEffectReceiptDigests(ctx, q)
 	}
 	if m.Name == "workflow_evidence_current_facts" {
 		if err := backfillWorkflowCorrectionFacts(ctx, q); err != nil {
@@ -7418,6 +7424,86 @@ DELETE FROM fold_guard;
 `,
 	},
 	{
+		Version:  151,
+		Name:     "event_log_retirement",
+		Breaking: true,
+		SQL: `
+-- CD-0242 D2: current coordinates name immutable effect receipts, not a log.
+CREATE TABLE workflow_overlap_resolutions_v151 (
+    resolution_id TEXT PRIMARY KEY,
+    event_seq INTEGER NOT NULL UNIQUE REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    from_contract_version INTEGER NOT NULL,
+    to_contract_version INTEGER NOT NULL,
+    resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks','merged_into','supersedes')),
+    reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    approval_ref TEXT NOT NULL CHECK(length(approval_ref) > 0 OR resolution_kind IN ('compatible_with','depends_on','blocks')),
+    created_at TEXT NOT NULL,
+    invalidated_seq INTEGER REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    CHECK(from_work_id <> to_work_id),
+    CHECK(from_contract_version > 0 AND to_contract_version > 0),
+    FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+    FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+INSERT INTO workflow_overlap_resolutions_v151 SELECT * FROM workflow_overlap_resolutions;
+DROP TABLE workflow_overlap_resolutions;
+ALTER TABLE workflow_overlap_resolutions_v151 RENAME TO workflow_overlap_resolutions;
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+
+CREATE TABLE external_observations_v151 (
+    observation_id TEXT PRIMARY KEY CHECK(observation_id LIKE 'xobs:%'),
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    subject_kind TEXT NOT NULL CHECK(length(subject_kind) BETWEEN 1 AND 64),
+    subject_ref TEXT NOT NULL CHECK(length(subject_ref) BETWEEN 1 AND 2048),
+    capture_method TEXT NOT NULL CHECK(capture_method IN ('trusted_client_report','git_probe')),
+    captured_at TEXT NOT NULL,
+    reporting_authority_ref TEXT NOT NULL CHECK(length(reporting_authority_ref) BETWEEN 1 AND 256),
+    subject_digest TEXT CHECK(subject_digest IS NULL OR subject_digest LIKE 'sha256:%'),
+    observed_universe TEXT NOT NULL,
+    freshness_policy_ref TEXT NOT NULL,
+    divergence_policy_ref TEXT NOT NULL,
+    verification_state TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_state IN ('unverified','verified','diverged_expected','diverged_unexpected','unverifiable')),
+    verification_method TEXT,
+    verified_at TEXT,
+    verifying_authority_ref TEXT,
+    verification_result TEXT,
+    verification_omissions TEXT,
+    created_event_seq INTEGER NOT NULL REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+    verified_event_seq INTEGER REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT
+);
+INSERT INTO external_observations_v151 SELECT * FROM external_observations;
+DROP TABLE external_observations;
+ALTER TABLE external_observations_v151 RENAME TO external_observations;
+CREATE INDEX external_observations_work ON external_observations(work_id,created_event_seq);
+
+CREATE TABLE work_size_overrides_v151 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    event_id TEXT NOT NULL UNIQUE REFERENCES effect_receipts(event_id) ON DELETE RESTRICT,
+    model_sequence INTEGER NOT NULL CHECK(typeof(model_sequence)='integer' AND model_sequence >= 1),
+    size_class TEXT NOT NULL CHECK(size_class IN ('small','larger','crucial')),
+    recorded_at TEXT NOT NULL,
+    FOREIGN KEY(work_id,model_sequence) REFERENCES work_size_assessments(work_id,sequence) ON DELETE RESTRICT
+);
+INSERT INTO work_size_overrides_v151 SELECT * FROM work_size_overrides;
+DROP TABLE work_size_overrides;
+ALTER TABLE work_size_overrides_v151 RENAME TO work_size_overrides;
+
+ALTER TABLE fold_guard RENAME TO write_guard;
+CREATE TRIGGER effect_receipts_no_update BEFORE UPDATE ON effect_receipts
+BEGIN SELECT RAISE(ABORT, 'effect_receipts is immutable'); END;
+CREATE TRIGGER effect_receipts_guard_delete BEFORE DELETE ON effect_receipts
+BEGIN SELECT RAISE(ABORT, 'effect_receipts is write-seam-only')
+ WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+DROP TRIGGER domain_events_no_update;
+DROP TRIGGER domain_events_no_delete;
+DROP TRIGGER domain_events_advance_effect_sequence;
+DROP TABLE domain_events;
+`,
+	},
+	{
 		// CD-0242 D14: a workflow definition is identified by its ref and
 		// content digest. The integer definition counter leaves every
 		// projection, and a workflow step claim binds the definition digest.
@@ -7501,9 +7587,9 @@ SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,pa
 DROP TABLE worker_attempts;
 ALTER TABLE worker_attempts_v152 RENAME TO worker_attempts;
 CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
-CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TABLE workflow_instances_v152 (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,
@@ -7538,9 +7624,9 @@ SELECT work_id, definition_ref, definition_digest, current_step, instance_state,
 DROP TABLE workflow_instances;
 ALTER TABLE workflow_instances_v152 RENAME TO workflow_instances;
 CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
-CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TABLE workflow_context_checkpoints_v152 (
     work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     work_version INTEGER NOT NULL,
@@ -7591,9 +7677,9 @@ SELECT work_id, work_version, checkpoint_sequence, checkpoint_id, step_id, attem
 DROP TABLE workflow_context_checkpoints;
 ALTER TABLE workflow_context_checkpoints_v152 RENAME TO workflow_context_checkpoints;
 CREATE INDEX workflow_context_checkpoints_latest ON workflow_context_checkpoints(work_id, checkpoint_sequence DESC);
-CREATE TRIGGER workflow_context_checkpoints_guard_insert BEFORE INSERT ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_insert BEFORE INSERT ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_context_checkpoints_guard_update BEFORE UPDATE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is immutable'); END;
-CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TABLE workflow_context_boundaries_v152 (
     work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     work_version INTEGER NOT NULL,
@@ -7632,9 +7718,9 @@ SELECT work_id, work_version, boundary_sequence, boundary_count, boundary_id, bo
 DROP TABLE workflow_context_boundaries;
 ALTER TABLE workflow_context_boundaries_v152 RENAME TO workflow_context_boundaries;
 CREATE INDEX workflow_context_boundaries_history ON workflow_context_boundaries(work_id, boundary_sequence DESC);
-CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
-CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
 	{
@@ -8067,7 +8153,6 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 
 	var stopped *migration
 	remoteUpgrade := false
-	receiptUpgrade := false
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {
@@ -8091,18 +8176,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 			}
 		}
 		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
-		receiptUpgrade = receiptUpgrade || m.Name == "effect_receipts"
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err))
-		}
-	}
-	if receiptUpgrade {
-		if err := backfillEffectReceiptDigests(ctx, tx); err != nil {
-			return rollback(err)
 		}
 	}
 	if remoteUpgrade {

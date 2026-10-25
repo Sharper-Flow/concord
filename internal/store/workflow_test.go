@@ -86,7 +86,7 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 		t.Fatalf("workflow operation: %v", err)
 	}
 	var advances int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='workflow-work' AND kind=? AND event_id LIKE 'workflow-work:fixture-walk:%'`, WorkflowActionCompleted).Scan(&advances); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='workflow-work' AND kind=? AND event_id LIKE 'workflow-work:fixture-walk:%'`, WorkflowActionCompleted).Scan(&advances); err != nil {
 		t.Fatal(err)
 	}
 	if advances != 4 {
@@ -184,7 +184,7 @@ func TestWorkflowCompletedCannotBeAppendedThroughGenericEventAPI(t *testing.T) {
 	})
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	assertFailureKind(t, err, KindWorkflowCompletionRequired)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 }
 
 func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *testing.T) {
@@ -219,7 +219,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 		t.Fatal(err)
 	}
 	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	completionVersion := readWorkVersion(t, s, "ordered-gate-work")
@@ -230,7 +230,7 @@ func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *
 	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowCompleted)
 	err := CompleteWorkflow(context.Background(), s, completion)
 	assertFailureKind(t, err, KindMissingEvidence)
-	assertTableCount(t, s, "domain_events", eventsBefore)
+	assertTableCount(t, s, "effect_receipts", eventsBefore)
 	assertTableCount(t, s, "workflow_impact_notices", 0)
 	var state string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='ordered-gate-work'`).Scan(&state); err != nil {
@@ -267,7 +267,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 			return false, err
 		}
 		var completed int
-		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE event_id=? AND kind=?`, completion.EventID, WorkflowCompleted).Scan(&completed); err != nil {
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM effect_receipts WHERE event_id=? AND kind=?`, completion.EventID, WorkflowCompleted).Scan(&completed); err != nil {
 			return false, err
 		}
 		return completed == 1, nil
@@ -383,7 +383,7 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 			workID := "gate-" + strings.ReplaceAll(testCase.name, "-", "_")
 			s, completion := seedCompletionGateCase(t, workID, testCase)
 			var eventsBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 				t.Fatal(err)
 			}
 			err := CompleteWorkflow(context.Background(), s, completion)
@@ -391,7 +391,7 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 			if !failureAs(err, &failure) || failure.Kind != testCase.wantKind || failure.Clause != testCase.wantClause {
 				t.Fatalf("failure=%+v err=%v, want kind=%s clause=%d", failure, err, testCase.wantKind, testCase.wantClause)
 			}
-			assertTableCount(t, s, "domain_events", eventsBefore)
+			assertTableCount(t, s, "effect_receipts", eventsBefore)
 			assertTableCount(t, s, "workflow_impact_notices", 0)
 		})
 	}
@@ -405,7 +405,7 @@ func TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission(t *testing.T
 	t.Parallel()
 	s, request := seedBoundaryActionRequest(t, "action-boundary-open-condition")
 	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -424,7 +424,7 @@ func TestWorkflowActionBoundaryRefusesOpenConditionThroughAdmission(t *testing.T
 		t.Fatal("boundary ran authorization or mutation on work with an open condition")
 	}
 	assertConditionState(t, s, "action-boundary-open-condition", "condition:gate", "open")
-	assertTableCount(t, s, "domain_events", eventsBefore)
+	assertTableCount(t, s, "effect_receipts", eventsBefore)
 }
 
 func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
@@ -434,7 +434,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	result, err := deriveWorkflowReady(context.Background(), s.DatabaseForTesting(), "ready-unreadable")
@@ -442,7 +442,7 @@ func TestWorkflowReadyReportsUnreadableConditionWithoutRewrite(t *testing.T) {
 		t.Fatalf("ready result=%+v err=%v", result, err)
 	}
 	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
@@ -541,7 +541,7 @@ func TestWorkflowContractRevisionEmitsBreakingNoticeForConsumedActiveDependent(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newFoldScope(tx))
+	result, err := applyWorkflowOperationTx(context.Background(), tx, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-source"): sourceVersion}}, newWriteScope(tx))
 	if err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
@@ -621,7 +621,7 @@ func TestWorkflowContractRevisionEmitsAdvisoryNoticesForOtherDependents(t *testi
 				t.Fatal(err)
 			}
 			if testCase.terminal {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, dependentID); err != nil {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, dependentID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -707,12 +707,11 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	seedWorkflowLawProjection(t, s)
 }
 
-// seedWorkflowLawProjection writes the synthetic law home and law subject
-// rows the fixture keeps outside the log. A test that rebuilds from the log
-// calls it again, because the rebuild cannot refold rows no event recorded.
+// seedWorkflowLawProjection writes the fixture's synthetic current law home
+// and law subject rows through the current-schema write guard.
 func seedWorkflowLawProjection(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -767,7 +766,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		appendEvent(workflowEvent("gate-spec-"+workID, WorkflowEvidenceBound, workID, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": "artifact", "immutable_subject_ref": "spec:one", "producer_id": "principal/spec", "producer_run_ref": "gate-spec-" + workID, "producer_watermark": "request/spec", "observed_at": "2026-08-09T00:00:00Z"}))
 	}
 	if !testCase.emptyMandate {
-		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM fold_guard`, workID); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -775,7 +774,17 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		dependentID := workID + "-dependent"
 		seedImpactDependent(t, s, dependentID, workID, "hard")
 		noticeID := WorkflowNoticeID(workID, 1, "work_item", workID, dependentID, "non-breaking")
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "notice-event:"+noticeID, "work.intent_revised", string(SubjectWorkItem), workID, executor, "2026-08-09T00:00:00Z", 1, `{}`); err != nil {
+		if err := s.Transact(t.Context(), func(tx *Transaction) error {
+			scope, err := beginWrite(t.Context(), tx.tx)
+			if err != nil {
+				return err
+			}
+			_, err = appendPreparedEvent(t.Context(), tx.tx, Event{EventID: "notice-event:" + noticeID, Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: executor, OccurredAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
+			if err != nil {
+				return err
+			}
+			return scope.close(t.Context())
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -884,15 +893,16 @@ DELETE FROM fold_guard`); err != nil {
 	if err := db.QueryRowContext(ctx, `SELECT display_name FROM products WHERE id='v14-product'`).Scan(&name); err != nil || name != "V14" {
 		t.Fatalf("preserved v14 product = %q, error=%v", name, err)
 	}
-	var workTitle, relationKind, eventPayload string
+	var workTitle, relationKind, payloadDigest string
 	if err := db.QueryRowContext(ctx, `SELECT title FROM work_items WHERE id='v14-work'`).Scan(&workTitle); err != nil || workTitle != "V14 work" {
 		t.Fatalf("preserved v14 work = %q, error=%v", workTitle, err)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT kind FROM relations WHERE work_id_from='v14-work' AND work_id_to='v14-work-2'`).Scan(&relationKind); err != nil || relationKind != "blocks" {
 		t.Fatalf("preserved v14 relation = %q, error=%v", relationKind, err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE event_id='v14-event'`).Scan(&eventPayload); err != nil || eventPayload != `{"work_kind":"task","title":"V14 work","priority":1}` {
-		t.Fatalf("preserved v14 event = %q, error=%v", eventPayload, err)
+	wantDigest := historicalFixturePayloadDigest(t, `{"work_kind":"task","title":"V14 work","priority":1}`)
+	if err := db.QueryRowContext(ctx, `SELECT payload_digest FROM effect_receipts WHERE event_id='v14-event' AND effect_seq=1 AND kind='work.created' AND subject_type='work_item' AND subject_id='v14-work' AND actor='operator' AND payload_version=2`).Scan(&payloadDigest); err != nil || payloadDigest != wantDigest {
+		t.Fatalf("preserved v14 receipt digest = %q, error=%v, want %q", payloadDigest, err, wantDigest)
 	}
 	if got, err := readSchemaManifestVersion(ctx, db); err != nil || got != CurrentSchemaVersion() {
 		t.Fatalf("schema version = %d, error=%v, want %d", got, err, CurrentSchemaVersion())
@@ -965,19 +975,19 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 			}
 			if table == "workflow_contracts" {
 				// decision_domains arrived with ALTER TABLE alone, so the
-				// table-level fold-only guards keep governing the column:
+				// table-level write-seam-only guards keep governing the column:
 				// an outside-fold UPDATE of it must abort.
 				seedWork(t, s, "fold-guard-decision-domains")
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('actor:' || hex(zeroblob(32)),'principal:fold-guard-dd','client:fold-guard-dd','agent:fold-guard-dd','session:fold-guard-dd','agent','now');
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('fold-guard-decision-domains',1,'fold guard decision domains','internal_sqlite','[]','[]','now','actor:' || hex(zeroblob(32)),'[]','[]',0,'prototype_internal');
-DELETE FROM fold_guard`); err != nil {
+DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_contracts SET decision_domains='[]' WHERE work_id='fold-guard-decision-domains' AND contract_version=1`); err == nil {
 					t.Fatal("an outside-fold UPDATE of decision_domains was accepted")
-				} else if !strings.Contains(err.Error(), "fold-only") {
-					t.Fatalf("an outside-fold UPDATE of decision_domains failed with %v, want the fold-only guard", err)
+				} else if !strings.Contains(err.Error(), "write-seam-only") {
+					t.Fatalf("an outside-fold UPDATE of decision_domains failed with %v, want the write-seam-only guard", err)
 				}
 			}
 		})
@@ -994,7 +1004,7 @@ func TestWorkflowImpactTargetKindRejectsProductAndProject(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := enterFold(context.Background(), tx); err != nil {
+			if err := enterWrite(context.Background(), tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}

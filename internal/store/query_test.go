@@ -201,7 +201,7 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='tampered' WHERE id='knowledge-id'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "knowledge-id", Home: home})
@@ -211,12 +211,12 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 func insertArchivedKnowledge(t *testing.T, s *Store, id, homeProject, homeLocator, path, commit, hash string, products []string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 't', 't')`, homeProject, homeProject); err != nil {

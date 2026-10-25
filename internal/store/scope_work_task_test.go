@@ -19,13 +19,13 @@ func TestScopeReadCarriesThePersistedWorkTask(t *testing.T) {
 		t.Fatal("fixture needs a work item whose persisted task is empty before the update below")
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE work_items SET intent_json=json_set(intent_json, '$.task', 'Reproduce, extract the loop, and keep the budget green.') WHERE id=?`, "packet-task-work"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 

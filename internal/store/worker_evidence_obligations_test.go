@@ -58,7 +58,7 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "evidence-covered-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, "evidence-covered", attemptID, complete.EventID, WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -84,7 +84,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	missing := lane.EvidenceObligations[len(lane.EvidenceObligations)-1]
 	partial := laneCoveringEvidence(lane)[:len(lane.EvidenceObligations)-1]
 	before := workerProjectionSnapshot(t, s)
-	beforeEvents := countRows(t, s, "domain_events")
+	beforeEvents := countRows(t, s, "effect_receipts")
 	complete := workerCompleteEventV2("evidence-undischarged", "evidence-undischarged-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, partial, workerFixtureDirectory(t, s, "evidence-undischarged"))
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}})
 	if !hasFailureKind(err, KindInvalidPayload) {
@@ -96,7 +96,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	if after := workerProjectionSnapshot(t, s); after != before {
 		t.Fatalf("refused completion changed the worker projection:\n%s\nwant\n%s", after, before)
 	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
+	if got := countRows(t, s, "effect_receipts"); got != beforeEvents {
 		t.Fatalf("refused completion event count = %d, want %d", got, beforeEvents)
 	}
 	var state string

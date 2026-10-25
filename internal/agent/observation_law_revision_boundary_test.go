@@ -104,7 +104,7 @@ func assertObservationBoundaryCutover(t *testing.T, s *store.Store) {
 func execProjection(t *testing.T, s *store.Store, statements []string, args [][]any) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for index, statement := range statements {
@@ -112,7 +112,7 @@ func execProjection(t *testing.T, s *store.Store, statements []string, args [][]
 			t.Fatalf("projection statement %d: %v", index, err)
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -205,7 +205,7 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 	s, service, grant, scopeVersion := seedObservationLawBoundary(t)
 	deleteObservationBoundaryLaw(t, s)
 
-	eventsBefore := scalarRow(t, s, `SELECT count(*) FROM domain_events`)
+	eventsBefore := agentCurrentEffects(t, s)
 	versionBefore := scalarRow(t, s, `SELECT version FROM work_items WHERE id=?`, observationBoundaryWork)
 	contractsBefore := scalarRow(t, s, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, observationBoundaryWork)
 
@@ -233,8 +233,8 @@ func runStaleLawBoundaryRefusal(t *testing.T, build func(idempotencyKey, observa
 
 	// The refusal left no effect: no event, no observation row, no version
 	// move, and the pinned contract still stands.
-	if got := scalarRow(t, s, `SELECT count(*) FROM domain_events`); got != eventsBefore {
-		t.Fatalf("refused boundary wrote %d events, want %d", got, eventsBefore)
+	if got := agentCurrentEffects(t, s); got != eventsBefore {
+		t.Fatalf("refused boundary changed current rows or receipts: got=%s baseline=%s", got, eventsBefore)
 	}
 	if got := scalarRow(t, s, `SELECT count(*) FROM external_observations WHERE work_id=?`, observationBoundaryWork); got != 0 {
 		t.Fatalf("refused boundary recorded %d external observations, want 0", got)

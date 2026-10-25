@@ -110,7 +110,7 @@ func TestNativeWorkerControlAttributesExecutionToAuthenticatedChild(t *testing.T
 		t.Fatalf("native execution borrowed another actor: %s %s %s %s", principal, client, agent, session)
 	}
 	var dispatches int
-	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkerDispatched, request.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkerDispatched, request.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
 		t.Fatalf("native execution manufactured terminal dispatch evidence: %d %v", dispatches, err)
 	}
 }

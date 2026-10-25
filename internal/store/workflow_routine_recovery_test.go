@@ -40,12 +40,12 @@ func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDe
 // state that the current refusal and recovery owners must handle.
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, ownerRef, workID, workID); err != nil {
+DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 	var active int
@@ -89,18 +89,18 @@ func recoveryEventFieldsWith(fields map[string]any, key string, value any) map[s
 
 func setConcordProductKey(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE domain_registries SET product_key='concord' WHERE product_id='product';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func setContractSelfRepair(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET self_repair_json='{"refusal_kind":"domain_overlap","blocked_operation":"workflow_action.dispatch_worker","evidence_refs":["obs:routine-repair"]}' WHERE work_id=? AND contract_version=1;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -119,14 +119,14 @@ func recordRoutineSelfRepairActor(t *testing.T, s *Store, actor WorkflowActor) s
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef, string(actor.ActorClass), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -270,11 +270,11 @@ func TestRoutineRecovery(t *testing.T) {
 		attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 		// A clone keeps the deleted mandate; complete successors may drop it
 		// or bind any current accepted law (CD-0036 D3).
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
 			DELETE FROM law_domain_homes WHERE law_id='spec:one';
 			DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-			DELETE FROM fold_guard`, workID); err != nil {
+			DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

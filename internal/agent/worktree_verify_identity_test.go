@@ -41,11 +41,11 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			// The fixture parks the instance at the producer step under the
 			// approved contract and predicate the independent verdict answers
 			// to, the fold-guarded fixture pattern for fold-only tables.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 				UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-2';
 				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES('work-2',1,'approved verify objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal','[]');
 				INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-2',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:verify-identity","immutable_subject_ref":"commit:verify-identity","expected_result":"pass"}');
-				DELETE FROM fold_guard`, ownerRef); err != nil {
+				DELETE FROM write_guard`, ownerRef); err != nil {
 				t.Fatal(err)
 			}
 			// The producer pass opens with its fenced start, and its declared
@@ -126,7 +126,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			}
 			if newEpoch {
 				var startedAt string
-				if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_id='work-2' AND kind=? AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&startedAt); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT d.observed_at FROM workflow_step_epochs e JOIN durable_operations d ON d.work_id=e.work_id AND e.latest_start_event_id=d.op_id||':started' AND d.accepted_inputs_digest=json_extract(e.latest_start_payload,'$.accepted_inputs_digest') WHERE e.work_id='work-2' AND e.step_id='refine' AND e.latest_start_seq>0`).Scan(&startedAt); err != nil {
 					t.Fatal(err)
 				}
 				started, err := time.Parse(time.RFC3339Nano, startedAt)

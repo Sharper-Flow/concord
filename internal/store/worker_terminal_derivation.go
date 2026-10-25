@@ -25,9 +25,9 @@ func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transactio
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	enriched := event
 	if event.Kind == WorkerCompleted || event.Kind == WorkerFailed {

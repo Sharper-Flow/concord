@@ -121,7 +121,7 @@ func checkZeroDispatchEffects(t *testing.T, s *Store, workID, attemptID string) 
 		t.Fatalf("worker attempts for %s = %d, want 0 on the refusal", attemptID, attempts)
 	}
 	var completions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionCompleted).Scan(&completions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=?`, workID).Scan(&completions); err != nil {
 		t.Fatal(err)
 	}
 	if completions != 0 {
@@ -325,7 +325,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 		defer fixture.store.Close()
 		// The law was amended: the projection's canonical locator moved off
 		// the pinned hash. The exact old locator is absent.
-		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET content_hash=? WHERE home_project_id=? AND home_locator_id=? AND id=?; DELETE FROM fold_guard`, "sha256:"+strings.Repeat("7", 64), fixture.sources.lawProject, fixture.sources.lawLocator, fixture.sources.lawID); err != nil {
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET content_hash=? WHERE home_project_id=? AND home_locator_id=? AND id=?; DELETE FROM write_guard`, "sha256:"+strings.Repeat("7", 64), fixture.sources.lawProject, fixture.sources.lawLocator, fixture.sources.lawID); err != nil {
 			t.Fatal(err)
 		}
 		err := readingDispatchWithView(t, fixture, "attempt-reading-old-locator")
@@ -417,7 +417,7 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 		// locally instead of lazily fetching the pinned bytes.
 		partial := repo + "-partial"
 		fixtureGitRun(t, repo, "clone", "--filter=blob:none", "--no-checkout", "file://"+origin, partial)
-		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?, normalized_value=? WHERE project_id=? AND locator_id=?; DELETE FROM fold_guard`, partial, partial, fixture.sources.repoProject, "repo-locator-"+fixture.workID); err != nil {
+		if _, err := fixture.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?, normalized_value=? WHERE project_id=? AND locator_id=?; DELETE FROM write_guard`, partial, partial, fixture.sources.repoProject, "repo-locator-"+fixture.workID); err != nil {
 			t.Fatal(err)
 		}
 		err := readingDispatchWithView(t, fixture, "attempt-reading-promisor", currentFixtureView(t, fixture))
@@ -481,32 +481,32 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			mutate func(t *testing.T, f workContextFixture)
 		}{
 			{"the declared Project's canonical locator moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=? WHERE project_id=? AND locator_id=?; DELETE FROM fold_guard`, "/nonexistent/reading-repo", f.sources.repoProject, "repo-locator-"+f.workID); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE project_locators SET locator_value=? WHERE project_id=? AND locator_id=?; DELETE FROM write_guard`, "/nonexistent/reading-repo", f.sources.repoProject, "repo-locator-"+f.workID); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the knowledge source registration is removed", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product' AND project_id='project' AND locator_id='workflow-law-locator'; DELETE FROM fold_guard`); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_knowledge_homes WHERE product_id='product' AND project_id='project' AND locator_id='workflow-law-locator'; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the knowledge watermark moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=?; DELETE FROM fold_guard`, strings.Repeat("4", 40), f.sources.lawProject, f.sources.lawLocator); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=?; DELETE FROM write_guard`, strings.Repeat("4", 40), f.sources.lawProject, f.sources.lawLocator); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the canonical record locator moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET note_path='.concord/docs/moved.md' WHERE home_project_id=? AND home_locator_id=? AND id=?; DELETE FROM fold_guard`, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET note_path='.concord/docs/moved.md' WHERE home_project_id=? AND home_locator_id=? AND id=?; DELETE FROM write_guard`, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the law projection hash moves", func(t *testing.T, f workContextFixture) {
 				hash := "sha256:" + strings.Repeat("6", 64)
 				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+					mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `UPDATE law_subjects SET content_hash=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, hash, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID)
 					mustTxExec(t, tx, `UPDATE law_domain_homes SET law_content_hash=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, hash, f.sources.lawProject, f.sources.lawLocator, f.sources.lawID)
-					mustTxExec(t, tx, `DELETE FROM fold_guard`)
+					mustTxExec(t, tx, `DELETE FROM write_guard`)
 					return nil
 				})
 				if err != nil {
@@ -515,9 +515,9 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			}},
 			{"the registered source's registration instant moves", func(t *testing.T, f workContextFixture) {
 				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+					mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `UPDATE product_knowledge_sources SET registered_at='drifted' WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
-					mustTxExec(t, tx, `DELETE FROM fold_guard`)
+					mustTxExec(t, tx, `DELETE FROM write_guard`)
 					return nil
 				})
 				if err != nil {
@@ -526,10 +526,10 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 			}},
 			{"the registered source is removed and re-added", func(t *testing.T, f workContextFixture) {
 				err := f.store.Transact(context.Background(), func(tx *Transaction) error {
-					mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+					mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 					mustTxExec(t, tx, `DELETE FROM product_knowledge_sources WHERE product_id='product' AND project_id=?`, f.sources.lawProject)
 					mustTxExec(t, tx, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'drifted')`, f.sources.lawProject, f.sources.lawLocator)
-					mustTxExec(t, tx, `DELETE FROM fold_guard`)
+					mustTxExec(t, tx, `DELETE FROM write_guard`)
 					return nil
 				})
 				if err != nil {
@@ -537,25 +537,25 @@ func TestDispatchRequiredReadingResolution(t *testing.T) {
 				}
 			}},
 			{"the knowledge watermark digest moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET scanned_content_digest=? WHERE home_project_id=? AND home_locator_id=?; DELETE FROM fold_guard`, "sha256:"+strings.Repeat("3", 64), f.sources.lawProject, f.sources.lawLocator); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET scanned_content_digest=? WHERE home_project_id=? AND home_locator_id=?; DELETE FROM write_guard`, "sha256:"+strings.Repeat("3", 64), f.sources.lawProject, f.sources.lawLocator); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the knowledge projection version moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET projection_version=projection_version+1 WHERE home_project_id=? AND home_locator_id=?; DELETE FROM fold_guard`, f.sources.lawProject, f.sources.lawLocator); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE knowledge_index_watermark SET projection_version=projection_version+1 WHERE home_project_id=? AND home_locator_id=?; DELETE FROM write_guard`, f.sources.lawProject, f.sources.lawLocator); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the declared Project's locator identity moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 					UPDATE project_locators SET created_at='drifted', updated_at='drifted' WHERE project_id=? AND locator_id=?;
 					UPDATE projects SET version=version+1 WHERE id=?;
-					DELETE FROM fold_guard`, f.sources.repoProject, "repo-locator-"+f.workID, f.sources.repoProject); err != nil {
+					DELETE FROM write_guard`, f.sources.repoProject, "repo-locator-"+f.workID, f.sources.repoProject); err != nil {
 					t.Fatal(err)
 				}
 			}},
 			{"the Product scope version moves", func(t *testing.T, f workContextFixture) {
-				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE products SET version=version+1 WHERE id='product'; DELETE FROM fold_guard`); err != nil {
+				if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE products SET version=version+1 WHERE id='product'; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}},

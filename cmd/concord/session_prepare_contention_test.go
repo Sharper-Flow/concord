@@ -60,7 +60,7 @@ func TestSessionPrepareIdentityContentionKeepsRetryRoute(t *testing.T) {
 			t.Fatalf("code=%d identity=%d boot=%d stdout=%q stderr=%q", code, identityCalls, bootCalls, out.String(), errOut.String())
 		}
 		var count int
-		if err := s.DatabaseForTesting().QueryRowContext(t.Context(), "SELECT count(*) FROM domain_events WHERE event_id = ?", eventID).Scan(&count); err != nil || count != 0 {
+		if err := s.DatabaseForTesting().QueryRowContext(t.Context(), "SELECT count(*) FROM effect_receipts WHERE event_id = ?", eventID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("contended assertion count=%d err=%v", count, err)
 		}
 		return nil
@@ -71,7 +71,7 @@ func TestSessionPrepareIdentityContentionKeepsRetryRoute(t *testing.T) {
 		t.Fatalf("prepare after lock release: code=%d identity=%d boot=%d err=%v stderr=%q", code, identityCalls, bootCalls, identityErr, errOut.String())
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRowContext(t.Context(), "SELECT count(*) FROM domain_events WHERE event_id = ?", eventID).Scan(&count); err != nil || count != 1 {
+	if err := s.DatabaseForTesting().QueryRowContext(t.Context(), "SELECT count(*) FROM effect_receipts WHERE event_id = ?", eventID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("successful assertion count=%d err=%v", count, err)
 	}
 }

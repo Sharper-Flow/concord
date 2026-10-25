@@ -351,7 +351,7 @@ func recordProjectHandoffCore(ctx context.Context, tx *sql.Tx, req RecordProject
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: handoffID + ":recorded", Kind: "work.project_handoff_recorded", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.SourceSessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	out.HandoffID = handoffID
@@ -641,7 +641,7 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: req.HandoffID + ":consumed", Kind: "work.project_handoff_consumed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.ConsumerSessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	out.HandoffID = req.HandoffID

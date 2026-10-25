@@ -100,19 +100,19 @@ func workSizeRecordedBasisTx(ctx context.Context, q queryer, workID string) ([]s
 	rows, err := q.QueryContext(ctx, `SELECT DISTINCT basis.value FROM work_size_assessments s,
 		json_each(s.review_basis) basis WHERE s.work_id=?`, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the recorded review basis", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "work_size", "cannot read the recorded review basis", true, "retry once the current rows are readable", err)
 	}
 	defer rows.Close()
 	var basis []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the recorded review basis", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the recorded review basis", true, "retry once the current rows are readable", err)
 		}
 		basis = append(basis, id)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the recorded review basis", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "work_size", "cannot scan the recorded review basis", true, "retry once the current rows are readable", err)
 	}
 	return basis, nil
 }

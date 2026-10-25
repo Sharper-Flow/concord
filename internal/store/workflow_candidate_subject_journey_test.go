@@ -57,7 +57,7 @@ func newCandidateJourney(t *testing.T, workID string) *candidateJourney {
 	}
 	gitRunStore(t, j.repo, "init", "-b", "candidate-branch")
 	base := j.commit(t, "worker@example.invalid", "pinned harness and defect")
-	if _, err := j.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','candidate-claim','candidate-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM fold_guard`, WorktreeSetID(workID), base, j.repo, j.repo); err != nil {
+	if _, err := j.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project','candidate-claim','candidate-branch',?,?,?,'active','2026-10-09T00:00:00Z','{}');DELETE FROM write_guard`, WorktreeSetID(workID), base, j.repo, j.repo); err != nil {
 		t.Fatal(err)
 	}
 	j.s.nativeOracleProgramLaunched = func() { j.launches++ }
@@ -664,7 +664,7 @@ func TestManagedCandidateSubjectCorrectiveDispatchOnB(t *testing.T) {
 	}
 	var job WorkerJobBinding
 	var raw string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_job') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, j.workID, WorkflowActionCompleted, attempt).Scan(&raw); err != nil {
+	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_job') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attempt).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal([]byte(raw), &job); err != nil || job != jobB {
@@ -721,7 +721,7 @@ func (j *candidateJourney) dispatchPacket(t *testing.T, packet map[string]any) e
 func (j *candidateJourney) dispatchedSubject(t *testing.T, attemptID string) string {
 	t.Helper()
 	var subject string
-	if err := j.s.db.QueryRow(`SELECT coalesce(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, j.workID, WorkflowActionCompleted, attemptID).Scan(&subject); err != nil {
+	if err := j.s.db.QueryRow(`SELECT coalesce(json_extract(payload,'$.worker_subject_commit'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&subject); err != nil {
 		t.Fatal(err)
 	}
 	return subject
@@ -778,7 +778,7 @@ func (j *candidateJourney) laneDispatch(t *testing.T, attemptID, capability stri
 	t.Helper()
 	lane := reviewGateLane(t, capability)
 	var packetDigest string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, j.workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatalf("read dispatch digest %s: %v", attemptID, err)
 	}
 	dispatch := Event{EventID: "candidate-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: j.workID, Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
@@ -882,7 +882,7 @@ func (j *candidateJourney) completeAttempt(t *testing.T, attemptID, capability s
 func (j *candidateJourney) dispatchEpoch(t *testing.T, attemptID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, j.workID, WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&epoch); err != nil {
 		t.Fatalf("read dispatch epoch %s: %v", attemptID, err)
 	}
 	return epoch
@@ -921,7 +921,12 @@ type subjectRecord struct{ id, kind, payload string }
 func (j *candidateJourney) snapshotSubjectRecords(t *testing.T, subject string) map[string]subjectRecord {
 	t.Helper()
 	records := map[string]subjectRecord{}
-	rows, err := j.s.db.Query(`SELECT event_id,kind||'@'||payload_version,payload FROM domain_events WHERE subject_id=? AND (kind IN (?,?) OR (kind=? AND json_extract(payload,'$.action_id') IN ('dispatch_worker','accept_worker_result','accept_worker_evidence')))`, j.workID, WorkerCompleted, WorkerDispatched, WorkflowActionCompleted)
+	rows, err := j.s.db.Query(`SELECT r.event_id,r.kind||'@'||r.payload_version,p.payload FROM effect_receipts r JOIN (
+		SELECT dispatch_event_id AS event_id,dispatch_payload AS payload FROM worker_attempts WHERE work_id=? AND dispatch_payload IS NOT NULL
+		UNION ALL SELECT terminal_event_id,terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_kind=?
+		UNION ALL SELECT event_id,payload FROM worker_authorizations WHERE work_id=?
+		UNION ALL SELECT event_id,payload FROM worker_attempt_dispositions WHERE work_id=? AND action_id IN ('accept_worker_result','accept_worker_evidence')
+	) p ON p.event_id=r.event_id WHERE r.subject_type='work_item' AND r.subject_id=?`, j.workID, j.workID, WorkerCompleted, j.workID, j.workID, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -988,7 +993,7 @@ func subjectOfLease(t *testing.T, r subjectRecord) string {
 func (j *candidateJourney) executeRequest(t *testing.T, attemptID string, job WorkerJobBinding, preparation WorktreeVerifyResult) NativeOracleRequest {
 	t.Helper()
 	var digest string
-	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, j.workID, WorkflowActionCompleted, attemptID).Scan(&digest); err != nil {
+	if err := j.s.db.QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, j.workID, attemptID).Scan(&digest); err != nil {
 		t.Fatal(err)
 	}
 	bound := job

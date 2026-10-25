@@ -31,7 +31,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, missingInstanceID): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execution' WHERE work_id=?; DELETE FROM fold_guard`, sourceID); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execution' WHERE work_id=?; DELETE FROM write_guard`, sourceID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,7 +41,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 		t.Fatalf("agent forward link failed: %+v", linked.Error)
 	}
 	var storedKind, definitionRef string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.successor_kind'),json_extract(payload,'$.definition_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, sourceID, store.WorkflowSuccessorLinked).Scan(&storedKind, &definitionRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT w.kind,i.definition_ref FROM relations r JOIN effect_receipts e ON e.relation_seq=r.id JOIN work_items w ON w.id=r.work_id_to JOIN workflow_instances i ON i.work_id=w.id WHERE r.work_id_from=? AND e.kind=? AND r.kind='forward_link' ORDER BY e.effect_seq DESC LIMIT 1`, sourceID, store.WorkflowSuccessorLinked).Scan(&storedKind, &definitionRef); err != nil {
 		t.Fatal(err)
 	}
 	if storedKind != "task" || definitionRef != "workflow.research" {

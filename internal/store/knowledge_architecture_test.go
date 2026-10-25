@@ -272,7 +272,7 @@ func TestFreshWatermarkOverAnOlderWritersPackageMapRebuilds(t *testing.T) {
 	s, home := architectureFixtureStore(t, repo)
 	want := architectureSnapshot(t, s, home)
 	db := s.DatabaseForTesting()
-	for _, statement := range []string{`INSERT INTO fold_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM law_coverage_anchors`, `DELETE FROM law_evidence_paths`, `UPDATE knowledge_index_watermark SET projection_version=2`, `DELETE FROM fold_guard`} {
+	for _, statement := range []string{`INSERT INTO write_guard(active) VALUES(1)`, `DELETE FROM knowledge_package_domains`, `DELETE FROM law_coverage_anchors`, `DELETE FROM law_evidence_paths`, `UPDATE knowledge_index_watermark SET projection_version=2`, `DELETE FROM write_guard`} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}

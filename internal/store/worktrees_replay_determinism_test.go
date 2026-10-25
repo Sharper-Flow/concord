@@ -84,7 +84,7 @@ func TestReclaimThreeRestorationCyclesLogEveryTransition(t *testing.T) {
 	settlementCount := func() int {
 		t.Helper()
 		var count int
-		if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM domain_events WHERE kind='work.worktree_removal_settled' AND subject_id=?`, workID).Scan(&count); err != nil {
+		if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM effect_receipts WHERE kind='work.worktree_removal_settled' AND subject_id=?`, workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count

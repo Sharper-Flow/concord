@@ -32,9 +32,9 @@ func appendWorkflowStalenessObservationTx(ctx context.Context, transaction *Tran
 	if err != nil {
 		return err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	recorded, err := workflowStalenessObservationRecordedTx(ctx, tx, event)
 	if err != nil {

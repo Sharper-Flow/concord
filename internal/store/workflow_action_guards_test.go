@@ -16,7 +16,7 @@ func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
@@ -25,7 +25,7 @@ func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 	if _, err := db.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?)`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -55,16 +55,27 @@ func TestCorrectedContractExternalCheckRecoveryAtAcceptance(t *testing.T) {
 		// Fold the successor to isolate evidence recovery from correction routing.
 		version := readWorkVersion(t, s, workID)
 		actor, _ := WorkflowActorRef(f.owner)
-		var contractRaw []byte
-		if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractRaw); err != nil {
+		contract, err := readWorkflowContractVersion(t.Context(), s.db, workID, 1)
+		if err != nil {
 			t.Fatal(err)
 		}
-		var successor map[string]any
-		if err := json.Unmarshal(contractRaw, &successor); err != nil {
+		successor := map[string]any{
+			"premise": contract.Premise, "rigor_class": contract.RigorClass,
+			"required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions,
+			"spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "law_revisions": contract.LawRevisions,
+		}
+		var lawBoundaryVersion int
+		var consequenceClass string
+		if err := s.db.QueryRow(`SELECT law_boundary_version,consequence_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&lawBoundaryVersion, &consequenceClass); err != nil {
 			t.Fatal(err)
 		}
-		for _, key := range []string{"work_id", "expected_version", "resulting_version"} {
-			delete(successor, key)
+		successor["law_boundary_version"] = lawBoundaryVersion
+		successor["consequence_class"] = consequenceClass
+		if contract.DecisionDomains != nil {
+			successor["decision_domains"] = contract.DecisionDomains
+		}
+		if contract.ArchitectureBinding != nil {
+			successor["architecture_binding"] = contract.ArchitectureBinding
 		}
 		successor["contract_version"] = 2
 		successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:p0", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:github/required-checks", "immutable_subject_ref": subject, "expected_result": "pass"}}}
@@ -135,7 +146,7 @@ func assertRecoveryRefusalWithoutEffect(t *testing.T, s *Store, workID string, k
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	var failure *Failure
@@ -144,7 +155,7 @@ func assertRecoveryRefusalWithoutEffect(t *testing.T, s *Store, workID string, k
 		t.Fatalf("recovery refusal = %v, want %s", err, kind)
 	}
 	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if got := readWorkVersion(t, s, workID); got != version || after != before {
@@ -296,7 +307,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			if before != nil {
 				t.Fatalf("discover correction before corrupting the predicate: %v", before)
 			}
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, test.kind, test.payload, workID); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
 				t.Fatal(err)
 			}
 			state, _, _, err := loadWorkflowAdmissionStateTxForRegistry(ctx, s.db, workID, entry.Definition, "acceptance", "test", BuiltinWorkflowRegistry())
@@ -346,7 +357,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	const workID = "mandate-recovery-verdict"
 	f, _, refs := pReceiptFixture(t, workID, 1, 1)
 	s := f.store
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1`, workID); err != nil {
@@ -355,7 +366,7 @@ func TestRecordVerdictPassesAfterRecoveryBind(t *testing.T) {
 	if _, err := s.db.Exec(`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,'spec:one',?)`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictAction(t, s, workID, "bind_evidence", recoveryBindPayload()); err != nil {
@@ -383,7 +394,7 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if seedErr != nil {
 		t.Fatal(seedErr)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
@@ -398,7 +409,7 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','verification')`, workID, contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := seedTx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := seedTx.Commit(); err != nil {
@@ -436,7 +447,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if seedErr != nil {
 		t.Fatal(seedErr)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := seedTx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, "sha256:"+strings.Repeat("d", 64)); err != nil {
@@ -454,7 +465,7 @@ func TestBindEvidenceObligationRefusedOnceSatisfied(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,'ob-satisfied-ev','operator',?)`, workID, `{"evidence_kind":"review","immutable_subject_ref":"spec:one"}`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := seedTx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := seedTx.Commit(); err != nil {
@@ -474,13 +485,13 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	const workID = "required-kind-recovery-empty-mandate"
 	s, _, _ := seedItemAtAcceptance(t, workID)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence='["verification","review","commit"]',spec_mandate='[]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	var beforeStep, beforeContract string
@@ -508,7 +519,7 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	}
 	for _, kind := range []string{"review", "commit"} {
 		var count int
-		if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=?`, workID, WorkflowEvidenceBound, kind).Scan(&count); err != nil {
+		if err := db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=?`, workID, kind).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
@@ -524,13 +535,13 @@ func TestBindEvidenceRequiredKindRecoveryAfterMandateBound(t *testing.T) {
 		t.Fatalf("mandate binding refused: %v", err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence='["verification","review"]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","evidence_ref":"evidence:review-after-mandate"}`)); err != nil {

@@ -37,8 +37,8 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 		return response
 	}
 	driftWorkPinVersion(t, s, "work-1")
-	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE domain_events`); err != nil {
-		t.Fatal(err)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`); got != 0 {
+		t.Fatal("current migrated store unexpectedly retains the event log")
 	}
 	replay := retry()
 	if replay.Outcome != OutcomeOK || !replay.Replayed {
@@ -169,8 +169,8 @@ func TestIdempotentResponseWorkflowCapturesTransactionResult(t *testing.T) {
 		t.Fatalf("completed response not captured: record=%+v found=%t err=%v", prior, found, err)
 	}
 	driftWorkPinVersion(t, r.Store, "work-1")
-	if _, err := r.Store.DatabaseForTesting().Exec(`DROP TABLE domain_events`); err != nil {
-		t.Fatal(err)
+	if got := countRows(t, r.Store.DatabaseForTesting(), `SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`); got != 0 {
+		t.Fatal("current migrated store unexpectedly retains the event log")
 	}
 	replay, handled, err := r.replayMutationBeforeScope(ctx, NewBase("workflow-retry", r.Tool, r.Operation), raw, grant, op)
 	if err != nil || !handled || replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {

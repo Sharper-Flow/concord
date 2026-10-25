@@ -317,7 +317,7 @@ func init() {
 		goConstantBound("internal/store/domain_reads.go", "domainListMaxLimit", boundItems))
 
 	// ------------------------------------------------------------------
-	// domain observation (CD-0068, fold-only table)
+	// domain observation (CD-0068, write-seam-only table)
 	// ------------------------------------------------------------------
 
 	// Ref items ride the fold validation only: validateObservationBounds

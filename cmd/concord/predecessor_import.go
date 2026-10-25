@@ -416,7 +416,7 @@ func isTerminalActiveChangeStatus(status string) bool {
 }
 
 // reconcileDeferredSelection resolves each deferred selection against the
-// durable log. An import that already exists makes the selection an
+// effect receipts. An import that already exists makes the selection an
 // idempotent no-op: the predecessor's terminal state is its own history,
 // recorded in the validated snapshot, and the existing Concord projection is
 // left untouched. A deferred selection with no existing import keeps the
@@ -956,7 +956,7 @@ func isDuplicateEvent(err error) bool {
 // CLI failures trace back to the import surface. Underlying causes are
 // preserved on Failure.Err.
 func wrapOperatorFailure(detail string, cause error) *store.Failure {
-	failure := &store.Failure{Kind: store.KindUnavailable, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "rebuild the database from its durable log"}
+	failure := &store.Failure{Kind: store.KindUnavailable, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "restore the current rows from a verified snapshot"}
 	failure.Err = cause
 	return failure
 }

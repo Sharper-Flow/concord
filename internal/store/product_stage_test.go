@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -52,16 +51,13 @@ func TestChangeProductStageUpdatesProjectionAndLog(t *testing.T) {
 	if version != before+1 {
 		t.Fatalf("version=%d want %d", version, before+1)
 	}
-	var payload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='product.stage_changed' AND subject_id='product-stage'`).Scan(&payload); err != nil {
-		t.Fatalf("no product.stage_changed event in the log: %v", err)
+	var digest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='product.stage_changed' AND subject_type='product' AND subject_id='product-stage' AND actor='operator' AND payload_version=1`, result.EventIDs[0]).Scan(&digest); err != nil {
+		t.Fatalf("no exact product.stage_changed receipt: %v", err)
 	}
-	// The payload carries the operator's cited reason, so a promotion is
-	// auditable against the manifest it names.
-	for _, needed := range []string{"alpha", "operator_only", "CD-0091", fmt.Sprintf("\"expected_version\":%d", before)} {
-		if !strings.Contains(payload, needed) {
-			t.Fatalf("payload lost audit fields (%q): %s", needed, payload)
-		}
+	want, err := effectPayloadDigest(mustJSONValue(map[string]any{"stage_maturity": "alpha", "stage_audience_commitment": "operator_only", "reason": "CD-0091 alpha rung manifest satisfied", "expected_version": before, "resulting_version": before + 1}))
+	if err != nil || digest != want {
+		t.Fatalf("stage receipt digest=%q, want the full stage/reason/version payload %q: %v", digest, want, err)
 	}
 }
 

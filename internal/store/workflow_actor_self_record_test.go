@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -118,46 +117,48 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 	}
 }
 
-// countActorRecordedEvents reports how many workflow.actor_recorded events the
-// durable log carries.
+// countActorRecordedEvents counts accepted actor-record effects.
 func countActorRecordedEvents(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, WorkflowActorRecorded).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, WorkflowActorRecorded).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
 }
 
-// readActorRecordedPrefixEvent reads the one actor-recording event the shared
-// prefix owner minted under eventID and decodes its durable payload.
-func readActorRecordedPrefixEvent(t *testing.T, s *Store, eventID string) (Event, workflowActorRecordedPayload) {
+// The actor row owns its tuple and first-seen time. The receipt binds that tuple
+// to the prefix identity and the request's exact version cursor.
+func readActorRecordedPrefixEvent(t *testing.T, s *Store, eventID string, expectedVersion int64) (Event, workflowActorRecordedPayload) {
 	t.Helper()
 	var event Event
-	var occurredAt string
-	var payloadRaw []byte
+	var occurredAt, digest string
 	var payload workflowActorRecordedPayload
-	err := s.DatabaseForTesting().QueryRow(`SELECT kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=? AND kind=?`, eventID, WorkflowActorRecorded).Scan(&event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &payloadRaw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT r.kind,r.subject_type,r.subject_id,r.actor,a.first_seen_at,r.payload_version,r.payload_digest,a.actor_ref,a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class FROM effect_receipts r JOIN workflow_actors a ON a.actor_ref=r.actor WHERE r.event_id=? AND r.kind=?`, eventID, WorkflowActorRecorded).Scan(&event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &digest, &payload.ActorRef, &payload.PrincipalRef, &payload.ClientRef, &payload.AgentRef, &payload.SessionRef, &payload.ActorClass)
 	if err != nil {
-		t.Fatalf("actor prefix event %s is not in the durable log: %v", eventID, err)
+		t.Fatalf("read actor prefix receipt and current tuple %s: %v", eventID, err)
 	}
 	parsed, parseErr := time.Parse(time.RFC3339Nano, occurredAt)
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
 	event.OccurredAt = parsed
-	if unmarshalErr := json.Unmarshal(payloadRaw, &payload); unmarshalErr != nil {
-		t.Fatal(unmarshalErr)
+	payload.WorkID = event.SubjectID
+	payload.ExpectedVersion = &expectedVersion
+	resultingVersion := expectedVersion + 1
+	payload.ResultingVersion = &resultingVersion
+	want, digestErr := effectPayloadDigest(mustJSONValue(payload))
+	if digestErr != nil || digest != want {
+		t.Fatalf("actor prefix payload digest=%q, want exact tuple/version payload %q: %v", digest, want, digestErr)
 	}
 	return event, payload
 }
 
-// readEventTime reads one durable event's occurrence time by ID and kind.
-func readEventTime(t *testing.T, s *Store, eventID, kind string) time.Time {
+func readActorPrefixActionTime(t *testing.T, s *Store, eventID string) time.Time {
 	t.Helper()
 	var occurredAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE event_id=? AND kind=?`, eventID, kind).Scan(&occurredAt); err != nil {
-		t.Fatalf("event %s (%s) is not in the durable log: %v", eventID, kind, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT i.last_checkpoint_at FROM workflow_instances i JOIN workflow_phase_exits x ON x.work_id=i.work_id JOIN effect_receipts r ON r.effect_seq=x.exit_seq WHERE r.event_id=? AND r.kind=?`, eventID, WorkflowActionCompleted).Scan(&occurredAt); err != nil {
+		t.Fatalf("read current action time for %s: %v", eventID, err)
 	}
 	parsed, parseErr := time.Parse(time.RFC3339Nano, occurredAt)
 	if parseErr != nil {
@@ -204,7 +205,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		if got := countWorkflowActor(t, s, agentRef); got != 1 {
 			t.Fatalf("acting session actor rows=%d, want 1", got)
 		}
-		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor")
+		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor", version)
 		if event.Kind != WorkflowActorRecorded || event.SubjectType != SubjectWorkItem || event.SubjectID != workID || event.Actor != agentRef {
 			t.Fatalf("actor prefix event identity=%+v, want the canonical actor record for %s", event, agentRef)
 		}
@@ -284,11 +285,11 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		if got := countWorkflowActor(t, s, agentRef); got != 1 {
 			t.Fatalf("acting session actor rows=%d, want 1", got)
 		}
-		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor")
+		event, payload := readActorRecordedPrefixEvent(t, s, request.OperationID+":actor", version)
 		if event.OccurredAt.IsZero() {
 			t.Fatalf("actor prefix occurred_at is zero, want the normalized action time")
 		}
-		completedAt := readEventTime(t, s, request.OperationID+":completed", WorkflowActionCompleted)
+		completedAt := readActorPrefixActionTime(t, s, request.OperationID+":completed")
 		if !event.OccurredAt.Equal(completedAt) {
 			t.Fatalf("actor prefix occurred_at=%v, want the action's normalized event time %v", event.OccurredAt, completedAt)
 		}

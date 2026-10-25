@@ -77,12 +77,12 @@ func seedWorkerCompletionOtherProjectClaim(t *testing.T, dbPath string) string {
 		query string
 		args  []any
 	}{
-		{query: `INSERT INTO fold_guard(active) VALUES(1)`},
+		{query: `INSERT INTO write_guard(active) VALUES(1)`},
 		{query: `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-2','Second repository',1,'2026-08-22T00:00:00Z','2026-08-22T00:00:00Z')`},
 		{query: `INSERT INTO product_projects(product_id,project_id,role) VALUES('product-1','project-2','secondary')`},
 		{query: `INSERT INTO work_projects(work_id,project_id,role) VALUES('work-1','project-2','secondary')`},
 		{query: `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project-2','claim-project-2','work/second-project',?,?,'repo-2','active','2026-08-22T00:00:00Z','{}')`, args: []any{store.WorktreeSetID("work-1"), strings.Repeat("b", 40), directory}},
-		{query: `DELETE FROM fold_guard`},
+		{query: `DELETE FROM write_guard`},
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement.query, statement.args...); err != nil {

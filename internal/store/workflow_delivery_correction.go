@@ -122,7 +122,7 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "delivery correction payload cannot be encoded", false, "supply the bounded correction fields")
 	}
 	events = append(events, Event{EventID: request.EventID, Kind: WorkflowDeliveryCorrected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: workflowDeliveryCorrectionRegisteredVersion(), Payload: payload})
-	return applyOperationTx(ctx, sqlTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(sqlTx), true)
+	return applyOperationTx(ctx, sqlTx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newWriteScope(sqlTx), true)
 }
 
 // workflowDeliveryCorrectionCoordinatorAdmitted refuses every correction
@@ -203,7 +203,7 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	}
 	var corrections int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_delivery_state WHERE work_id=? AND assertion_id=? AND correction_id IS NOT NULL AND correction_id<>?`, event.SubjectID, p.TargetEventID, event.EventID).Scan(&corrections); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect prior delivery corrections", true, "retry once the event log is readable", err)
+		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect prior delivery corrections", true, "retry once the current rows are readable", err)
 	}
 	if corrections != 0 {
 		return newFailure(KindInvalidOperation, "fold_event", "delivery assertion is already corrected", false, "reread the effective delivery assertion")
@@ -269,7 +269,7 @@ func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, e
 func workflowLatestDeliveryAssertionSeqTx(ctx context.Context, tx *sql.Tx, workID string) (int64, error) {
 	var seq int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(assertion_seq),0) FROM workflow_delivery_state WHERE work_id=?`, workID).Scan(&seq); err != nil {
-		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot read the latest delivery assertion", true, "retry once the event log is readable", err)
+		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot read the latest delivery assertion", true, "retry once the current rows are readable", err)
 	}
 	return seq, nil
 }
@@ -307,7 +307,7 @@ type WorkflowReadDeliveryCorrection struct {
 }
 
 // workflowDeliveryAssertionRead derives the current delivery assertion and its
-// effective correction for one work item from the event log. The original
+// effective correction for one work item from current delivery rows. The original
 // event is returned unchanged; the correction is an overlay, never a rewrite.
 // The assertion identity is the asserted delivery fields on a completed
 // action event, so a combined accept assertion (CD-0198 D4) reads beside a
@@ -320,7 +320,7 @@ func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read the delivery assertion", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read the delivery assertion", true, "retry once the current rows are readable", err)
 	}
 	var fields struct {
 		DeliveryArtifact string `json:"delivery_artifact"`
@@ -345,7 +345,7 @@ func workflowDeliveryCorrectionRead(ctx context.Context, q queryer, workID, targ
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read the delivery correction", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read the delivery correction", true, "retry once the current rows are readable", err)
 	}
 	if artifact == "" || evidenceSource == "" {
 		return nil, newFailure(KindInvariantViolation, "workflow_read", "delivery correction payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")

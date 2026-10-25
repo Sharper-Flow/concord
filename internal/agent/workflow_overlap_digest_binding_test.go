@@ -55,10 +55,10 @@ func captureOverlapDigestBaseline(t *testing.T, s *store.Store, challengeRef str
 	t.Helper()
 	db := s.DatabaseForTesting()
 	var captured overlapDigestBaseline
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&captured.events); err != nil {
+	if err := db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&captured.events); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&captured.overlapEvents); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`).Scan(&captured.overlapEvents); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM workflow_overlap_resolutions`).Scan(&captured.resolutions); err != nil {
@@ -81,10 +81,10 @@ func captureOverlapDigestBaseline(t *testing.T, s *store.Store, challengeRef str
 func assertOverlapDigestNoEffect(t *testing.T, s *store.Store, baseline overlapDigestBaseline, challengeRef string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if got := countRows(t, db, `SELECT count(*) FROM domain_events`); got != baseline.events {
+	if got := countRows(t, db, `SELECT last FROM store_sequences WHERE name='effect'`); got != baseline.events {
 		t.Errorf("the refused request left %d domain events, want the baseline %d", got, baseline.events)
 	}
-	if got := countRows(t, db, `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != baseline.overlapEvents {
+	if got := countRows(t, db, `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != baseline.overlapEvents {
 		t.Errorf("the refused request left %d resolution events, want the baseline %d", got, baseline.overlapEvents)
 	}
 	if got := countRows(t, db, `SELECT count(*) FROM workflow_overlap_resolutions`); got != baseline.resolutions {
@@ -271,7 +271,7 @@ func TestWorkflowOverlapExactDigestBinding(t *testing.T) {
 			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
 				t.Fatalf("the unchanged resolution left %d resolution rows, want exactly one", got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind='workflow.overlap_resolved'`); got != 1 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind='workflow.overlap_resolved'`); got != 1 {
 				t.Fatalf("the unchanged resolution left %d resolution events, want exactly one", got)
 			}
 			var rowRef, rowKind, rowReason string
@@ -282,7 +282,7 @@ func TestWorkflowOverlapExactDigestBinding(t *testing.T) {
 				t.Fatalf("the unchanged resolution recorded kind %q reason %q, want %q %q", rowKind, rowReason, original.kind, minted.Reason)
 			}
 			var eventRef, eventDigest string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.approval_ref'),json_extract(payload,'$.approval_operation_digest') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventRef, &eventDigest); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT r.approval_ref,a.operation_digest FROM workflow_overlap_resolutions r JOIN effect_receipts e ON e.event_id=r.resolution_id JOIN agent_approvals a ON a.approval_ref=r.approval_ref WHERE e.kind='workflow.overlap_resolved'`).Scan(&eventRef, &eventDigest); err != nil {
 				t.Fatal(err)
 			}
 			if eventDigest != digest {

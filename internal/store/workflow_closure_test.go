@@ -77,7 +77,7 @@ func TestReviewedTerminalCancellationRevalidatesProvenance(t *testing.T) {
 			seedWork(t, s, "cancel-provenance")
 			cancelWithReviewedEvidence(t, s, "cancel-provenance", "principal/operator", []string{closureTestHash})
 			requireTerminalHash(t, s, "cancel-provenance", closureTestHash)
-			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); `+mutation+`; DELETE FROM fold_guard`, "cancel-provenance"); err != nil {
+			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); `+mutation+`; DELETE FROM write_guard`, "cancel-provenance"); err != nil {
 				t.Fatal(err)
 			}
 			assertFailureKind(t, s.CheckReviewedClosureContentHash(t.Context(), "cancel-provenance", closureTestHash), KindInvariantViolation)
@@ -159,7 +159,7 @@ func TestReviewedClosureLifecycleCompletionAfterCancelledWorkflowRequiresJudgeme
 					var state string
 					if err := f.store.db.QueryRow(`SELECT json_array(w.lifecycle,w.version,w.transition_from,w.transition_reason,w.transition_actor,w.transition_evidence_refs,w.transition_seq,w.transition_version,w.updated_at,w.terminal_time,i.instance_state,i.completed_at,
  (SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=w.id),
- (SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=w.id))
+ (SELECT json_group_array(json_array(event_id,effect_seq,payload_digest)) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=w.id))
  FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&state); err != nil {
 						t.Fatal(err)
 					}
@@ -495,7 +495,7 @@ func TestReviewedClosureRevalidatesRecordedProvenance(t *testing.T) {
 				t.Fatal(err)
 			}
 			requireClosureHash(t, f.store, workID, closureTestHash)
-			if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); `+tc.statement+`; DELETE FROM fold_guard`, workID); err != nil {
+			if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); `+tc.statement+`; DELETE FROM write_guard`, workID); err != nil {
 				t.Fatal(err)
 			}
 			assertFailureKind(t, closureReadError(t, f.store, workID), KindInvariantViolation)
@@ -509,7 +509,7 @@ func TestReviewedClosureStaleContractIsNotJudgement(t *testing.T) {
 	if err := closureBind(t, f, workID, "review", closureTestHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_phase_exits SET contract_version=0 WHERE work_id=? AND action_id='bind_evidence'; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_phase_exits SET contract_version=0 WHERE work_id=? AND action_id='bind_evidence'; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	requireClosureHash(t, f.store, workID, "")
@@ -572,7 +572,7 @@ func TestReviewedClosureRecoveryRequiresFinalRebind(t *testing.T) {
 		var state string
 		if err := s.db.QueryRow(`SELECT json_array(w.lifecycle,w.version,i.instance_state,i.completed_at,
  (SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),
- (SELECT count(*) FROM domain_events WHERE subject_id=w.id),
+ (SELECT json_group_array(json_array(event_id,effect_seq,payload_digest)) FROM effect_receipts WHERE subject_id=w.id),
  (SELECT count(*) FROM durable_operations WHERE work_id=w.id),
  (SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=w.id),
  (SELECT json_group_array(json_array(action_id,exit_seq,record_version)) FROM workflow_phase_exits WHERE work_id=w.id))

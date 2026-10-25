@@ -29,9 +29,6 @@ type workSizeOverriddenPayload struct {
 	ApprovalScopeJSON       string   `json:"approval_scope_json"`
 	ApprovalVersionsJSON    string   `json:"approval_versions_json"`
 	ApprovalConsequence     string   `json:"approval_consequence"`
-	// CarriedFromEventID decodes a historical carried override on replay.
-	// No live size revision carries an override to another item.
-	CarriedFromEventID string `json:"carried_from_event_id,omitempty"`
 }
 
 func (p workSizeOverriddenPayload) binding() workflowApprovalBinding {
@@ -116,7 +113,7 @@ func OverrideWorkSizeTx(ctx context.Context, transaction *Transaction, request W
 		return WorkSizeRevisionResult{}, wrapFailure(KindInvalidPayload, "work_size_override", "cannot encode the size override", false, "supply the bounded override fields", err)
 	}
 	override := Event{EventID: request.EventID, Kind: WorkSizeOverridden, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: operator.ref, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: 1, Payload: payload}
-	applied, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newFoldScope(tx))
+	applied, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, override}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, newWriteScope(tx))
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}
@@ -134,9 +131,7 @@ func foldWorkSizeOverridden(ctx context.Context, tx *sql.Tx, event Event) error 
 	if !validWorkSize(p.Size) || !workflowString(p.Reason, 4096) || p.ModelSequence < 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "size override needs a size from the vocabulary, a bounded reason and a model sequence", false, "record the operator's size against the current model record")
 	}
-	if p.CarriedFromEventID != "" {
-		return newFailure(KindInvalidOperation, "fold_event", "carried size overrides are retired", false, "record an approved in-place size override")
-	} else if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
+	if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, p.binding(), workSizeOverrideApprovalSubject); err != nil {
 		return err
 	}
 	var lifecycle string

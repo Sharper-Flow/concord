@@ -122,7 +122,7 @@ func TestReviseIntentSizeRevisionsStayOnTheWork(t *testing.T) {
 	if size := readWorkSizeSummary(t, s, service, env, workID); size == nil || size.Size != larger || size.ModelSize != store.WorkSizeCrucial || size.OperatorSize == nil || *size.OperatorSize != larger {
 		t.Fatalf("override size = %+v", size)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE kind IN ('work.resized','work.superseded','workflow.successor_linked')`) != 0 {
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind IN ('work.resized','work.superseded','workflow.successor_linked')`) != 0 {
 		t.Fatal("size revision created a successor, relation, or supersession")
 	}
 }

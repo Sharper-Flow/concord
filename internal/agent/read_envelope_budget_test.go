@@ -62,13 +62,13 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	}
 	intentJSON, _ := json.Marshal(map[string]any{"task": task, "value_statement": value, "tags": tags, "workflow_type_ref": "workflow.break_fix"})
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE work_items SET intent_json=?`, string(intentJSON)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
@@ -165,7 +165,7 @@ func TestSingleFullWorkItemTooLargeReturnsTypedByteRefusal(t *testing.T) {
 	s, _, _, _, _ := workflowEngineFixture(t, "single item")
 	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "workflow_type_ref": "workflow.break_fix"})
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM fold_guard`, string(intent)); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
@@ -196,9 +196,9 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	for _, operation := range []string{"ready", "scope", "blocked"} {
 		t.Run(operation, func(t *testing.T) {
 			if operation == "blocked" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES (1);
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
 					INSERT INTO relations(work_id_from,work_id_to,kind,created_at) SELECT 'work-1',id,'blocks','2026-08-08T12:00:00Z' FROM work_items WHERE id<>'work-1';
-					DELETE FROM fold_guard`); err != nil {
+					DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}

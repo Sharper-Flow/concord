@@ -52,7 +52,7 @@ func TestWorkerRetryWithoutConsentKeepsFreshIdentityAndReplay(t *testing.T) {
 		t.Fatalf("retry minted %d approval challenges", got)
 	}
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='attempt:work-1:fresh'`).Scan(&epoch); err != nil || epoch != pin.Correction.FailedAttemptEpoch+1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id='work-1' AND attempt_id='attempt:work-1:fresh'`).Scan(&epoch); err != nil || epoch != pin.Correction.FailedAttemptEpoch+1 {
 		t.Fatalf("fresh retry epoch=%d err=%v, want %d", epoch, err, pin.Correction.FailedAttemptEpoch+1)
 	}
 }
@@ -111,7 +111,7 @@ func TestWorkerRetryRequiresTerminalReconciliationAndCurrentPacket(t *testing.T)
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
 		t.Fatalf("refused retry created %d attempts, want 1", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'`); got != 1 {
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempt_dispositions WHERE work_id='work-1' AND action_id='record_worker_failure'`); got != 1 {
 		t.Fatalf("terminal derived %d failure records, want 1", got)
 	}
 	input["fields"] = map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)}
@@ -144,16 +144,16 @@ func seedWorkerRetryMutationFixtureAt(t *testing.T, s *store.Store, grant Author
 		t.Fatal(err)
 	}
 	path := t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:retry-objective',0,'check','{"kind":"check","check_ref":"check:retry-objective","immutable_subject_ref":"commit:retry-objective","expected_result":"pass"}');
-		DELETE FROM fold_guard`, ownerRef); err != nil {
+		DELETE FROM write_guard`, ownerRef); err != nil {
 		t.Fatalf("seed retry projections: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:retry", "retry", strings.Repeat("a", 40), path, "repo:retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:retry", "retry", strings.Repeat("a", 40), path, "repo:retry", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("seed retry worktree: %v", err)
 	}
 	var claimed int

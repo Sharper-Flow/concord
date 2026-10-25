@@ -101,7 +101,7 @@ func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
 				t.Fatalf("completion refusal = %v, want clause %d", err, tc.clause)
 			}
 			var count int
-			if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='conjunctive-work' AND kind=?`, WorkflowCompleted).Scan(&count); err != nil || count != 0 {
+			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='conjunctive-work' AND kind=?`, WorkflowCompleted).Scan(&count); err != nil || count != 0 {
 				t.Fatalf("refused completion count = %d, want 0: %v", count, err)
 			}
 		})

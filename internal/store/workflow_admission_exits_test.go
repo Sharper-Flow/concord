@@ -19,7 +19,7 @@ func admissionExitFixture(t *testing.T, s *Store, ref string, p workflowActionCo
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	var next int64
@@ -42,7 +42,7 @@ func admissionExitFixture(t *testing.T, s *Store, ref string, p workflowActionCo
 	if err := writeWorkflowCompletedExitTx(ctx, tx, event, p, ref); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -62,13 +62,13 @@ func admissionExitPinFixture(t *testing.T, s *Store, ref, step string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(t.Context(), tx); err != nil {
+	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := pinWorkflowInstanceToStepTx(t.Context(), tx, "admission-exits", entry, step, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(t.Context(), tx); err != nil {
+	if err := leaveWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

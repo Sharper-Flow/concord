@@ -74,7 +74,7 @@ func latestExecutionStart(t *testing.T, s *store.Store) (int64, string) {
 	t.Helper()
 	var epoch int64
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref') FROM domain_events WHERE kind=? AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch, &actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch'),json_extract(latest_start_payload,'$.actor_ref') FROM workflow_step_epochs WHERE step_id='execution' ORDER BY latest_start_seq DESC LIMIT 1`).Scan(&epoch, &actor); err != nil {
 		t.Fatal(err)
 	}
 	return epoch, actor

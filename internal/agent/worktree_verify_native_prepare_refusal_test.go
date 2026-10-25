@@ -70,11 +70,11 @@ func TestValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent',?);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'native prepare refusal fixture','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:agent-native-prepare',0,'check','{"kind":"check","check_ref":"check:agent-native-prepare","immutable_subject_ref":"commit:agent-native-prepare","expected_result":"pass"}');
-		DELETE FROM fold_guard`, ownerRef, grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef, fixedTime().Format(time.RFC3339Nano), ownerRef); err != nil {
+		DELETE FROM write_guard`, ownerRef, grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef, fixedTime().Format(time.RFC3339Nano), ownerRef); err != nil {
 		t.Fatal(err)
 	}
 

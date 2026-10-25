@@ -558,9 +558,9 @@ func claimPath(s *Store) string {
 // a pre-retirement capture folded. Live initiative capture remains forbidden.
 func modelHistoricalInitiative(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -578,7 +578,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 					}
 				}
 				modelHistoricalInitiative(t, s, req.WorkID)
-				before := planningEventCount(t, s.db)
+				before := countRows(t, s, "effect_receipts")
 				git.calls = nil
 				var err error
 				switch entry {
@@ -615,7 +615,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 						t.Error("retired entry left a native branch")
 					}
 				}
-				if after := planningEventCount(t, s.db); after != before {
+				if after := countRows(t, s, "effect_receipts"); after != before {
 					t.Errorf("retired entry appended events: before=%d after=%d", before, after)
 				}
 				assertRetiredPlanningRefusal(t, err)
@@ -630,7 +630,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	auditWork(t, s, git, "retired-audit", false)
 	auditWork(t, s, git, "actionable-audit", false)
 	modelHistoricalInitiative(t, s, "retired-audit")
-	before := planningEventCount(t, s.db)
+	before := countRows(t, s, "effect_receipts")
 	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
 		t.Fatal(err)
@@ -650,7 +650,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	if !actionableFound || !historicalClaimFound {
 		t.Fatalf("audit lost actionable work or historical claim visibility: %+v", audit.Drift)
 	}
-	if after := planningEventCount(t, s.db); after != before {
+	if after := countRows(t, s, "effect_receipts"); after != before {
 		t.Fatalf("audit appended events: before=%d after=%d", before, after)
 	}
 }
@@ -1014,7 +1014,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	if _, err := s.ReclaimWorktree(context.Background(), secondReclaim); err != nil {
 		t.Fatalf("second generation reclaim failed: %v", err)
 	}
-	rows, err := s.db.Query(`SELECT event_id FROM domain_events WHERE kind='work.worktree_reclaimed' ORDER BY seq`)
+	rows, err := s.db.Query(`SELECT event_id FROM effect_receipts WHERE kind='work.worktree_reclaimed' ORDER BY effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1440,14 +1440,14 @@ func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
 	// The helper inserts a legacy worktree_occupancy row (no process
 	// identity) recorded now, so a live host lease that predates the row
 	// keeps it in place (CD-0179) and the reclaim/destroy path refuses
-	// without operator approval. The fold-only guard requires fold_guard=1
+	// without operator approval. The write-seam-only guard requires write_guard=1
 	// around any direct INSERT, even in tests.
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, ?, NULL, NULL, 0
 		  FROM worktree_entries WHERE set_id=? AND state='active';
-		DELETE FROM fold_guard`, sessionRef, time.Now().UTC().Format(time.RFC3339Nano), WorktreeSetID(workID)); err != nil {
+		DELETE FROM write_guard`, sessionRef, time.Now().UTC().Format(time.RFC3339Nano), WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1612,7 +1612,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1627,7 +1627,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if claimsAfter != claimsBefore || entriesAfter != entriesBefore || eventsAfter != eventsBefore {

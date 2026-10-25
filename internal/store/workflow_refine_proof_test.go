@@ -81,7 +81,7 @@ func refineProofDelivery(t *testing.T, s *Store, workID string, tooling *Project
 	}
 	defer tx.Rollback()
 	payload := json.RawMessage(`{"delivery_artifact":"artifact:refine-proof-` + workID + `","delivery_state":"asserted"}`)
-	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs("record_delivery", payload), WorkID: workID, ExpectedVersion: version, ActionID: "record_delivery", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + fmt.Sprint(version), IdempotencyIdentity: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), OperationID: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "record_delivery-refine-proof-" + workID + "-" + fmt.Sprint(version), RequestID: "request:refine-proof-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
@@ -163,14 +163,16 @@ func refineProofTooling(entries ...ProjectDeclaredTool) *ProjectToolingManifest 
 	return &ProjectToolingManifest{Project: "concord", Declared: entries}
 }
 
-// refineProofSeedGreenRun seeds one green worktree_verify run acquired just
-// after the current refine start and binds it as verification evidence, the
-// proof the CD-0192 refine exit consumes on the current definitions.
+// refineProofSeedGreenRun binds one green worktree_verify run after the current
+// instance's timing anchor, with the refine start retained in its owning row.
 func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 	t.Helper()
 	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		t.Fatalf("read the refine start: %v", err)
+	if workflowCurrentStartAtStep(t, s, workID, "refine") == nil {
+		t.Fatal("the refine proof fixture has no current refine start")
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(last_checkpoint_at,execution_started_at,started_at) FROM workflow_instances WHERE work_id=?`, workID).Scan(&occurred); err != nil {
+		t.Fatalf("read the current refine instance time: %v", err)
 	}
 	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
 	if err != nil {
@@ -189,22 +191,20 @@ func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 }
 
 // workerJobIntegrationGreenRun seeds the integration evidence the job-capable
-// delivery admission requires (CD-0205 D3): one green worktree_verify run of
-// the fixture's Project acquired after the current delivery-bearing step's
-// start, after every recorded worker-job acceptance, and after every
-// required job's recorded result population, then bound as verification
-// evidence.
+// delivery admission requires (CD-0205 D3): one green worktree_verify run for
+// each current Project scope, acquired after the instance's timing anchor and
+// the retained completed-result population, then bound as verification evidence.
 func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string) {
 	t.Helper()
 	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		t.Fatalf("read the delivery-bearing step start: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(last_checkpoint_at,execution_started_at,started_at) FROM workflow_instances WHERE work_id=?`, workID).Scan(&occurred); err != nil {
+		t.Fatalf("read the delivery-bearing instance time: %v", err)
 	}
 	anchor, err := time.Parse(time.RFC3339Nano, occurred)
 	if err != nil {
 		t.Fatalf("parse the delivery-bearing step start: %v", err)
 	}
-	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,''),COALESCE(e.occurred_at,'') FROM worker_job_revisions j LEFT JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=j.work_id AND e.event_id=j.satisfied_result_ref WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
+	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,'') FROM worker_job_revisions j WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
 	if err != nil {
 		t.Fatalf("read the required job scopes: %v", err)
 	}
@@ -212,8 +212,8 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	scopes := []string{}
 	anyScope := false
 	for srows.Next() {
-		var scope, accepted string
-		if err := srows.Scan(&scope, &accepted); err != nil {
+		var scope string
+		if err := srows.Scan(&scope); err != nil {
 			t.Fatal(err)
 		}
 		if scope == "" {
@@ -221,11 +221,11 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 		} else {
 			scopes = append(scopes, scope)
 		}
-		if at, err := time.Parse(time.RFC3339Nano, accepted); err == nil && at.After(anchor) {
-			anchor = at
-		}
 	}
 	if err := srows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := srows.Close(); err != nil {
 		t.Fatal(err)
 	}
 	// The integration epoch the admission derives also opens after every
@@ -233,7 +233,7 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	// after the latest recorded completion too, including the pending final
 	// job a combined acceptance counts as satisfied.
 	var completed string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(e.occurred_at),'') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=?`, workID, WorkerCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(terminal_occurred_at),'') FROM worker_attempts WHERE work_id=? AND terminal_kind=?`, workID, WorkerCompleted).Scan(&completed); err != nil {
 		t.Fatalf("read the required job result population: %v", err)
 	}
 	if at, err := time.Parse(time.RFC3339Nano, completed); err == nil && at.After(anchor) {
@@ -348,11 +348,11 @@ func TestRefineProofStartRecorded(t *testing.T) {
 	// The current refine start bounds the epoch in event history: the start
 	// event predates every binding the guard accepts.
 	var startSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine'`, workID, WorkflowActionStarted).Scan(&startSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT latest_start_seq FROM workflow_step_epochs WHERE work_id=? AND step_id='refine'`, workID).Scan(&startSeq); err != nil {
 		t.Fatal(err)
 	}
 	var count int
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?`, workID, WorkflowActionStarted, startSeq).Scan(&count); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? AND effect_seq>?`, workID, WorkflowActionStarted, startSeq).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -475,13 +475,13 @@ func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
 // reads.
 func seedWorkCanonicalPath(t *testing.T, s *Store, canonicalPath string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator:refine-proof','project','canonical_path',?,?,'2026-09-29T00:00:00Z','2026-09-29T00:00:00Z')`, canonicalPath, canonicalPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

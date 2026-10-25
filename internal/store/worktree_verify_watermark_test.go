@@ -98,7 +98,7 @@ func TestAcquireVerifyLeaseRecordsWorkEventWatermark(t *testing.T) {
 	entry := claimFixtureWorktree(t, s, git)
 	ctx := context.Background()
 
-	workEvents := `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-w'`
+	workEvents := `SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='work-w'`
 	var before int64
 	if err := s.db.QueryRow(workEvents).Scan(&before); err != nil {
 		t.Fatal(err)

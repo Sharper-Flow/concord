@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +63,35 @@ func histEventRows(t *testing.T, s *Store) []histEventRow {
 	return out
 }
 
+type currentEffectRow struct {
+	Seq                                          int64
+	RelationSeq                                  sql.NullInt64
+	EventID, Kind, SubjectType, SubjectID, Actor string
+	Version, DeliveryAssertion                   int
+	PayloadDigest                                string
+}
+
+func currentEffectRows(t *testing.T, s *Store) []currentEffectRow {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []currentEffectRow
+	for rows.Next() {
+		var row currentEffectRow
+		if err := rows.Scan(&row.Seq, &row.EventID, &row.Kind, &row.SubjectType, &row.SubjectID, &row.Actor, &row.Version, &row.PayloadDigest, &row.DeliveryAssertion, &row.RelationSeq); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -86,25 +117,25 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		event.SubjectType, event.SubjectID, event.Actor = SubjectWorkItem, "work-w", "host:fixture"
 		event.OccurredAt = time.Unix(40, 0).UTC()
 		event.PayloadVersion = eventKindRegistry[event.Kind].CurrentVersion
-		count := countRows(t, s, "domain_events")
+		receipts := currentEffectRows(t, s)
 		err := ApplyOperation(ctx, s, Operation{Events: []Event{event}})
 		var failure *Failure
 		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
 			t.Fatalf("live %s = %v, want invalid_payload", name, err)
 		}
-		if countRows(t, s, "domain_events") != count || workerProjectionSnapshot(t, s) != before || readWorkVersion(t, s, "work-w") != version {
+		if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || workerProjectionSnapshot(t, s) != before || readWorkVersion(t, s, "work-w") != version {
 			t.Fatalf("live %s refusal changed state", name)
 		}
 	}
 	landing := Event{EventID: "live-missing-pid", Kind: "work.session_claim_landed", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "ses-held", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: eventKindRegistry["work.session_claim_landed"].CurrentVersion,
 		Payload: mustJSONValue(map[string]any{"work_id": "work-w", "project_id": "project-w", "session_ref": "ses-held", "claim_op_id": claimed.Entry.ClaimOpID, "source_directories": []string{}, "landed_directory": claimed.Entry.Path, "host_pid": 0, "host_pid_start": 0})}
-	count := countRows(t, s, "domain_events")
+	receipts := currentEffectRows(t, s)
 	err = ApplyOperation(ctx, s, Operation{Events: []Event{landing}})
 	var failure *Failure
 	if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "missing host_pid") {
 		t.Fatalf("missing-pid landing = %v", err)
 	}
-	if countRows(t, s, "domain_events") != count || readWorkVersion(t, s, "work-w") != version {
+	if !reflect.DeepEqual(currentEffectRows(t, s), receipts) || readWorkVersion(t, s, "work-w") != version {
 		t.Fatal("refused landing changed state")
 	}
 	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", claimed.Entry.ClaimOpID); got != "ses-held" {

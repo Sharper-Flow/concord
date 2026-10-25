@@ -234,11 +234,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 		}
 	}
 	var promoted int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind NOT IN (?,?) AND instr(payload,?)>0`, workID, WorkflowWorkContextRecorded, WorkerCompleted, marker).Scan(&promoted); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT
+ (SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (instr(active_unit,?)>0 OR instr(hypothesis,?)>0 OR instr(diagnosis,?)>0 OR instr(strategy,?)>0))+
+ (SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND instr(summary,?)>0)+
+ (SELECT count(*) FROM workflow_contracts WHERE work_id=? AND instr(premise,?)>0)`, workID, marker, marker, marker, marker, workID, marker, workID, marker).Scan(&promoted); err != nil {
 		t.Fatal(err)
 	}
 	if promoted != 0 {
-		t.Errorf("close copied context into %d other events", promoted)
+		t.Errorf("close promoted context into %d checkpoint, boundary, or contract rows", promoted)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM law_subjects WHERE instr(title,?)>0 OR instr(path,?)>0`, marker, marker).Scan(&promoted); err != nil {
 		t.Fatal(err)

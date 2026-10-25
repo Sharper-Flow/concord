@@ -117,7 +117,7 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 		"work_id": request.WorkID, "expected_version": version, "resulting_version": version + 1,
 		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
-	scope := newFoldScope(tx)
+	scope := newWriteScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		"work_id": request.WorkID, "expected_version": version + 1, "resulting_version": version + 2,
 		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
 	})
-	scope := newFoldScope(tx)
+	scope := newWriteScope(tx)
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		return err
 	}

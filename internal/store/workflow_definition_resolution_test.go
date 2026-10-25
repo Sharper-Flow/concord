@@ -69,7 +69,7 @@ func newResolutionRegistry(t *testing.T, definition WorkflowDefinition) (Definit
 // operation with the caller's definition registry bound to the scope before
 // any write. The binding refuses a scope from another transaction and a
 // conflicting second registry on one scope.
-func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) error {
+func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *writeScope, registry DefinitionRegistry) error {
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func tryAppendWorkflowEventsWithRegistry(s *Store, registry DefinitionRegistry, 
 		return err
 	}
 	defer tx.Rollback()
-	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newFoldScope(tx), registry); err != nil {
+	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newWriteScope(tx), registry); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -302,7 +302,7 @@ func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action s
 	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		return err
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), registry, WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), registry, WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload,
 		Actor:                actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
@@ -642,10 +642,10 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		defer foreignTx.Rollback()
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
-		foreignScope := newFoldScope(foreignTx)
+		foreignScope := newWriteScope(foreignTx)
 		targetTx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -675,7 +675,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatalf("the foreign-scope append left %d instance rows, want no terminal effect", instances)
 		}
 		var appended int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline {
@@ -715,7 +715,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			}
 		}
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -723,7 +723,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		boundScope := newFoldScope(tx)
+		boundScope := newWriteScope(tx)
 		if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-first-"+workID), boundScope, BuiltinWorkflowRegistry()); err != nil {
 			t.Fatalf("the first append on its own registry refused: %v", err)
 		}
@@ -740,7 +740,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// The store pools one connection: the in-transaction count reads the
 		// open transaction, never the pool beside it.
 		var appended int
-		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline+1 {
@@ -817,10 +817,10 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 func assertNoFoldGuardRows(t *testing.T, s *Store) {
 	t.Helper()
 	var guards int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM write_guard`).Scan(&guards); err != nil {
 		t.Fatal(err)
 	}
 	if guards != 0 {
-		t.Fatalf("%d fold guard rows survived a refused operation", guards)
+		t.Fatalf("%d write guard rows survived a refused operation", guards)
 	}
 }

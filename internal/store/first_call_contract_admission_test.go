@@ -235,7 +235,7 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func firstCallApproveContract(t *testing.T, s *Store, workID string, version int
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: stepFixtureActor(),
 		AcceptedInputsDigest: "sha256:first-call", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: stepFixtureActor().PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

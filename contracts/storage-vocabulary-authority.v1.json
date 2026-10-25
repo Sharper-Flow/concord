@@ -92,16 +92,6 @@
       "authority": "check"
     },
     {
-      "table": "domain_events",
-      "column": "kind",
-      "authority": "check"
-    },
-    {
-      "table": "domain_events",
-      "column": "subject_type",
-      "authority": "check"
-    },
-    {
       "table": "domain_observations",
       "column": "state",
       "authority": "check"

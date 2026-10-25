@@ -24,7 +24,7 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
-import { dbRows, dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
+import { dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, workerEffects, type JSONRecord } from "./end-to-end.fixture"
 
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
@@ -703,7 +703,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
     expect(attempt.lifecycle_state).toBe("completed")
     expect(attempt.readback_model).toBe(READBACK_MODEL)
-    const completedEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${packet.attempt_id}'`)
+    const completedEvent = workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed" && JSON.parse(row.payload).attempt_id === packet.attempt_id)
     expect(completedEvent).toHaveLength(1)
     const completedPayload = JSON.parse(completedEvent[0].payload as string)
     expect(completedPayload.worker_job).toEqual(reportWorkerJob(packet))

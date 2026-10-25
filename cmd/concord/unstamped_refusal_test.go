@@ -36,7 +36,7 @@ func removeNewestManifestRow(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := rewindMigrationTail(db, 0, false); err != nil {
+	if err := removeMigrationManifestTail(db, 0); err != nil {
 		t.Fatalf("cannot remove the newest manifest row: %v", err)
 	}
 }

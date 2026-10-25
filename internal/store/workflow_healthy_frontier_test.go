@@ -14,13 +14,17 @@ func TestWorkflowHealthyFrontierFollowsCurrentVerdictSet(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1 AND ordinal=0`, work).Scan(&primary); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
  SELECT work_id,contract_version,'predicate:second',1,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1 AND ordinal=0;
-DELETE FROM fold_guard`, work); err != nil {
+DELETE FROM write_guard`, work); err != nil {
 		t.Fatal(err)
 	}
 	var healthy int64
+	base := s
+	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"definition_version": "26"}, "workflow_contracts": {"definition_version": "26"}}, guard)
+	}}
 	for i, verdict := range []workflowVerdictRecordedPayload{
 		{ContractVersion: 1, PredicateID: primary, VerdictKind: "ok"},
 		{ContractVersion: 1, PredicateID: "predicate:second", VerdictKind: "insufficient_evidence"},
@@ -31,44 +35,20 @@ DELETE FROM fold_guard`, work); err != nil {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor:test','2026-10-01T00:00:00Z',1,?)`, []string{"healthy:first", "healthy:missing", "healthy:all", "healthy:unhealthy"}[i], WorkflowVerdictRecorded, work, string(raw))
-		if err != nil {
-			t.Fatal(err)
-		}
-		seq, err := result.LastInsertId()
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.db.BeginTx(t.Context(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES(?,1,?,?,'actor:test',?)
-ON CONFLICT(work_id,contract_version,predicate_id) DO UPDATE SET verdict_seq=excluded.verdict_seq,payload=excluded.payload`, work, verdict.PredicateID, seq, string(raw)); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if err := refreshWorkflowHealthySequence(t.Context(), tx, work, 1, false); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
+		c.events = append(c.events, corpusEvent([]string{"healthy:first", "healthy:missing", "healthy:all", "healthy:unhealthy"}[i], WorkflowVerdictRecorded, work, json.RawMessage(raw)))
 		if i == 2 {
-			healthy = seq
+			healthy = int64(i + 1)
 		}
+	}
+	s = c.prefix(t, 141)
+	if err := Migrate(t.Context(), s.db); err != nil {
+		t.Fatal(err)
 	}
 	got, err := workflowLatestComparableHealthySequence(t.Context(), s.db, work, 1)
 	if err != nil || got != healthy {
 		t.Fatalf("healthy frontier = %d, %v; want last simultaneous healthy set at %d", got, err, healthy)
 	}
-	repopulateWorkflowCurrentFactsForTest(t, s)
+	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
 		"healthy-frontier": func() (any, error) { return workflowLatestComparableHealthySequence(t.Context(), s.db, work, 1) },
 	})
@@ -154,7 +134,7 @@ func TestWorkflowHealthyFrontierContractChangeRecomputesCurrentSet(t *testing.T)
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
 UPDATE workflow_predicate_verdicts SET payload=json_set(payload,'$.incomparable_with_approved',json('true')) WHERE work_id=?`, work); err != nil {
 		t.Fatal(err)
 	}

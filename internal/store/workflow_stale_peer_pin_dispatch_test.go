@@ -135,7 +135,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 		t.Fatalf("dispatch_worker under the recorded resolution: %v", err)
 	}
 	var windows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionStarted).Scan(&windows); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations a JOIN effect_receipts r ON r.effect_seq=a.start_seq WHERE a.work_id=? AND r.subject_id=a.work_id AND r.kind=?`, workID, WorkflowActionStarted).Scan(&windows); err != nil {
 		t.Fatal(err)
 	}
 	if windows < 1 {

@@ -188,7 +188,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 		t.Fatalf("replayed claim version=%d err=%v", version, versionErr)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.resource_claimed' AND subject_id=?`, "work-holder").Scan(&events); err != nil || events != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.resource_claimed' AND subject_id=?`, "work-holder").Scan(&events); err != nil || events != 1 {
 		t.Fatalf("claim events=%d err=%v", events, err)
 	}
 

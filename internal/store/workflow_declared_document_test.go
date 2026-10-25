@@ -64,7 +64,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 						t.Fatal(err)
 					}
 					defer tx.Rollback()
-					result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), registry, WorkflowActionExecutionRequest{
+					result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), registry, WorkflowActionExecutionRequest{
 						WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(payload), Actor: actor,
 						AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: identity, OperationID: identity,
 						PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: identity,
@@ -87,7 +87,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				}
 				version := readWorkVersion(t, s, workID)
 				var beforeSeq int64
-				if err := s.db.QueryRow(`SELECT coalesce(max(seq),0) FROM domain_events`).Scan(&beforeSeq); err != nil {
+				if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&beforeSeq); err != nil {
 					t.Fatal(err)
 				}
 				documentKind, table, payload := WorkflowProposalRecorded, "workflow_proposal_records", proposal
@@ -98,7 +98,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				wantRows := 0
 				if declaresDocument {
 					// A declared document still refuses missing and undeclared members
-					// without leaving an event, row, or version advance behind.
+					// without leaving an effect, row, or version advance behind.
 					for i, invalid := range []string{`{}`, payload[:len(payload)-1] + `,"unknown":"field"}`} {
 						_, err := apply(actionID, invalid, "invalid-document-"+string(rune('a'+i)))
 						var failure *Failure
@@ -115,7 +115,7 @@ func TestWorkflowDeclaredDocumentEffects(t *testing.T) {
 				if err != nil {
 					t.Fatalf("pinned action execution: %v", err)
 				}
-				rows, err := s.db.Query(`SELECT kind FROM domain_events WHERE subject_id=? AND seq>? ORDER BY seq`, workID, beforeSeq)
+				rows, err := s.db.Query(`SELECT kind FROM effect_receipts WHERE subject_id=? AND effect_seq>? ORDER BY effect_seq`, workID, beforeSeq)
 				if err != nil {
 					t.Fatal(err)
 				}

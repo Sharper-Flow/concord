@@ -117,7 +117,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			job := authorizedWorkerJob(t, s, attempt)
 			lane := deliveryRecoveryLane(t, "implementation")
 			var packetDigest string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attempt).Scan(&packetDigest); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id='work-1' AND attempt_id=?`, attempt).Scan(&packetDigest); err != nil {
 				t.Fatal(err)
 			}
 			dispatch := store.Event{EventID: "caller-lane-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched),
@@ -160,14 +160,14 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 			agentWorkerCompletedThroughSeam(t, s, attempt, "caller-completed", payload)
 			var observed []string
 			var raw string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.observed_delivery.changed_paths') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerCompleted, attempt).Scan(&raw); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(terminal_payload,'$.observed_delivery.changed_paths') FROM worker_attempts WHERE work_id='work-1' AND terminal_kind=? AND attempt_id=?`, store.WorkerCompleted, attempt).Scan(&raw); err != nil {
 				t.Fatal(err)
 			}
 			if err := json.Unmarshal([]byte(raw), &observed); err != nil || !slices.Equal(observed, []string{"caller/use.go", "caller/use_test.go", "owner/value.go"}) {
 				t.Fatalf("observed changed paths = %s (%v), want the delivered owner and caller files", raw, err)
 			}
 			var epoch int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil {
 				t.Fatal(err)
 			}
 			acceptFields := map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}
@@ -193,7 +193,7 @@ func TestWorkerJobCallerRepairAcceptanceThroughAgent(t *testing.T) {
 				}
 			}
 			var digest string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.digest') FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkerJobRecorded).Scan(&digest); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT digest FROM worker_job_revisions WHERE work_id='work-1' ORDER BY recorded_seq DESC LIMIT 1`).Scan(&digest); err != nil {
 				t.Fatal(err)
 			}
 			if digest != job.Digest {

@@ -33,7 +33,7 @@ func seedImpactTargetFixture(t *testing.T, s *Store, workID, targetID string) Wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func seedImpactTargetFixture(t *testing.T, s *Store, workID, targetID string) Wo
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

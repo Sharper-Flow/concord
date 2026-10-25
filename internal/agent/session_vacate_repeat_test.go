@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,7 +100,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	}
 
 	var events int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind=?`, "work.session_vacated").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind=?`, "work.session_vacated").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 2 {
@@ -198,14 +200,14 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 		t.Fatalf("occupancy rows after the refused replay=%d, want the later claim's row standing", occupied)
 	}
 	var landings int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
 		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -280,7 +282,7 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 		t.Fatalf("source replay result=%+v, want the committed request's source and destination", result)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -369,7 +371,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 		t.Fatalf("new-key retry result=%+v, want the committed request's source and destination", result)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -432,7 +434,7 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 	// read. The request state is fold-only, so the test opens the fold guard
 	// on its own fixture database to damage it.
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE session_vacate_requests SET destination_directory=''; DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE session_vacate_requests SET destination_directory=''; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +443,7 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		t.Fatalf("new-key retry response=%+v, want a refusal for the unreadable pending request", retry)
 	}
 	var vacates int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -603,17 +605,24 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		}
 	}
 	var events []vacatedEvent
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq`)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id,payload_version,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id='work-1' AND kind='work.session_vacated' ORDER BY effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rows.Next() {
 		var event vacatedEvent
-		var raw string
-		if err := rows.Scan(&event.EventID, &event.PayloadVersion, &raw); err != nil {
+		var digest string
+		if err := rows.Scan(&event.EventID, &event.PayloadVersion, &digest); err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal([]byte(raw), &event.Payload); err != nil {
+		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": grant.SessionRef, "source_directory": worktree1, "destination_directory": repo1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if digest != fmt.Sprintf("sha256:%x", sha256.Sum256(raw)) {
+			t.Fatalf("vacate receipt %s does not bind the exact relocation request with no landing: digest=%s expected=%s", event.EventID, digest, raw)
+		}
+		if err := json.Unmarshal(raw, &event.Payload); err != nil {
 			t.Fatal(err)
 		}
 		events = append(events, event)

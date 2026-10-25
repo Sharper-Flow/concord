@@ -65,7 +65,7 @@ func TestWorkPinIntentsAreAdmittedAtEveryBuiltinStep(t *testing.T) {
 			}
 			for _, step := range definition.StepGraph.Steps {
 				t.Run(step.ID, func(t *testing.T) {
-					if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM fold_guard`, step.ID, workID); err != nil {
+					if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM write_guard`, step.ID, workID); err != nil {
 						t.Fatal(err)
 					}
 					count += assertWorkPinIntentsAdmitted(t, s, workID)

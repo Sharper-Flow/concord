@@ -56,7 +56,7 @@ func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHo
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	seed := func(project, locator, repo string) {
@@ -83,7 +83,7 @@ func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHo
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -204,11 +204,11 @@ func demandContentHash(content string) string {
 func seedDemandHeldNegative(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 			t.Errorf("remove fold guard: %v", err)
 		}
 	}()

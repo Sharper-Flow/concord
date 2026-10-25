@@ -113,7 +113,7 @@ func approvalChallengeCount(t *testing.T, s *Store) int {
 func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='approval'`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='approval'`, workID).Scan(&bound); err != nil {
 		t.Fatalf("read approval-kind evidence: %v", err)
 	}
 	return bound
@@ -174,27 +174,24 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, registry Definit
 	return pin.PendingOperatorDecision, pin.WithheldOperatorDecision
 }
 
-// latestApprovalEventPayload reads the latest event of one kind for one work
-// item and decodes its payload into a generic map for attribution assertions.
-func latestApprovalEventPayload(t *testing.T, s *Store, workID, kind string) map[string]any {
+func assertApprovalConfirmationReceipt(t *testing.T, s *Store, workID, confirmingActor, authority string, contractVersion, expectedVersion int64) {
 	t.Helper()
-	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, kind).Scan(&raw); err != nil {
-		t.Fatalf("read latest %s event: %v", kind, err)
+	var got string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, WorkflowPremiseConfirmed).Scan(&got); err != nil {
+		t.Fatalf("read confirmation receipt: %v", err)
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("decode %s payload: %v", kind, err)
+	want, err := effectPayloadDigest(mustJSONValue(map[string]any{"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1, "contract_version": contractVersion, "confirming_actor_ref": confirmingActor, "confirmation_authority": authority}))
+	if err != nil || got != want {
+		t.Fatalf("confirmation digest=%q, want exact actor/authority payload %q with no approval or operator fields: %v", got, want, err)
 	}
-	return payload
 }
 
 // latestApprovalEventActor reads the latest event of one kind's recorded
-// actor, the attribution the event log carries beside its payload.
+// actor from its immutable receipt header.
 func latestApprovalEventActor(t *testing.T, s *Store, workID, kind string) string {
 	t.Helper()
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, kind).Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, kind).Scan(&actor); err != nil {
 		t.Fatalf("read latest %s actor: %v", kind, err)
 	}
 	return actor
@@ -236,7 +233,7 @@ func approvalWorkAndInstanceState(t *testing.T, s *Store, workID string) (lifecy
 func approvalEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	return events
@@ -306,18 +303,18 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
 	version := readWorkVersion(t, s, workID)
+	contractEvent := resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
+		"contract_version": 1, "premise": "deliver the checked change",
+		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("approval-absent-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
 			workflowActionCompletedFixture("approval-absent-discovery-"+workID, workID, ownerRef, version+1, "discovery", "record_discovery"),
 			workflowActionCompletedFixture("approval-absent-design-"+workID, workID, ownerRef, version+2, "design", "record_design"),
-			resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
-				"contract_version": 1, "premise": "deliver the checked change",
-				"outcome_kind":      "check",
-				"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-				"required_evidence": []string{"verification"}, "route_conventions": []string{},
-				"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			}),
+			contractEvent,
 			workflowActionCompletedFixture("approval-absent-planning-"+workID, workID, ownerRef, version+4, "planning", "approve_contract"),
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
@@ -332,12 +329,13 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&premise, &domainsAbsent); err != nil {
 		t.Fatal(err)
 	}
-	var contractPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractPayload); err != nil {
+	var contractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&contractDigest); err != nil {
 		t.Fatalf("read the absent contract event: %v", err)
 	}
-	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
-		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
+	wantDigest, err := effectPayloadDigest(contractEvent.Payload)
+	if err != nil || domainsAbsent != 1 || strings.Contains(string(contractEvent.Payload), "decision_domains") || contractDigest != wantDigest {
+		t.Fatalf("the legacy contract NULL=%d digest=%q, want the exact absent-fact payload %q: %v", domainsAbsent, contractDigest, wantDigest, err)
 	}
 	// The higher version arrives after the legacy history, as an upgrade
 	// does: the legacy definition was current when the item selected it.
@@ -379,12 +377,12 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if active != 1 {
 		t.Fatalf("the carry forward left %d active contracts, want the absent-fact contract kept authoritative", active)
 	}
-	var carriedPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&carriedPayload); err != nil {
+	var carriedContractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&carriedContractDigest); err != nil {
 		t.Fatalf("reread the absent contract event: %v", err)
 	}
-	if string(carriedPayload) != string(contractPayload) {
-		t.Fatalf("the carry forward rewrote the absent contract event to %s, want %s preserved", carriedPayload, contractPayload)
+	if carriedContractDigest != contractDigest {
+		t.Fatalf("the carry forward rewrote the absent contract digest to %q, want %q preserved", carriedContractDigest, contractDigest)
 	}
 	if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
 		t.Fatalf("the carry forward moved the execution actor to %q, want the owner %s", executionActor, ownerRef)
@@ -394,7 +392,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 
 // assertNoApprovalEffect holds the refusal invariant: the work version and the
 // work item's event count did not move, no confirmation row appeared, and no
-// fold guard row survived.
+// write guard row survived.
 func assertNoApprovalEffect(t *testing.T, s *Store, workID string, baselineVersion, baselineEvents int64) {
 	t.Helper()
 	if version := readWorkVersion(t, s, workID); version != baselineVersion {
@@ -524,6 +522,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 
 		// The executing coordinator confirms through the public action: no
 		// operator actor, no human digest, the closed confirm choice.
+		confirmationVersion := readWorkVersion(t, s, workID)
 		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`); err != nil {
 			t.Fatalf("engineering coordinator confirmation refused through the public action: %v", err)
 		}
@@ -534,16 +533,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed); eventActor != ownerRef {
 			t.Fatalf("confirmation event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
 		}
-		confirmedEvent := latestApprovalEventPayload(t, s, workID, WorkflowPremiseConfirmed)
-		if confirmedEvent["confirmation_authority"] != "coordinator" || confirmedEvent["confirming_actor_ref"] != ownerRef {
-			t.Fatalf("engineering confirmation event = %v/%v, want coordinator authority by the executing coordinator", confirmedEvent["confirmation_authority"], confirmedEvent["confirming_actor_ref"])
-		}
-		if _, consumed := confirmedEvent["approval_ref"]; consumed {
-			t.Fatalf("engineering confirmation consumed an approval binding: %v", confirmedEvent["approval_ref"])
-		}
-		if _, operatorRecorded := confirmedEvent["operator_actor_ref"]; operatorRecorded {
-			t.Fatalf("engineering confirmation fabricated operator attribution: %v", confirmedEvent["operator_actor_ref"])
-		}
+		assertApprovalConfirmationReceipt(t, s, workID, ownerRef, "coordinator", 1, confirmationVersion)
 		if challenges := approvalChallengeCount(t, s); challenges != 0 {
 			t.Fatalf("engineering witness opened %d persisted consent challenges at confirmation", challenges)
 		}
@@ -767,6 +757,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		// The exact verified operator choice and digest confirm through the
 		// public action; the operator and the executing coordinator stay
 		// distinct identities.
+		confirmationVersion := readWorkVersion(t, s, workID)
 		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`); err != nil {
 			t.Fatalf("decision confirmation with the verified operator refused: %v", err)
 		}
@@ -778,10 +769,7 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		if actors.operatorRef == ownerRef {
 			t.Fatalf("the operator and the executing coordinator collapsed into one actor: %s", ownerRef)
 		}
-		confirmedEvent := latestApprovalEventPayload(t, s, workID, WorkflowPremiseConfirmed)
-		if confirmedEvent["confirmation_authority"] != "operator" || confirmedEvent["confirming_actor_ref"] != actors.operatorRef {
-			t.Fatalf("decision confirmation event = %v/%v, want operator authority by the verified operator", confirmedEvent["confirmation_authority"], confirmedEvent["confirming_actor_ref"])
-		}
+		assertApprovalConfirmationReceipt(t, s, workID, actors.operatorRef, "operator", 2, confirmationVersion)
 
 		// Real completion reaches the same two terminal projections under the
 		// executing coordinator.

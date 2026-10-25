@@ -188,13 +188,13 @@ func TestNativeOracleStreamLifetime(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer tx.Rollback()
-				if err := enterFold(ctx, tx); err != nil {
+				if err := enterWrite(ctx, tx); err != nil {
 					t.Fatal(err)
 				}
 				if err := deleteWorkOwnedProjections(ctx, tx, result.WorkID); err != nil {
 					t.Fatal(err)
 				}
-				if err := leaveFold(ctx, tx); err != nil {
+				if err := leaveWrite(ctx, tx); err != nil {
 					t.Fatal(err)
 				}
 				if err := tx.Commit(); err != nil {

@@ -35,7 +35,7 @@ func TestInvokeContinuityLimitCorrection(t *testing.T) {
 	snapshot := func() [2]int64 {
 		t.Helper()
 		state := [2]int64{workVersion(t, s, "work-1")}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&state[1]); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&state[1]); err != nil {
 			t.Fatal(err)
 		}
 		return state

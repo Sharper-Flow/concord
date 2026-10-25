@@ -200,7 +200,7 @@ func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('missing-from','missing-to','blocks','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('missing-from','missing-to','blocks','2026-01-01T00:00:00Z'); DELETE FROM write_guard`); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newFoldScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
 		Payload: json.RawMessage(mustJSONValue(map[string]any{
 			"required_reading":      []map[string]any{},
@@ -502,7 +502,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	var declarationEventID string
 	var declarationPayload []byte
 	var declarationSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload,seq FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowWorkContextRecorded, contextWork).Scan(&declarationEventID, &declarationPayload, &declarationSeq); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT declaration_id,declaration_payload,declaration_seq FROM work_context_state WHERE work_id=?`, contextWork).Scan(&declarationEventID, &declarationPayload, &declarationSeq); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(declarationPayload), `"research_finding_refs"`) {
@@ -581,11 +581,12 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		name  string
 		query string
 	}{
-		{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
-		{"workflow_instances", `SELECT work_id,definition_ref,definition_digest,current_step,instance_state FROM workflow_instances ORDER BY work_id`},
+		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
+		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
+		{"workflow_instances", `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version,definition_ref,definition_digest FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"law_pins", `SELECT work_id,contract_version,law_id,content_hash FROM workflow_contract_law_revisions ORDER BY work_id,law_id`},
-		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at FROM worker_attempts ORDER BY attempt_id`},
+		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_payload,terminal_event_id,terminal_kind,terminal_payload,terminal_occurred_at FROM worker_attempts ORDER BY attempt_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,state FROM worktree_entries ORDER BY set_id,project_id,claim_op_id`},
 		{"worktree_occupancy", `SELECT worktree_id,session_ref,recorded_at,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
@@ -603,8 +604,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	for i := range fingerprints {
 		want[fingerprints[i].name] = captureEvidenceRows(t, s.DatabaseForTesting(), fingerprints[i].query)
 	}
-	if len(want["domain_events"]) < 12 {
-		t.Fatalf("domain event population = %d, want the seeded living-evidence log", len(want["domain_events"]))
+	if len(want["effect_receipts"]) < 12 {
+		t.Fatalf("receipt population = %d, want the seeded living-evidence identities", len(want["effect_receipts"]))
 	}
 	if len(want["research_packs"]) != 1 || len(want["research_revisions"]) != 2 || len(want["research_sources"]) != 3 || len(want["research_findings"]) != 3 || len(want["research_consumers"]) != 3 {
 		t.Fatalf("research population = %d packs, %d revisions, %d sources, %d findings, %d consumers, want one pack with two revisions, three linked descriptors (revision 2 copies revision 1's), three findings and three pins", len(want["research_packs"]), len(want["research_revisions"]), len(want["research_sources"]), len(want["research_findings"]), len(want["research_consumers"]))
@@ -614,8 +615,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if len(want["domain_registry"]) != 2 || len(want["domains"]) != 5 {
 		t.Fatalf("domain registry population = %d registries, %d domains, want the seeded fixture pair", len(want["domain_registry"]), len(want["domains"]))
 	}
-	if !strings.Contains(strings.Join(want["domain_events"], "\x1e"), `"research_finding_refs"`) {
-		t.Fatalf("domain event fingerprint lost the selection declaration bytes")
+	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"research_finding_refs"`) {
+		t.Fatalf("current context fingerprint lost the selection declaration bytes")
 	}
 	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 || len(want["law_pins"]) != 1 {
 		t.Fatalf("definition/law population = %d instances, %d contracts, %d law pins, want the evidence and context-consumer instances with their contracts and the one law pin", len(want["workflow_instances"]), len(want["workflow_contracts"]), len(want["law_pins"]))
@@ -647,8 +648,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 
 	// Backup with a verified manifest, restore into an independent store.
 	var watermark int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events`).Scan(&watermark); err != nil || watermark <= 0 {
-		t.Fatalf("event watermark = %d err = %v, want a positive log", watermark, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&watermark); err != nil || watermark <= 0 {
+		t.Fatalf("effect watermark = %d err = %v, want a positive sequence", watermark, err)
 	}
 	snapshot := filepath.Join(t.TempDir(), "evidence-snapshot.db")
 	manifest, err := BackupWithOptions(ctx, s, snapshot, BackupOptions{SnapshotID: "snapshot-evidence-1", GitCommitIDs: map[string]string{"repo": "abc123"}})
@@ -739,7 +740,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		name  string
 		query string
 	}{
-		{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
+		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
+		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
 		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
 		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
 		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
@@ -757,8 +759,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 			t.Fatalf("retired corpus %s = %v, want the legal retirement to empty it", name, afterRetire[name])
 		}
 	}
-	if !strings.Contains(strings.Join(afterRetire["domain_events"], "\x1e"), `"research_finding_refs"`) {
-		t.Fatalf("post-retirement log lost the retained selection declaration")
+	if !strings.Contains(strings.Join(afterRetire["work_context_state"], "\x1e"), `"research_finding_refs"`) {
+		t.Fatalf("post-retirement current context lost the retained selection declaration")
 	}
 }
 
@@ -767,15 +769,46 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	defer s.Close()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}}); err != nil {
-		t.Fatal(err)
-	}
 	// This payload is deliberately not a valid mutation. Current-state recovery
 	// must not run it or use it to replace the materialized Product rows.
 	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, invalid.EventID, invalid.Kind, string(invalid.SubjectType), invalid.SubjectID, invalid.Actor, invalid.OccurredAt.Format(time.RFC3339Nano), invalid.PayloadVersion, string(invalid.Payload)); err != nil {
+	path := filepath.Join(t.TempDir(), "historical-backup.db")
+	db := openMigratedTo(t, path, 144)
+	valid := []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}
+	insertHistoricalEvents(t, db, append(valid, invalid))
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for i, event := range valid {
+		event.Seq = int64(i + 1)
+		if err := applyEffect(ctx, tx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	wantDigest, err := effectPayloadDigest(invalid.Payload)
+	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -802,11 +835,11 @@ func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	for _, db := range []*sql.DB{s.db, restored} {
 		var stored string
 		var storedVersion int
-		if err := db.QueryRow(`SELECT payload,payload_version FROM domain_events WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
+		if err := db.QueryRow(`SELECT payload_digest,payload_version FROM effect_receipts WHERE event_id=?`, invalid.EventID).Scan(&stored, &storedVersion); err != nil {
 			t.Fatal(err)
 		}
-		if stored != string(invalid.Payload) || storedVersion != invalid.PayloadVersion {
-			t.Fatalf("recorded event changed: %q v%d, want %q v%d", stored, storedVersion, invalid.Payload, invalid.PayloadVersion)
+		if stored != wantDigest || storedVersion != invalid.PayloadVersion {
+			t.Fatalf("recorded receipt changed: %q v%d, want %q v%d", stored, storedVersion, wantDigest, invalid.PayloadVersion)
 		}
 	}
 }
@@ -981,5 +1014,5 @@ func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
 		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
 	}
-	assertTableCount(t, s, "domain_events", 3)
+	assertTableCount(t, s, "effect_receipts", 3)
 }

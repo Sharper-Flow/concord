@@ -26,7 +26,7 @@ func pinReaderSnapshot(t *testing.T, s *Store) {
 	}
 	t.Cleanup(func() { _ = readTx.Rollback() })
 	var probe int
-	if err := readTx.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&probe); err != nil {
+	if err := readTx.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&probe); err != nil {
 		t.Fatalf("reader snapshot: %v", err)
 	}
 	if err := s.appendSeedEvent(context.Background()); err != nil {

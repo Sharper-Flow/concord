@@ -157,7 +157,6 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventID := "fixture-native-authorization-" + r.LeaseID
 	// The execution joins one complete trusted preparation of the same
 	// subject and bundle. An oracle that names no such preparation gets one.
 	var preparation *NativeOraclePreparation
@@ -177,40 +176,9 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 		}
 	}
 	preparationRef := control.ReadinessEvidenceRefs[0]
-	insertEvent := func(id, kind string, payload any) int64 {
-		t.Helper()
-		raw, _ := json.Marshal(payload)
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		scope, err := beginFold(ctx, tx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor/fixture','2026-10-09T00:00:00Z',4,?)`, id, kind, r.WorkID, string(raw))
-		if err != nil {
-			t.Fatal(err)
-		}
-		seq, err := result.LastInsertId()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := advanceWorkEffectSeqTx(ctx, tx, Event{Seq: seq, EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: r.WorkID, OccurredAt: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
-			t.Fatal(err)
-		}
-		if err := scope.close(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := tx.Commit(); err != nil {
-			t.Fatal(err)
-		}
-		return seq
-	}
-	// The receipt joins the exact historical tuple: the recorded job whose
-	// bundle the plan executed, the start that opened the dispatch, the
-	// dispatch, and the attempt's lane binding.
+	// Job authoring and dispatch use the public workflow boundary. The core
+	// owns their digests, fenced epoch, packet, and authorization identities.
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + r.WorkID, ActorClass: ActorAgent}
 	var job WorkerJobBinding
 	jobs, err := readWorkerJobRevisions(ctx, s.db, r.WorkID)
 	if err != nil {
@@ -218,10 +186,9 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 	}
 	for _, view := range jobs {
 		if view.AcceptanceOracle != nil {
-			for _, candidate := range view.AcceptanceOracle.Controls {
-				if candidate.ControlID == control.ControlID && slices.Equal(candidate.Argv, control.Argv) {
-					job = view.Binding
-				}
+			candidate, err := nativeBundleForControl(view.AcceptanceOracle, control.ControlID)
+			if err == nil && nativeBundleDigest(candidate) == nativeBundleDigest(bundle) {
+				job = view.Binding
 			}
 		}
 	}
@@ -236,45 +203,68 @@ func seedOracleExecuteLedgerFixture(t *testing.T, s *Store, r *WorktreeVerifyRes
 				jobOracle.Controls[i].ReadinessEvidenceRefs = []string{preparationRef}
 			}
 		}
-		recorded := WorkerJobRecordedPayload{JobID: "job:producer-fixture", Revision: 1, ContractVersion: preparation.ContractVersion, Objective: "fixture", StoppingCondition: "fixture", AcceptanceOracle: &jobOracle}
-		recorded.Digest = DeriveWorkerJobDigest(recorded)
-		job = WorkerJobBinding{JobID: recorded.JobID, Revision: recorded.Revision, Digest: recorded.Digest}
-		jobSeq := insertEvent(eventID+"-job", WorkerJobRecorded, recorded)
-		if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload,recorded_seq,recorded_event_id)
-VALUES(?,?,?,?,?,?,'[]','[]','[]','[]','[]',?,'recorded','2026-10-09T00:00:00Z',?,?,?);
-DELETE FROM fold_guard`, r.WorkID, recorded.JobID, recorded.Revision, recorded.ContractVersion, recorded.Objective, recorded.StoppingCondition, recorded.Digest, string(mustJSONValue(recorded)), jobSeq, eventID+"-job"); err != nil {
+		fields := map[string]any{
+			"job_id": "job:producer-fixture", "objective": "execute the declared producer controls",
+			"stopping_condition": "each declared control has a qualified native receipt",
+			"path_scope":         []string{control.Cwd}, "acceptance_oracle": &jobOracle,
+			"ready": true, "readiness_evidence": []string{"evidence:producer-ready"},
+		}
+		key := "fixture-native-job-" + r.LeaseID
+		if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+			WorkID: r.WorkID, ExpectedVersion: readWorkVersion(t, s, r.WorkID), ActionID: "record_worker_job", Payload: mustJSONValue(fields),
+			Actor: actor, AcceptedInputsDigest: nativeDigest(mustJSONValue(fields)), IdempotencyIdentity: key, OperationID: key,
+			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("record producer job through workflow action: %v", err)
+		}
+		views, err := readWorkerJobRevisions(ctx, s.db, r.WorkID)
+		if err != nil {
 			t.Fatal(err)
 		}
+		for _, view := range views {
+			if view.Binding.JobID == "job:producer-fixture" {
+				job = view.Binding
+			}
+		}
 	}
-	request := NativeOracleRequest{Phase: "execute", AttemptID: "attempt-fixture-" + r.LeaseID, AttemptEpoch: 1, WorkerPacketDigest: nativeDigest([]byte(eventID)), WorkerJobBinding: &job, ControlID: control.ControlID, PreparationRunRef: preparationRef}
+	attemptID := "attempt-fixture-" + r.LeaseID
+	var existing string
+	err = s.db.QueryRow(`SELECT attempt_id FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_job.job_id')=? AND json_extract(payload,'$.worker_job.revision')=? AND json_extract(payload,'$.worker_job.digest')=? AND json_extract(payload,'$.worker_subject_commit')=? ORDER BY seq DESC LIMIT 1`, r.WorkID, job.JobID, job.Revision, job.Digest, strings.TrimPrefix(r.SubjectRef, "commit:")).Scan(&existing)
+	switch err {
+	case nil:
+		attemptID = existing
+	case sql.ErrNoRows:
+		lane := reviewGateLane(t, "implementation")
+		var step string
+		if err := s.db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, r.WorkID).Scan(&step); err != nil {
+			t.Fatal(err)
+		}
+		packet := joinPacketFor(t, s, r.WorkID, step, attemptID, lane.ID, lane.Digest)
+		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, r.WorkID, job, lane.ID)
+		if err := dispatchJobPacketForTest(t, s, r.WorkID, attemptID, actor, "fixture-native-dispatch-"+r.LeaseID, packet); err != nil {
+			t.Fatalf("authorize producer through dispatch_worker: %v", err)
+		}
+		recordJobBoundWorkerDispatch(t, s, r.WorkID, attemptID, &job)
+	default:
+		t.Fatal(err)
+	}
+	var dispatch workflowActionCompletedPayload
+	var eventID, payload string
+	var seq, startSeq int64
+	if err := s.db.QueryRow(`SELECT event_id,seq,start_seq,payload FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, r.WorkID, attemptID).Scan(&eventID, &seq, &startSeq, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(payload), &dispatch); err != nil {
+		t.Fatal(err)
+	}
+	request := NativeOracleRequest{Phase: "execute", AttemptID: attemptID, AttemptEpoch: dispatch.AttemptEpoch, WorkerPacketDigest: dispatch.WorkerPacketDigest, WorkerJobBinding: &job, ControlID: control.ControlID, PreparationRunRef: preparationRef}
 	subject := strings.TrimPrefix(r.SubjectRef, "commit:")
-	const step = "step:fixture-dispatch"
-	laneDigest := "sha256:" + strings.Repeat("a", 64)
-	start := workflowActionStartedPayload{StepID: step, ActionID: "dispatch_worker", AttemptEpoch: request.AttemptEpoch}
-	startSeq := insertEvent(eventID+"-start", WorkflowActionStarted, start)
-	dispatch := workflowActionCompletedPayload{StepID: step, ActionID: "dispatch_worker", WorkerAttemptID: request.AttemptID, AttemptEpoch: request.AttemptEpoch, WorkerLaneID: "implementation", WorkerLaneDigest: laneDigest, WorkerCapabilityClass: "implementation", WorkerPacketDigest: request.WorkerPacketDigest, WorkerSubjectCommit: subject, WorkerJob: &job}
-	seq := insertEvent(eventID, WorkflowActionCompleted, dispatch)
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worker_authorizations(work_id,attempt_id,seq,event_id,payload,start_seq,start_payload,contract_version) VALUES(?,?,?,?,?,?,?,?);
-DELETE FROM fold_guard`, r.WorkID, request.AttemptID, seq, eventID, string(mustJSONValue(dispatch)), startSeq, string(mustJSONValue(start)), preparation.ContractVersion); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload,latest_dispatch_start_seq,latest_dispatch_start_event_id,latest_dispatch_start_payload) VALUES(?,?,?,?,?,?,?,?,?)
-ON CONFLICT(work_id,step_id) DO UPDATE SET attempt_epoch=excluded.attempt_epoch,latest_start_seq=excluded.latest_start_seq,latest_start_event_id=excluded.latest_start_event_id,latest_start_payload=excluded.latest_start_payload,latest_dispatch_start_seq=excluded.latest_dispatch_start_seq,latest_dispatch_start_event_id=excluded.latest_dispatch_start_event_id,latest_dispatch_start_payload=excluded.latest_dispatch_start_payload;
-DELETE FROM fold_guard`, r.WorkID, step, request.AttemptEpoch, startSeq, eventID+"-start", string(mustJSONValue(start)), startSeq, eventID+"-start", string(mustJSONValue(start))); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?,?,'implementation',?,'implementation','openai/gpt-5.6-luna','1.0','1.0','completed','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z');DELETE FROM fold_guard`, r.WorkID, request.AttemptID, laneDigest); err != nil {
-		t.Fatal(err)
-	}
 	cases := oracleFixtureCases(t, *control)
 	names, err := nativeOracleCaseTests(nativeGoOracleManifest{Cases: cases}, *control)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := nativeOraclePlan{Request: request, RequestID: r.LeaseID, WorkID: r.WorkID, ProjectID: r.ProjectID, ContractVersion: preparation.ContractVersion, SubjectCommit: subject, Bundle: bundle, BundleDigest: nativeBundleDigest(bundle), Authorization: nativeOracleAuthorization{EventID: eventID, Seq: seq, StartSeq: startSeq},
+	plan := nativeOraclePlan{Request: request, RequestID: r.LeaseID, WorkID: r.WorkID, ProjectID: r.ProjectID, ContractVersion: preparation.ContractVersion, SubjectCommit: subject, WorktreeIdentity: dispatch.WorkerWorktreeIdentity, Bundle: bundle, BundleDigest: nativeBundleDigest(bundle), Authorization: nativeOracleAuthorization{EventID: eventID, Seq: seq, StartSeq: startSeq},
 		Manifest:     nativeGoOracleManifest{Kind: "go_top_level_v1", PackageCwd: control.Cwd, Cases: cases},
 		ManifestFile: NativeOracleFile{Path: control.RecipeSource.Path, BlobOID: preparation.ManifestBlob, SHA256: preparation.ManifestDigest}, Files: slices.Clone(preparation.Files),
 		Environment: nativeGoEnvironment{ToolchainIdentity: preparation.ToolchainIdentity, Digest: preparation.BuildEnvironmentDigest},
@@ -304,6 +294,9 @@ DELETE FROM fold_guard`, r.WorkID, step, request.AttemptEpoch, startSeq, eventID
 	}
 	if _, err := s.db.Exec(`UPDATE durable_operations SET result_payload=? WHERE op_id=?`, string(raw), r.OperationRef); err != nil {
 		t.Fatal(err)
+	}
+	if err := validateNativeOracleProducerTx(ctx, s.db, r.WorkID, r, r.Oracle.Qualification); err != nil {
+		t.Fatalf("producer fixture does not join its production authorization: %v", err)
 	}
 }
 
@@ -364,7 +357,7 @@ func setNativeAttemptStateFixture(t *testing.T, f *nativeOracleFixture, id, stat
 	if state == "in_flight" {
 		model = ""
 	}
-	if _, err := f.s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);UPDATE worker_attempts SET lifecycle_state=?,completed_at=?,failed_at=?,failure_kind=?,failure_detail='',readback_model=? WHERE attempt_id=?;DELETE FROM fold_guard`, state, completed, failed, failure, model, id); err != nil {
+	if _, err := f.s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);UPDATE worker_attempts SET lifecycle_state=?,completed_at=?,failed_at=?,failure_kind=?,failure_detail='',readback_model=? WHERE attempt_id=?;DELETE FROM write_guard`, state, completed, failed, failure, model, id); err != nil {
 		t.Fatal(err)
 	}
 }

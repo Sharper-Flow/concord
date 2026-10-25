@@ -56,7 +56,7 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			if slices.Contains(lane.Capabilities, "edit_scoped_files") {
 				t.Fatal("research lane has editing authority")
 			}
-			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_id=?,lane_digest=?,capability_class='research' WHERE attempt_id='attempt:research'; DELETE FROM fold_guard`, lane.ID, lane.Digest); err != nil {
+			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE worker_attempts SET lane_id=?,lane_digest=?,capability_class='research' WHERE attempt_id='attempt:research'; DELETE FROM write_guard`, lane.ID, lane.Digest); err != nil {
 				t.Fatal(err)
 			}
 			job := WorkerJobBinding{JobID: "job:research", Revision: 1, Digest: "sha256:" + strings.Repeat("a", 64)}
@@ -65,7 +65,7 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			if err := validateWorkerJobAllowanceShape("project", &allowance, workerJobAllowanceAuthorFailure); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.db.Exec(`INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at,recorded_payload) VALUES(?,?,?,1,'research','read-only proof','project','[]','[]','[]','[]','[]','','{}',?,'recorded','2026-10-01T00:00:00Z',?)`, workID, job.JobID, job.Revision, job.Digest, string(mustJSONValue(map[string]any{"direct_caller_allowance": allowance}))); err != nil {
@@ -82,7 +82,7 @@ func TestSharedWorkerJobDeclarationKeepsResearchReadOnly(t *testing.T) {
 			if _, err := s.db.Exec(`UPDATE worker_attempts SET terminal_kind=?,terminal_payload=? WHERE work_id=? AND attempt_id=?`, WorkerCompleted, string(mustJSONValue(payload)), workID, payload.AttemptID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+			if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			tx, err := s.db.BeginTx(t.Context(), nil)

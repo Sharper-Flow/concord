@@ -29,7 +29,7 @@ func seedKnowledgeBodyBenchmark(t *testing.T) (*Store, KnowledgeHome) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < knowledgeBodyBenchmarkRows; i++ {
@@ -51,7 +51,7 @@ func seedKnowledgeBodyBenchmark(t *testing.T) (*Store, KnowledgeHome) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES(?,?,?,?,?,?,1,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, knowledgeProjectionVersion); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard WHERE active=1`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard WHERE active=1`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

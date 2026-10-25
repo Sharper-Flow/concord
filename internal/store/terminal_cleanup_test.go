@@ -12,7 +12,7 @@ import (
 func terminalCleanupSQL(t *testing.T, s *Store, queries ...string) {
 	t.Helper()
 	if err := s.Transact(t.Context(), func(transaction *Transaction) error {
-		scope := newFoldScope(transaction.tx)
+		scope := newWriteScope(transaction.tx)
 		if err := scope.enter(t.Context()); err != nil {
 			return err
 		}

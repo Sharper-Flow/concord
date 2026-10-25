@@ -71,7 +71,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				}
 			}
 			var beforeEvents, beforePins, beforeVersion int
-			for query, target := range map[string]*int{"SELECT count(*) FROM domain_events": &beforeEvents, "SELECT count(*) FROM active_research_consumers": &beforePins, "SELECT expected_version FROM active_research_packs": &beforeVersion} {
+			for query, target := range map[string]*int{"SELECT last FROM store_sequences WHERE name='effect'": &beforeEvents, "SELECT count(*) FROM active_research_consumers": &beforePins, "SELECT expected_version FROM active_research_packs": &beforeVersion} {
 				if err := s.DatabaseForTesting().QueryRow(query).Scan(target); err != nil {
 					t.Fatal(err)
 				}
@@ -80,7 +80,7 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 			if out.Error == nil || out.Error.Kind != test.kind || out.Error.EffectState != EffectNone {
 				t.Fatalf("refusal=%+v, want %s/effect none", out.Error, test.kind)
 			}
-			for query, expected := range map[string]int{"SELECT count(*) FROM domain_events": beforeEvents, "SELECT count(*) FROM active_research_consumers": beforePins, "SELECT expected_version FROM active_research_packs": beforeVersion} {
+			for query, expected := range map[string]int{"SELECT last FROM store_sequences WHERE name='effect'": beforeEvents, "SELECT count(*) FROM active_research_consumers": beforePins, "SELECT expected_version FROM active_research_packs": beforeVersion} {
 				var got int
 				if err := s.DatabaseForTesting().QueryRow(query).Scan(&got); err != nil {
 					t.Fatal(err)

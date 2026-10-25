@@ -13,14 +13,14 @@ func TestCurrentCorrectionRefineIsRefusedByLiveWriter(t *testing.T) {
 			fixture := seedWorkflowReturnRouteFixture(t, workID, ref, "refine")
 			s := fixture.store
 			defer s.Close()
-			events, projections := histEventRows(t, s), projectionSnapshot(t, s)
+			events, projections := currentEffectRows(t, s), projectionSnapshot(t, s)
 			payload := json.RawMessage(`{"diagnosis":"The result requires correction.","strategy":"Return to the producer.","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 			err := runIssue933OperatorAction(t, s, workID, "request_correction", payload, fixture.owner, fixture.operator)
 			var failure *Failure
 			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || failure.Op != "workflow_action" || failure.Detail != "request_correction requires a current non-ok verification verdict under the active workflow contract" || failure.RetrySafe || failure.RecoveryAction != "record the current verification verdict or reread the work pin" {
 				t.Fatalf("refine correction refusal: %v", err)
 			}
-			if !reflect.DeepEqual(events, histEventRows(t, s)) || projections != projectionSnapshot(t, s) {
+			if !reflect.DeepEqual(events, currentEffectRows(t, s)) || projections != projectionSnapshot(t, s) {
 				t.Fatal("refused live correction changed retained events or projections")
 			}
 		})

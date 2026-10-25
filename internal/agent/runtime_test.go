@@ -126,7 +126,7 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	snapshot := func() [9]int64 {
 		t.Helper()
 		var counts [9]int64
-		for i, table := range []string{"domain_events", "work_items", "workflow_instances", "workflow_contracts", "worker_attempts", "relations", "domain_observations", "durable_operations"} {
+		for i, table := range []string{"effect_receipts", "work_items", "workflow_instances", "workflow_contracts", "worker_attempts", "relations", "domain_observations", "durable_operations"} {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(&counts[i]); err != nil {
 				t.Fatal(err)
 			}
@@ -247,18 +247,16 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 		errorJSON, _ := json.Marshal(revised.Error)
 		t.Fatalf("revise response=%+v error=%s err=%v", revised, errorJSON, err)
 	}
-	var revisedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.intent_revised' AND subject_id=?`, (*replay.ChangedRefs)[0].ID).Scan(&revisedPayload); err != nil {
+	var revisionDigest, revisionActor string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest,actor FROM effect_receipts WHERE kind='work.intent_revised' AND subject_id=?`, (*replay.ChangedRefs)[0].ID).Scan(&revisionDigest, &revisionActor); err != nil {
 		t.Fatal(err)
 	}
-	var eventFields struct {
-		EvidenceRefs []string `json:"evidence_refs"`
-	}
-	if err := json.Unmarshal([]byte(revisedPayload), &eventFields); err != nil {
+	expectedRevision, err := json.Marshal(map[string]any{"title": "Need revised", "value_statement": "Revised value", "kind": "task", "priority": 3, "urgency": "standard", "tags": []string{}, "workflow_type_ref": "", "reason": "clarified", "evidence_refs": []string{"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}, "expected_version": 4, "resulting_version": 5})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(eventFields.EvidenceRefs) != 1 || eventFields.EvidenceRefs[0] != "commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e" {
-		t.Fatalf("revised evidence refs=%v", eventFields.EvidenceRefs)
+	if revisionDigest != fmt.Sprintf("sha256:%x", sha256.Sum256(expectedRevision)) || revisionActor != grant.PrincipalRef {
+		t.Fatalf("revision receipt does not bind the exact requested evidence and actor: digest=%s actor=%s expected=%s", revisionDigest, revisionActor, expectedRevision)
 	}
 	request.Input = json.RawMessage(`{"title":"Changed","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)
 	conflict, err := Dispatch(ctx, s, service, request, env)
@@ -355,12 +353,12 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES (1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('home','home',1,'t','t');
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('anchor-home','anchor-home','prototype','operator_only',1,'t','t');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('anchor-home','home','primary');
 		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator','home','canonical_path','/test/locator','/test/locator','t','t');
-		INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES ('home','locator','knowledge-b','product-b'); DELETE FROM fold_guard`); err != nil {
+		INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('knowledge-b','lesson','B','2026-08-07T00:00:00Z','published','[]','completed',1,'summary','home','locator','note.md','commit','hash'); INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES ('home','locator','knowledge-b','product-b'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	request := InvokeRequest{Input: json.RawMessage(`{"knowledge_id":"knowledge-b"}`)}
@@ -395,7 +393,7 @@ func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 	t.Parallel()
 	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", nil, nil)
 	defer s.Close()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -555,7 +553,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind string, frozenProducts []strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
@@ -579,7 +577,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind string, frozenProducts []strin
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

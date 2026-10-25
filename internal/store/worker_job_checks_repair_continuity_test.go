@@ -324,7 +324,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 		t.Fatalf("the own-obligation re-record = %+v, want derived revision 3", recovery)
 	}
 	var recoveryMetadata string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.checks_repair'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=3`, string(SubjectWorkItem), workID, WorkerJobRecorded, jobID).Scan(&recoveryMetadata); err != nil || recoveryMetadata != "" {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(recorded_payload,'$.checks_repair'),'') FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=3`, workID, jobID).Scan(&recoveryMetadata); err != nil || recoveryMetadata != "" {
 		t.Fatalf("the own-obligation re-record's checks_repair metadata = (%q, %v), want a plain revision", recoveryMetadata, err)
 	}
 	pin = issue1013Pin(t, s, workID)

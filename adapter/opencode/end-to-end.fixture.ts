@@ -59,6 +59,23 @@ export function dbRows(dbPath: string, sql: string, ...params: string[]): any[] 
   }
 }
 
+// Read retained worker content from its owner with its exact receipt binding.
+// A receipt alone cannot establish that recovery preserved the report bytes.
+export function workerEffects(dbPath: string, workID: string): JSONRecord[] {
+  const rows = dbRows(dbPath, `SELECT r.*, a.dispatch_payload AS payload FROM worker_attempts a
+    JOIN effect_receipts r ON r.event_id=a.dispatch_event_id AND r.effect_seq=a.dispatch_seq
+    WHERE a.work_id=? AND r.subject_id=a.work_id AND r.kind='worker.dispatched'
+    UNION ALL SELECT r.*, a.terminal_payload AS payload FROM worker_attempts a
+    JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq
+    WHERE a.work_id=? AND r.subject_id=a.work_id AND r.kind=a.terminal_kind
+    ORDER BY effect_seq`, workID, workID)
+  for (const row of rows) {
+    expect(row.subject_type).toBe("work_item")
+    expect(row.payload_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  }
+  return rows
+}
+
 export function reportText(report: JSONRecord): string {
   return `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
 }

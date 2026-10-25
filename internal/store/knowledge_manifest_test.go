@@ -374,7 +374,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		t.Fatalf("rich manifest Q10=%#v err=%v", result, err)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='spec-rich'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='spec-rich'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.QueryQ10(ctx, Q10Request{KnowledgeID: "spec-rich"})

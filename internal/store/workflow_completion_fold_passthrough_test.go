@@ -25,7 +25,7 @@ func TestWorkflowCompletionNoticeFoldFailureReachesCallerUnmasked(t *testing.T) 
 	// a different notice_id: the generator's identity pre-check misses it and
 	// the notice fold's insert hits the UNIQUE constraint.
 	forged := "notice:" + strings.Repeat("f", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,NULL,NULL,?,?); DELETE FROM fold_guard`,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_impact_notices(notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity,recorded_at) VALUES(?,?,?,?,?,?,?,?,NULL,NULL,?,?); DELETE FROM write_guard`,
 		forged, workID, 1, "work_item", workID, dependentID, dependentID, "edge:"+dependentID, "non-breaking", "2026-08-09T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestWorkflowCompletionTerminalFoldFailureReachesCallerUnmasked(t *testing.T
 	})
 	// Every completion gate passes while the workflow instance is already
 	// terminal: only the completion fold reads the instance state.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	eventsBefore, versionBefore := completionFoldBookkeeping(t, s, workID)
@@ -107,7 +107,7 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 		t.Fatal(err)
 	}
 	var bound int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
 	if bound != 36 {
@@ -138,7 +138,7 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 func completionFoldBookkeeping(t *testing.T, s *Store, workID string) (int, int64) {
 	t.Helper()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	var version int64
@@ -150,7 +150,7 @@ func completionFoldBookkeeping(t *testing.T, s *Store, workID string) (int, int6
 
 func assertCompletionFoldRolledBack(t *testing.T, s *Store, workID string, events int, version int64) {
 	t.Helper()
-	assertTableCount(t, s, "domain_events", events)
+	assertTableCount(t, s, "effect_receipts", events)
 	var versionAfter int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&versionAfter); err != nil {
 		t.Fatal(err)

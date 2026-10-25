@@ -16,7 +16,7 @@ func publishedAbsenceFixture(t *testing.T) (*Store, KnowledgeHome, string, strin
 	commit := commitKnowledgeRepo(t, repo, "published outcome")
 	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "prod-alpha", home, "proj-web")
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM product_projects WHERE product_id='anchor-product-proj-web'; DELETE FROM products WHERE id='anchor-product-proj-web'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM product_projects WHERE product_id='anchor-product-proj-web'; DELETE FROM products WHERE id='anchor-product-proj-web'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RebuildKnowledgeIndex(t.Context(), home); err != nil {
@@ -154,7 +154,7 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workCreatedEvent("work-live-link", "create-live-link"), operationEvent("member-live-link", "work_project.added", SubjectWorkItem, "work-live-link", map[string]any{"work_id": "work-live-link", "project_id": "proj-web", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-live-link"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"work-published", "work-live-link", "work-orphan-link"} {
@@ -162,7 +162,7 @@ func TestPublishedIssueLinksSurviveIndexRebuildAndMissingNotes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
@@ -225,7 +225,7 @@ func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,version,priority,created_at,updated_at) VALUES('work-published','task','Live','needed',1,0,'now','now'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,version,priority,created_at,updated_at) VALUES('work-published','task','Live','needed',1,0,'now','now'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := publishedWorkAbsenceQ(ctx, s.db, "work-published", "absence_test"); err != nil {

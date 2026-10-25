@@ -162,14 +162,11 @@ type workflowWorkContextRecordedPayload struct {
 	// ResearchSelections stores references only: the optional member is
 	// absent and empty for the same meaning, and a new full declaration
 	// explicitly replaces its research selections.
-	ResearchSelections []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
-	WorkflowRef        string                         `json:"workflow_ref"`
-	// RecordedDefinitionVersion decodes the definition counter recorded events
-	// still carry; nothing reads it, and the log drop removes it with replay.
-	RecordedDefinitionVersion int64  `json:"workflow_definition_version,omitempty"`
-	WorkflowDefinitionDigest  string `json:"workflow_definition_digest"`
-	ActorRef                  string `json:"actor_ref"`
-	RequestID                 string `json:"request_id"`
+	ResearchSelections       []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
+	WorkflowRef              string                         `json:"workflow_ref"`
+	WorkflowDefinitionDigest string                         `json:"workflow_definition_digest"`
+	ActorRef                 string                         `json:"actor_ref"`
+	RequestID                string                         `json:"request_id"`
 }
 
 var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+)$`)

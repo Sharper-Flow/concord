@@ -84,10 +84,10 @@ func TestSessionRelocationOrdinalsReadCurrentCounts(t *testing.T) {
 		"missing-session": func() (any, error) { return read(f.workID, "session/missing") },
 		"missing-work":    func() (any, error) { return read("work-missing", f.targetSession) },
 	})
-	restoreDomainEvents(t, s)
+	assertEventLogAbsent(t, s)
 	const query = `SELECT work_id||':'||session_ref||':'||vacate_count||':'||vacate_landing_count||':'||claim_landing_count FROM session_relocation_counts ORDER BY work_id,session_ref`
 	want := workerFactsQueryRows(t, s, []string{query})
-	repopulateSessionWindowCurrentFactsForTest(t, s)
+	assertSessionWindowCorpus144(t)
 	if got := workerFactsQueryRows(t, s, []string{query}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("backfilled ordinal counts=%v, want live-written %v", got, want)
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateWorkerDispatchWorktreeCanonicalizesSymlinks(t *testing.T) {
@@ -72,10 +73,10 @@ func TestValidateWorkerDispatchWorktreeRequiresActiveClaim(t *testing.T) {
 func insertWorkerWorktreeEntry(t *testing.T, s *Store, workID, path string) {
 	t.Helper()
 	_, err := s.DatabaseForTesting().Exec(`
-INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
 VALUES(?,?,?,?,?,?,?,'active',?,'{}');
-DELETE FROM fold_guard;`, WorktreeSetID(workID), "project-1", "claim-1", "change/claim", strings.Repeat("a", 40), path, "repo-1", "2026-09-05T00:00:00Z")
+DELETE FROM write_guard;`, WorktreeSetID(workID), "project-1", "claim-1", "change/claim", strings.Repeat("a", 40), path, "repo-1", "2026-09-05T00:00:00Z")
 	if err != nil {
 		t.Fatalf("insert worktree entry: %v", err)
 	}
@@ -108,7 +109,7 @@ func appendWorkerFixtureDispatchAuthorization(t *testing.T, s *Store, workID, at
 	t.Helper()
 	identity := workerFixtureWorktreeIdentity(t, s, workID)
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1 FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`, workID, WorkflowActionStarted, stepID).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0)+1 FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
@@ -176,7 +177,7 @@ func TestValidateWorkerCompletionWorktreeBindsAttemptProject(t *testing.T) {
 				}
 			}
 			if faultSQL != "" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + faultSQL + `; DELETE FROM fold_guard`); err != nil {
+				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); ` + faultSQL + `; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -238,7 +239,7 @@ func TestWorkerAttemptProjectRefusalNamesCaller(t *testing.T) {
 			t.Parallel()
 			s := openTemp(t)
 			_, other := seedWorkerCompletionProjectClaims(t, s, true, true)
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE project_id='project-1'; DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM worktree_entries WHERE project_id='project-1'; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			ctx := context.Background()
@@ -289,7 +290,7 @@ func seedWorkerCompletionProjectClaims(t *testing.T, s *Store, withAuthorization
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
@@ -309,23 +310,26 @@ SELECT set_id,'project-2','claim-2',branch,base_sha,?,'repo-2',state,verified_at
 	if !withAuthorization {
 		actions = nil
 	}
+	var startEvent Event
 	for _, action := range actions {
 		raw, err := json.Marshal(action.payload)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-completion','actor:test','2026-09-05T00:00:00Z',?,?)`, action.id, action.kind, eventKindRegistry[action.kind].CurrentVersion, raw); err != nil {
+		event := Event{EventID: action.id, Kind: action.kind, SubjectType: SubjectWorkItem, SubjectID: "work-completion", Actor: "actor:test", OccurredAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), PayloadVersion: eventKindRegistry[action.kind].CurrentVersion, Payload: raw}
+		event.Seq, err = appendPreparedEvent(t.Context(), tx, event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if action.kind == WorkflowActionStarted {
+			startEvent = event
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,'attempt-completion',?,?,?,?,?)`, event.SubjectID, event.Seq, string(event.Payload), event.EventID, startEvent.Seq, string(startEvent.Payload)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if withAuthorization {
-		if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,'attempt-completion',completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id='completion-window-started' WHERE completion.event_id='completion-window-finished'`); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

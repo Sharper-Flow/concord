@@ -15,7 +15,7 @@ func TestApplyRejectsNewerPayloadBeforeMutation(t *testing.T) {
 	event.PayloadVersion = workCreatedCurrentVersion() + 1
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
 	assertFailureKind(t, err, KindUnsupportedPayloadVersion)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 	assertTableCount(t, s, "work_items", 0)
 }
 

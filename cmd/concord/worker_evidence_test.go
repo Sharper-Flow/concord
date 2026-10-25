@@ -432,7 +432,7 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 		t.Fatalf("replayed worker-abandon exit=%d stderr=%q, want the existing event", code, errOut.String())
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND json_extract(a.terminal_payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -483,11 +483,11 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	}
 	defer s.Close()
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_live', '2026-01-01T00:00:00Z', ?, ?, 1
 		  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
-		DELETE FROM fold_guard`, pid, pidStart); err != nil {
+		DELETE FROM write_guard`, pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
 
@@ -557,11 +557,11 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := s.DatabaseForTesting().Exec(`
-				INSERT INTO fold_guard(active) VALUES(1);
+				INSERT INTO write_guard(active) VALUES(1);
 				INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 				SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_legacy', ?, NULL, NULL, 0
 				  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
-				DELETE FROM fold_guard`, tc.recordedAt); err != nil {
+				DELETE FROM write_guard`, tc.recordedAt); err != nil {
 				t.Fatal(err)
 			}
 			var rows int
@@ -608,7 +608,7 @@ func assertNoTerminalWorkerEvent(t *testing.T, dbPath, stderr string) {
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind IN (?,?)`, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind IN (?,?)`, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -834,7 +834,7 @@ func TestWorkerCompleteCLIRequiresObservedDirectory(t *testing.T) {
 			}
 			defer s.Close()
 			var eventsBefore, noncesBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay)`).Scan(&eventsBefore, &noncesBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts), (SELECT count(*) FROM agent_nonce_replay)`).Scan(&eventsBefore, &noncesBefore); err != nil {
 				t.Fatal(err)
 			}
 			out.Reset()
@@ -857,7 +857,7 @@ func TestWorkerCompleteCLIRequiresObservedDirectory(t *testing.T) {
 			}
 			var eventsAfter, noncesAfter int
 			var lifecycle string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay), lifecycle_state FROM worker_attempts WHERE attempt_id='attempt-1'`).Scan(&eventsAfter, &noncesAfter, &lifecycle); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts), (SELECT count(*) FROM agent_nonce_replay), lifecycle_state FROM worker_attempts WHERE attempt_id='attempt-1'`).Scan(&eventsAfter, &noncesAfter, &lifecycle); err != nil {
 				t.Fatal(err)
 			}
 			if eventsAfter != eventsBefore || noncesAfter != noncesBefore || lifecycle != "dispatched" {
@@ -1067,7 +1067,7 @@ func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	}
 	defer s.Close()
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE kind=?`, store.WorkerDispatched).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
 	if actor == "worker:cli" || !strings.Contains(actor, workerEvidenceClientRef) {
@@ -1097,7 +1097,7 @@ func assertNoWorkerEvents(t *testing.T, dbPath string) {
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind IN (?,?,?)`, store.WorkerDispatched, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind IN (?,?,?)`, store.WorkerDispatched, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -1121,8 +1121,8 @@ func mustJSON(t *testing.T, value any) string {
 //
 // CD-0059 D5 makes the dispatch-window integrity check structural, so the
 // pre-existing capability/signature/nonce tests in this file cannot exercise
-// the layers under the window unless the window exists. The helper folds
-// the rows directly through fold_guard so the helper is a one-call fixture
+// the layers under the window unless the window exists. The helper seeds
+// the current rows through write_guard so the helper is a one-call fixture
 // and the tests keep testing what they are named for.
 func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string) {
 	t.Helper()
@@ -1203,8 +1203,8 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		"worker_context_frontier": 0,
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
-	// product_projects, work_projects, and the workflow event families are
-	// fold-only, so the rows are admitted through one fold_guard session.
+	// product_projects and work_projects are write-seam-only, so the rows
+	// are admitted through one write_guard session.
 	// The modernc.org/sqlite driver inconsistently binds parameters across
 	// a multi-statement exec, so each insert is run as its own prepared
 	// statement inside a single transaction.
@@ -1213,7 +1213,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		t.Fatalf("begin: %v", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-1', 'Concord', 'prototype', 'operator_only', 1, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`); err != nil {
@@ -1240,18 +1240,8 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 1, ?)`, "dispatch-start-"+attemptID, workID, actorRef, []byte(startPayload)); err != nil {
-		t.Fatalf("seed dispatch window: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
-		t.Fatalf("seed dispatch window: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, attemptID, "dispatch-start-"+attemptID, "dispatch-completed-"+attemptID); err != nil {
-		t.Fatalf("seed current authorization: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	seedCLIAuthorization(t, tx, workID, attemptID, actorRef, startPayload, completionPayload)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

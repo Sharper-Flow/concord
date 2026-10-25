@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -145,17 +146,15 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	if len(result.EventIDs) < 2 {
 		t.Fatalf("dispatch_worker invocation emitted %d events, want >= 2 (started + completed)", len(result.EventIDs))
 	}
-	var actionID string
-	var attemptEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.action_id'), json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`,
-		"workflow.action_started", seed.workID, "execution").Scan(&actionID, &attemptEpoch); err != nil {
-		t.Fatalf("cannot read workflow.action_started: %v", err)
+	start := workflowCurrentStartAtStep(t, s, seed.workID, "execution")
+	if start == nil {
+		t.Fatal("dispatch left no current execution start")
 	}
-	if actionID != "dispatch_worker" {
-		t.Fatalf("latest action_started action_id = %q, want dispatch_worker", actionID)
+	if start.ActionID != "dispatch_worker" {
+		t.Fatalf("current action_started action_id = %q, want dispatch_worker", start.ActionID)
 	}
-	if attemptEpoch < 1 {
-		t.Fatalf("attempt_epoch = %d, want >=1", attemptEpoch)
+	if start.Epoch < 1 {
+		t.Fatalf("attempt_epoch = %d, want >=1", start.Epoch)
 	}
 }
 
@@ -193,12 +192,8 @@ func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T
 	if strings.Contains(failure.Detail, claimed) || strings.Contains(failure.Detail, session) {
 		t.Fatalf("mismatched worktree failure leaked a machine path: %q", failure.Detail)
 	}
-	var started int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionStarted, seed.workID, "dispatch_worker").Scan(&started); err != nil {
-		t.Fatal(err)
-	}
-	if started != 0 {
-		t.Fatalf("mismatched worktree opened %d dispatch windows", started)
+	if start := workflowCurrentStartAtStep(t, s, seed.workID, "execution"); start != nil || len(workflowStartReceiptIDs(t, s, seed.workID)) != 0 {
+		t.Fatalf("mismatched worktree left a start or receipt: %+v", start)
 	}
 }
 
@@ -229,7 +224,7 @@ func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
 		t.Fatalf("dispatch_worker invocation failed: %v", err)
 	}
 	var identity string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM domain_events WHERE kind=? AND subject_id=? AND json_extract(payload,'$.action_id')=?`, WorkflowActionCompleted, seed.workID, "dispatch_worker").Scan(&identity); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_worktree_identity') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, seed.workID, attemptID).Scan(&identity); err != nil {
 		t.Fatal(err)
 	}
 	canonical, err := canonicalWorkerWorktreePath(claimed)
@@ -511,8 +506,7 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 		t.Fatalf("dispatch_worker failed: %v", err)
 	}
 	var storedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionCompleted, "dispatch_worker", "execution").Scan(&storedDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_packet_digest'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id='attempt-digest' AND json_extract(payload,'$.step_id')='execution'`, seed.workID).Scan(&storedDigest); err != nil {
 		t.Fatalf("cannot read workflow.action_completed: %v", err)
 	}
 	if storedDigest != wantDigest {
@@ -572,11 +566,7 @@ func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
 	if failure.Kind != KindInvalidPayload {
 		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
 	}
-	var startedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
-		t.Fatal(err)
-	}
+	startedCount := len(workflowStartReceiptIDs(t, s, seed.workID))
 	if startedCount != 0 {
 		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
 	}
@@ -618,11 +608,7 @@ func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
 	if failure.Kind != KindInvalidPayload {
 		t.Fatalf("failure kind = %s, want invalid_payload", failure.Kind)
 	}
-	var startedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), seed.workID, WorkflowActionStarted, "dispatch_worker").Scan(&startedCount); err != nil {
-		t.Fatal(err)
-	}
+	startedCount := len(workflowStartReceiptIDs(t, s, seed.workID))
 	if startedCount != 0 {
 		t.Fatalf("dispatch_worker.started event count = %d, want 0 after identity refusal", startedCount)
 	}
@@ -724,14 +710,14 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 	}
 	// CD-0059 fixture: pin the workflow instance to the execution step
 	// inside one fold transaction, since the workflow_instances table is
-	// fold-only. The dispatch action lives on the external_effect step
+	// write-seam-only. The dispatch action lives on the external_effect step
 	// "execution"; advancing via the action itself would force the test
 	// to drive the workflow through contract approval first.
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -739,7 +725,7 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -808,7 +794,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	if err != nil {
 		return err
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -820,11 +806,8 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 	}
 	raw, _ := json.Marshal(payload)
 	event := Event{EventID: "cd0059-consume-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "client:cd0059:principal/operator", PayloadVersion: 3, Payload: raw}
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?,?,?,?,?,?,?,?)`,
-		event.EventID, event.Kind, string(event.SubjectType), workID, event.Actor, "2026-08-22T00:00:00Z", event.PayloadVersion, string(raw))
-	if err == nil {
-		event.Seq, err = inserted.LastInsertId()
-	}
+	event.OccurredAt = time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
+	event.Seq, err = appendPreparedEvent(ctx, tx, event)
 	if err == nil {
 		err = writeWorkerDispatchFactsTx(ctx, tx, event, attemptID)
 	}
@@ -832,7 +815,7 @@ func seedWorkerDispatchedForAttempt(t *testing.T, s *Store, workID, attemptID st
 		_ = tx.Rollback()
 		return err
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1008,67 +991,86 @@ func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
 func TestValidateWorkerDispatchWindowRefusesPreCD0067Window(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := openTemp(t)
-	seed := seedDispatchFixture(t, s, "work-pre-cd0067")
-	actor := seed.ownerActor
+	const workID = "work-pre-cd0067"
+	actor := stepFixtureActor()
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Seed the WorkflowActionStarted event the window's start_seq
 	// resolves against, plus a completion that does NOT carry
-	// worker_packet_digest (the pre-CD-0067 shape). seedDispatchFixture
-	// already pinned the workflow instance to "execution"; the two
-	// domain_events below ride the standard fold path.
+	// worker_packet_digest (the pre-CD-0067 shape). Migration 143 derives
+	// the retained window's start identity before the log is retired.
 	startPayload := mustJSON(map[string]any{
-		"work_id": seed.workID, "expected_version": 4, "resulting_version": 5,
+		"work_id": workID, "expected_version": 4, "resulting_version": 5,
 		"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
 		"idempotency_identity":   "pre-cutover-open",
-		"actor_ref":              actor,
+		"actor_ref":              actorRef,
 	})
 	completionPayload := mustJSON(map[string]any{
-		"work_id":              seed.workID,
+		"work_id":              workID,
 		"expected_version":     5,
 		"resulting_version":    6,
 		"step_id":              "execution",
 		"action_id":            "dispatch_worker",
 		"attempt_epoch":        1,
 		"result_evidence_refs": []string{},
-		"changed_refs":         []string{seed.workID},
-		"actor_ref":            actor,
+		"changed_refs":         []string{workID},
+		"actor_ref":            actorRef,
 		"worker_attempt_id":    "attempt-pre-cd0067",
 		// No worker_packet_digest key — the pre-CD-0067 shape.
 	})
-	actorRef, err := WorkflowActorRef(actor)
+	path := filepath.Join(t.TempDir(), "pre-packet-window.db")
+	db := openMigratedTo(t, path, 142)
+	parents := []Event{
+		productCreatedEvent("product", "pre-packet-product"), projectCreatedEvent("project", "pre-packet-project"),
+		operationEvent("pre-packet-product-project", "product_project.added", SubjectProduct, "product", map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+	}
+	insertHistoricalEvents(t, db, parents)
+	insertHistoricalEvents(t, db, []Event{
+		{EventID: "pre-cutover-start", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(0, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(startPayload)},
+		{EventID: "pre-cutover-completed", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(0, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(completionPayload)},
+	})
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		sqlTx, err := transactionSQL(tx, "test_pre_cd0067")
-		if err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"pre-cutover-start", WorkflowActionStarted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 1, []byte(startPayload)); err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"pre-cutover-completed", WorkflowActionCompleted, string(SubjectWorkItem), seed.workID, actorRef, time.Unix(0, 0).UTC(), 2, []byte(completionPayload)); err != nil {
-			return err
-		}
-		if err := enterFold(ctx, sqlTx); err != nil {
-			return err
-		}
-		if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload)
-SELECT completion.subject_id,?,completion.seq,completion.payload,completion.event_id,start.seq,start.payload
-FROM domain_events completion JOIN domain_events start ON start.event_id=? WHERE completion.event_id=?`, "attempt-pre-cd0067", "pre-cutover-start", "pre-cutover-completed"); err != nil {
-			return err
-		}
-		return leaveFold(ctx, sqlTx)
-	}); err != nil {
-		t.Fatalf("seed pre-CD-0067 window: %v", err)
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard VALUES(1)`); err != nil {
+		t.Fatal(err)
 	}
+	for i, event := range parents {
+		event.Seq = int64(i + 1)
+		if err := applyEffect(ctx, tx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The historical work row has no migration-150 transition metadata.
+	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Pre-packet window','in_progress',0,6,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z'); INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'project','primary')`, workID, workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload) SELECT subject_id,'attempt-pre-cd0067',seq,payload FROM domain_events WHERE event_id='pre-cutover-completed'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	// Run the gate with a non-empty digest; the recorded digest is empty,
 	// so the cutover refusal must fire.
 	err = s.Transact(ctx, func(tx *Transaction) error {
-		return ValidateWorkerDispatchWindow(ctx, tx, seed.workID, "execution", "attempt-pre-cd0067", "sha256:"+strings.Repeat("d", 64))
+		return ValidateWorkerDispatchWindow(ctx, tx, workID, "execution", "attempt-pre-cd0067", "sha256:"+strings.Repeat("d", 64))
 	})
 	if err == nil {
 		t.Fatal("pre-CD-0067 window with non-empty digest was accepted")
@@ -1138,7 +1140,7 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 	}
 	beforeVersion := readWorkVersion(t, s, seed.workID)
 	var beforeEvents int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, seed.workID).Scan(&beforeEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, seed.workID).Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 	_, secondErr := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-b"))
@@ -1153,7 +1155,7 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 		t.Fatalf("second authorization did not name the pending launch and its recovery: %+v", failure)
 	}
 	var afterEvents int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, seed.workID).Scan(&afterEvents); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, seed.workID).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if beforeEvents != afterEvents || readWorkVersion(t, s, seed.workID) != beforeVersion {

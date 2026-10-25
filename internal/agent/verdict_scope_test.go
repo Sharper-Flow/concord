@@ -127,8 +127,8 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	return s, service, keys[0], keys[1], engine
 }
 
-// seedVerdictEvent seeds the terminal verdict in the log and its current read
-// owner without driving the workflow's unrelated completion gates.
+// seedVerdictEvent seeds the current terminal verdict without driving the
+// workflow's unrelated completion gates.
 func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]any{
@@ -141,16 +141,13 @@ func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('verdict-seed-completed','workflow.completed','work_item','work-1',?, '2026-08-14T00:01:00Z', 1, ?)`,
-		execActorRef, string(payload)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	agentSeedReceipt(t, tx, "verdict-seed-completed", store.WorkflowCompleted, "work-1", execActorRef, 1, payload)
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET
-			completion_payload=(SELECT payload FROM domain_events WHERE event_id='verdict-seed-completed'),
-			completion_occurred_at=(SELECT occurred_at FROM domain_events WHERE event_id='verdict-seed-completed')
+			completion_payload=?,
+			completion_occurred_at='2026-08-14T00:01:00Z'
 		WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`, string(payload)); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -246,7 +243,7 @@ func TestVerdictReadScopeDoesNotInferMissingInstanceIdentity(t *testing.T) {
 	s, service, execKey, _ := verdictScopeFixture(t)
 	// Isolate the read owner from the execution writer: the selection event
 	// remains, but no current executing tuple is recorded on the instance.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=NULL WHERE work_id='work-1'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=NULL WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	response := scopeReadFor(t, s, service, execKey, "verdict-current-identity", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")

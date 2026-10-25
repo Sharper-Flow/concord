@@ -99,7 +99,7 @@ func TestContinuityBlockRecoversWhenReviewCandidateGitIsUnavailable(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	execUnderFoldGuard(t, s.DatabaseForTesting(),
+	execUnderWriteGuard(t, s.DatabaseForTesting(),
 		fmt.Sprintf(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		VALUES('%s',1,'session recovery fixture','internal_sqlite','[]','[]','now',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','[]',1,'prototype_internal')`, started.WorkID),
 		fmt.Sprintf(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
@@ -160,41 +160,35 @@ func registryResolutionFor(handles ...string) hostCommandResolution {
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}
 }
 
-// recordedAssertion is the shape the identity tests read back from the store;
-// the event is evidence, so a test that wants to recompute the digest needs
-// only the digest and the source list.
-type recordedAssertion struct {
-	Type          string                             `json:"type"`
-	Version       string                             `json:"version"`
-	RulesetDigest string                             `json:"ruleset_digest"`
-	Sources       []store.OrchestratorArtifactSource `json:"sources"`
-}
-
-func readRecordedAssertion(t *testing.T, dbPath string) (recordedAssertion, error) {
+// The receipt binds every asserted field without retaining a session log.
+func assertRecordedAssertion(t *testing.T, dbPath string, expected store.OrchestratorIdentityAssertion) {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
-		return recordedAssertion{}, err
+		t.Fatal(err)
 	}
 	defer s.Close()
-	var payload []byte
+	var digest string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT payload FROM domain_events WHERE kind = ? ORDER BY seq DESC LIMIT 1`,
+		`SELECT payload_digest FROM effect_receipts WHERE kind = ? ORDER BY effect_seq DESC LIMIT 1`,
 		store.EventSessionOrchestratorIdentityAsserted,
-	).Scan(&payload); err != nil {
-		return recordedAssertion{}, err
+	).Scan(&digest); err != nil {
+		t.Fatal(err)
 	}
-	var ra recordedAssertion
-	if err := json.Unmarshal(payload, &ra); err != nil {
-		return recordedAssertion{}, err
+	sources := make([]map[string]string, 0, len(expected.Sources))
+	for _, source := range expected.Sources {
+		sources = append(sources, map[string]string{"kind": source.Kind, "path": source.Path, "sha256": source.SHA256})
 	}
-	return ra, nil
+	want := cliPayloadDigest(t, []byte(mustJSON(t, map[string]any{"type": expected.Type, "version": expected.Version, "ruleset_digest": expected.RulesetDigest, "sources": sources})))
+	if digest != want {
+		t.Fatalf("assertion receipt digest=%q, want exact resolved content %q", digest, want)
+	}
 }
 
 // TestSessionRecordsExactlyOneOrchestratorIdentityEvent covers CD-0061 D4:
 // a prepared session with a resolvable active-agent definition records
-// exactly one subject_type='session' domain event carrying the asserted
-// type, version, and ruleset digest.
+// exactly one subject_type='session' receipt binding the asserted type,
+// version, ruleset digest and resolved source list.
 func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	for _, lane := range store.BuiltinLaneDefinitions() {
@@ -207,6 +201,10 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	if err := verifyLaneAgentIdentity(home, cwd, store.BuiltinLaneDefinitions()); err != nil {
 		t.Fatalf("lane identity: %v", err)
 	}
+	expected, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "work-1", "concord-1"); err != nil {
 		t.Fatalf("record assertion: %v", err)
 	}
@@ -216,19 +214,19 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	}
 	defer s.Close()
 	rows, err := s.DatabaseForTesting().QueryContext(context.Background(),
-		`SELECT subject_type, payload FROM domain_events WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted)
+		`SELECT subject_type, payload_digest FROM effect_receipts WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted)
 	if err != nil {
 		t.Fatalf("read assertion events: %v", err)
 	}
 	defer rows.Close()
 	type recordedEvent struct {
 		SubjectType string
-		Payload     []byte
+		Digest      string
 	}
 	var events []recordedEvent
 	for rows.Next() {
 		var evt recordedEvent
-		if err := rows.Scan(&evt.SubjectType, &evt.Payload); err != nil {
+		if err := rows.Scan(&evt.SubjectType, &evt.Digest); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		events = append(events, evt)
@@ -242,23 +240,19 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	if events[0].SubjectType != string(store.SubjectSession) {
 		t.Fatalf("subject_type = %q, want %q", events[0].SubjectType, store.SubjectSession)
 	}
-	var payload struct {
-		Type          string `json:"type"`
-		Version       string `json:"version"`
-		RulesetDigest string `json:"ruleset_digest"`
+	if expected.Type != OrchestratorIdentityType {
+		t.Fatalf("type = %q, want %q", expected.Type, OrchestratorIdentityType)
 	}
-	if err := json.Unmarshal(events[0].Payload, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
+	if expected.Version != OrchestratorIdentityVersion {
+		t.Fatalf("version = %q, want %q", expected.Version, OrchestratorIdentityVersion)
 	}
-	if payload.Type != OrchestratorIdentityType {
-		t.Fatalf("type = %q, want %q", payload.Type, OrchestratorIdentityType)
+	if !strings.HasPrefix(expected.RulesetDigest, "sha256:") {
+		t.Fatalf("ruleset_digest = %q, want sha256:<hex>", expected.RulesetDigest)
 	}
-	if payload.Version != OrchestratorIdentityVersion {
-		t.Fatalf("version = %q, want %q", payload.Version, OrchestratorIdentityVersion)
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasPrefix(payload.RulesetDigest, "sha256:") {
-		t.Fatalf("ruleset_digest = %q, want sha256:<hex>", payload.RulesetDigest)
-	}
+	assertRecordedAssertion(t, dbPath, expected)
 }
 
 // TestOrchestratorIdentityRefusalRecordsNothing covers the CD-0061 D4
@@ -347,12 +341,13 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	}
 
 	// First assertion — recorded against the current files.
-	record()
-	first, err := readRecordedAssertion(t, dbPath)
+	first, _, err := verifyOrchestratorIdentity(home, cwd, "concord-1")
 	if err != nil {
-		t.Fatalf("read first assertion: %v", err)
+		t.Fatalf("resolve first assertion: %v", err)
 	}
-	// Recompute the digest from the same recorded source list and assert
+	record()
+	assertRecordedAssertion(t, dbPath, first)
+	// Recompute the digest from the receipt-bound source list and assert
 	// equality. This is the property CD-0061 D5 / Invariant 4 requires:
 	// the digest derives only from what was resolved.
 	recomputed := computeOrchestratorRulesetDigest(first.Sources)
@@ -376,10 +371,8 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 		t.Fatalf("digest unchanged after AGENTS.md mutation: %q", recomputedFromCurrent)
 	}
 	record()
-	second, err := readRecordedAssertion(t, dbPath)
-	if err != nil {
-		t.Fatalf("read second assertion: %v", err)
-	}
+	assertRecordedAssertion(t, dbPath, currentAssertion)
+	second := currentAssertion
 	if second.RulesetDigest == first.RulesetDigest {
 		t.Fatalf("recorded digest unchanged across artifact mutation")
 	}
@@ -417,7 +410,7 @@ func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 	defer s.Close()
 	var actor string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(),
-		`SELECT actor FROM domain_events WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted).Scan(&actor); err != nil {
+		`SELECT actor FROM effect_receipts WHERE kind = ?`, store.EventSessionOrchestratorIdentityAsserted).Scan(&actor); err != nil {
 		t.Fatalf("read assertion event: %v", err)
 	}
 	// The agent reference is hashed into the actor rather than stored beside

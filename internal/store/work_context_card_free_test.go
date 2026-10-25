@@ -41,7 +41,7 @@ func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid strin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE project_locators SET locator_value=?,normalized_value=? WHERE locator_id='workflow-law-locator'`, repo, repo); err != nil {
@@ -50,7 +50,7 @@ func workContextPointLawHome(t *testing.T, f workContextFixture, repo, oid strin
 	if _, err := tx.Exec(`UPDATE domain_registries SET scanned_commit_oid=? WHERE product_id='product'`, oid); err != nil {
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

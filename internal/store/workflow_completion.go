@@ -35,10 +35,10 @@ func workflowCompletionRequired() error {
 
 // CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No
 // completion or notice is appended until every earlier clause has passed. The
-// caller passes the fold scope its region owns; the completion enters and
+// caller passes the write scope its region owns; the completion enters and
 // releases one depth level on it, so a boundary-owned guard survives until the
 // boundary's own level closes.
-func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *foldScope) error {
+func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -81,7 +81,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		registry = BuiltinWorkflowRegistry()
 	}
 	if scope == nil {
-		return newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
+		return newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
 	}
 	// The terminal fold and the lifecycle close resolve the same verified pin
 	// through the transaction's scope: bind the caller's registry before any
@@ -91,7 +91,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	// The completion holds one depth level on the caller's scope for the whole
-	// gate: clause folds write fold-only projections, and a nested level must
+	// gate: clause writers update write-seam-only rows, and a nested level must
 	// not drop the boundary's protection early.
 	if err := scope.enter(ctx); err != nil {
 		return err
@@ -250,7 +250,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 		notice.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, notice.EventID)
-		if err := foldRegisteredEvent(ctx, tx, notice, scope); err != nil {
+		if err := applyEffect(ctx, tx, notice, scope); err != nil {
 			return workflowClauseError(err, 7)
 		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
@@ -275,7 +275,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 	completion.Seq = seq
 	scope.eventIDs = append(scope.eventIDs, completion.EventID)
-	if err := foldRegisteredEvent(ctx, tx, completion, scope); err != nil {
+	if err := applyEffect(ctx, tx, completion, scope); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
@@ -298,7 +298,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 // event that moves the work item to the workflow's terminal state. The
 // completion event must already be folded: the transition's fold keeps the
 // instance record only because the instance is terminal when it runs.
-func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *foldScope, completion Event, terminalState string) error {
+func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *writeScope, completion Event, terminalState string) error {
 	var from string
 	var version int64
 	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, completion.SubjectID).Scan(&from, &version); err != nil {
@@ -315,7 +315,7 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *f
 	}
 	transition.Seq = seq
 	scope.eventIDs = append(scope.eventIDs, transition.EventID)
-	if err := foldRegisteredEvent(ctx, tx, transition, scope); err != nil {
+	if err := applyEffect(ctx, tx, transition, scope); err != nil {
 		return err
 	}
 	return advanceWorkEffectSeqTx(ctx, tx, transition)

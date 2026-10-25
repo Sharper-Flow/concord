@@ -40,7 +40,7 @@ func jsonInt(value int64) string {
 }
 
 // completedDeliveryFixture seeds one work item whose workflow instance is
-// completed through the log with a delivery assertion that carries a
+// completed through the current writer with a delivery assertion that carries a
 // repository file path instead of merge evidence, the defect shape the
 // correction exists to repair. It returns the store, the target assertion
 // event id, the work item version the correction must expect, the assertion's
@@ -54,45 +54,79 @@ func completedDeliveryFixture(t *testing.T, workID string) (*Store, string, int6
 
 // completedDeliveryFixtureWithAssertions seeds the completed item with a
 // chosen number of delivery assertions, so the stale-target refusal can name
-// an assertion that is no longer the current one. Only the first assertion is
-// folded; later ones are plain event rows because a second record_delivery on
-// one step cannot fold twice.
+// an assertion that is no longer current. Repeated historical assertions come
+// from a real prefix; the ordinary single-assertion case uses current writers.
 func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, assertions int) *Store {
 	t.Helper()
-	f := qCurrentAcceptanceWithDelivery(t, workID, deliveryCorrectionWrongPath)
-	s := f.store
-	ownerRef, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	bindCompletionClosure(t, s, workID, f.owner)
-	if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
-		t.Fatal(err)
-	}
-	// Later assertions replace the first one in the log without folding on the
-	// already-advanced step; only their read shape matters for the stale case.
-	for index := 1; index < assertions; index++ {
-		payload, err := json.Marshal(map[string]any{
-			"work_id": workID, "expected_version": 10, "resulting_version": 11,
-			"step_id": "execution", "action_id": "record_delivery", "attempt_epoch": 1,
-			"delivery_artifact": deliveryCorrectionWrongPath + "/" + jsonInt(int64(index)), "delivery_state": "asserted",
-			"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": ownerRef,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"delivery-"+workID+"-"+jsonInt(int64(index+1)), WorkflowActionCompleted, string(SubjectWorkItem), workID, ownerRef, time.Unix(int64(index), 0).UTC().Format(time.RFC3339Nano), 1, payload); err != nil {
-			t.Fatal(err)
-		}
-	}
+	var s *Store
 	if assertions > 1 {
-		repopulateWorkflowCurrentFactsForTest(t, s)
+		s = historicalRepeatedDeliveryFixture(t, workID, assertions)
+	} else {
+		f := qCurrentAcceptanceWithDelivery(t, workID, deliveryCorrectionWrongPath)
+		s = f.store
+		if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		bindCompletionClosure(t, s, workID, f.owner)
+		if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func historicalRepeatedDeliveryFixture(t *testing.T, work string, assertions int) *Store {
+	t.Helper()
+	c := evidenceCorpusForWork(t, work)
+	var terminal Event
+	for _, e := range c.events {
+		if e.Kind == WorkflowCompleted {
+			terminal = e
+		}
+	}
+	var events []Event
+	count := 0
+	var version int64
+	for _, e := range c.events {
+		if e.Kind == WorkflowDeliveryCorrected || e.Kind == WorkflowCompleted && e.EventID != terminal.EventID {
+			continue
+		}
+		var p map[string]any
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		if e.Kind == WorkflowActionCompleted && p["delivery_state"] == "asserted" {
+			if count >= assertions {
+				continue
+			}
+			p["delivery_artifact"] = deliveryCorrectionWrongPath
+			if count > 0 {
+				p["delivery_artifact"] = deliveryCorrectionWrongPath + "/" + jsonInt(int64(count))
+			}
+			count++
+		}
+		if _, bumps := p["expected_version"]; bumps && e.Kind != "compaction_link.published" {
+			if version == 0 {
+				version = int64(p["expected_version"].(float64))
+			}
+			p["expected_version"], p["resulting_version"] = version, version+1
+			version++
+		}
+		e.Payload = mustJSONValue(p)
+		events = append(events, e)
+	}
+	if count != assertions {
+		t.Fatalf("historical delivery corpus has %d assertions, want %d", count, assertions)
+	}
+	c.events = events
+	s := c.prefix(t, 141)
+	if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); UPDATE work_items SET lifecycle='completed',version=? WHERE id=?; UPDATE workflow_instances SET instance_state='completed',completed_at=? WHERE work_id=?; DELETE FROM fold_guard`, version, work, terminal.OccurredAt.Format(time.RFC3339Nano), work); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(t.Context(), s.db); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -128,7 +162,7 @@ func deliveryAssertionEvent(t *testing.T, s *Store, workID string, offsetFromLat
 	var eventID string
 	var seq int64
 	var payloadVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,seq,payload_version FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery' AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' ORDER BY seq DESC LIMIT 1 OFFSET ?`, workID, WorkflowActionCompleted, offsetFromLatest).Scan(&eventID, &seq, &payloadVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,effect_seq,payload_version FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? AND delivery_assertion=1 ORDER BY effect_seq DESC LIMIT 1 OFFSET ?`, workID, WorkflowActionCompleted, offsetFromLatest).Scan(&eventID, &seq, &payloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	return eventID, seq, payloadVersion
@@ -353,7 +387,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	valid := unsignedDeliveryCorrectionRequest(t, s, workID, version, targetEventID, targetSeq, targetPayloadVersion)
 	eventsBefore := countWorkflowSubjectEvents(t, s, workID)
 	var nonAssertion string
-	if err := s.db.QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_proposal'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
+	if err := s.db.QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.work_id=r.subject_id AND x.exit_seq=r.effect_seq WHERE r.subject_id=? AND r.kind=? AND r.delivery_assertion=0 AND x.action_id='confirm_premise'`, workID, WorkflowActionCompleted).Scan(&nonAssertion); err != nil {
 		t.Fatal(err)
 	}
 
@@ -433,7 +467,7 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	countEvents := func() int {
 		t.Helper()
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -463,9 +497,9 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	// correction event.
 	live := valid
 	live.EventID = "correction-" + workID + "-live"
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET instance_state='running' WHERE work_id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, live), KindInvalidOperation, "only to a completed workflow instance")
@@ -491,7 +525,7 @@ func TestTerminalDeliveryCorrectionRefusalNamesReferenceByteBound(t *testing.T) 
 func countWorkflowSubjectEvents(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -535,7 +569,7 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("read target identity = (%q,%d,%d), want (%q,%d,%d)", target.EventID, target.Seq, target.TargetPayloadVersion, targetEventID, targetSeq, targetPayloadVersion)
 	}
 	var originalPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE work_id=? AND assertion_id=?`, workID, targetEventID).Scan(&originalPayload); err != nil {
 		t.Fatal(err)
 	}
 
@@ -562,14 +596,14 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 		t.Fatalf("effective artifact = %q, want the corrected merge evidence", assertion.EffectiveArtifact)
 	}
 	var replayedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE work_id=? AND assertion_id=?`, workID, targetEventID).Scan(&replayedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if originalPayload != replayedPayload {
 		t.Fatal("the original assertion event payload was rewritten")
 	}
 	var eventCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&eventCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 	if eventCount != 1 {

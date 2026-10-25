@@ -125,22 +125,14 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"sc-rc-declare-retained", store.WorkflowWorkContextRecorded, string(store.SubjectWorkItem), researchScopeConsumer, "operator", fixedTime().UTC().Format(time.RFC3339Nano), 1, raw)
-	if err != nil {
-		t.Fatalf("retained declaration fixture refused: %v", err)
-	}
-	seq, err := result.LastInsertId()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	seq := agentSeedReceipt(t, tx, "sc-rc-declare-retained", store.WorkflowWorkContextRecorded, researchScopeConsumer, "operator", 1, raw)
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES(?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET source_frontier=excluded.source_frontier,declaration_seq=excluded.declaration_seq,declaration_id=excluded.declaration_id,declaration_payload=excluded.declaration_payload`, researchScopeConsumer, seq, seq, "sc-rc-declare-retained", string(raw)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -201,7 +193,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 			// A missing membership is corrupt retained state, not a legal
 			// work creation: isolate the fault after the fixture passes
 			// admission, exactly as the retained scope suite does.
-			if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM fold_guard`); err != nil {
+			if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(pack))

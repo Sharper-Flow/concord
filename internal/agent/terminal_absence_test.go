@@ -54,7 +54,7 @@ func TestPublishedExecutionAbsenceUnresolvedLocatorWire(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := runtimeKnowledgeStore(t, "work-published", "work_note", []string{"product-a"}, map[string]string{"product-a": "member"})
 			defer s.Close()
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); ` + tc.sql + `; DELETE FROM fold_guard`); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); ` + tc.sql + `; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			_, err := s.ReadWorkItemSummary(t.Context(), "work-published")

@@ -110,10 +110,10 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
 		return actionErr
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -131,13 +131,13 @@ func setRequiredEvidenceKinds(t *testing.T, s *Store, workID string, kinds ...st
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence=? WHERE work_id=? AND superseded_by IS NULL`, string(required), workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -145,13 +145,13 @@ func setRequiredEvidenceKinds(t *testing.T, s *Store, workID string, kinds ...st
 func setWorkflowInstanceState(t *testing.T, s *Store, workID, state string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -174,7 +174,7 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
 	}
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
 		return actionErr
 	}
 	return tx.Commit()
@@ -183,7 +183,7 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 func (f acceptanceRecoveryFixture) boundCount(t *testing.T, kind, reference string) int {
 	t.Helper()
 	var count int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, f.workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, f.workID, kind, reference).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -198,7 +198,7 @@ func (f acceptanceRecoveryFixture) authority(t *testing.T) (step string, contrac
 	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, f.workID).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 		t.Fatal(err)
 	}
 	return step, contractVersion, verdicts
@@ -256,7 +256,7 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 		t.Fatalf("confirmation after recovery refused: %v", err)
 	}
 	var confirmed int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowPremiseConfirmed).Scan(&confirmed); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowPremiseConfirmed).Scan(&confirmed); err != nil {
 		t.Fatal(err)
 	}
 	if confirmed != 1 {
@@ -384,7 +384,7 @@ func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64
 	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contract); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 		t.Fatal(err)
 	}
 	return step, contract, verdicts
@@ -393,7 +393,7 @@ func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64
 func countWorkflowEvents(t *testing.T, s *Store, kind string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "accepted-worker-recovery-completion", kind).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "accepted-worker-recovery-completion", kind).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -402,7 +402,7 @@ func countWorkflowEvents(t *testing.T, s *Store, kind string) int {
 func countEvidenceBinding(t *testing.T, s *Store, workID, kind, reference string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, kind, reference).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, kind, reference).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

@@ -90,13 +90,13 @@ func TestCallerRegistryWorkPinRefusesUnknownCurrentDefinition(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := enterFold(context.Background(), q); err != nil {
+		if err := enterWrite(context.Background(), q); err != nil {
 			return err
 		}
 		if _, err := q.Exec(`UPDATE workflow_instances SET definition_ref='workflow.missing' WHERE work_id=?`, workID); err != nil {
 			return err
 		}
-		return leaveFold(context.Background(), q)
+		return leaveWrite(context.Background(), q)
 	}); err != nil {
 		t.Fatal(err)
 	}

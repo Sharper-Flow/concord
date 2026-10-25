@@ -65,9 +65,9 @@ func (f multiProjectRecoveryFixture) occupy(t *testing.T, project string, live b
 		ownerPID, ownerStart := bootstrapTestOwner(t)
 		pid, start = ownerPID, ownerStart
 	}
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity)
-		VALUES(?,?,?,?,?,?); DELETE FROM fold_guard`,
+		VALUES(?,?,?,?,?,?); DELETE FROM write_guard`,
 		worktreeOccupancyID(entry.SetID, project, entry.ClaimOpID), "session-"+project,
 		time.Now().UTC().Format(time.RFC3339Nano), pid, start, live); err != nil {
 		t.Fatal(err)
@@ -170,9 +170,9 @@ func TestMultiProjectRecoveryKeepsOwnOccupancyProtection(t *testing.T) {
 func TestMultiProjectRecoveryRefusesUnresolvedAttemptOwnership(t *testing.T) {
 	f := newMultiProjectRecoveryFixture(t)
 	f.dispatch(t, "attempt-unresolved")
-	if _, err := f.store.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		DELETE FROM worktree_entries WHERE set_id=? AND project_id='project';
-		DELETE FROM fold_guard`, WorktreeSetID(f.seed.workID)); err != nil {
+		DELETE FROM write_guard`, WorktreeSetID(f.seed.workID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.abandon("attempt-unresolved"); !hasFailureKind(err, KindWorktreeOwnershipConflict) {

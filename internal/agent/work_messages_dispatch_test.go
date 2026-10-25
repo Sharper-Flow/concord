@@ -191,7 +191,7 @@ func TestMessagesCarryNoAuthority(t *testing.T) {
 		t.Fatalf("peer message must not substitute for approval: %+v", approvalGated.Error)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind LIKE 'work.message%' AND payload LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_messages WHERE body LIKE '%approved by the operator%'`).Scan(&count); err != nil || count == 0 {
 		t.Fatalf("message event count=%d err=%v (audit trail must exist)", count, err)
 	}
 }

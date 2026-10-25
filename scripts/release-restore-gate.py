@@ -337,7 +337,7 @@ def snapshot_fixture(source: Path, destination: Path, writer: str, room=lambda: 
 
 
 def effects(path: Path, deadline: float) -> list[str]:
-    """The recipe effects absent from a restored store, by projection."""
+    """The recipe effects absent from a store's current tables."""
     db = connect(path, deadline)
     try:
         return [name for name, query, want in EFFECTS if db.execute(query).fetchall() != [want]]

@@ -1703,11 +1703,11 @@ func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, reques
 
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
-// The caller's fold scope guards the whole action region.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+// The caller's write scope guards the whole action region.
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if scope == nil {
-		return result, newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
+		return result, newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
 	}
 	// The actor-recording prefix events fold before the completion gate opens
 	// its own level, so the action holds one guard level across the whole
@@ -1729,7 +1729,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		}
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
+		if err := applyEffect(ctx, tx, event, scope); err != nil {
 			return result, err
 		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {

@@ -118,7 +118,7 @@ func routinePairVersions(t *testing.T, s *Store) (int64, int64) {
 func routineOverlapEventCount(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -215,7 +215,7 @@ func TestRoutineCoordination(t *testing.T) {
 					t.Fatalf("routine %s resolution moved versions %d/%d to %d/%d, want each advanced by one", kind, beforeFrom, beforeTo, fromVersion, toVersion)
 				}
 				var storedVersion int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "routine-"+kind).Scan(&storedVersion); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "routine-"+kind).Scan(&storedVersion); err != nil {
 					t.Fatal(err)
 				}
 				if storedVersion != eventKindRegistry[WorkflowOverlapResolved].CurrentVersion {
@@ -378,7 +378,7 @@ func TestRoutineCoordination(t *testing.T) {
 				t.Fatalf("v2 routine event without a claim refused: %v", err)
 			}
 			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
 				t.Fatal(err)
 			}
 			if storedVersion != 2 {
@@ -412,11 +412,11 @@ func TestRoutineCoordination(t *testing.T) {
 		// effect, so a live writer that rewrote the assertion could not
 		// escape the comparison after the effect and the rebuild.
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
 		var nonAssertionEventID string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_proposal' ORDER BY seq LIMIT 1`, workID, WorkflowActionCompleted).Scan(&nonAssertionEventID); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.exit_seq=r.effect_seq WHERE x.work_id=? AND x.action_id='confirm_premise' AND r.delivery_assertion=0 ORDER BY r.effect_seq LIMIT 1`, workID).Scan(&nonAssertionEventID); err != nil {
 			t.Fatal(err)
 		}
 
@@ -462,7 +462,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Fatalf("unsigned direct-entry delivery correction refused: %v", err)
 		}
 		var eventActor string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE event_id=?`, settled.EventID).Scan(&eventActor); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE event_id=?`, settled.EventID).Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
 		if expected := readWorkflowRecordedActorRef(t, s, workID); eventActor != expected {
@@ -472,7 +472,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Fatalf("correction version = %d, want the single correction advance %d", got, version+1)
 		}
 		var afterEffectPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&afterEffectPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&afterEffectPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != afterEffectPayload {
@@ -608,7 +608,7 @@ func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID string) string 
 func routineWorkEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -664,11 +664,11 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			t.Fatalf("fresh coordinator actor already recorded (%d rows)", actorRows)
 		}
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
 		var watermark int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 			t.Fatal(err)
 		}
 		actorsBefore := routineActorRowCount(t, s)
@@ -686,7 +686,7 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			actor   string
 			payload string
 		}
-		rows, err := s.DatabaseForTesting().Query(`SELECT kind,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq>? ORDER BY seq`, workID, watermark)
+		rows, err := s.DatabaseForTesting().Query(`SELECT kind,actor,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq>? ORDER BY effect_seq`, workID, watermark)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -714,20 +714,13 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		if newEvents[0].actor != freshRef || newEvents[1].actor != freshRef {
 			t.Fatalf("new event actors = %q,%q, want both attributed to %q", newEvents[0].actor, newEvents[1].actor, freshRef)
 		}
-		var recorded struct {
-			ActorRef     string `json:"actor_ref"`
-			PrincipalRef string `json:"principal_ref"`
-			ClientRef    string `json:"client_ref"`
-			AgentRef     string `json:"agent_ref"`
-			SessionRef   string `json:"session_ref"`
-			ActorClass   string `json:"actor_class"`
-		}
-		if err := json.Unmarshal([]byte(newEvents[0].payload), &recorded); err != nil {
-			t.Fatal(err)
-		}
-		if recorded.ActorRef != freshRef || recorded.PrincipalRef != fresh.PrincipalRef || recorded.ClientRef != fresh.ClientRef ||
-			recorded.AgentRef != fresh.AgentRef || recorded.SessionRef != fresh.SessionRef || recorded.ActorClass != string(ActorAgent) {
-			t.Fatalf("prefix event tuple %+v, want the exact authenticated tuple", recorded)
+		prefixDigest, err := effectPayloadDigest(mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"actor_ref": freshRef, "principal_ref": fresh.PrincipalRef, "client_ref": fresh.ClientRef,
+			"agent_ref": fresh.AgentRef, "session_ref": fresh.SessionRef, "actor_class": string(ActorAgent),
+		}))
+		if err != nil || newEvents[0].payload != prefixDigest {
+			t.Fatalf("prefix digest=%q, want the exact authenticated tuple/version digest %q: %v", newEvents[0].payload, prefixDigest, err)
 		}
 		var principal, client, agent, session, class string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, freshRef).Scan(&principal, &client, &agent, &session, &class); err != nil {
@@ -736,14 +729,14 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		if principal != fresh.PrincipalRef || client != fresh.ClientRef || agent != fresh.AgentRef || session != fresh.SessionRef || class != string(ActorAgent) {
 			t.Fatalf("recorded actor tuple = %q,%q,%q,%q,%q, want the exact canonical tuple", principal, client, agent, session, class)
 		}
-		var claim struct {
-			ApprovalRef string `json:"approval_ref"`
-		}
-		if err := json.Unmarshal([]byte(newEvents[1].payload), &claim); err != nil {
-			t.Fatal(err)
-		}
-		if claim.ApprovalRef != "" {
-			t.Fatalf("correction recorded an approval claim %q", claim.ApprovalRef)
+		correctionDigest, err := effectPayloadDigest(mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2,
+			"target_event_id": request.TargetEventID, "target_seq": request.TargetSeq, "target_payload_version": request.TargetPayloadVersion,
+			"reason": request.Reason, "delivery_artifact": request.DeliveryArtifact, "delivery_state": request.DeliveryState,
+			"evidence_source": DeliveryEvidenceSourceCoordinatorAsserted,
+		}))
+		if err != nil || newEvents[1].payload != correctionDigest {
+			t.Fatalf("correction digest=%q, want the exact unsigned request/version digest %q: %v", newEvents[1].payload, correctionDigest, err)
 		}
 		if got := routineActorRowCount(t, s); got != actorsBefore+1 {
 			t.Fatalf("actor rows after the effect = %d, want only the fresh coordinator row added to %d", got, actorsBefore)
@@ -752,7 +745,7 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			t.Fatalf("correction version = %d, want the prefix plus correction advance %d", got, version+2)
 		}
 		var afterPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&afterPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&afterPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != afterPayload {

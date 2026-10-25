@@ -23,7 +23,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 	version := readWorkVersion(t, s, workID)
 	step := readInstanceStep(t, s, workID)
 	var eventCount int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&eventCount); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 
@@ -62,7 +62,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&afterEvents); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actors); err != nil {

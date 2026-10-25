@@ -227,21 +227,21 @@ func assertUnchangedDump(t *testing.T, label string, before, after []string) {
 	}
 }
 
-// requireGuardRefusal holds one write to the fold-only resolution table that
-// runs without a fold guard: the guards themselves, not the caller, must
+// requireGuardRefusal holds one write to the write-seam-only resolution table that
+// runs without a write guard: the guards themselves, not the caller, must
 // refuse.
 func requireGuardRefusal(t *testing.T, err error, action string) {
 	t.Helper()
 	if err == nil {
-		t.Fatalf("%s without a fold guard was admitted; the workflow_overlap_resolutions fold guards no longer operate", action)
+		t.Fatalf("%s without a write guard was admitted; the workflow_overlap_resolutions write guards no longer operate", action)
 	}
 	if !strings.Contains(err.Error(), "workflow_overlap_resolutions is fold-only") {
-		t.Fatalf("%s without a fold guard failed with %v, want the fold-only refusal", action, err)
+		t.Fatalf("%s without a historical guard failed with %v, want the fold-only refusal", action, err)
 	}
 }
 
 // requireSchemaRefusal holds one claim the rebuilt approval_ref CHECK must
-// refuse while the fold guard is armed, so the refusal names the schema and
+// refuse while the write guard is armed, so the refusal names the schema and
 // not the guard.
 func requireSchemaRefusal(t *testing.T, err error, action string) {
 	t.Helper()
@@ -249,7 +249,7 @@ func requireSchemaRefusal(t *testing.T, err error, action string) {
 		t.Fatalf("%s was admitted; the rebuilt approval_ref check dropped the destructive authority requirement", action)
 	}
 	if strings.Contains(err.Error(), "workflow_overlap_resolutions is fold-only") {
-		t.Fatalf("%s was refused by the fold guard, want the approval_ref check refusal", action)
+		t.Fatalf("%s was refused by the write guard, want the approval_ref check refusal", action)
 	}
 }
 
@@ -306,7 +306,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at)
@@ -350,7 +350,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatalf("the fold guard, not the old approval_ref check, refused the prefix probe: %v", err)
 	}
 
-	if err := leaveFold(ctx, tx); err != nil {
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -393,6 +393,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 	beforeObjectList := overlapSchemaObjects(t, db)
 	beforeObjects := renderSchemaObjects(beforeObjectList)
 	beforeEvents := domainEventDump(t, db)
+	beforeReceipts := histEventRows(t, &Store{db: db})
 	beforeManifest := manifestDump(t, db)
 	present := map[string]bool{}
 	for _, object := range beforeObjectList {
@@ -412,9 +413,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 
 	// Advance through the real runner: the pending tail records itself, the
 	// target included.
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("migrate the routine overlap authority prefix: %v", err)
-	}
+	advanceHistoricalPrefix(t, db, migrations[target].Version)
 
 	// The rebuild's TEMP backup is scratch state on the single pooled
 	// connection: a successful migration leaves none of it behind.
@@ -469,7 +468,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatalf("recorded target row = %s/%s/breaking=%d, want %s/%s/breaking=%d", recordedName, recordedChecksum, recordedBreaking, want.Name, want.checksum(), boolInt(want.Breaking))
 	}
 
-	// Without a fold guard the rebuilt table still refuses every direct
+	// Without a write guard the rebuilt table still refuses every direct
 	// write, proving the three guards survived the rebuild.
 	insertGuardProbe := func() error {
 		_, err := db.ExecContext(ctx, `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at,invalidated_seq) VALUES('probe-guard',?,?,?,?,?,?,'depends_on','probe without a fold guard','','2026-10-15T00:00:00Z',NULL)`,
@@ -495,7 +494,7 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = foldTx.Rollback() }()
-	if err := enterFold(ctx, foldTx); err != nil {
+	if _, err := foldTx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{ResolutionCompatibleWith, ResolutionDependsOn, ResolutionBlocks} {
@@ -520,15 +519,24 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 			"probe-"+kind, toSeq, "overlap-authority-product", "overlap-from", "overlap-to", 1, 1, kind, "probe of the destructive empty-claim refusal", "", "2026-10-15T00:00:00Z", nil)
 		requireSchemaRefusal(t, err, "an empty "+kind+" approval_ref claim")
 	}
-	if err := leaveFold(ctx, foldTx); err != nil {
+	if _, err := foldTx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := foldTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 
-	// A second pass over the same database is a no-op: the manifest and the
-	// rows come back identical.
+	// The full tail intentionally replaces the log FK and guard in 151.
+	// Preserve the resolution rows and every surviving acknowledgment.
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	assertUnchangedDump(t, "resolution rows through current head", beforeRows, resolutionRowDump(t, db))
+	assertHistoricalReceipts(t, db, beforeReceipts)
+	if _, err := db.Exec(`UPDATE workflow_overlap_resolutions SET reason=reason`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("current guard lost: %v", err)
+	}
+	// A second full pass is a no-op.
 	beforeSecondManifest := manifestDump(t, db)
 	beforeSecondRows := resolutionRowDump(t, db)
 	if err := Migrate(ctx, db); err != nil {

@@ -245,7 +245,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 		t.Fatalf("root cause workflow family=%s", definitionRef)
 	}
 	var fencedStarts, workerDispatches int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FILTER (WHERE kind=?),count(*) FILTER (WHERE kind=?) FROM domain_events WHERE subject_id=?`, store.WorkflowActionStarted, store.WorkerDispatched, rcaID).Scan(&fencedStarts, &workerDispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FILTER (WHERE kind=?),count(*) FILTER (WHERE kind=?) FROM effect_receipts WHERE subject_id=?`, store.WorkflowActionStarted, store.WorkerDispatched, rcaID).Scan(&fencedStarts, &workerDispatches); err != nil {
 		t.Fatal(err)
 	}
 	if fencedStarts != 0 || workerDispatches != 0 {

@@ -36,7 +36,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 	snapshot := func() [3]int64 {
 		t.Helper()
 		state := [3]int64{workVersion(t, s, workID)}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&state[1]); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&state[1]); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&state[2]); err != nil {

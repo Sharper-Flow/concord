@@ -98,7 +98,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   // downstream can catch the substitution.
   const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_digest)
   if (!lane) {
-    windows.refuseSettlement(input.sessionID)
+    windows.refuseSettlement(input.sessionID, record)
     output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt requires lane content revalidation; preserve its original identity and evidence" } })
     return
   }
@@ -114,8 +114,8 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   // settlement release the retained record. Anything else keeps it in the
   // refused state, so the worker_reconcile recovery the in-flight refusal
   // names stays available for exactly this attempt.
-  if (recorded) windows.finishSettlement(input.sessionID, input.callID)
-  else windows.refuseSettlement(input.sessionID)
+  if (recorded) windows.finishSettlement(input.sessionID, input.callID, record)
+  else windows.refuseSettlement(input.sessionID, record)
   output.output += renderAttempt(envelope)
 }
 
@@ -367,8 +367,11 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const part = event.properties.part
   if (!object(part) || part.type !== "tool" || part.tool !== TASK_TOOL_ID || typeof part.sessionID !== "string" || typeof part.callID !== "string") return null
   const state = part.state
-  if (!object(state) || state.status !== "error" || typeof state.error !== "string") return null
+  if (!object(state) || (state.status !== "error" && state.status !== "completed")) return null
+  if (state.status === "error" ? typeof state.error !== "string" : typeof state.output !== "string") return null
   const windows = deps.windows ?? dispatchWindows()
+  const matchesCurrent = windows.observeTerminalPart(part.sessionID, part.callID, typeof part.id === "string" ? part.id : undefined, object(state.input) ? state.input.prompt : undefined)
+  if (state.status !== "error" || !matchesCurrent) return null
   const pending = windows.inFlightAttempt(part.sessionID)
   if (!pending) return null
   // Native hooks identify the part; model-issued Task hooks identify its call.
@@ -381,7 +384,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   if (!object(metadata) || typeof metadata.sessionId !== "string" || !/^ses_[a-zA-Z0-9]+$/.test(metadata.sessionId)) {
     return unavailableEnvelope(pending, "cancelled Task has no host child session identity; retain the in-flight attempt for reconciliation")
   }
-  if (!windows.claimSettlement(part.sessionID, callID)) return null
+  if (!windows.claimSettlement(part.sessionID, callID, pending)) return null
   const sessionID = part.sessionID
   const observed = observations.take(metadata.sessionId)
   const detail = cancelledDetail(state.error, observed)
@@ -392,7 +395,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory, capturedProvenance: pending.provenance,
       failureAttribution: cancellationFailureObservation(state.error, metadata.sessionId, observed),
-    }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
+    }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID, pending))
     if (envelope.error && observed.length > 0) {
       envelope.error.details = { ...envelope.error.details, host_observations: observed }
     }
@@ -401,28 +404,22 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
     // state, so a repeat event cannot re-attempt the write and the
     // worker_abandon route the in-flight refusal names stays live for the
     // coordinator.
-    if (windows.inFlight(sessionID, callID) !== null) windows.refuseSettlement(sessionID)
+    windows.refuseSettlement(sessionID, pending)
     return envelope
   } catch (error) {
-    windows.refuseSettlement(sessionID)
+    windows.refuseSettlement(sessionID, pending)
     return unavailableEnvelope(pending, String(error).slice(0, 2048))
   }
 }
 
-// A spawn that dies before any result or error part leaves the in-flight
-// record with no settle path: the completion hook never fires and the tool
-// part never reaches an error state, so the host's session.error event on the
-// parent session is the only observable. The record names no child session,
-// so the settle route is the abandonment the dispatch refusal names: the core
-// closes the attempt from its dispatch record and the retained record drops.
-// When the abandonment cannot be recorded, the returned envelope carries the
-// reason, the claim releases, and the record stays retained for the
-// coordinator's worker_abandon route.
+// A parent session.error can precede any observed Task terminal. It does not
+// establish whether a child started. Only an unambiguous authorization may use
+// the existing abandonment route; a refused write leaves its record retained.
 async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, deps: LaneCompletionDeps): Promise<AgentResultEnvelope | null> {
   const sessionID = properties.sessionID
   if (typeof sessionID !== "string") return null
   const windows = deps.windows ?? dispatchWindows()
-  const pending = windows.inFlightAttempt(sessionID)
+  const pending = windows.activeAttempt(sessionID)
   if (!pending) return null
   // An aborted worker is cancellation, not a spawn failure: the host moves
   // the tool part to an error state, and the part-event path settles it with
@@ -431,8 +428,13 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
   if (errorName === "MessageAbortedError") return null
   const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_digest)
   if (!lane) return unavailableEnvelope(pending, "in-flight attempt requires lane content revalidation; preserve its original identity and evidence")
-  const detail = `spawn failed before any result or error part; closing the attempt as abandoned: ${spawnFailureDiagnostic(properties.error)}`
-  if (!windows.claimSettlement(sessionID)) return null
+  if (!windows.canSettleSessionError(sessionID, pending)) {
+    const envelope = unavailableEnvelope(pending, "host session.error has no exact attempt identity and an earlier authorization lacks a correlated terminal; retain the attempt for exact reconciliation")
+    envelope.error!.details = { effect_state: "unknown", host_observation: spawnFailureObservation(sessionID, properties.error) }
+    return envelope
+  }
+  const detail = `host session.error without an observed Task terminal; abandoning the attempt with execution outcome unknown: ${spawnFailureDiagnostic(properties.error)}`
+  if (!windows.claimSettlement(sessionID, undefined, pending)) return null
   // The event identity derives from the attempt and the diagnostic, so a
   // repeated event replays the same abandonment instead of recording a new one.
   const token = createHash("sha256").update(`spawn-failure-without-part-event\0${pending.packet.work_id}\0${pending.packet.attempt_id}\0${detail}`).digest("hex")
@@ -441,14 +443,14 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary,
       abandonEventID: `worker-abandon-${token}`, abandonNonce: token,
       failureAttribution: spawnFailureObservation(sessionID, properties.error),
-    }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID))
+    }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, undefined, pending))
     // A recorded abandonment already dropped the record. A refused one left it
     // retained, so the claim releases and the coordinator's worker_abandon
     // route stays live for it.
-    if (windows.inFlightAttempt(sessionID) !== null) windows.unclaimSettlement(sessionID)
+    windows.unclaimSettlement(sessionID, pending)
     return envelope
   } catch (error) {
-    windows.unclaimSettlement(sessionID)
+    windows.unclaimSettlement(sessionID, pending)
     return unavailableEnvelope(pending, String(error).slice(0, 2048))
   }
 }

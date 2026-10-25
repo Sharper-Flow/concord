@@ -1,5 +1,5 @@
 import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, scanReportTexts, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
-import { canonicalDirectory, serializeLanePacket } from "./dispatch-window"
+import { canonicalDirectory, dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { agentLanePacketSchema, laneForIdentity } from "./generated-agent-lanes"
 import { readTaskResult } from "./task-result"
 
@@ -72,6 +72,7 @@ export async function reconcileRetainedWorker(
   }
   const report = resolveWorkerReportFromText(task.text, packet, readback.metadata.readback_model)
   if ("detail" in report || report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
+  if (typeof part.callID === "string") dispatchWindows().observeTerminalPart(recovery.coordinator_session, part.callID, part.id, part.state.input.prompt)
   // The existing completion path rechecks child opening, agent and model. Its
   // signed dispatch append also sends the packet to the Go canonical-digest
   // check before replay, so a Task with changed packet content writes nothing.

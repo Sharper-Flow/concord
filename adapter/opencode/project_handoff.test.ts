@@ -276,9 +276,10 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
   }
 
   afterEach(() => {
+    const record = windows().inFlightAttempt("session-receive")
+    if (record) windows().finishSettlement("session-receive", "call-1", record)
     windows().close("session-receive")
     windows().releaseRetained("session-receive", "attempt-1", "implement")
-    windows().finishSettlement("session-receive", "call-1")
   })
 
   test("a clean session passes the core's derived ready state through", async () => {
@@ -313,8 +314,8 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
 
   test("a refused settle downgrades readiness to pending", async () => {
     await openThenBind()
-    windows().claimSettlement("session-receive")
-    windows().refuseSettlement("session-receive")
+    const record = windows().claimSettlement("session-receive")!
+    windows().refuseSettlement("session-receive", record)
     const result = await readRetirement()
     expect(result.result.state).toBe("pending")
     expect(result.result.blockers.join(" ")).toContain("worker_abandon release")

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func workerDiffRefusalShape(t *testing.T, err error, wantDetail string) {
@@ -57,6 +58,15 @@ func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) Worke
 	return workerDiffDispatchJob(t, j, attempt, workerDiffJob(t, j, attempt))
 }
 
+func workerDiffCompleteRead(t *testing.T, j *candidateJourney, attempt string) {
+	t.Helper()
+	job, err := workflowDispatchedJobForAttempt(t.Context(), j.s.db, j.workID, attempt)
+	if err != nil || job == nil {
+		t.Fatalf("read diff assignment binding: %v, %v", job, err)
+	}
+	j.completeReview(t, attempt, *job, currentReviewBlockForTest(t, j.s, j.workID, attempt, "continue"))
+}
+
 func workerDiffJob(t *testing.T, j *candidateJourney, attempt string) WorkerJobBinding {
 	t.Helper()
 	// The diff-reading job's scope covers the fixture's committed edit
@@ -87,6 +97,13 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	digest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
+	correction, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {
 		t.Fatal(err)
@@ -230,6 +247,7 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 		} else if err != nil || !bytes.Contains(page.Data, []byte("+literal star")) || bytes.Contains(page.Data, []byte("must not match")) {
 			t.Fatalf("literal scope widened to a glob: %s %v", page.Data, err)
 		}
+		workerDiffCompleteRead(t, j, req.AttemptID)
 	}
 }
 
@@ -284,6 +302,7 @@ func TestReadWorkerDiffSupersessionStartsNewEditingHistory(t *testing.T) {
 	j, oldBase := descendantReviewFixture(t, "diff-supersession")
 	base := workerDiffCommit(t, j, "old-contract", "old contract change\n")
 	oldRequest := workerDiffDispatch(t, j, "old-review")
+	workerDiffCompleteRead(t, j, oldRequest.AttemptID)
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
 	acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
 	reviewSubjectImplementComplete(t, j.fixture, "new-contract-editor", "new-contract-completed")
@@ -399,6 +418,10 @@ func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
 	// correction machinery forces a second supersession before the retry
 	// dispatches. The retry's own dispatch must not qualify the newer
 	// supersession, and neither must the first review's.
+	lane := reviewGateLane(t, "review")
+	if err := s2WorkerFailedLive(t, j.s, s2WorkerFailedAttributedEvent(j.workID, first.AttemptID, "failed-review-first", preferredModelForLane(lane), WorkerFailureWorkerError, "the review failed without editing the candidate", time.Unix(30, 0).UTC())); err != nil {
+		t.Fatalf("record the first review's terminal failure: %v", err)
+	}
 	reviewSubjectSupersedeContractVersions(t, j.s, j.workID, 2, 3, "the correction window forces a fresh basis supersession before the review retry")
 	retry := workerDiffDispatch(t, j, "review-retry")
 	page, err := j.s.ReadWorkerDiff(context.Background(), retry)

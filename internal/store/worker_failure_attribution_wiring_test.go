@@ -1209,6 +1209,9 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 	if err := s2WorkerFailedLive(t, s, event); err == nil || !strings.Contains(err.Error(), "worker report") {
 		t.Fatalf("worker_report on invalid_report err=%v, want the worker report coupling refusal", err)
 	}
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-coupling-host-terminal", preferredModelForLane(lane), WorkerFailureInvalidReport, "the host rejected the malformed report", time.Unix(30, 0).UTC())); err != nil {
+		t.Fatalf("record the host's valid terminal after the rejected observation: %v", err)
+	}
 
 	// A born-failed terminal dispatch is the host adapter's record; the
 	// worker cannot describe the readback terminal it never reported.
@@ -1226,6 +1229,11 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
+	correction, correctionErr := workflowCorrectionContextForDispatch(t.Context(), s.db, workID, "repair", bornAttempt)
+	if correctionErr != nil {
+		t.Fatal(correctionErr)
+	}
+	packet["inputs"].(map[string]any)["correction"] = correction
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-coupling-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}
@@ -1278,6 +1286,9 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	if err := s2WorkerFailedLive(t, s, workerError); err == nil || !strings.Contains(err.Error(), "abandonment observation belongs to the abandoned terminal") {
 		t.Fatalf("abandonment observation on a worker_error terminal err=%v, want the abandoned-terminal coupling refusal", err)
 	}
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-abandonment-host-terminal", preferredModelForLane(lane), WorkerFailureInvalidReport, "the host rejected the malformed report", time.Unix(30, 0).UTC())); err != nil {
+		t.Fatalf("record the host's valid terminal after the rejected observation: %v", err)
+	}
 	// A born-failed dispatch terminal names its own observed fault; the
 	// abandonment tag is not it.
 	bornAttempt := "attempt:" + workID + ":born"
@@ -1286,6 +1297,11 @@ func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
 	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
 	packet["schema_version"] = WorkerPacketSchemaVersion
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
+	correction, correctionErr := workflowCorrectionContextForDispatch(t.Context(), s.db, workID, "repair", bornAttempt)
+	if correctionErr != nil {
+		t.Fatal(correctionErr)
+	}
+	packet["inputs"].(map[string]any)["correction"] = correction
 	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-abandonment-born-authorization", packet); err != nil {
 		t.Fatalf("the born authorization refused: %v", err)
 	}

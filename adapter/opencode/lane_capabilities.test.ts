@@ -128,9 +128,9 @@ test("every bound lane keeps its tool ceiling despite a broader selected agent",
 test("a settling or retired attempt grants no further worker calls", async () => {
   const f = await fixture()
   await f.before("read")
-  f.windows.claimSettlement("parent")
+  const record = f.windows.claimSettlement("parent")!
   await expect(f.before("read")).rejects.toThrow("active authorized attempt")
-  f.windows.unclaimSettlement("parent")
+  f.windows.unclaimSettlement("parent", record)
   f.windows.takeInFlight("parent")
   await expect(f.before("read")).rejects.toThrow("active authorized attempt")
 })

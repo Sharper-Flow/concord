@@ -986,11 +986,11 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // would take over and binds the held holder and epoch into the approval
 // challenge (CD-0013 criterion 25); the takeover stays a separate mandatory
 // exact approval beside the classified consent.
-func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, workID string, grant Authority, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
+func (r runtime) supersededAttemptBindings(ctx context.Context, action store.WorkflowActionDefinition, request store.WorkflowActionPreflightRequest, scope, versions map[string]any) (*store.WorkflowStartTakeover, error) {
 	if !store.WorkflowActionOpensHeldAttempt(action) {
 		return nil, nil
 	}
-	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, workID, store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef))
+	takeover, err := store.WorkflowStartTakeoverRead(ctx, r.Store, action, request)
 	if err != nil || takeover == nil {
 		return nil, err
 	}
@@ -1144,10 +1144,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	case "request_correction":
 		versions["contract"] = contractVersion
 	}
-	takeover, err := r.supersededAttemptBindings(ctx, action, in.WorkID, grant, scope, versions)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
 	approval := ""
 	if in.Approval != nil {
 		approval = in.Approval.ApprovalRef
@@ -1163,13 +1159,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return coreError(base, "unauthorized", "worker actors cannot submit operator decisions or complete work", "contact_operator", false), nil
 		}
 	}
-	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
 		}
 		return replay, nil
 	}
+	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	requiresApproval := boundary.Policy.Consent == store.WorkflowConsentRequired || takeover != nil
 	// CD-0038 D3: budget admission for a mutation follows its idempotency
 	// lookup. A replay that matches the recorded digest returns the original
 	// result regardless of the ceiling, so a lowered ceiling can never strand

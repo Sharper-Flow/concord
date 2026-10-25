@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { type AgentLanePacket, type HostProvenance, type WorkerRecoveryContext } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
-import { serializeLanePacket } from "./dispatch-window"
+import { dispatchWindows, serializeLanePacket, TASK_TOOL_ID } from "./dispatch-window"
 import type { SessionReader } from "./move-session"
 
 const lane = agentLanes.find((entry) => entry.id === "verify")!
@@ -13,7 +13,7 @@ const wrap = `<task id="child-recovery" state="completed">\n<task_result>\n${JSO
 const recovery: WorkerRecoveryContext = { packet_digest: "sha256:"+"a".repeat(64), worker_worktree: process.cwd(), coordinator_session: "parent-recovery", attempt_epoch: 23, dispatch_event_id: "historical-random-dispatch", lifecycle_state: "dispatched", packet_schema_version: "1.0", report_schema_version: "1.0", dispatch: { attempt_id: packet.attempt_id, lane_id: lane.id, lane_digest: lane.digest, packet_schema_version: "1.0", report_schema_version: "1.0", packet_digest: "sha256:"+"a".repeat(64), readback_model: model, host_provenance: { digest: "sha256:"+"b".repeat(64), sources: [{ kind: "agent_definition", path: "original-agent.md", sha256: "sha256:"+"c".repeat(64) }] } } }
 
 function host() {
-  const parent = { info: { id: "parent-recovery", directory: process.cwd() }, messages: [{ info: { id: "parent-message", sessionID: "parent-recovery", role: "assistant" }, parts: [{ id: "retained-part", sessionID: "parent-recovery", type: "tool", tool: "task", state: { status: "completed", input: { subagent_type: `concord-${lane.id}`, prompt: serializeLanePacket(packet) }, output: wrap } }] }] }
+  const parent = { info: { id: "parent-recovery", directory: process.cwd() }, messages: [{ info: { id: "parent-message", sessionID: "parent-recovery", role: "assistant" }, parts: [{ id: "retained-part", callID: "retained-call", sessionID: "parent-recovery", type: "tool", tool: "task", state: { status: "completed", input: { subagent_type: `concord-${lane.id}`, prompt: serializeLanePacket(packet) }, output: wrap } }] }] }
   const child = { info: { id: "child-recovery", parentID: "parent-recovery", directory: process.cwd() }, messages: [
     { info: { id: "opening", sessionID: "child-recovery", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: serializeLanePacket(packet) }] },
     { info: { id: "report", sessionID: "child-recovery", role: "assistant", agent: `concord-${lane.id}`, providerID: "openai", modelID: "test-model", time: { created: 2 } }, parts: [{ type: "text", text: JSON.stringify(report) }] },
@@ -26,6 +26,33 @@ function host() {
 }
 
 const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+
+test("retained original Task recovery advances only its correlated terminal frontier", async () => {
+  const windows = dispatchWindows()
+  const sessionID = recovery.coordinator_session
+  const { reader } = host()
+  const verbs: string[] = []
+  windows.open(sessionID, packet, recovery.packet_digest, process.cwd())
+  await windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: `concord-${lane.id}`, prompt: packet.attempt_id, description: "retained worker" }, "retained-call", async () => process.cwd(), process.cwd())
+  const original = windows.claimSettlement(sessionID, "retained-call")!
+  windows.refuseSettlement(sessionID, original)
+  const replacement = { ...packet, attempt_id: "attempt-after-retained-recovery" }
+  try {
+    const result = await reconcileRetainedWorker(recovery, packet.work_id, packet.attempt_id, "retained-part", {
+      sessionReader: reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
+      evidenceRunner: { async run(argv) { verbs.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+    }, new AbortController().signal)
+    expect(result.outcome, JSON.stringify(result)).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(windows.releaseRetained(sessionID, packet.attempt_id, lane.id)).toBe(true)
+    windows.open(sessionID, replacement, recovery.packet_digest, process.cwd())
+    await windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: `concord-${lane.id}`, prompt: replacement.attempt_id, description: "next worker" }, "next-call", async () => process.cwd(), process.cwd())
+    expect(windows.canSettleSessionError(sessionID, windows.inFlightAttempt(sessionID)!)).toBe(true)
+  } finally {
+    windows.releaseRetained(sessionID, packet.attempt_id, lane.id)
+    windows.releaseRetained(sessionID, replacement.attempt_id, lane.id)
+  }
+})
 
 test("stale content refuses retained recovery before host reads or evidence writes", async () => {
   const original = { ...recovery, dispatch: { ...recovery.dispatch, lane_digest: "sha256:" + "0".repeat(64) } }

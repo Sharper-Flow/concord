@@ -644,12 +644,12 @@ func TestWorkflowLawRevisionKeepsRawCompletionButRefusesWorkflowAcceptanceAfterC
 	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	acceptancePayload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
 	var definitionRef string
-	var definitionVersion int
-	if err := s.db.QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+	var definitionDigest string
+	if err := s.db.QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionDigest); err != nil {
 		t.Fatal(err)
 	}
 	claim, err := ClaimStepAuthorized(context.Background(), s, ClaimRequest{
-		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: definitionRef, WorkflowTypeVersion: definitionVersion,
+		OpID: "law-stale-in-flight-op", WorkID: workID, WorkflowTypeRef: definitionRef, WorkflowTypeDigest: definitionDigest,
 		StepID: "execution", StepKind: StepExternalEffect, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		AcceptedScopeSnapshot: `{}`, PrincipalRef: "principal/in-flight", Tool: "workflow-test", IdempotencyKey: "law-stale-in-flight-claim",
 		RequestID: "request:law-stale-in-flight", ContractDigest: testManifestDigest, ObservedAt: time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),

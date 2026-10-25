@@ -314,7 +314,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if dispatch.WorkerSubjectCommit != observedHead && !workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest) {
+	if dispatch.WorkerSubjectCommit != observedHead && !workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest) {
 		return b, version, auth, nativeOracleSubjectMoved(dispatch.WorkerSubjectCommit, observedHead)
 	}
 	return b, job.ContractVersion, auth, nil
@@ -341,7 +341,7 @@ func readNativeOracleDispatchBindingTx(ctx context.Context, q queryer, workID, a
 	var auth nativeOracleAuthorization
 	var payload []byte
 	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM worker_authorizations d JOIN worker_attempts a ON a.work_id=d.work_id AND a.attempt_id=d.attempt_id
- AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
+ AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
 	 WHERE d.work_id=? AND d.attempt_id=? AND a.lifecycle_state IN ('in_flight','dispatched')`, workID, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
 	if err == sql.ErrNoRows || err == nil && json.Unmarshal(payload, &dispatch) != nil {
 		return dispatch, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
@@ -962,7 +962,7 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 	err := q.QueryRowContext(ctx, `SELECT
 		coalesce((SELECT effect_seq FROM work_items WHERE id=?),0),
 		coalesce((`+oracleCurrentVerifyReceiptSQL+`),''),
-		coalesce((SELECT json_array(lane_id,lane_version,lane_digest,capability_class,lifecycle_state)
+		coalesce((SELECT json_array(lane_id,lane_digest,capability_class,lifecycle_state)
 			FROM worker_attempts WHERE work_id=? AND attempt_id=?),''),
 		(SELECT json_group_array(json_array(lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,stdout_length,stderr_length))
 		 FROM (SELECT lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,length(stdout_blob) stdout_length,length(stderr_blob) stderr_length

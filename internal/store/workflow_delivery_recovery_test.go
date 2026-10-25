@@ -45,14 +45,14 @@ func reviewGateCountDeliveries(t *testing.T, s *Store, workID string) int {
 	return count
 }
 
-func reviewGateInstancePin(t *testing.T, s *Store, workID string) (int64, string) {
+func reviewGateInstancePin(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
-	var version int64
+	var ref string
 	var digest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&version, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &digest); err != nil {
 		t.Fatal(err)
 	}
-	return version, digest
+	return ref, digest
 }
 
 func reviewGateCorrectionPayload(evidence string) json.RawMessage {
@@ -75,9 +75,9 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	parkWorkflowInstanceAt(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")
 
-	pinnedVersion, pinnedDigest := reviewGateInstancePin(t, s, workID)
-	if pinnedVersion != c.definition.Definition.Version || pinnedDigest != c.definition.Digest {
-		t.Fatalf("pinned definition = v%d %s, want v%d %s", pinnedVersion, pinnedDigest, c.definition.Definition.Version, c.definition.Digest)
+	pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
+	if pinnedRef != c.definition.Definition.Ref || pinnedDigest != c.definition.Digest {
+		t.Fatalf("pinned definition = %s %s, want %s %s", pinnedRef, pinnedDigest, c.definition.Definition.Ref, c.definition.Digest)
 	}
 
 	// No delivery assertion exists: the parked change never claimed a merge.

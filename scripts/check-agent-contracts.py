@@ -643,12 +643,9 @@ def check_workflow_contracts() -> list[str]:
 def _check_cd0043_lane_methodology() -> list[str]:
     """Prove the shipped artifact carries no lane methodology (CD-0043 D1/D3).
 
-    CD-0043 made three repository facts decided state rather than accident:
-    the lane packet has no methodology property (a rejected alternative, kept
-    rejected), the lane registry version stays at the version the decision
-    preserved, and `skills/` ships as README-only emptiness. Until #461 no
-    check asserted any of them, so the first drifted edit would have passed
-    silently. Methodology reaching a worker is host instructions through
+    The lane packet has no methodology property, and `skills/` ships as
+    README-only emptiness. CD-0242 D14 requires content identity without an
+    authored registry counter. Methodology reaching a worker is host instructions through
     `CONCORD_HOST_INSTRUCTIONS` (D2), bound by CD-0034's provenance gate, so
     nothing here re-checks that channel.
     """
@@ -669,11 +666,9 @@ def cd0043_lane_methodology_findings(packet_schema: object, registry: object, sk
             "contracts/agent-lane-packet.schema.json: a 'methodology' property is rejected by CD-0043; "
             "host instructions through CONCORD_HOST_INSTRUCTIONS are the sole channel"
         )
-    version = registry.get("version") if isinstance(registry, dict) else None
-    if version != 1:
+    if isinstance(registry, dict) and "version" in registry:
         findings.append(
-            f"contracts/agent-lanes.v1.json: registry version {version!r} moves; CD-0043 pinned version 1 "
-            "and a bump needs a superseding decision"
+            "contracts/agent-lanes.v1.json: authored version counter is forbidden by CD-0242 D14"
         )
     if sorted(skills_entries) != ["README.md"]:
         findings.append(
@@ -925,8 +920,8 @@ def main(argv: list[str] | None = None) -> int:
     if generated.returncode: return generated.returncode
     lane_findings: list[str] = []
     lane_schema_expectations = {
-        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "version", "lanes", "utilities"},
-        ROOT / "contracts/agent-lane-packet.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"},
+        ROOT / "contracts/agent-lanes.schema.json": {"schema_version", "registry", "lanes", "utilities"},
+        ROOT / "contracts/agent-lane-packet.schema.json": {"schema_version", "attempt_id", "lane_id", "lane_digest", "work_id", "step_id", "inputs"},
         ROOT / "contracts/agent-lane-report.schema.json": {"schema_version", "readback_model", "status", "evidence"},
     }
     for path, required in lane_schema_expectations.items():

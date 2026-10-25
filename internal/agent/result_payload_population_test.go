@@ -243,7 +243,7 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -363,7 +363,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex()},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + repeatHex()},
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},

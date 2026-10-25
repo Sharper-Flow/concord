@@ -359,8 +359,8 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		t.Fatalf("work pin correction=%#v, validator correction=%#v", pin.Correction, validatorCorrection)
 	}
 	job := reviewSubjectReadyRevision(t, j.fixture)
-	version, digest := registeredLaneIdentity(t, "implement")
-	withoutCorrection := joinPacketFor(t, s, workID, "repair", attemptID, "implement", version, digest)
+	digest := registeredLaneIdentity(t, "implement")
+	withoutCorrection := joinPacketFor(t, s, workID, "repair", attemptID, "implement", digest)
 	withoutCorrection["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	prepared, err := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: j.repo})
 	if err != nil {
@@ -716,12 +716,12 @@ func recordCompleteStepContradictionObservation(t *testing.T, s *Store, workID s
 	}
 }
 
-func completeStepInstancePin(t *testing.T, s *Store, workID string) (step, state, definitionRef string, definitionVersion int64, definitionDigest string) {
+func completeStepInstancePin(t *testing.T, s *Store, workID string) (step, state, definitionRef, definitionDigest string) {
 	t.Helper()
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step,instance_state,definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &state, &definitionRef, &definitionVersion, &definitionDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step,instance_state,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &state, &definitionRef, &definitionDigest); err != nil {
 		t.Fatal(err)
 	}
-	return step, state, definitionRef, definitionVersion, definitionDigest
+	return step, state, definitionRef, definitionDigest
 }
 
 // The complete-step route admits operator-approved contract correction when
@@ -763,7 +763,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?), (SELECT count(*) FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1), (SELECT count(*) FROM worker_attempts WHERE work_id=?)`, workID, WorkflowVerdictRecorded, workID, workID).Scan(&verdicts, &predecessorPredicates, &attempts); err != nil {
 		t.Fatal(err)
 	}
-	_, _, definitionRef, definitionVersion, definitionDigest := completeStepInstancePin(t, s, workID)
+	_, _, definitionRef, definitionDigest := completeStepInstancePin(t, s, workID)
 
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
@@ -789,9 +789,9 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if verdictsAfter != verdicts || predecessorPredicatesAfter != predecessorPredicates || attemptsAfter != attempts {
 		t.Fatalf("supersession disturbed history: verdicts %d->%d predecessor predicates %d->%d attempts %d->%d", verdicts, verdictsAfter, predecessorPredicates, predecessorPredicatesAfter, attempts, attemptsAfter)
 	}
-	step, state, refAfter, versionAfter, digestAfter := completeStepInstancePin(t, s, workID)
-	if refAfter != definitionRef || versionAfter != definitionVersion || digestAfter != definitionDigest {
-		t.Fatalf("pinned definition changed: %s@%d (%s) -> %s@%d (%s)", definitionRef, definitionVersion, definitionDigest, refAfter, versionAfter, digestAfter)
+	step, state, refAfter, digestAfter := completeStepInstancePin(t, s, workID)
+	if refAfter != definitionRef || digestAfter != definitionDigest {
+		t.Fatalf("pinned definition changed: %s (%s) -> %s (%s)", definitionRef, definitionDigest, refAfter, digestAfter)
 	}
 	if step != "repair" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
@@ -850,7 +850,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	deliverAt("repair", epoch)
 	deliverAt("refine", epoch+1)
 	deliverAt("delivery", epoch+2)
-	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "verify" {
+	if step, _, _, _ := completeStepInstancePin(t, s, workID); step != "verify" {
 		t.Fatalf("step after the fresh deliveries = %q, want verify", step)
 	}
 
@@ -859,9 +859,9 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// them all: the outstanding set names every required kind, the premise
 	// confirmation refuses, and completion refuses at its evidence clause
 	// rather than reaching its verdict clause.
-	pinned, pinnedOK := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	pinned, pinnedOK := BuiltinWorkflowRegistry().Current(definitionRef)
 	if !pinnedOK {
-		t.Fatalf("pinned definition %s@%d is not registered", definitionRef, definitionVersion)
+		t.Fatalf("pinned definition %s is not registered", definitionRef)
 	}
 	outstanding, outstandingErr := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
 	if outstandingErr != nil {
@@ -950,11 +950,11 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, wf, repo); err != nil {
 		t.Fatalf("confirm the successor premise after the fresh bindings: %v", err)
 	}
-	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {
+	if step, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {
 		t.Fatalf("step after the successor premise = %q, want complete", step)
 	}
-	if step, state, ref, version, digest := completeStepInstancePin(t, s, workID); step != "complete" || state != "running" || ref != definitionRef || version != definitionVersion || digest != definitionDigest {
-		t.Fatalf("instance = %s/%s %s@%d (%s), want the corrected completion step under its original pin", step, state, ref, version, digest)
+	if step, state, ref, digest := completeStepInstancePin(t, s, workID); step != "complete" || state != "running" || ref != definitionRef || digest != definitionDigest {
+		t.Fatalf("instance = %s/%s %s (%s), want the corrected completion step under its original pin", step, state, ref, digest)
 	}
 }
 
@@ -980,7 +980,7 @@ func TestCompleteStepContractCorrectionReopensCompletedInstance(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede on the completed instance: %v", err)
 	}
-	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
+	step, state, _, _ := completeStepInstancePin(t, s, workID)
 	if step != "repair" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
 	}
@@ -997,7 +997,7 @@ func TestCompleteStepContractCorrectionReturnsImplementationToExecution(t *testi
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede the contract at the release step: %v", err)
 	}
-	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
+	step, state, _, _ := completeStepInstancePin(t, s, workID)
 	if step != "execution" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want execution/running", step, state)
 	}
@@ -1042,7 +1042,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		const workID = "complete-correction-live-attempt"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt:unsettled', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'dispatched', '2026-09-22T00:00:00Z'); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
 		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
@@ -1058,7 +1058,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		const attemptID = "attempt:undisposed"
 		fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
 		db := fixture.store.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM fold_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at) VALUES(?, ?, 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', 'completed', '2026-09-22T00:00:00Z', '2026-09-22T00:00:01Z'); DELETE FROM fold_guard`, workID, attemptID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
 		err := issue1013Preflight(t, fixture.store, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner)
@@ -1502,11 +1502,10 @@ func TestCompleteStepCorrectionCutoffPersistsAcrossLaterSuccessor(t *testing.T) 
 func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (RegisteredDefinition, bool) {
 	t.Helper()
 	var definitionRef string
-	var definitionVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef); err != nil {
 		t.Fatal(err)
 	}
-	return BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	return BuiltinWorkflowRegistry().Current(definitionRef)
 }
 
 // staleLawSuccessorPayload mandates a current accepted law. The composed
@@ -1556,7 +1555,7 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", staleLawSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede behind a stale law through the gate: %v", err)
 	}
-	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
+	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
 	}
 }
@@ -1615,7 +1614,7 @@ func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("duplicate complete-step correction: %v", err)
 	}
-	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
+	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
 		t.Fatalf("instance after duplicate correction: step=%q state=%q, want repair/running", step, state)
 	}
 	var active []int64
@@ -1686,7 +1685,7 @@ func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
 					failedAt = "2026-10-13T00:00:01Z"
 					failureKind = "abandoned"
 				}
-				if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
+				if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -1757,7 +1756,7 @@ func TestCompleteStepCorrectionKeepsSuccessorVerdictsFresh(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede the contract at the complete step: %v", err)
 	}
-	step, state, _, _, _ := completeStepInstancePin(t, s, workID)
+	step, state, _, _ := completeStepInstancePin(t, s, workID)
 	if step != "repair" || state != "running" {
 		t.Fatalf("instance after correction: step=%q state=%q, want repair/running", step, state)
 	}
@@ -1838,7 +1837,7 @@ func TestCompleteStepCorrectionReadOnlyPreflightRequiresReservedRoute(t *testing
 	if activeVersion != 1 {
 		t.Fatalf("active contract version = %d, want the predecessor 1", activeVersion)
 	}
-	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" || state != "completed" {
+	if step, state, _, _ := completeStepInstancePin(t, s, workID); step != "complete" || state != "completed" {
 		t.Fatalf("instance moved without effect: step=%q state=%q, want complete/completed", step, state)
 	}
 }

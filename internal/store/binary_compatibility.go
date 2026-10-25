@@ -322,12 +322,28 @@ func knowledgeStateWriter(projectionVersion int64) runtimeStateWriter {
 
 func binaryCompatibilityFailure(ctx context.Context, q queryer, subject runtimeStateWriter, detail string) error {
 	writer := "unknown (writer provenance was not recorded)"
-	present, err := columnPresent(ctx, q, "runtime_state_writers", "knowledge_projection_version")
+	present, err := columnPresent(ctx, q, "runtime_state_writers", "binary_version")
 	if err != nil {
 		return err
 	}
 	if present {
-		err := q.QueryRowContext(ctx, `SELECT binary_version FROM runtime_state_writers WHERE surface=? AND definition_ref=? AND knowledge_projection_version=? AND digest=?`, subject.surface, subject.definitionRef, subject.projectionVersion, subject.digest).Scan(&writer)
+		query := `SELECT binary_version FROM runtime_state_writers WHERE surface=? AND definition_ref=? AND digest=?`
+		args := []any{subject.surface, subject.definitionRef, subject.digest}
+		if subject.surface == "knowledge" {
+			// Compatibility is inspected before migration. The old schema's
+			// version column also carries the knowledge format discriminator.
+			current, err := columnPresent(ctx, q, "runtime_state_writers", "knowledge_projection_version")
+			if err != nil {
+				return err
+			}
+			if current {
+				query += " AND knowledge_projection_version=?"
+			} else {
+				query += " AND version=?"
+			}
+			args = append(args, subject.projectionVersion)
+		}
+		err := q.QueryRowContext(ctx, query, args...).Scan(&writer)
 		if err != nil && err != sql.ErrNoRows {
 			return compatibilityReadFailure(err)
 		}

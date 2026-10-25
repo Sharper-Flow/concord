@@ -37,7 +37,7 @@ func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
 			for _, stale := range []bool{false, true} {
 				node := admissionModelState{step: step.ID, contracts: 1, artifactStale: stale}
 				if got := admissionWorkflowState(definition, node).ArtifactStale; got != stale {
-					t.Fatalf("%s v%d step %s changed artifact stale %v to %v", definition.Ref, definition.Version, step.ID, stale, got)
+					t.Fatalf("%s step %s changed artifact stale %v to %v", definition.Ref, step.ID, stale, got)
 				}
 			}
 		}
@@ -1280,7 +1280,7 @@ func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+		t.Run(definition.Ref, func(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for witness := range archivedRefusalWitnesses(definition) {
@@ -1325,7 +1325,6 @@ func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
 	}
 	seeded := cloneWorkflowDefinition(builtins[0])
 	seeded.Ref = "workflow.seed_missing_exit"
-	seeded.Version = 1
 	for i := range seeded.StepGraph.Steps {
 		if seeded.StepGraph.Steps[i].ID == seeded.StepGraph.StartStep {
 			seeded.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
@@ -1353,16 +1352,16 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+		t.Run(definition.Ref, func(t *testing.T) {
 			t.Parallel()
 			if workflowFamilyArchived(definition.Ref) {
 				for witness := range archivedRefusalWitnesses(definition) {
-					t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+					t.Errorf("%s: %s", definition.Ref, witness)
 				}
 				return
 			}
 			for _, witness := range admissionStrandedWitnesses(definition) {
-				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+				t.Errorf("%s: %s", definition.Ref, witness)
 			}
 		})
 	}
@@ -1374,7 +1373,6 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 func TestReachableCheckNamesSeededStrandedState(t *testing.T) {
 	seeded := cloneWorkflowDefinition(mustBuiltinDefinition(t, "workflow.implementation").Definition)
 	seeded.Ref = "workflow.seed_missing_completion"
-	seeded.Version = 1
 	for i := range seeded.StepGraph.Steps {
 		if admissionTerminalStep(seeded, seeded.StepGraph.Steps[i].ID) {
 			seeded.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
@@ -1907,7 +1905,7 @@ func TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction(t *testing.T) {
 	}
 	for _, definition := range definitions {
 		for _, witness := range admissionBadToOkWitnesses(definition, true) {
-			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+			t.Errorf("%s: %s", definition.Ref, witness)
 		}
 	}
 }

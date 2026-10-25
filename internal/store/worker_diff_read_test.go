@@ -84,8 +84,8 @@ func workerDiffJob(t *testing.T, j *candidateJourney, attempt string) WorkerJobB
 
 func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, job WorkerJobBinding) WorkerDiffRequest {
 	t.Helper()
-	version, digest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", version, digest)
+	digest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {

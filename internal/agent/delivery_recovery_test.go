@@ -54,7 +54,7 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, cap
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 // deliveryRecoveryCompletion records the lane dispatch and the completed
@@ -66,7 +66,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	job := authorizedWorkerJob(t, s, attemptID)
-	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
@@ -310,13 +310,12 @@ func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
 	if deliveries != 1 {
 		t.Fatalf("gate recovery recorded %d delivery assertions, want the one execution-pass assertion", deliveries)
 	}
-	var definitionVersion int64
 	var definitionDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionVersion, &definitionDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionDigest); err != nil {
 		t.Fatal(err)
 	}
-	if definitionVersion != currentDefinition.Definition.Version || definitionDigest != currentDefinition.Digest {
-		t.Fatalf("definition after recovery = v%d %s, want the current definition %s", definitionVersion, definitionDigest, currentDefinition.Digest)
+	if definitionDigest != currentDefinition.Digest {
+		t.Fatalf("definition after recovery = %s, want the current definition %s", definitionDigest, currentDefinition.Digest)
 	}
 }
 

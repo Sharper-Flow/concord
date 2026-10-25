@@ -80,7 +80,6 @@ export interface AgentLanePacket {
   schema_version: AgentLanePacketSchemaVersion
   attempt_id: string
   lane_id: string
-  lane_version: number
   lane_digest: string
   work_id: string
   step_id: string
@@ -644,7 +643,7 @@ export interface AgentLaneReport {
   direct_caller_repairs?: AgentLaneReportDirectCallerRepair[]
 }
 
-export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
+export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_digest">
 
 // AgentResultReviewSummary is the attempt readback's typed view of a review
 // report: the disposition and one count per severity of the closed P0-P3 scale.
@@ -750,7 +749,7 @@ export type DispatchAuthorizer = (request: { work_id: string; attempt_id: string
 export interface AgentResultEnvelope {
   schema_version: "1.0"
   outcome: "ok" | "blocked" | "error"
-  lane: { id: string; version: number; digest: string }
+  lane: { id: string; digest: string }
   agent: string
   readback_model: string | null
   session_id: string | null
@@ -1346,7 +1345,7 @@ export function scanReportTexts(texts: string[], packet?: AgentLanePacket, readb
 // instead of refusing it (CD-0056 D7). The canonical
 // report still receives identity exclusively from the authorized dispatch
 // packet, so whatever the worker echoes is discarded, not trusted.
-const DISPATCH_OWNED_REPORT_FIELDS = ["schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "worker_job"] as const
+const DISPATCH_OWNED_REPORT_FIELDS = ["schema_version", "attempt_id", "lane_id", "lane_digest", "work_id", "step_id", "worker_job"] as const
 // The detail bounds are read from the closed schema rather than repeated here,
 // so normalization cannot drift from the bounds it exists to satisfy. The
 // store counts UTF-8 bytes (x-maxBytes), so the byte bound is the one
@@ -1540,7 +1539,7 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket, read
       return { detail: `worker report completes without the typed review block the ${lane.id} lane requires` }
     }
   }
-  return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
+  return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_digest: packet.lane_digest } }
 }
 
 // resolveWorkerReport admits a report from a worker run's captured output.
@@ -1667,7 +1666,7 @@ export function hostAbandonmentObservation(
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
-  return laneForIdentity(packet.lane_id, packet.lane_version, packet.lane_digest)
+  return laneForIdentity(packet.lane_id, packet.lane_digest)
 }
 
 // laneRequiresReportBlock reports whether the lane's contract names the
@@ -1682,10 +1681,8 @@ function laneRequiresReportBlock(lane: AgentLane, block: "review"): boolean {
 function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
   const id = lane?.id ?? String(packet.lane_id ?? "")
   // The envelope publishes the digest the dispatch authorized, not the
-  // resolved current definition: a legacy-digest packet keeps its identity in
-  // the coordinator-facing summary (CD-0017 D5), exactly as the signed
-  // assertions below already do.
-  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: String(packet.lane_digest ?? lane?.digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
+  // resolved current definition. Refusals preserve the original identity.
+  return { schema_version: "1.0", outcome, lane: { id, digest: String(packet.lane_digest ?? lane?.digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
 function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details"> = {}): AgentResultEnvelope {
@@ -1821,10 +1818,10 @@ export class CoreBinaryUnavailable extends Error {}
 // v1 bytes, so an assertion this build does not know can never be mistaken
 // for a known format.
 export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uint8Array {
-  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "packet_digest", "issued_at", "nonce"]
+  const names = ["client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_digest", "readback_model", "failure_kind", "host_provenance_digest", "packet_digest", "issued_at", "nonce"]
   const version = assertion["version"]
   const prefix = version === 2 ? "worker-evidence-v2\0" : "worker-evidence-v1\0"
-  if (version === 2) names.splice(11, 0, "observation_digest")
+  if (version === 2) names.splice(names.indexOf("issued_at"), 0, "observation_digest")
   return canonicalClientAssertion(prefix, names, assertion)
 }
 
@@ -2043,7 +2040,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   try {
     assertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch", work_id: packet.work_id, attempt_id: packet.attempt_id,
-      lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
+      lane_id: lane.id, lane_digest: packet.lane_digest,
       readback_model: "", failure_kind: failureKind, host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
       observation,
     })
@@ -2052,7 +2049,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
-    lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
+    lane_id: lane.id, lane_digest: packet.lane_digest,
     readback_model: "", packet_schema_version: packet.schema_version,
     report_schema_version: packet.schema_version, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
@@ -2095,7 +2092,7 @@ export interface WorkerRecoveryContext {
   packet_schema_version: string
   report_schema_version: string
   dispatch: {
-    attempt_id: string; lane_id: string; lane_version: number; lane_digest: string
+    attempt_id: string; lane_id: string; lane_digest: string
     packet_schema_version: string; report_schema_version: string
     packet_digest: string; readback_model: string; host_provenance: HostProvenance
   }
@@ -2824,7 +2821,6 @@ export async function abandonWorkerAttempt(
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       lane_id: lane.id,
-      lane_version: lane.version,
       lane_digest: lane.digest,
       readback_model: "",
       failure_kind: "abandoned",
@@ -2859,6 +2855,10 @@ async function completeWorkerSession(
   hostFailure?: string,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
+  const current = laneForPacket(packet)
+  if (!current || lane.id !== current.id || lane.digest !== current.digest) {
+    return errorEnvelope(null, packet, "error", "invalid_input", "worker attempt requires lane content revalidation; preserve its original identity and evidence", "contact_operator")
+  }
   // CD-0102 completion identity: the attempt is refused before any model
   // evidence is read unless the worker session opens with the packet the
   // dispatch authorized. The session API returns the transcript unsanitized,
@@ -3043,7 +3043,6 @@ async function completeWorkerSession(
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       lane_id: lane.id,
-      lane_version: lane.version,
       lane_digest: packet.lane_digest,
       readback_model: dispatchModel,
       host_provenance_digest: provenance.digest,
@@ -3059,7 +3058,6 @@ async function completeWorkerSession(
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     lane_id: lane.id,
-    lane_version: lane.version,
     lane_digest: packet.lane_digest,
     readback_model: dispatchModel,
     packet_schema_version: packet.schema_version,
@@ -3088,12 +3086,11 @@ async function completeWorkerSession(
         work_id: packet.work_id,
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
-        lane_version: lane.version,
         lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
       })
       // Both terminal verbs bind lane identity: the CLI enriches lane_id,
-      // lane_version, and lane_digest from the stored attempt row before it
+      // lane_digest from the stored attempt row before it
       // compares the assertion (cmd/concord/main.go applyWorkerEvidence), so a
       // failure assertion must claim them too. The field set each verb signs is
       // pinned per verb by worker-evidence-vector.json. packet_digest stays
@@ -3105,7 +3102,6 @@ async function completeWorkerSession(
         work_id: packet.work_id,
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
-        lane_version: lane.version,
         lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
@@ -3176,7 +3172,6 @@ async function completeWorkerSession(
         work_id: packet.work_id,
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
-        lane_version: lane.version,
         lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: "invalid_report",

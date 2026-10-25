@@ -55,7 +55,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 		// instance carries the execution-start fact, so the fixture gives both
 		// sides a started instance. Without this the pair claims nothing and
 		// derives no overlap to resolve.
-		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
+		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
 		// Only a write intersection blocks, so the pair must modify the same
 		// Domain. A shared affected Domain alone derives no overlap.

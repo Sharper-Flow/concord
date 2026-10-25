@@ -334,8 +334,8 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	if correctionErr != nil || correction == nil {
 		t.Fatalf("correction context for the recovery attempt = (%#v, %v)", correction, correctionErr)
 	}
-	laneVersion, laneDigest := registeredLaneIdentity(t, "implement")
-	attempt3Packet := joinPacketFor(t, s, workID, "repair", attempt3, "implement", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "implement")
+	attempt3Packet := joinPacketFor(t, s, workID, "repair", attempt3, "implement", laneDigest)
 	attempt3Packet["schema_version"] = WorkerPacketSchemaVersion
 	attempt3Packet["inputs"].(map[string]any)["correction"] = correction
 	attempt3Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *recovery, "implement")
@@ -398,7 +398,7 @@ func TestChecksRepairSecondRepairReviewRetainsContinuityBinding(t *testing.T) {
 	if correction4Err != nil || correction4 == nil {
 		t.Fatalf("correction context for the second repair's attempt = (%#v, %v)", correction4, correction4Err)
 	}
-	attempt4Packet := joinPacketFor(t, s, workID, "repair", attempt4, "implement", laneVersion, laneDigest)
+	attempt4Packet := joinPacketFor(t, s, workID, "repair", attempt4, "implement", laneDigest)
 	attempt4Packet["schema_version"] = WorkerPacketSchemaVersion
 	attempt4Packet["inputs"].(map[string]any)["correction"] = correction4
 	attempt4Packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *second, "implement")

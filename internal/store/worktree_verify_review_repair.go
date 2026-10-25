@@ -26,7 +26,7 @@ func observeNativeReviewRepair(ctx context.Context, runner GitRunner, d workflow
 	if d.WorkerSubjectCommit == observed.head {
 		return nil, nil
 	}
-	if !observed.clean || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneVersion, d.WorkerLaneDigest) {
+	if !observed.clean || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneDigest) {
 		return nil, nativeOracleSubjectMoved(d.WorkerSubjectCommit, observed.head)
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, workerTerminalObservationDeadline)
@@ -51,7 +51,7 @@ func validateNativeReviewRepairTx(ctx context.Context, q queryer, work string, d
 	refuse := func() error {
 		return oracleFailure(KindUnauthorizedDispatch, "repair output does not match its admitted editing scope and input candidate", "restore the assigned candidate or reject the result and record the needed scope")
 	}
-	if repair == nil || repair.Base != d.WorkerSubjectCommit || !worktreeSHAPattern.MatchString(repair.Commit) || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneVersion, d.WorkerLaneDigest) || d.WorkerJob == nil {
+	if repair == nil || repair.Base != d.WorkerSubjectCommit || !worktreeSHAPattern.MatchString(repair.Commit) || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneDigest) || d.WorkerJob == nil {
 		return refuse()
 	}
 	var raw []byte

@@ -19,7 +19,7 @@ const testCredentials: CredentialStore = { async getPrivateKey() { return new Ui
 
 function packet(): AgentLanePacket {
   return {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: lane.id,
     lane_digest: lane.digest, work_id: "work-1", step_id: "step-1", inputs: { task: "bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
   }
 }
@@ -275,7 +275,7 @@ test("failure evidence carries a bound assertion including lane identity", async
   expect(assertion.work_id).toBe("work-1")
   expect(assertion.attempt_id).toBe("attempt-1")
   expect(assertion.lane_id).toBe(lane.id)
-  expect(assertion.lane_version).toBe(lane.version)
+  expect(assertion).not.toHaveProperty("lane_version")
   expect(assertion.lane_digest).toBe(lane.digest)
   expect(assertion.readback_model).toBe(READBACK_MODEL)
   expect(assertion.failure_kind).toBe("worker_error")
@@ -451,7 +451,7 @@ test("v2 vector cases declare well-formed worker-evidence-v2 vector structure", 
   expect(Array.isArray(v2VectorCases)).toBe(true)
   expect(v2VectorCases.length).toBeGreaterThan(0)
   const wantOrder = [
-    "client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version",
+    "client_ref", "verb", "work_id", "attempt_id", "lane_id",
     "lane_digest", "readback_model", "failure_kind", "host_provenance_digest",
     "packet_digest", "observation_digest", "issued_at", "nonce",
   ]

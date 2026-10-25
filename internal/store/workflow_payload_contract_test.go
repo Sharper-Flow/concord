@@ -23,9 +23,9 @@ func TestBuiltinWorkflowRegistryStringFieldsRequireNonBlank(t *testing.T) {
 	t.Parallel()
 	registry := BuiltinWorkflowRegistry()
 	for _, current := range BuiltinWorkflowDefinitions() {
-		registered, ok := registry.Lookup(current.Ref, current.Version)
+		registered, ok := registry.Current(current.Ref)
 		if !ok {
-			t.Errorf("current workflow definition %q version %d is not registered", current.Ref, current.Version)
+			t.Errorf("current workflow definition %q is not registered", current.Ref)
 			continue
 		}
 		for _, action := range registered.Definition.ActionDefinitions {
@@ -36,7 +36,7 @@ func TestBuiltinWorkflowRegistryStringFieldsRequireNonBlank(t *testing.T) {
 			for _, payload := range payloads {
 				for _, field := range payload.Fields {
 					if field.ValueType == PayloadString && len(field.Enum) == 0 && !field.NonBlank {
-						t.Errorf("%s version %d action %s field %s does not declare NonBlank", current.Ref, current.Version, action.ID, field.Name)
+						t.Errorf("%s action %s field %s does not declare NonBlank", current.Ref, action.ID, field.Name)
 					}
 				}
 			}

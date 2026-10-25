@@ -41,7 +41,6 @@ const retryPacket = () => ({
   schema_version: "2.0",
   attempt_id: RETRY_ATTEMPT,
   lane_id: lane.id,
-  lane_version: lane.version,
   lane_digest: lane.digest,
   work_id: "work-retry",
   step_id: "execution",

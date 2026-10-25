@@ -241,7 +241,6 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
     schema_version: "1.0",
     attempt_id: "attempt-1",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "execution",

@@ -738,9 +738,10 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
         value["properties"]["methodology"] = {"type": "string", "minLength": 1, "maxLength": 64}
         self.assertTrue(any("'methodology' property is rejected" in f for f in self.findings(packet=value)))
 
-    def test_registry_version_bump_is_rejected(self):
-        value = copy.deepcopy(lane_registry); value["version"] = 2
-        self.assertTrue(any("pinned version 1" in f for f in self.findings(registry=value)))
+    def test_authored_registry_counter_is_rejected(self):
+        for version in (1, 2, None):
+            value = copy.deepcopy(lane_registry); value["version"] = version
+            self.assertTrue(any("authored version counter is forbidden" in f for f in self.findings(registry=value)))
 
     def test_extra_skill_entry_is_rejected(self):
         findings = self.findings(skills=["README.md", "review-rubric.md"])

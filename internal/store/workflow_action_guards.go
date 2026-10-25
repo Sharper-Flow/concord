@@ -1471,11 +1471,10 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		// dispatchable at the current step's kind.
 		packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
 		packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
-		packetLaneVersion := workflowFieldInt(packetFields, "lane_version", 0)
-		if !laneIDOK || !laneDigestOK || packetLaneVersion < 1 {
+		if !laneIDOK || !laneDigestOK {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
 		}
-		lane, laneErr := LookupLane(packetLaneID, packetLaneVersion, packetLaneDigest)
+		lane, laneErr := LookupLane(packetLaneID, packetLaneDigest)
 		if laneErr != nil {
 			return events, "", laneErr
 		}
@@ -1495,7 +1494,6 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		// bind the attempt durably in flight from the record alone, without
 		// re-reading the packet bytes.
 		completionValues["worker_lane_id"] = lane.ID
-		completionValues["worker_lane_version"] = lane.Version
 		completionValues["worker_lane_digest"] = lane.Digest
 		completionValues["worker_capability_class"] = lane.CapabilityClass
 		canonical, err := canonicalJSON(packetRaw)

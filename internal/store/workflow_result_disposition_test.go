@@ -106,7 +106,7 @@ func seedCrossAttemptFixtureAtStep(t *testing.T, workID, step string) crossAttem
 // unused-window shape a later worker dispatch would have to materialize.
 func (f crossAttemptFixture) authorizeDispatch(t *testing.T, attemptID string, lane LaneDefinition, dispatcher WorkflowActor) {
 	t.Helper()
-	packet := joinPacketFor(t, f.s, f.workID, f.step, attemptID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, f.s, f.workID, f.step, attemptID, lane.ID, lane.Digest)
 	correction, err := workflowCorrectionContextForDispatch(t.Context(), f.s.db, f.workID, f.step, attemptID)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func (f crossAttemptFixture) materializeDispatch(t *testing.T, attemptID string,
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, f.workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
-	dispatched := Event{EventID: "cross-attempt-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
+	dispatched := Event{EventID: "cross-attempt-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
 	if err := f.s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatched, dispatcher.PrincipalRef, dispatcher.ClientRef)
 		if err != nil {
@@ -950,7 +950,7 @@ func TestCrossAttemptRejectionCurrentDisposalAndRetry(t *testing.T) {
 	if err != nil || correction == nil {
 		t.Fatalf("correction-consuming retry context: %+v, %v", correction, err)
 	}
-	packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+	packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Digest)
 	packet["inputs"].(map[string]any)["correction"] = correction
 	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, packet); err != nil {
 		t.Fatalf("dispatch the correction-consuming retry: %v", err)
@@ -996,13 +996,13 @@ func TestCrossAttemptCorrectionRetryConsumption(t *testing.T) {
 		if correction == nil {
 			t.Fatal("no correction context stands after the rejection")
 		}
-		packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+		packet := joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Digest)
 		packet["inputs"].(map[string]any)["correction"] = correction
 		return packet
 	}
 
 	// Missing correction: the plain packet refuses the dispatch.
-	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)); err == nil {
+	if _, err := dispatchJoinAttempt(context.Background(), t, f.s, workID, readWorkVersion(t, f.s, workID), f.dispatcher, joinPacketFor(t, f.s, workID, f.step, attemptW, f.researchLane.ID, f.researchLane.Digest)); err == nil {
 		t.Fatal("a dispatch whose packet omits the standing correction unexpectedly succeeded")
 	} else {
 		var refusal *Failure
@@ -1116,7 +1116,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, f.attemptR).Scan(&laneR); err != nil {
 		t.Fatal(err)
 	}
-	fields, err := json.Marshal(map[string]any{"attempt_id": f.attemptV, "worker_packet": joinPacketFor(t, f.s, workID, f.step, f.attemptV, f.reviewLane.ID, f.reviewLane.Version, f.reviewLane.Digest)})
+	fields, err := json.Marshal(map[string]any{"attempt_id": f.attemptV, "worker_packet": joinPacketFor(t, f.s, workID, f.step, f.attemptV, f.reviewLane.ID, f.reviewLane.Digest)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1164,7 +1164,7 @@ func TestCrossAttemptCombinedRetryOverAnotherSessionsAttemptRefusesWhole(t *test
 	if err != nil || correction == nil {
 		t.Fatalf("correction context for the retry dispatch = %v err %v, want the rejection's", correction, err)
 	}
-	retryPacket := joinPacketFor(t, f.s, workID, f.step, retryAttempt, f.researchLane.ID, f.researchLane.Version, f.researchLane.Digest)
+	retryPacket := joinPacketFor(t, f.s, workID, f.step, retryAttempt, f.researchLane.ID, f.researchLane.Digest)
 	retryPacket["inputs"].(map[string]any)["correction"] = correction
 	retryFields, err := json.Marshal(map[string]any{"attempt_id": retryAttempt, "worker_packet": retryPacket})
 	if err != nil {

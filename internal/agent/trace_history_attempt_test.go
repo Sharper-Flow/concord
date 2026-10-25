@@ -102,7 +102,7 @@ func TestTraceHistoryWorkerEventsExposeAttemptIDs(t *testing.T) {
 		t.Fatal("fresh retry authorization has no worker job binding")
 	}
 	dispatch := store.Event{EventID: "history-fresh-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
-		AttemptID: freshID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		AttemptID: freshID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 		PacketDigest: digest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job,
 	})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {

@@ -68,7 +68,7 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 		}
 		packet := bindPacketToRecordedState(t, f.s, map[string]any{
 			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt,
-			"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"lane_id": lane.ID, "lane_digest": lane.Digest,
 			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
 		})
 		refused := f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet})
@@ -111,7 +111,7 @@ func TestSpineFirstGroupUnknownLaunchCannotAuthorizeAnotherAttempt(t *testing.T)
 	authorize := func(attempt string) Envelope {
 		packet := bindPacketToRecordedState(t, f.s, map[string]any{
 			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt,
-			"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"lane_id": lane.ID, "lane_digest": lane.Digest,
 			"work_id": f.work, "step_id": f.read(t).Pinned.Step, "inputs": map[string]any{},
 		})
 		return f.action(t, "dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": packet})

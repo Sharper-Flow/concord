@@ -26,7 +26,7 @@ func TestRegisteredStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
 					continue
 				}
 				if approvalRequired[id] && id != served {
-					t.Errorf("%s v%d step %q has kind %q and declares approval-required action %q that its operator question does not serve, so the action can never run", definition.Ref, definition.Version, step.ID, step.Kind, id)
+					t.Errorf("%s step %q has kind %q and declares approval-required action %q that its operator question does not serve, so the action can never run", definition.Ref, step.ID, step.Kind, id)
 				}
 			}
 		}
@@ -62,7 +62,7 @@ func TestRegisteredNonTerminalStepsCanAdvance(t *testing.T) {
 				break
 			}
 			if !reachable {
-				t.Errorf("%s v%d step %q declares no advancing action it admits; work that reaches this step cannot leave it", definition.Ref, definition.Version, step.ID)
+				t.Errorf("%s step %q declares no advancing action it admits; work that reaches this step cannot leave it", definition.Ref, step.ID)
 			}
 		}
 	}
@@ -99,7 +99,7 @@ func TestShippedDefinitionsCanProduceRequiredEvidence(t *testing.T) {
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		if missing := workflowRequiredEvidenceOutsideReach(definition); len(missing) != 0 {
 			producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
-			t.Errorf("%s v%d requires evidence kinds %v its reachable actions cannot produce; those actions produce %v", definition.Ref, definition.Version, missing, producible)
+			t.Errorf("%s requires evidence kinds %v its reachable actions cannot produce; those actions produce %v", definition.Ref, missing, producible)
 		}
 	}
 }

@@ -20,8 +20,8 @@ export async function reconcileRetainedWorker(
   options: Parameters<typeof completeWorkerAttempt>[3],
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
-  const lane = laneForIdentity(recovery.dispatch.lane_id, recovery.dispatch.lane_version, recovery.dispatch.lane_digest)
-  if (!lane) throw new Error("the original dispatched lane definition is unavailable")
+  const lane = laneForIdentity(recovery.dispatch.lane_id, recovery.dispatch.lane_digest)
+  if (!lane) throw new Error("the original dispatched lane requires content revalidation; preserve its original identity and evidence")
   // The retained schema artifacts are the recorded pair itself. A
   // pair no released revision produced, or one whose sides disagree, is a
   // record no reader owns: refuse typed before any replacement worker,
@@ -50,7 +50,7 @@ export async function reconcileRetainedWorker(
   let packet: unknown
   try { packet = JSON.parse(part.state.input.prompt) } catch { throw new Error("retained host Task has no original packet") }
   if (!object(packet) || packet.schema_version !== recordedPacketVersion) throw new Error("retained packet schema identity differs from the schema identity the recorded dispatch carried")
-  if (!validateAgentLanePacket(packet) || packet.work_id !== workID || packet.attempt_id !== attemptID || recovery.dispatch.attempt_id !== attemptID || packet.lane_id !== lane.id || packet.lane_version !== lane.version || packet.lane_digest !== recovery.dispatch.lane_digest || serializeLanePacket(packet) !== part.state.input.prompt || part.state.input.subagent_type !== `concord-${lane.id}`) throw new Error("retained host Task packet or executing lane differs from the original attempt")
+  if (!validateAgentLanePacket(packet) || packet.work_id !== workID || packet.attempt_id !== attemptID || recovery.dispatch.attempt_id !== attemptID || packet.lane_id !== lane.id || packet.lane_digest !== recovery.dispatch.lane_digest || serializeLanePacket(packet) !== part.state.input.prompt || part.state.input.subagent_type !== `concord-${lane.id}`) throw new Error("retained host Task packet or executing lane differs from the original attempt")
   const childRead = await readWorkerSessionBody(reader, task.sessionID, signal)
   if (!childRead.ok) throw new Error(childRead.message)
   const child = JSON.parse(childRead.body)

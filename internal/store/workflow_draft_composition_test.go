@@ -29,7 +29,7 @@ func TestOutsideRepairDraftContextOracleReadFence(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if pin.WorkContext != nil || pin.WorkflowDefinitionVersion != nil || pin.WorkflowDefinitionDigest != nil || pin.Obligations != nil || len(pin.NextValidIntents) != 0 {
+				if pin.WorkContext != nil || pin.WorkflowDefinitionDigest != nil || pin.Obligations != nil || len(pin.NextValidIntents) != 0 {
 					t.Fatalf("outside-repair pin exposes managed enrichment: %+v", pin)
 				}
 				continuity, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: work})
@@ -56,7 +56,7 @@ func TestOutsideRepairDraftContextOracleReadFence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(before.WorkContext, after.WorkContext) || after.WorkflowDefinitionVersion == nil || *after.WorkflowDefinitionVersion != *before.WorkflowDefinitionVersion {
+			if !reflect.DeepEqual(before.WorkContext, after.WorkContext) || after.WorkflowDefinitionDigest == nil || before.WorkflowDefinitionDigest == nil || *after.WorkflowDefinitionDigest != *before.WorkflowDefinitionDigest {
 				t.Fatalf("resume changed managed context or pin: before=%+v after=%+v", before, after)
 			}
 			continuity, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: work})

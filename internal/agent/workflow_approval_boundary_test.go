@@ -60,7 +60,6 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			local.Ref = "workflow.consent-local"
-			local.Version = 1
 			local.ApprovalPolicy = vector.approvalPolicy
 			mutated := 0
 			for index := range local.ActionDefinitions {
@@ -173,7 +172,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	t.Parallel()
 	base := store.WorkflowApprovalBoundaryState{
-		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test", Version: 1}, Digest: "digest-1"},
+		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test"}, Digest: "digest-1"},
 		WorkVersion:            3,
 		ContractVersion:        2,
 		ActiveContractVersions: []int64{1, 2},
@@ -184,11 +183,6 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
 		t.Fatal("an identical boundary snapshot reported changed facts")
-	}
-	versionMetadata := base
-	versionMetadata.Definition.Definition.Version++
-	if workflowApprovalBoundaryChanged(base, versionMetadata) {
-		t.Fatal("definition version metadata invalidated unchanged dependency content")
 	}
 	// A JSON round trip can turn an empty slice nil; that is not a fact
 	// change and must not refuse the action.

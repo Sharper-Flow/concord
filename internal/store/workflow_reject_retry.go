@@ -324,7 +324,7 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 	}
 	packet := map[string]any{
 		"schema_version": schemaVersion, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": currentStep, "inputs": inputs,
 	}
 	return json.Marshal(packet)

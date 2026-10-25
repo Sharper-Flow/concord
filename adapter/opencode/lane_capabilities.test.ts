@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { createWorkerCapabilityGuard, toolAllowedByCapabilities } from "./lane_capabilities"
-import { agentLanes, laneLegacyDigests } from "./generated-agent-lanes"
+import { agentLanes } from "./generated-agent-lanes"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -13,7 +13,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   const lane = agentLanes.find((entry) => entry.id === laneID)!
   const packet: AgentLanePacket = {
     schema_version: "1.0", attempt_id: "capability-attempt", work_id: "capability-work", step_id: "execute",
-    lane_id: lane.id, lane_version: lane.version, lane_digest: readOnly ? laneLegacyDigests["review:1"].at(-1)! : lane.digest,
+    lane_id: lane.id, lane_digest: readOnly ? "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d" : lane.digest,
     inputs: { task: "Run the recorded check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
   }
   if (subject) packet.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: subject }
@@ -250,29 +250,20 @@ test("malformed original identity and nested or missing ancestry never authorize
   }
 })
 
-test("read-only review tool admission refuses subject drift even after the host child is bound", async () => {
+test("a stale Review digest grants no tools and preserves the original packet", async () => {
   const subject = "a".repeat(40)
-  let head = subject
-  let dirty = false
   const calls: string[][] = []
   const subjectRunner: DispatchRunner = { run: async (argv) => {
     calls.push(argv)
-    return { exitCode: 0, stdout: argv.includes("rev-parse") ? head + "\n" : dirty ? "?? file\0" : "", stderr: "", signal_state: null }
+    return { exitCode: 0, stdout: "", stderr: "", signal_state: null }
   } }
   const f = await fixture("review", subject, subjectRunner, process.cwd(), true)
-  await f.before("read")
-  await expect(f.before("edit")).rejects.toThrow("does not grant")
-  head = "b".repeat(40)
-  await expect(f.before("read")).rejects.toThrow("review subject")
-  head = subject
-  dirty = true
-  await expect(f.before("read")).rejects.toThrow("review subject")
-  expect(calls.length).toBeGreaterThan(0)
-  for (const argv of calls) {
-    expect(argv).toEqual(argv.includes("rev-parse")
-      ? ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "rev-parse", "--verify", "HEAD^{commit}"]
-      : ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  const before = serializeLanePacket(f.windows.activeAttempt("parent")!.packet)
+  for (const tool of ["read", "edit", "bash", "concord_worker_check"]) {
+    await expect(f.before(tool)).rejects.toThrow("content revalidation")
   }
+  expect(serializeLanePacket(f.windows.activeAttempt("parent")!.packet)).toBe(before)
+  expect(calls).toHaveLength(0)
 })
 
 test("repairing Review admits clean B, two edits and a commit, and verifies clean terminal C", async () => {

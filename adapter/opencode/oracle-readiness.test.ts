@@ -13,7 +13,7 @@ const controlArgv = ["go", "test", "-count=1", "-run", "^(TestSubject)$", "."]
 function packet(subject: string | undefined = oid): AgentLanePacket {
   return {
     schema_version: "1.1", attempt_id: "attempt-subject", lane_id: lane.id,
-    lane_version: lane.version, lane_digest: lane.digest, work_id: "work-subject", step_id: "implement",
+    lane_digest: lane.digest, work_id: "work-subject", step_id: "implement",
     inputs: {
       task: "Repair the bounded owner.",
       binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" },

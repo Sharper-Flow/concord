@@ -294,7 +294,6 @@ type workflowActionCompletedPayload struct {
 	// the attempt in flight from the durable record alone. The completion
 	// builder writes the quartet together; a completion without one is a
 	// pre-binding authorization the fold leaves unbound.
-	WorkerLaneVersion     int64  `json:"worker_lane_version,omitempty"`
 	WorkerLaneDigest      string `json:"worker_lane_digest,omitempty"`
 	WorkerCapabilityClass string `json:"worker_capability_class,omitempty"`
 	WorkerPacketDigest    string `json:"worker_packet_digest,omitempty"`
@@ -2269,7 +2268,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	// binding input, so it is reserved for that action and must arrive all
 	// together: a partial identity would bind an attempt the fold cannot
 	// read back.
-	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneVersion != 0, p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
+	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
 	laneBound, laneUnbound := 0, 0
 	for _, set := range laneFields {
 		if set {
@@ -2285,7 +2284,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 		if p.ActionID != "dispatch_worker" {
 			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
 		}
-		if !workflowString(p.WorkerLaneID, 32) || p.WorkerLaneVersion < 1 || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
+		if !workflowString(p.WorkerLaneID, 32) || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
 			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
 		}
 	}
@@ -2772,9 +2771,9 @@ func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
-		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneVersion, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
+		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
+		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
 	if err != nil {
 		if isIdentityConflict(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already authorized in flight", false, "open a fresh dispatch_worker authorization with a new attempt identity")

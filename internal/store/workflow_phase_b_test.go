@@ -54,10 +54,10 @@ func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 		if registered.Digest == "" || !strings.HasPrefix(registered.Digest, "sha256:") {
 			t.Fatalf("%s has no computed digest", definition.Ref)
 		}
-		if err := registry.Verify(definition.Ref, definition.Version, registered.Digest); err != nil {
+		if err := registry.Verify(definition.Ref, registered.Digest); err != nil {
 			t.Fatalf("verify %s: %v", definition.Ref, err)
 		}
-		stored, ok := registry.Lookup(definition.Ref, definition.Version)
+		stored, ok := registry.Current(definition.Ref)
 		if !ok || !reflect.DeepEqual(stored.Definition, definition) {
 			t.Fatalf("registry changed the full definition for %s", definition.Ref)
 		}
@@ -201,7 +201,7 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
-		registered, ok := registry.Lookup(latest.Ref, latest.Version)
+		registered, ok := registry.Current(latest.Ref)
 		if !ok {
 			t.Fatalf("%s definition is not registered", latest.Ref)
 		}
@@ -209,8 +209,8 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved.Definition.Version != registered.Definition.Version || resolved.Digest != registered.Digest {
-			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Definition.Version, registered.Digest)
+		if resolved.Definition.Ref != registered.Definition.Ref || resolved.Digest != registered.Digest {
+			t.Fatalf("resolver for %s = %s, want %s", latest.Ref, resolved.Digest, registered.Digest)
 		}
 		// TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair
 		// owns which steps compose the worker pair (CD-0242 D5).
@@ -305,7 +305,7 @@ func TestWorkflowDefinitionCanonicalDigestAndDriftProtection(t *testing.T) {
 	if registered.Digest != digest {
 		t.Fatalf("registered digest = %q, computed = %q", registered.Digest, digest)
 	}
-	if err := registry.Verify(definition.Ref, definition.Version, "sha256:"+strings.Repeat("0", 64)); err == nil {
+	if err := registry.Verify(definition.Ref, "sha256:"+strings.Repeat("0", 64)); err == nil {
 		t.Fatal("stored digest drift was accepted")
 	}
 }
@@ -433,16 +433,16 @@ func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: registered.Digest}); err != nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Digest: registered.Digest}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: "sha256:" + strings.Repeat("f", 64)}); err == nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Digest: "sha256:" + strings.Repeat("f", 64)}); err == nil {
 		t.Fatal("drifted workflow pin was accepted")
 	}
 	s := openTemp(t)
 	seedWork(t, s, "drift-work")
 	badEvent := workflowEvent("drift-definition", WorkflowDefinitionSelected, "drift-work", map[string]any{
-		"work_id": "drift-work", "expected_version": 2, "resulting_version": 3, "ref": definition.Ref, "version": definition.Version,
+		"work_id": "drift-work", "expected_version": 2, "resulting_version": 3, "ref": definition.Ref,
 		"digest": "sha256:" + strings.Repeat("f", 64), "work_kind": string(definition.WorkKind),
 	})
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{badEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "drift-work"): 2}}); err == nil {
@@ -475,7 +475,7 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	}
 	event := workflowEvent("preflight-definition", WorkflowDefinitionSelected, "preflight-work", map[string]any{
 		"work_id": "preflight-work", "expected_version": 2, "resulting_version": 3,
-		"ref": definition.Ref, "version": definition.Version, "digest": registered.Digest, "work_kind": string(definition.WorkKind),
+		"ref": definition.Ref, "digest": registered.Digest, "work_kind": string(definition.WorkKind),
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "preflight-work"): 2}}); err != nil {
 		t.Fatal(err)

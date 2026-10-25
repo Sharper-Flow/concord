@@ -45,7 +45,6 @@ func resolutionPolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	definition := routinePolicyDefinition(t)
 	definition.Ref = resolutionWorkflowRef
-	definition.Version = 1
 	// The decision-record checkpoint folds against the pinned payload
 	// contract, so the local definition declares record_decision's typed
 	// fields beside the implementation actions it already carries.
@@ -136,7 +135,7 @@ func resolutionSelectionOperation(t *testing.T, s *Store, workID string, registe
 				"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent",
 			}),
 			resolutionEvent("resolution-selection-"+workID, WorkflowDefinitionSelected, workID, ownerRef, version+1, map[string]any{
-				"ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest,
+				"ref": registered.Definition.Ref, "digest": registered.Digest,
 				"work_kind": string(registered.Definition.WorkKind),
 			}),
 		},
@@ -162,9 +161,13 @@ func seedResolutionSelection(t *testing.T, workID string, registry DefinitionReg
 func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, principal string) (FenceResult, error) {
 	opID := "resolution-produce-" + workID
 	requestID := "request:" + opID
+	registered, ok := registry.Current(resolutionWorkflowRef)
+	if !ok {
+		return FenceResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
+	}
 	claimed, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 		OpID: opID, WorkID: workID,
-		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 		StepID: "execution", StepKind: StepExternalEffect,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{}`,
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: opID,
@@ -389,12 +392,11 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		registry, registered := newResolutionRegistry(t, definition)
 		s, _ := seedResolutionSelection(t, workID, registry, registered)
 		var ref, digest string
-		var version int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &digest); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &digest); err != nil {
 			t.Fatalf("selection fold did not create the instance under the caller registry: %v", err)
 		}
-		if ref != resolutionWorkflowRef || version != 1 || digest != registered.Digest {
-			t.Fatalf("instance pin = %s@%d %s, want the caller registry's %s@1 %s", ref, version, digest, resolutionWorkflowRef, registered.Digest)
+		if ref != resolutionWorkflowRef || digest != registered.Digest {
+			t.Fatalf("instance pin = %s %s, want the caller registry's %s %s", ref, digest, resolutionWorkflowRef, registered.Digest)
 		}
 	})
 
@@ -578,7 +580,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// stored pin.
 		if _, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-claim-wrong-step-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "proposal", StepKind: StepInternalSQLite,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-claim-wrong-step-" + workID,
@@ -590,7 +592,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// attempt without a result.
 		next, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-produce-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "execution", StepKind: StepExternalEffect,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-retry-" + workID,
@@ -627,7 +629,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		fixture := workflowFixtureDefinition(t, 1)
 		operation := Operation{
 			Events: []Event{resolutionEvent("resolution-foreign-selection-"+workID, WorkflowDefinitionSelected, workID, "actor:test", version, map[string]any{
-				"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+				"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 			})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 		}
@@ -707,7 +709,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		selection := func(eventID string) Operation {
 			return Operation{
 				Events: []Event{resolutionEvent(eventID, WorkflowDefinitionSelected, workID, "actor:test", version, map[string]any{
-					"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+					"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 				})},
 				ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 			}
@@ -781,7 +783,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		builtinVersion := readWorkVersion(t, s3, builtinID)
 		builtinErr := tryAppendWorkflowEventsWithRegistry(s3, emptyForBuiltin, Operation{
 			Events: []Event{resolutionEvent("resolution-selection-"+builtinID, WorkflowDefinitionSelected, builtinID, ownerRefForTest(t, owner3), builtinVersion, map[string]any{
-				"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+				"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 			})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, builtinID): builtinVersion},
 		})

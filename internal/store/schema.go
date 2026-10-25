@@ -7276,10 +7276,23 @@ DELETE FROM fold_guard;
 		FoldMaintained: "origin",
 		SQL: `
 ALTER TABLE durable_operations ADD COLUMN workflow_type_digest TEXT NOT NULL DEFAULT '';
-UPDATE durable_operations AS d SET workflow_type_digest=coalesce((SELECT i.definition_digest FROM workflow_instances i WHERE i.work_id=d.work_id AND i.definition_ref=d.workflow_type_ref),'')
- WHERE d.workflow_type_ref LIKE 'workflow.%';
 ALTER TABLE durable_operations DROP COLUMN workflow_type_version;
 ALTER TABLE workflow_contracts DROP COLUMN definition_version;
+CREATE TABLE runtime_state_writers_v152 (
+    surface TEXT NOT NULL CHECK(surface IN ('knowledge','workflow')),
+    definition_ref TEXT NOT NULL,
+    knowledge_projection_version INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    binary_version TEXT NOT NULL,
+    PRIMARY KEY(surface, definition_ref, knowledge_projection_version, digest),
+    CHECK((surface='knowledge' AND knowledge_projection_version > 0) OR
+          (surface='workflow' AND knowledge_projection_version=0))
+);
+INSERT INTO runtime_state_writers_v152
+    SELECT surface,definition_ref,CASE WHEN surface='knowledge' THEN version ELSE 0 END,digest,binary_version
+      FROM runtime_state_writers;
+DROP TABLE runtime_state_writers;
+ALTER TABLE runtime_state_writers_v152 RENAME TO runtime_state_writers;
 CREATE TABLE workflow_instances_v152 (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,

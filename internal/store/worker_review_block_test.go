@@ -257,34 +257,30 @@ func TestReviewLaneBlockOnlyCompletionFolds(t *testing.T) {
 	}
 }
 
-// A dispatch recorded under the pre-CD-0197 review digest still completes:
-// the legacy digest resolves to the current definition, and the completion is
-// held to the requirement the current definition carries.
-func TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock(t *testing.T) {
+func TestStaleReviewLaneDigestRefusesWithoutChangingEvidence(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	current := BuiltinLaneDefinitions()[3]
 	legacyDigest := "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15"
-	if _, err := LookupLane(current.ID, current.Version, legacyDigest); err != nil {
-		t.Fatalf("pre-CD-0197 review digest no longer resolves: %v", err)
+	if _, err := LookupLane(current.ID, legacyDigest); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
+		t.Fatalf("stale review digest error = %v, want revalidation", err)
 	}
 	workID := "review-block-legacy-digest"
 	attemptID := "review-block-legacy-digest-attempt"
-	actorRef := authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, current, map[string]any{"lane_digest": legacyDigest})}}); err != nil {
+	authorizeWorkerFixtureDispatch(t, s, workID, attemptID)
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, current, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, attemptID, current, nil, workerFixtureDirectory(t, s, workID))}})
-	if !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("blockless completion under a legacy digest error = %v, want %s", err, KindInvalidPayload)
-	}
-	second := "review-block-legacy-digest-attempt-2"
-	recordWorkerFixtureDispatchAuthorization(t, s, workID, second, "execution", actorRef)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, second, current, map[string]any{"lane_digest": legacyDigest})}}); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lane_digest=? WHERE attempt_id=?; DELETE FROM fold_guard`, legacyDigest, attemptID); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, second, current, reviewBlockFixture(), workerFixtureDirectory(t, s, workID))}}); err != nil {
-		t.Fatalf("completion under a legacy digest was refused: %v", err)
+	before := workerProjectionSnapshot(t, s)
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{reviewCompleteEventV3(workID, attemptID, current, reviewBlockFixture(), workerFixtureDirectory(t, s, workID))}})
+	if !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
+		t.Fatalf("completion under a stale digest error = %v, want revalidation", err)
+	}
+	if after := workerProjectionSnapshot(t, s); after != before {
+		t.Fatalf("revalidation refusal changed original evidence: before %s; after %s", before, after)
 	}
 }
 

@@ -98,30 +98,28 @@ func TestBuildRejectsProductMismatch(t *testing.T) {
 // CD-0016 projection for that snapshot.
 func TestBuildWithUnavailableWorkContext(t *testing.T) {
 	snapshot := testSnapshot()
-	version := int64(1)
 	digest := "sha256:" + strings.Repeat("a", 64)
 	obligations := []string{}
 	// A minimal ordinary managed pin: the required members, the conditional
 	// definition identity the no-disposition branch requires, and the typed
 	// marker instead of a view.
 	snapshot.WorkPin = &store.WorkPin{
-		WorkID:                    "work-1",
-		Title:                     "fixture",
-		LinearIssueKey:            "CON-0000",
-		ProjectID:                 "project-1",
-		ProjectDisplayName:        "fixture",
-		Version:                   1,
-		Lifecycle:                 "in_progress",
-		CancelledInstanceCloses:   0,
-		WorkflowType:              "workflow.break_fix",
-		Step:                      "planning",
-		Watermark:                 "seq:42",
-		WorkflowDefinitionVersion: &version,
-		WorkflowDefinitionDigest:  &digest,
-		Obligations:               &obligations,
-		NextValidIntents:          []store.WorkPinIntent{},
-		DrivingSessions:           []store.WorkPinDrivingSession{},
-		WorkContextUnavailable:    &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)},
+		WorkID:                   "work-1",
+		Title:                    "fixture",
+		LinearIssueKey:           "CON-0000",
+		ProjectID:                "project-1",
+		ProjectDisplayName:       "fixture",
+		Version:                  1,
+		Lifecycle:                "in_progress",
+		CancelledInstanceCloses:  0,
+		WorkflowType:             "workflow.break_fix",
+		Step:                     "planning",
+		Watermark:                "seq:42",
+		WorkflowDefinitionDigest: &digest,
+		Obligations:              &obligations,
+		NextValidIntents:         []store.WorkPinIntent{},
+		DrivingSessions:          []store.WorkPinDrivingSession{},
+		WorkContextUnavailable:   &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)},
 	}
 	snapshot.WorkContextUnavailable = &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)}
 	raw, err := Build("product-1", snapshot)

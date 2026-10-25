@@ -126,8 +126,8 @@ func TestWorkflowHealthyBasisRequiresEveryComparablePredicate(t *testing.T) {
 				1: {predicate.PredicateID: predicate, other.PredicateID: other},
 				2: {predicate.PredicateID: predicate, other.PredicateID: other},
 			}, pins: workflowContractDefinitionPinsData{
-				1: {definitionRef: "workflow.test", definitionVersion: 1, definitionDigest: testManifestDigest},
-				2: {definitionRef: "workflow.test", definitionVersion: 1, definitionDigest: testManifestDigest},
+				1: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
+				2: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
 			}}
 			candidates := []workflowHealthVerdict{
 				{seq: 11, verdict: workflowVerdictRecordedPayload{ContractVersion: 2, PredicateID: predicate.PredicateID, VerdictKind: "ok"}},

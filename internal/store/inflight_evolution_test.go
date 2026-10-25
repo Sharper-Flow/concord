@@ -14,14 +14,13 @@ import (
 // event readability are each proven elsewhere in isolation; these tests prove the
 // composition, where an item is already mid-flight when the change lands.
 
-func workflowInstancePin(t *testing.T, s *Store, workID string) (string, int64, string) {
+func workflowInstancePin(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
 	var ref, digest string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &digest); err != nil {
 		t.Fatal(err)
 	}
-	return ref, version, digest
+	return ref, digest
 }
 
 func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
@@ -68,31 +67,32 @@ func startSeededWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *St
 	return actor, version + 1
 }
 
-// A newer definition version must not rebase, strand, or silently upgrade an
-// item that is already mid-flight on an older pin. The supersession is a
-// registry property, so it is proven against the test fixture family, which
-// carries two versions; the shipped built-ins carry exactly one version each.
-func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
+// Definition changes resolve through current content without stranding an
+// in-flight item or rewriting its recorded selection metadata.
+func TestInFlightWorkflowSurvivesDefinitionContentChange(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	const workID = "definition-evolution-work"
-	registry := BuiltinWorkflowRegistry()
+	registry := NewWorkflowDefinitionRegistry()
 	v1 := workflowFixtureDefinition(t, 1)
-	latest := workflowFixtureDefinition(t, 2)
-	if latest.Definition.Version <= v1.Definition.Version || latest.Digest == v1.Digest {
-		t.Fatalf("registry does not carry a superseding version: v%d %s vs v%d %s", v1.Definition.Version, v1.Digest, latest.Definition.Version, latest.Digest)
+	if _, err := registry.Register(v1.Definition); err != nil {
+		t.Fatal(err)
 	}
 
 	actor, version := startWorkflowPinnedTo(t, s, workID, v1)
 
-	// The newer version is registered and resolvable as latest for the same ref
-	// while this item is mid-flight. That is the change landing.
-	ref, pinnedVersion, pinnedDigest := workflowInstancePin(t, s, workID)
-	if ref != v1.Definition.Ref || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
-		t.Fatalf("pin after start = %s v%d %s, want the v1 pin", ref, pinnedVersion, pinnedDigest)
+	changed := cloneWorkflowDefinition(v1.Definition)
+	changed.RequiredEvidenceKinds = append(changed.RequiredEvidenceKinds, EvidenceDurableNote)
+	latest, err := registry.Register(changed)
+	if err != nil || latest.Digest == v1.Digest {
+		t.Fatalf("changed content did not register a distinct digest: %+v, %v", latest, err)
+	}
+	ref, pinnedDigest := workflowInstancePin(t, s, workID)
+	if ref != v1.Definition.Ref || pinnedDigest != v1.Digest {
+		t.Fatalf("pin after start = %s %s, want the recorded selection", ref, pinnedDigest)
 	}
 
-	// Not stranded: an action declared by the pinned version still advances.
+	// A shared action still advances the in-flight item.
 	next, err := continuityAction(t, s, workID, version, "checkpoint_context", "evolution-checkpoint", map[string]any{
 		"active_unit": "unit:implementation", "hypothesis": "hypothesis:one", "diagnosis": "diagnosis:one", "strategy": "strategy:one",
 		"touched_refs": []string{"ref:file"}, "evidence_refs": []string{"evidence:one"}, "pending_questions": []string{}, "pending_decisions": []string{},
@@ -104,30 +104,21 @@ func TestInFlightWorkflowSurvivesDefinitionVersionSupersession(t *testing.T) {
 		t.Fatalf("resulting version=%d did not advance past %d", next, version)
 	}
 
-	// Not silently upgraded. The superseding version differs by introducing
-	// accept_worker_result, so resolving this item's own pin must still yield the
-	// definition that lacks it. This asserts through VerifyWorkflowDefinitionPin —
-	// the resolution the engine performs before every action — rather than
-	// inferring the pin from an action rejection that a step guard could equally
-	// explain.
-	if slices.Contains(v1.Definition.AvailableActions, "accept_worker_result") {
-		t.Fatal("v1 already declares accept_worker_result; the supersession no longer differs")
-	}
-	if !slices.Contains(latest.Definition.AvailableActions, "accept_worker_result") {
-		t.Fatal("the superseding version does not declare accept_worker_result")
-	}
-	resolved, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Version: pinnedVersion, Digest: pinnedDigest})
+	resolved, err := VerifyWorkflowInstanceDefinition(context.Background(), s, registry, workID)
 	if err != nil {
 		t.Fatalf("in-flight pin no longer resolves after supersession: %v", err)
 	}
-	if resolved.Definition.Version != v1.Definition.Version || slices.Contains(resolved.Definition.AvailableActions, "accept_worker_result") {
-		t.Fatalf("engine resolved v%d for an item pinned to v%d", resolved.Definition.Version, v1.Definition.Version)
+	if resolved.Digest != latest.Digest || !slices.Contains(resolved.Definition.RequiredEvidenceKinds, EvidenceDurableNote) {
+		t.Fatalf("engine did not resolve current definition content: %+v", resolved)
+	}
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: ref, Digest: pinnedDigest}); !hasFailureKind(err, KindDefinitionDigestMismatch) {
+		t.Fatalf("obsolete explicit digest refusal = %v", err)
 	}
 
 	// The pin is unchanged by the advance.
-	ref, pinnedVersion, pinnedDigest = workflowInstancePin(t, s, workID)
-	if ref != v1.Definition.Ref || pinnedVersion != v1.Definition.Version || pinnedDigest != v1.Digest {
-		t.Fatalf("pin drifted to %s v%d %s", ref, pinnedVersion, pinnedDigest)
+	ref, pinnedDigest = workflowInstancePin(t, s, workID)
+	if ref != v1.Definition.Ref || pinnedDigest != v1.Digest {
+		t.Fatalf("recorded selection drifted to %s %s", ref, pinnedDigest)
 	}
 
 }
@@ -227,9 +218,9 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	}
 
 	// Not corrupted: the pin survives the migration byte for byte.
-	ref, pinnedVersion, pinnedDigest := workflowInstancePin(t, s, workID)
-	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || pinnedDigest != definition.Digest {
-		t.Fatalf("pin after migration = %s v%d %s, want %s v%d %s", ref, pinnedVersion, pinnedDigest, definition.Definition.Ref, definition.Definition.Version, definition.Digest)
+	ref, pinnedDigest := workflowInstancePin(t, s, workID)
+	if ref != definition.Definition.Ref || pinnedDigest != definition.Digest {
+		t.Fatalf("pin after migration = %s %s, want %s %s", ref, pinnedDigest, definition.Definition.Ref, definition.Digest)
 	}
 
 	// Not stranded: the item still advances after the change.
@@ -280,7 +271,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	// projections without asking the current append seam to write old schema.
 	selection := workflowEventWithActor("workflow-init:"+workID+":definition:"+definition.Definition.Ref, WorkflowDefinitionSelected, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": 3, "resulting_version": 4,
-		"ref": definition.Definition.Ref, "version": definition.Definition.Version,
+		"ref": definition.Definition.Ref, "version": 1,
 		"digest": definition.Digest, "work_kind": definition.Definition.WorkKind,
 	})
 	events := []Event{
@@ -332,7 +323,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if _, err := tx.Exec(`UPDATE work_items SET version=4,updated_at=? WHERE id=? AND version=3`, selection.OccurredAt.UTC().Format(time.RFC3339Nano), workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned')`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, startStep); err != nil {
+	if _, err := tx.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,1,?,?,'planned')`, workID, definition.Definition.Ref, definition.Digest, startStep); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, preferredModelForLane(BuiltinLaneDefinitions()[0]), workID); err != nil {
@@ -382,8 +373,8 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err != nil || pin.Step != "alignment" || pin.Version != next {
 		t.Fatalf("work did not advance: %+v err=%v", pin, err)
 	}
-	ref, pinnedVersion, digest := workflowInstancePin(t, s, workID)
-	if ref != definition.Definition.Ref || pinnedVersion != definition.Definition.Version || digest != definition.Digest {
-		t.Fatalf("workflow pin drifted: %s v%d %s", ref, pinnedVersion, digest)
+	ref, digest := workflowInstancePin(t, s, workID)
+	if ref != definition.Definition.Ref || digest != definition.Digest {
+		t.Fatalf("workflow pin drifted: %s %s", ref, digest)
 	}
 }

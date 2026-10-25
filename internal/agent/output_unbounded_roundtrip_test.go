@@ -60,9 +60,9 @@ func unboundedConditionAt(index, width int) unboundedCondition {
 func seedWorkflowConditionAuthority(t *testing.T, s *store.Store, workID, opID, evidenceRef string) {
 	t.Helper()
 	var typeRef string
-	var typeVersion int64
+	var typeDigest string
 	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&typeRef, &typeVersion, &step); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&typeRef, &typeDigest, &step); err != nil {
 		t.Fatal(err)
 	}
 	at := fixedTime().Format(time.RFC3339Nano)
@@ -70,8 +70,8 @@ func seedWorkflowConditionAuthority(t *testing.T, s *store.Store, workID, opID, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,?,?,?,'external_effect',?,?,'completed','{}',?,'principal/operator',?,?,?,?)`,
-		opID, workID, typeRef, typeVersion, step, ManifestDigest, "{}", string(evidence), "req-"+opID, at, at, ManifestDigest); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,?,?,?,'external_effect',?,?,'completed','{}',?,'principal/operator',?,?,?,?)`,
+		opID, workID, typeRef, typeDigest, step, ManifestDigest, "{}", string(evidence), "req-"+opID, at, at, ManifestDigest); err != nil {
 		t.Fatalf("seed the condition authority %s: %v", opID, err)
 	}
 }

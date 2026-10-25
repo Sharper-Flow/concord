@@ -832,7 +832,7 @@ func TestWorkflowCancellationRejectsForgedEvidenceFromOperator(t *testing.T) {
 
 func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requestID string, evidence []string) {
 	t.Helper()
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,? ,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z", testManifestDigest)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'workflow.test',?,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,? ,?)`, opID, workID, mustBuiltinDefinition(t, workflowFixtureRef).Digest, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z", testManifestDigest)
 	if err != nil {
 		t.Fatalf("seed durable workflow authority: %v", err)
 	}
@@ -894,8 +894,8 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
-		"workflow_instances":             {"work_id", "definition_ref", "definition_version", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "result_disposition", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq", "latest_non_dispatch_start_seq"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_version", "definition_digest", "decision_domains", "law_change", "supersession_seq", "last_healthy_seq"},
+		"workflow_instances":             {"work_id", "definition_ref", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "outside_repair_state", "result_disposition", "completion_payload", "completion_occurred_at", "unhealthy_verdict_seq", "latest_non_dispatch_start_seq"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_digest", "decision_domains", "law_change", "supersession_seq", "last_healthy_seq"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},

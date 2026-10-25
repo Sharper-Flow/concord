@@ -229,12 +229,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatalf("pool boundary read refused: %v", err)
 		}
-		registered, ok := registry.Lookup(definition.Ref, definition.Version)
+		registered, ok := registry.Current(definition.Ref)
 		if !ok {
 			t.Fatal("the seeded registry lost the pinned definition")
 		}
-		if state.Definition.Digest != registered.Digest || state.Definition.Definition.Ref != definition.Ref || state.Definition.Definition.Version != definition.Version {
-			t.Fatalf("boundary pin = %s v%d digest %s, want the verified registered pin", state.Definition.Definition.Ref, state.Definition.Definition.Version, state.Definition.Digest)
+		if state.Definition.Digest != registered.Digest || state.Definition.Definition.Ref != definition.Ref {
+			t.Fatalf("boundary pin = %s digest %s, want the verified registered pin", state.Definition.Definition.Ref, state.Definition.Digest)
 		}
 		active, err := s.ActiveWorkflowContract(ctx, workID)
 		if err != nil {
@@ -395,8 +395,8 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		// initializes on the lower version while it is current, and the
 		// higher version registers just before the repin onto it.
 		registry, registered := newResolutionRegistry(t, definition)
-		higher := definition
-		higher.Version = definition.Version + 1
+		higher := cloneWorkflowDefinition(definition)
+		higher.StalenessRules = append(higher.StalenessRules, WorkflowStalenessRule{ID: "staleness.repin", InputRef: "input:repin", Severity: "warning"})
 
 		foldGuardRows := func(t *testing.T, s *Store) int {
 			t.Helper()
@@ -448,13 +448,12 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 			t.Fatalf("caller-registry initialization refused after the fail-closed controls: %v", err)
 		}
 		var probeRef, probeStep string
-		var probeDefinitionVersion int64
 		var probeDigest string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, probe).Scan(&probeRef, &probeDefinitionVersion, &probeDigest, &probeStep); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, probe).Scan(&probeRef, &probeDigest, &probeStep); err != nil {
 			t.Fatal(err)
 		}
-		if probeRef != registered.Definition.Ref || probeDefinitionVersion != registered.Definition.Version || probeDigest != registered.Digest {
-			t.Fatalf("probe pin = %s v%d %s, want the verified registered entry", probeRef, probeDefinitionVersion, probeDigest)
+		if probeRef != registered.Definition.Ref || probeDigest != registered.Digest {
+			t.Fatalf("probe pin = %s %s, want the verified registered entry", probeRef, probeDigest)
 		}
 		if rows := foldGuardRows(t, s); rows != 0 {
 			t.Fatalf("caller-registry initialization left %d fold_guard rows", rows)
@@ -475,12 +474,11 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		}
 		var repinVersion int64
 		var repinRef, repinStep, repinDigest string
-		var repinDefinitionVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, probe).Scan(&repinRef, &repinDefinitionVersion, &repinDigest, &repinStep, &repinVersion); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,current_step,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, probe).Scan(&repinRef, &repinDigest, &repinStep, &repinVersion); err != nil {
 			t.Fatal(err)
 		}
-		if repinRef != higherRegistered.Definition.Ref || repinDefinitionVersion != higherRegistered.Definition.Version || repinDigest != higherRegistered.Digest {
-			t.Fatalf("repinned pin = %s v%d %s, want the higher registered entry", repinRef, repinDefinitionVersion, repinDigest)
+		if repinRef != higherRegistered.Definition.Ref || repinDigest != higherRegistered.Digest {
+			t.Fatalf("repinned pin = %s %s, want the changed registered entry", repinRef, repinDigest)
 		}
 		if repinStep != probeStep {
 			t.Fatalf("carry-forward repin moved the step from %s to %s", probeStep, repinStep)
@@ -548,8 +546,8 @@ func TestWorkflowApprovalBoundary(t *testing.T) {
 		if err != nil || !available {
 			t.Fatalf("caller-registry mutation pin = available %v, %v, want the readable pin", available, err)
 		}
-		if pin.WorkflowType != registered.Definition.Ref || pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != registered.Definition.Version || pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
-			t.Fatalf("caller-registry pin identity = %s v%v %v, want the verified registered entry", pin.WorkflowType, pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest)
+		if pin.WorkflowType != registered.Definition.Ref || pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
+			t.Fatalf("caller-registry pin identity = %s %v, want the verified registered entry", pin.WorkflowType, pin.WorkflowDefinitionDigest)
 		}
 		parity, _, err := readRoutePin(registry)
 		if err != nil {

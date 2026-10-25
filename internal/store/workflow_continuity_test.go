@@ -359,7 +359,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
 		t.Fatal("context boundary insert bypassed fold guard")
 	}
 }

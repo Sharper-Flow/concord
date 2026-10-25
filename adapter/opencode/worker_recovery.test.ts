@@ -7,10 +7,10 @@ import type { SessionReader } from "./move-session"
 
 const lane = agentLanes.find((entry) => entry.id === "verify")!
 const model = "openai/test-model"
-const packet: AgentLanePacket = { schema_version: "1.0", work_id: "work-recovery", attempt_id: "attempt-recovery", lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest, step_id: "repair", inputs: { task: "Verify a retained synthetic report.", binding: { objective_source: "contract_premise", work_version: 7, contract_version: 1, assigned_result: "exit_codes" } } }
+const packet: AgentLanePacket = { schema_version: "1.0", work_id: "work-recovery", attempt_id: "attempt-recovery", lane_id: lane.id, lane_digest: lane.digest, step_id: "repair", inputs: { task: "Verify a retained synthetic report.", binding: { objective_source: "contract_premise", work_version: 7, contract_version: 1, assigned_result: "exit_codes" } } }
 const report = { schema_version: "1.0", readback_model: model, status: "completed", evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: "synthetic result" })) }
 const wrap = `<task id="child-recovery" state="completed">\n<task_result>\n${JSON.stringify(report)}\n</task_result>\n</task>`
-const recovery: WorkerRecoveryContext = { packet_digest: "sha256:"+"a".repeat(64), worker_worktree: process.cwd(), coordinator_session: "parent-recovery", attempt_epoch: 23, dispatch_event_id: "historical-random-dispatch", lifecycle_state: "dispatched", packet_schema_version: "1.0", report_schema_version: "1.0", dispatch: { attempt_id: packet.attempt_id, lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest, packet_schema_version: "1.0", report_schema_version: "1.0", packet_digest: "sha256:"+"a".repeat(64), readback_model: model, host_provenance: { digest: "sha256:"+"b".repeat(64), sources: [{ kind: "agent_definition", path: "original-agent.md", sha256: "sha256:"+"c".repeat(64) }] } } }
+const recovery: WorkerRecoveryContext = { packet_digest: "sha256:"+"a".repeat(64), worker_worktree: process.cwd(), coordinator_session: "parent-recovery", attempt_epoch: 23, dispatch_event_id: "historical-random-dispatch", lifecycle_state: "dispatched", packet_schema_version: "1.0", report_schema_version: "1.0", dispatch: { attempt_id: packet.attempt_id, lane_id: lane.id, lane_digest: lane.digest, packet_schema_version: "1.0", report_schema_version: "1.0", packet_digest: "sha256:"+"a".repeat(64), readback_model: model, host_provenance: { digest: "sha256:"+"b".repeat(64), sources: [{ kind: "agent_definition", path: "original-agent.md", sha256: "sha256:"+"c".repeat(64) }] } } }
 
 function host() {
   const parent = { info: { id: "parent-recovery", directory: process.cwd() }, messages: [{ info: { id: "parent-message", sessionID: "parent-recovery", role: "assistant" }, parts: [{ id: "retained-part", sessionID: "parent-recovery", type: "tool", tool: "task", state: { status: "completed", input: { subagent_type: `concord-${lane.id}`, prompt: serializeLanePacket(packet) }, output: wrap } }] }] }
@@ -26,6 +26,18 @@ function host() {
 }
 
 const credentials = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
+
+test("stale content refuses retained recovery before host reads or evidence writes", async () => {
+  const original = { ...recovery, dispatch: { ...recovery.dispatch, lane_digest: "sha256:" + "0".repeat(64) } }
+  const before = JSON.stringify(original)
+  let calls = 0
+  const forbidden = async (): Promise<never> => { calls++; throw new Error("must not run") }
+  await expect(reconcileRetainedWorker(original, packet.work_id, packet.attempt_id, "retained-part", {
+    workerDirectory: process.cwd(), sessionReader: { get: forbidden, messages: forbidden }, evidenceRunner: { run: forbidden }, credentials,
+  }, new AbortController().signal)).rejects.toThrow("content revalidation")
+  expect(JSON.stringify(original)).toBe(before)
+  expect(calls).toBe(0)
+})
 
 test("retained historical report recovery uses original event identity and provenance after adapter restart", async () => {
   const { reader } = host()

@@ -1132,7 +1132,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(verdicts.map((row) => JSON.parse(row.payload as string).predicate_id)).toContain(predicate.predicate_id)
     const workerDispatch = realCalls.find((call) => call.argv[1] === "worker-dispatch")?.input
     const workerComplete = realCalls.find((call) => call.argv[1] === "worker-complete")?.input
-    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
+    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
     requiredFields(workerComplete ?? {}, ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin", "evidence", "assertion"])
     const invokeCalls = realCalls.filter((call) => call.argv[1] === "invoke")
     for (const call of invokeCalls) {

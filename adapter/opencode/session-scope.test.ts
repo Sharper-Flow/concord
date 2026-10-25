@@ -49,7 +49,7 @@ const args = (): { subagent_type: string; prompt: string; description: string; t
 // The window seed the new dispatch opens and the exact native Task selector
 // its response instructs: the caller passes only the attempt reference, and
 // the hook overwrites the full packet from authorization.
-const scopePacket = (attempt = "scope-attempt") => ({ schema_version: "1.0" as const, attempt_id: attempt, lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } })
+const scopePacket = (attempt = "scope-attempt") => ({ schema_version: "1.0" as const, attempt_id: attempt, lane_id: "implement", lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } })
 const exactScopeSelector = (attempt = "scope-attempt") => ({ subagent_type: "concord-implement", prompt: attempt, description: "bounded worker" })
 
 function pendingRead() {
@@ -149,7 +149,7 @@ test("a lane session cannot auto-start a generated utility", async () => {
 test("a coordinator utility cannot consume a queued lane's authorization window", async () => {
   const fixture = host([session("scope-window", true)])
   const plugin = await fixture.plugin()
-  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
   const utility = { args: { ...args(), subagent_type: "concord-explore" } }
   const original = structuredClone(utility.args)
@@ -196,7 +196,7 @@ test("unmanaged resume targets and absent targets retain native Task behavior", 
 test("an authorized lane binds once while an ordinary Task cannot steal its window", async () => {
   const fixture = host([session("scope-window", true), session("scope-other", true)])
   const plugin = await fixture.plugin()
-  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
   for (const id of ["scope-other", "scope-window"]) {
     const ordinary = { args: args() }
@@ -340,7 +340,7 @@ test("an unreadable or malformed own-child opening refuses a resume for host and
 test("an ordinary Task result beside a live lane attempt settles nothing", async () => {
   const fixture = host([session("scope-window", true)])
   const plugin = await fixture.plugin()
-  const packet = { schema_version: "1.0" as const, attempt_id: "scope-live", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-live", lane_id: "implement", lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
   await plugin["tool.execute.before"]({ ...task("scope-window"), callID: "lane-call" }, { args: { subagent_type: "concord-implement", prompt: "scope-live", description: "bounded worker" } })
   const native = { args: { ...args(), task_id: undefined } }

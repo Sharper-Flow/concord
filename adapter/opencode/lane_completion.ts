@@ -75,7 +75,7 @@ function renderAttempt(envelope: AgentResultEnvelope): string {
 function unavailableEnvelope(pending: DispatchRecord, message: string): AgentResultEnvelope {
   return {
     schema_version: "1.0", outcome: "error",
-    lane: { id: pending.packet.lane_id, version: pending.packet.lane_version, digest: pending.packet.lane_digest },
+    lane: { id: pending.packet.lane_id, digest: pending.packet.lane_digest },
     agent: `concord-${pending.packet.lane_id}`, readback_model: null, session_id: null,
     error: { kind: "invalid_input", retry_safe: false, recovery_action: "reconcile_operation", message },
   }
@@ -89,17 +89,17 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   const windows = deps.windows ?? dispatchWindows()
   const record = windows.claimSettlement(input.sessionID, input.callID)
   if (!record) return
-  // The packet pins the lane's version and digest, so completion binds to the
+  // The packet pins the lane's digest, so completion binds to the
   // definition the dispatch authorized rather than to whatever the registry
   // carries now. A registry that drifted between dispatch and completion — an
-  // upgrade mid-flight — would otherwise sign its own version and digest onto
+  // upgrade mid-flight — would otherwise sign its own digest onto
   // the attempt, recording the worker as having run a contract it never
   // received. The attempt row is written from those same values, so nothing
   // downstream can catch the substitution.
-  const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
+  const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_digest)
   if (!lane) {
     windows.refuseSettlement(input.sessionID)
-    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } })
+    output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt requires lane content revalidation; preserve its original identity and evidence" } })
     return
   }
   const signal = deps.signal ?? new AbortController().signal
@@ -108,7 +108,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   try {
     envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory, capturedProvenance: record.provenance, onRecorded: () => { recorded = true } }, signal)
   } catch (error) {
-    envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: record.packet.lane_digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
+    envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, digest: record.packet.lane_digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
   // onRecorded confirms the terminal evidence write, and only then does
   // settlement release the retained record. Anything else keeps it in the
@@ -375,8 +375,8 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   // Both identities must come from this exact host part and retained attempt.
   const callID = pending.callID ?? part.callID
   if (callID !== part.callID && callID !== part.id) return null
-  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_version, pending.packet.lane_digest)
-  if (!lane) return unavailableEnvelope(pending, "in-flight attempt names a lane the registry does not carry")
+  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_digest)
+  if (!lane) return unavailableEnvelope(pending, "in-flight attempt requires lane content revalidation; preserve its original identity and evidence")
   const metadata = state.metadata
   if (!object(metadata) || typeof metadata.sessionId !== "string" || !/^ses_[a-zA-Z0-9]+$/.test(metadata.sessionId)) {
     return unavailableEnvelope(pending, "cancelled Task has no host child session identity; retain the in-flight attempt for reconciliation")
@@ -429,8 +429,8 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
   // the child session identity.
   const errorName = object(properties.error) ? properties.error.name : undefined
   if (errorName === "MessageAbortedError") return null
-  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_version, pending.packet.lane_digest)
-  if (!lane) return unavailableEnvelope(pending, "in-flight attempt names a lane the registry does not carry")
+  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_digest)
+  if (!lane) return unavailableEnvelope(pending, "in-flight attempt requires lane content revalidation; preserve its original identity and evidence")
   const detail = `spawn failed before any result or error part; closing the attempt as abandoned: ${spawnFailureDiagnostic(properties.error)}`
   if (!windows.claimSettlement(sessionID)) return null
   // The event identity derives from the attempt and the diagnostic, so a

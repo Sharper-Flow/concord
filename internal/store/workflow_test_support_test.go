@@ -106,7 +106,6 @@ func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition
 
 func workflowFixtureShape(definition WorkflowDefinition, version int64) WorkflowDefinition {
 	definition.Ref = workflowFixtureRef
-	definition.Version = version
 	definition.WorkKind = WorkKindStaticAnalysis
 	changesProductTruth := false
 	definition.ChangesProductTruth = &changesProductTruth
@@ -207,11 +206,11 @@ func applyWorkflowTestOperation(ctx context.Context, s *Store, operation Operati
 			return applyWorkflowTestOperation(ctx, s, Operation{Events: suffix, ExpectedVersions: expected})
 		}
 		var currentStep, definitionRef string
-		var definitionVersion, versionBefore int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &definitionRef, &definitionVersion, &versionBefore); err != nil {
+		var versionBefore int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &definitionRef, &versionBefore); err != nil {
 			continue
 		}
-		entry, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+		entry, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 		if !ok {
 			continue
 		}
@@ -284,13 +283,13 @@ func shiftWorkflowTestEventVersions(event Event, shift int64) Event {
 func advanceWorkflowTestInstanceToStep(ctx context.Context, s *Store, workID, targetStep, actor string) error {
 	for {
 		var currentStep, definitionRef string
-		var definitionVersion, version int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definitionRef, &definitionVersion, &version); err != nil {
+		var version int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definitionRef, &version); err != nil {
 			return err
 		}
-		entry, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+		entry, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 		if !ok {
-			return fmt.Errorf("workflow fixture definition %s@%d is not registered", definitionRef, definitionVersion)
+			return fmt.Errorf("workflow fixture definition %s is not registered", definitionRef)
 		}
 		if currentStep == targetStep {
 			return nil
@@ -386,13 +385,12 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 func pinnedWorkflowDefinitionForTest(t testing.TB, s *Store, workID string) WorkflowDefinition {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s v%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	return registered.Definition
 }

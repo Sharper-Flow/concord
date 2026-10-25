@@ -20,8 +20,8 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	const stepID = "verify"
 	s := fixture.store
 	lane := reviewGateLane(t, "review")
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "review", laneDigest)
 	consumeCurrentCorrection(t, s, workID, packet)
 	binding := attachReadyWorkerJobIfJobCapable(t, s, workID, stepID, fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
@@ -35,7 +35,7 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
+	laneDispatch := Event{EventID: "checkpoint-failed-dispatch-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {
@@ -70,20 +70,19 @@ func seedCheckpointReviewAcceptedDelivery(t *testing.T, s *Store, workID string,
 func checkpointEffectStep(t *testing.T, s *Store, workID, checkpoint string) string {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	for _, step := range registered.Definition.StepGraph.Steps {
 		if step.Kind == WorkflowStepExternalEffect && step.ID != checkpoint && slices.Contains(step.Actions, "dispatch_worker") {
 			return step.ID
 		}
 	}
-	t.Fatalf("pinned definition %s@%d carries no external-effect dispatch step beside %q", ref, version, checkpoint)
+	t.Fatalf("current definition %s carries no external-effect dispatch step beside %q", ref, checkpoint)
 	return ""
 }
 
@@ -108,13 +107,12 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 	lane := laneForID(t)
 	var registered RegisteredDefinition
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	var job *WorkerJobBinding
 	if workflowWorkerJobsActive(registered.Definition) {
@@ -123,7 +121,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 		job = &binding
 	}
 	attemptID := "attempt:accepted-delivery:" + workID
-	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Digest)
 	consumeCurrentCorrection(t, s, workID, packet)
 	if job != nil {
 		packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "review")
@@ -133,7 +131,7 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 		t.Fatalf("accepted-delivery dispatch refused: %v", err)
 	}
 	laneDispatchPayload := WorkerDispatchedPayload{
-		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest,
 		CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane),
 		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("f", 64), WorkerJob: job,
@@ -350,8 +348,8 @@ func TestCheckpointUnspawnedDispatchKeepsTheReviewHold(t *testing.T) {
 	completeCheckpointReviewAttempt(t, s, workID, attemptID, "ready_for_final_proof")
 	requireDispatchHoldRefusal(t, confirmCheckpointPremise(t, s, workID, fixture.owner), "confirm_premise over the completed undispositioned Review")
 
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":unspawned", "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":unspawned", "review", laneDigest)
 	consumeCurrentCorrection(t, s, workID, packet)
 	attachReadyWorkerJobIfJobCapable(t, s, workID, "verify", fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
@@ -448,7 +446,7 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// later dispatch and completion keep their recorded order.
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, staleAttemptID, "repair", ownerRef)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)})},
+		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("f", 64)})},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -465,8 +463,8 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 
 	// A newer dispatch_worker window opens and a second worker actually
 	// dispatches on the step.
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":current", "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":current", "review", laneDigest)
 	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("second dispatch at the repair step refused: %v", err)

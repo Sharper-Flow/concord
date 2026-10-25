@@ -17,7 +17,7 @@ func TestFencedStartTakeoverPropertyReachesEveryFencedStart(t *testing.T) {
 	got := map[string]bool{}
 	for ref := range archivedWorkflowFamilies {
 		if registered, ok := registry.Current(ref); ok {
-			t.Fatalf("archived %s registers %s@%d, want no reachable definition", ref, registered.Definition.Ref, registered.Definition.Version)
+			t.Fatalf("archived %s registers %s %s, want no reachable definition", ref, registered.Definition.Ref, registered.Digest)
 		}
 	}
 	for ref := range liveWorkflowAuthoringFamilies {
@@ -25,10 +25,9 @@ func TestFencedStartTakeoverPropertyReachesEveryFencedStart(t *testing.T) {
 		if !ok {
 			t.Fatalf("live family %s has no current definition", ref)
 		}
-		version := registered.Definition.Version
 		for _, action := range registered.Definition.ActionDefinitions {
 			if action.ID == "dispatch_worker" && (action.ExecutionMode != ActionFenced || action.RequiredCapability != WorkerDispatchCapability) {
-				t.Fatalf("%s@%d dispatch_worker mode %q capability %q, want fenced under the worker_dispatch capability the lane-attempt hold keys on", ref, version, action.ExecutionMode, action.RequiredCapability)
+				t.Fatalf("%s dispatch_worker mode %q capability %q, want fenced under the worker_dispatch capability the lane-attempt hold keys on", ref, action.ExecutionMode, action.RequiredCapability)
 			}
 			if WorkflowActionOpensHeldAttempt(action) {
 				got[action.ID] = true

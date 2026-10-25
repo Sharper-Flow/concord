@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"sync"
 )
@@ -12,7 +11,6 @@ import (
 // LaneDefinition is the generated, immutable contract for one worker lane.
 type LaneDefinition struct {
 	ID                  string
-	Version             int64
 	Digest              string
 	Purpose             string
 	CapabilityClass     string
@@ -42,23 +40,6 @@ type LaneRegistry struct {
 var laneIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
 var laneRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,127}$`)
 var laneDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-
-// isLegacyLaneDigest reports whether digest is a recorded pre-policy digest
-// for the lane identity key. The set is generated into
-// generated_agent_lanes.go from the manifest's legacy_lane_digests
-// declaration: each lane keeps every digest an earlier registry generation
-// gave it, and a persisted worker packet pinned to one still resolves to the
-// current definition (CD-0197 D5).
-func isLegacyLaneDigest(key, digest string) bool {
-	for _, legacy := range generatedLegacyLaneDigests[key] {
-		if legacy == digest {
-			return true
-		}
-	}
-	return false
-}
-
-func laneKey(id string, version int64) string { return fmt.Sprintf("%s:%d", id, version) }
 
 // laneEvidenceObligationVocabulary is the closed obligation vocabulary shared
 // by contracts/agent-lanes.schema.json and
@@ -116,7 +97,7 @@ func NewBuiltinLaneRegistry() LaneRegistry {
 		if err := ValidateLaneDefinition(definition); err != nil {
 			panic(err)
 		}
-		entries[laneKey(definition.ID, definition.Version)] = cloneLaneDefinition(definition)
+		entries[definition.ID] = cloneLaneDefinition(definition)
 	}
 	return LaneRegistry{entries: entries}
 }
@@ -131,26 +112,26 @@ func BuiltinLaneDefinitions() []LaneDefinition {
 	return result
 }
 
-// Lookup returns a lane only when all three identity components match. A
-// missing id/version and a mismatched digest are deliberately different typed
+// Lookup returns a lane only when its stable id and exact content digest match. A
+// missing id and a mismatched digest are deliberately different typed
 // failures so callers can distinguish an unsupported contract from drift.
-func (r LaneRegistry) Lookup(id string, version int64, digest string) (LaneDefinition, error) {
-	definition, ok := r.entries[laneKey(id, version)]
+func (r LaneRegistry) Lookup(id string, digest string) (LaneDefinition, error) {
+	definition, ok := r.entries[id]
 	if !ok {
 		return LaneDefinition{}, newFailure(KindLaneDefinitionNotRegistered, "lane_registry", "lane identity is not registered", false, "select a registered lane identity")
 	}
-	if (definition.Digest != digest && !isLegacyLaneDigest(laneKey(id, version), digest)) || !laneDigestPattern.MatchString(digest) {
-		return LaneDefinition{}, newFailure(KindLaneDefinitionDigestMismatch, "lane_registry", "lane contract digest does not match the registered definition", false, "reread the lane registry and retry with its digest")
+	if definition.Digest != digest || !laneDigestPattern.MatchString(digest) {
+		return LaneDefinition{}, newFailure(KindLaneDefinitionDigestMismatch, "lane_registry", "lane contract digest requires revalidation against the current definition", false, "revalidate the attempt against the current lane contract; preserve its original identity and evidence")
 	}
 	return cloneLaneDefinition(definition), nil
 }
 
-func LookupLane(id string, version int64, digest string) (LaneDefinition, error) {
-	return builtinLaneRegistry().Lookup(id, version, digest)
+func LookupLane(id string, digest string) (LaneDefinition, error) {
+	return builtinLaneRegistry().Lookup(id, digest)
 }
 
 func ValidateLaneDefinition(definition LaneDefinition) error {
-	if !validLaneID(definition.ID) || definition.Version < 1 || definition.Version > 2147483647 || !laneDigestPattern.MatchString(definition.Digest) {
+	if !validLaneID(definition.ID) || !laneDigestPattern.MatchString(definition.Digest) {
 		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane identity is invalid", false, "repair the generated lane manifest")
 	}
 	if len(definition.Purpose) < 2 || len(definition.Purpose) > 512 || !laneRefPattern.MatchString(definition.CapabilityClass) || len(definition.Capabilities) < 1 || len(definition.Capabilities) > 16 || !uniqueBoundedLaneStrings(definition.Capabilities, 64) {
@@ -196,7 +177,7 @@ func validLaneID(value string) bool {
 
 func LaneDefinitionDigest(definition LaneDefinition) (string, error) {
 	body := map[string]any{
-		"id": definition.ID, "version": definition.Version, "purpose": definition.Purpose,
+		"id": definition.ID, "purpose": definition.Purpose,
 		"capability_class": definition.CapabilityClass, "capabilities": nonNilStrings(definition.Capabilities),
 		"packet_schema_ref": definition.PacketSchemaRef, "report_schema_ref": definition.ReportSchemaRef,
 		"budgets":              map[string]any{"cost_usd_max": definition.Budgets.CostUSDMax, "context_tokens_max": definition.Budgets.ContextTokensMax, "time_seconds_max": definition.Budgets.TimeSecondsMax},

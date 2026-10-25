@@ -52,7 +52,7 @@ func workerDiffRefusal(detail string) error {
 // owns the foundation. A correction-only contract and a repairing Review do
 // not reset the accumulated solution's base.
 func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,COALESCE(json_extract(r.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(r.payload,'$.worker_lane_version'),a.lane_version),COALESCE(json_extract(r.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
+	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,COALESCE(json_extract(r.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(r.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
 	if err != nil {
 		return "", err
 	}
@@ -60,7 +60,6 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 	type editingDispatch struct {
 		contract      int64
 		id, digest    string
-		version       int64
 		subject, tree string
 		editing       bool
 	}
@@ -68,16 +67,16 @@ func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity 
 	var newestContract int64
 	for rows.Next() {
 		var d editingDispatch
-		if err := rows.Scan(&d.contract, &d.id, &d.version, &d.digest, &d.subject, &d.tree); err != nil {
+		if err := rows.Scan(&d.contract, &d.id, &d.digest, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
-		lane, err := LookupLane(d.id, d.version, d.digest)
+		lane, err := LookupLane(d.id, d.digest)
 		if err != nil {
 			return "", err
 		}
 		// Review's B→C repair belongs to the accumulated solution. It does
 		// not open a new foundation for that solution's review diff.
-		d.editing = workerLaneEdits(lane.ID, lane.Version, d.digest) && !slices.Contains(lane.Capabilities, "inspect_diff")
+		d.editing = workerLaneEdits(lane.ID, d.digest) && !slices.Contains(lane.Capabilities, "inspect_diff")
 		if d.editing {
 			if d.contract < 1 {
 				return "", workerDiffRefusal("review contract has no recorded approval history")
@@ -130,8 +129,11 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 		}
 		return err
 	}
-	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)
-	if err != nil || !slices.Contains(lane.Capabilities, "inspect_diff") || dispatch.WorkerJob == nil {
+	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(lane.Capabilities, "inspect_diff") || dispatch.WorkerJob == nil {
 		return workerDiffRefusal("diff requires a live inspect_diff attempt with its pinned job")
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, req.WorkID, "worker_diff")
@@ -168,7 +170,7 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if err != nil {
 		return err
 	}
-	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope, repairing: workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)}
+	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope, repairing: workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest)}
 	return nil
 }
 

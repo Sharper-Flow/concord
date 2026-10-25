@@ -137,7 +137,7 @@ func readNativeOracleAuthorizingDispatchTx(ctx context.Context, q queryer, work 
 func nativeOracleDispatchMatches(d workflowActionCompletedPayload, p nativeOraclePlan, o *NativeOracleResult) bool {
 	subject := o.SubjectCommit
 	if p.ReviewRepair != nil {
-		if p.ReviewRepair.Commit != o.SubjectCommit || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneVersion, d.WorkerLaneDigest) {
+		if p.ReviewRepair.Commit != o.SubjectCommit || !workerLaneRepairs(d.WorkerLaneID, d.WorkerLaneDigest) {
 			return false
 		}
 		subject = p.ReviewRepair.Base
@@ -258,11 +258,10 @@ func checkNativeOracleGreenOperationTx(ctx context.Context, q queryer, work, ope
 // since the run. sql.ErrNoRows reports a missing join.
 func validateNativeOracleHistoryTx(ctx context.Context, q queryer, work string, p nativeOraclePlan, d workflowActionCompletedPayload, o *NativeOracleResult) error {
 	var lane, laneDigest, capability string
-	var laneVersion int64
-	if err := q.QueryRowContext(ctx, `SELECT lane_id,lane_version,lane_digest,capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, work, o.AttemptID).Scan(&lane, &laneVersion, &laneDigest, &capability); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT lane_id,lane_digest,capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, work, o.AttemptID).Scan(&lane, &laneDigest, &capability); err != nil {
 		return err
 	}
-	if lane != d.WorkerLaneID || laneVersion != d.WorkerLaneVersion || laneDigest != d.WorkerLaneDigest || capability != d.WorkerCapabilityClass {
+	if lane != d.WorkerLaneID || laneDigest != d.WorkerLaneDigest || capability != d.WorkerCapabilityClass {
 		return sql.ErrNoRows
 	}
 	var start []byte

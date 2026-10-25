@@ -712,7 +712,7 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 		t.Fatal("completed-with-empty-readback bypassed the lifecycle CHECK")
 	}
 	// The fold-only triggers must be reinstalled so direct INSERT is refused.
-	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',1,?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
 		t.Fatal("direct INSERT bypassed the fold guard")
 	}
 }

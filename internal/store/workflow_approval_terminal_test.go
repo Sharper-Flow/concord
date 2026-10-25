@@ -167,7 +167,7 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, registry Definit
 	if err != nil {
 		t.Fatal(err)
 	}
-	readDefinition := WorkflowReadDefinition{Ref: definition.Ref, Version: definition.Version, Digest: digest}
+	readDefinition := WorkflowReadDefinition{Ref: definition.Ref, Digest: digest}
 	if err := workPinReadContractTx(ctx, tx, workID, &pin, readDefinition, definition, "running", activeVersion, state); err != nil {
 		t.Fatalf("the work pin's operator-question projection refused: %v", err)
 	}
@@ -301,7 +301,6 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	legacy := definition
 	legacy.ApprovalPolicy = ""
 	higher := definition
-	higher.Version = definition.Version + 1
 	registry, legacyRegistered := newResolutionRegistry(t, legacy)
 	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
 	recordApprovalActors(t, s, workID)
@@ -350,7 +349,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			resolutionEvent("approval-absent-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
-				"ref": higherRegistered.Definition.Ref, "version": higherRegistered.Definition.Version, "digest": higherRegistered.Digest,
+				"ref": higherRegistered.Definition.Ref, "digest": higherRegistered.Digest,
 				"work_kind": string(higherRegistered.Definition.WorkKind),
 			}),
 		},
@@ -360,12 +359,11 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	// contract authoritative with its recorded bytes, and the executing
 	// owner, and moved the pin to the registered higher version and digest.
 	var carriedRef, carriedDigest, step string
-	var carriedVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest, &step); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedDigest, &step); err != nil {
 		t.Fatal(err)
 	}
-	if carriedRef != higherRegistered.Definition.Ref || carriedVersion != higherRegistered.Definition.Version || carriedDigest != higherRegistered.Digest {
-		t.Fatalf("the carry forward pinned %s@%d %s, want the registered %s@%d %s", carriedRef, carriedVersion, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Definition.Version, higherRegistered.Digest)
+	if carriedRef != higherRegistered.Definition.Ref || carriedDigest != higherRegistered.Digest {
+		t.Fatalf("the carry forward pinned %s %s, want the registered %s %s", carriedRef, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Digest)
 	}
 	if step != "acceptance" {
 		t.Fatalf("the carry forward moved the step to %q, want acceptance", step)
@@ -424,7 +422,7 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	defer tx.Rollback()
 	var workVersion int64
 	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &workVersion); err != nil {
 		t.Fatal(err)
 	}
 	contractVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_approval_terminal_test")
@@ -693,9 +691,9 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 // resolution definition family from the caller registry.
 func registeredDigest(t *testing.T, registry DefinitionRegistry, definition WorkflowDefinition) string {
 	t.Helper()
-	entry, ok := registry.Lookup(definition.Ref, definition.Version)
+	entry, ok := registry.Current(definition.Ref)
 	if !ok {
-		t.Fatalf("the caller registry does not hold %s v%d", definition.Ref, definition.Version)
+		t.Fatalf("the caller registry does not hold %s", definition.Ref)
 	}
 	return entry.Digest
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -104,7 +103,6 @@ type WorkerEvidenceAssertion struct {
 	WorkID               string `json:"work_id"`
 	AttemptID            string `json:"attempt_id"`
 	LaneID               string `json:"lane_id"`
-	LaneVersion          int64  `json:"lane_version"`
 	LaneDigest           string `json:"lane_digest"`
 	ReadbackModel        string `json:"readback_model"`
 	FailureKind          string `json:"failure_kind"`
@@ -138,7 +136,6 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		"work_id",
 		"attempt_id",
 		"lane_id",
-		"lane_version",
 		"lane_digest",
 		"readback_model",
 		"failure_kind",
@@ -153,7 +150,6 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 		a.WorkID,
 		a.AttemptID,
 		a.LaneID,
-		strconv.FormatInt(a.LaneVersion, 10),
 		a.LaneDigest,
 		a.ReadbackModel,
 		a.FailureKind,
@@ -165,8 +161,8 @@ func CanonicalWorkerEvidenceAssertion(a WorkerEvidenceAssertion) []byte {
 	prefix := "worker-evidence-v1\x00"
 	if a.Version == WorkerEvidenceAssertionVersion2 {
 		prefix = "worker-evidence-v2\x00"
-		names = insertWorkerEvidenceField(names, 11, "observation_digest")
-		values = insertWorkerEvidenceField(values, 11, a.ObservationDigest)
+		names = insertWorkerEvidenceField(names, 10, "observation_digest")
+		values = insertWorkerEvidenceField(values, 10, a.ObservationDigest)
 	}
 	return canonicalClientAssertion(prefix, names, values)
 }
@@ -195,7 +191,6 @@ type WorkerEvidenceBinding struct {
 	WorkID               string
 	AttemptID            string
 	LaneID               string
-	LaneVersion          int64
 	LaneDigest           string
 	ReadbackModel        string
 	FailureKind          string
@@ -259,7 +254,6 @@ func workerEvidenceMatchesBinding(a WorkerEvidenceAssertion, binding WorkerEvide
 		a.WorkID == binding.WorkID &&
 		a.AttemptID == binding.AttemptID &&
 		a.LaneID == binding.LaneID &&
-		a.LaneVersion == binding.LaneVersion &&
 		a.LaneDigest == binding.LaneDigest &&
 		a.ReadbackModel == binding.ReadbackModel &&
 		a.FailureKind == binding.FailureKind &&

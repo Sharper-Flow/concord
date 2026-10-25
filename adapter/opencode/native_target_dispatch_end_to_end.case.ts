@@ -715,7 +715,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     // assertion, and the digest the core recorded at authorization.
     const workerDispatch = calls.find((call) => call.argv[1] === "worker-dispatch")?.input
     const workerComplete = calls.find((call) => call.argv[1] === "worker-complete")?.input
-    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
+    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
     requiredFields(workerComplete ?? {}, ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin", "evidence", "assertion"])
     expect(workerDispatch!.attempt_id).toBe(packet.attempt_id)
     expect(workerDispatch!.packet_digest).toBe(packetDigest)

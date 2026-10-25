@@ -19,7 +19,7 @@ func workerFoundationCurrentDB(t *testing.T) *sql.DB {
 	_, err = db.Exec(`
 		CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,event_id TEXT,subject_type TEXT,subject_id TEXT,kind TEXT,payload TEXT,payload_version INTEGER DEFAULT 1);
 		CREATE TABLE worker_authorizations(work_id TEXT,attempt_id TEXT,seq INTEGER,contract_version INTEGER,payload TEXT);
-		CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_version INTEGER,lane_digest TEXT,capability_class TEXT,lifecycle_state TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
+		CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_digest TEXT,capability_class TEXT,lifecycle_state TEXT,dispatch_seq INTEGER,dispatch_payload TEXT);
 		CREATE TABLE worker_job_revisions(work_id TEXT,job_id TEXT,revision INTEGER,state TEXT,satisfied_result_ref TEXT,satisfied_seq INTEGER,path_scope TEXT,digest TEXT,recorded_seq INTEGER,recorded_event_id TEXT,recorded_payload TEXT);
 	`)
 	if err != nil {
@@ -30,10 +30,10 @@ func workerFoundationCurrentDB(t *testing.T) *sql.DB {
 
 func foundationAuthorizationForTest(t *testing.T, db *sql.DB, seq, contract int64, attempt, laneID, subject, tree string) {
 	t.Helper()
-	version, digest := registeredLaneIdentity(t, laneID)
+	digest := registeredLaneIdentity(t, laneID)
 	payload := mustJSONValue(map[string]any{
 		"action_id": "dispatch_worker", "worker_attempt_id": attempt,
-		"worker_lane_id": laneID, "worker_lane_version": version, "worker_lane_digest": digest,
+		"worker_lane_id": laneID, "worker_lane_digest": digest,
 		"worker_subject_commit": subject, "worker_worktree_identity": tree,
 	})
 	if _, err := db.Exec(`INSERT INTO worker_authorizations VALUES('work',?,?,?,?)`, attempt, seq, contract, string(payload)); err != nil {

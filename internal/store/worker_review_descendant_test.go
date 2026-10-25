@@ -84,8 +84,8 @@ func descendantCommit(t *testing.T, j *candidateJourney, id string) string {
 
 func descendantDispatch(t *testing.T, j *candidateJourney, laneID, attempt string, job WorkerJobBinding, prepared *WorkerDispatchPreparation) error {
 	t.Helper()
-	version, digest := registeredLaneIdentity(t, laneID)
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, laneID, version, digest)
+	digest := registeredLaneIdentity(t, laneID)
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, laneID, digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, laneID)
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attempt)
 	if err != nil {
@@ -231,8 +231,8 @@ func TestReviewDescendantPostObservationMovementKeepsObservedSubject(t *testing.
 	runB := terminalCorrectiveReview(t, j, "integrate-b-review", "job:integrate-b-review", "b")
 	j.bindVerification(t, runB)
 	job := reviewSubjectReadyRevision(t, j.fixture)
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), "observed-b-review", "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), "observed-b-review", "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
 	prepared, err := PrepareWorkerDispatchFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID, SessionWorktree: j.repo})
 	if err != nil {

@@ -40,9 +40,6 @@ func reviewFailure(kind FailureKind, detail, next string) *Failure {
 }
 
 func workflowRequireMain(ctx context.Context, q queryer, workID, actor string) error {
-	if err := requireNonMemberMain(ctx, q, actor); err != nil {
-		return err
-	}
 	worker, err := workflowRecordedEvaluationFacts(ctx, q, workID, actor, int64(1)<<62)
 	if err != nil {
 		return err
@@ -50,7 +47,7 @@ func workflowRequireMain(ctx context.Context, q queryer, workID, actor string) e
 	if worker {
 		return reviewFailure(KindUnauthorized, "a worker cannot accept results, associate criterion proof, or complete work", "return the attributed report to Main")
 	}
-	return nil
+	return requireNonMemberMain(ctx, q, actor)
 }
 
 func reviewDigest(value any) string {

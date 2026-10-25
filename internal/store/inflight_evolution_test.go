@@ -278,6 +278,11 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	}
 	// Historical rows predate receipts. Seed the original effects and their
 	// projections without asking the current append seam to write old schema.
+	selection := workflowEventWithActor("workflow-init:"+workID+":definition:"+definition.Definition.Ref, WorkflowDefinitionSelected, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": 3, "resulting_version": 4,
+		"ref": definition.Definition.Ref, "version": definition.Definition.Version,
+		"digest": definition.Digest, "work_kind": definition.Definition.WorkKind,
+	})
 	events := []Event{
 		workCreatedEvent(workID, "create-"+workID),
 		operationEvent("membership-"+workID, "work_project.added", SubjectWorkItem, workID, map[string]any{
@@ -289,11 +294,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 			"actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef,
 			"agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": actor.ActorClass,
 		}),
-		workflowEventWithActor("workflow-init:"+workID+":definition:"+definition.Definition.Ref, WorkflowDefinitionSelected, workID, actorRef, map[string]any{
-			"work_id": workID, "expected_version": 3, "resulting_version": 4,
-			"ref": definition.Definition.Ref, "version": definition.Definition.Version,
-			"digest": definition.Digest, "work_kind": definition.Definition.WorkKind,
-		}),
+		selection,
 	}
 	scope, err := beginFold(ctx, tx)
 	if err != nil {
@@ -308,6 +309,9 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if event.EventID == selection.EventID {
+			continue
+		}
 		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			t.Fatal(err)
 		}
@@ -315,9 +319,20 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err := scope.close(ctx); err != nil {
 		t.Fatal(err)
 	}
+	startStep, err := workflowDefinitionStartStep(definition.Definition)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// The older store already owns an initialized, in-progress workflow.
-	// Do not run a current-binary action-start writer on its older schema.
+	// Write the older selection projection; do not run current-binary
+	// definition or action-start writers on its older schema.
 	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE work_items SET version=4,updated_at=? WHERE id=? AND version=3`, selection.OccurredAt.UTC().Format(time.RFC3339Nano), workID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned')`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, startStep); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=? WHERE work_id=?`, actorRef, preferredModelForLane(BuiltinLaneDefinitions()[0]), workID); err != nil {

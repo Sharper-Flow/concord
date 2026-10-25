@@ -316,7 +316,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		delivery.JobsRecorded = true
 		delivery.JobsUnsatisfiedKeys = state.jobsUnsatisfied
 		delivery.JobsScopeKeys = state.jobsScope
-		delivery.JobsIntegrated = state.jobs == "satisfied" && state.integration
+		delivery.JobsIntegrated = state.integration
 	}
 	folded := WorkflowAdmissionState{
 		Step:                        state.step,

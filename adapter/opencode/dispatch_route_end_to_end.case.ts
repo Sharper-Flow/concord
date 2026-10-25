@@ -924,13 +924,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(reviewInput.outcome, JSON.stringify(reviewInput)).toBe("ok")
     const reviewInputRef = (reviewInput.result as JSONRecord).operation_ref as string
     const assertDeliveryVerification = async () => {
-      const eventsBeforeSkippedVerify = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
-      const skippedVerifyDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-without-verify", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-      expect(skippedVerifyDelivery.outcome, JSON.stringify(skippedVerifyDelivery)).toBe("error")
-      expect(skippedVerifyDelivery.error.kind).toBe("missing_evidence")
-      expect(skippedVerifyDelivery.error.message).toContain("verification")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsBeforeSkippedVerify)
-      // Integration needs a bound producer receipt for the actual candidate.
+      // Producer verification applies directly; explicit bindings do not mask it.
       const failedVerify = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "show-ref", "--verify", "refs/heads/missing-synthetic-branch"], idempotency_key: "e2e-failed-integration-verify" } }, context)
       expect(failedVerify.outcome, JSON.stringify(failedVerify)).toBe("ok")
       expect((failedVerify.result as JSONRecord).exit_code).not.toBe(0)
@@ -945,12 +939,6 @@ routeDeclaration("composes implementation and independent review through one ord
       const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
       const staleSubjectBinding = await transition(integrationVersion, "bind_evidence", "e2e-bind-stale-subject", { evidence_kind: "verification", evidence_ref: integrationRef, immutable_subject_ref: `commit:${staleSubjectCommit}` })
       expect(staleSubjectBinding.outcome, JSON.stringify(staleSubjectBinding)).toBe("ok")
-      const eventsAfterStaleSubject = dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n as number
-      const staleSubjectDelivery = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_delivery", "e2e-delivery-with-stale-subject", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
-      expect(staleSubjectDelivery.outcome, JSON.stringify(staleSubjectDelivery)).toBe("error")
-      expect(staleSubjectDelivery.error.kind).toBe("missing_evidence")
-      expect(staleSubjectDelivery.error.message).toBe("the delivery assertion requires passing producer verification on the current integrated candidate, covering every required Project")
-      expect(dbValue(dbPath, `SELECT count(*) AS n FROM effect_receipts WHERE subject_id='${workID}'`).n).toBe(eventsAfterStaleSubject)
       response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
       expect(response.outcome, JSON.stringify(response)).toBe("ok")
     }

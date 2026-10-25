@@ -2613,7 +2613,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 		if plan.nativeCreation == nil {
 			return cause
 		}
-		return store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
+		return r.Store.CompensateWorktreeClaimCreation(ctx, nil, *plan.nativeCreation, cause)
 	}
 	return Envelope{}, nil, false
 }

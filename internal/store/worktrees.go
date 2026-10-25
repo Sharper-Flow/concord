@@ -549,11 +549,15 @@ type WorktreeClaimResult struct {
 // the worktree path, the branch it sits on, the pinned base, and whether the
 // operation created the branch itself or adopted an existing one.
 type WorktreeClaimCreation struct {
+	WorkID        string
+	ProjectID     string
+	ClaimOpID     string
 	RepoRoot      string
 	Path          string
 	Branch        string
 	Base          string
 	CreatedBranch bool
+	generation    claimNativeGeneration
 }
 
 // WorktreeClaimNative is the native half of one claim: the located pinned
@@ -568,6 +572,7 @@ type WorktreeClaimNative struct {
 	// as opposed to adopting one a prior attempt left behind. Compensation
 	// may remove only what this operation created.
 	CreatedBranch bool
+	generation    claimNativeGeneration
 }
 
 func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ WorktreeClaimResult, retErr error) {
@@ -584,7 +589,7 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ 
 	native, created, err := s.PrepareWorktreeClaimNative(ctx, req)
 	if err != nil {
 		if created != nil {
-			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)
+			return WorktreeClaimResult{}, s.CompensateWorktreeClaimCreation(ctx, runner, *created, err)
 		}
 		return WorktreeClaimResult{}, err
 	}
@@ -592,7 +597,7 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ 
 	if err != nil {
 		cause := wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
 		if created != nil {
-			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, cause)
+			return WorktreeClaimResult{}, s.CompensateWorktreeClaimCreation(ctx, runner, *created, cause)
 		}
 		return WorktreeClaimResult{}, cause
 	}
@@ -605,7 +610,7 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ 
 			return WorktreeClaimResult{}, failure
 		}
 		if created != nil {
-			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)
+			return WorktreeClaimResult{}, s.CompensateWorktreeClaimCreation(ctx, runner, *created, err)
 		}
 		return WorktreeClaimResult{}, err
 	}
@@ -618,7 +623,7 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ 
 			return WorktreeClaimResult{}, commitErr
 		}
 		if created != nil {
-			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, commitErr)
+			return WorktreeClaimResult{}, s.CompensateWorktreeClaimCreation(ctx, runner, *created, commitErr)
 		}
 		return WorktreeClaimResult{}, commitErr
 	}
@@ -704,6 +709,14 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 		return native, nil, locateErr
 	}
 	native.Location = location
+	if err := s.recoverClaimCompensation(ctx, runner, req, location); err != nil {
+		return native, nil, err
+	}
+	if err := s.readSnapshot(ctx, func(q queryer) error {
+		return snapshotClaimNative(ctx, q, req, &native)
+	}); err != nil {
+		return native, nil, err
+	}
 	// Probe before creating or retrying. Git worktree creation is not
 	// idempotent; the probe owns retry safety for an interrupted create.
 	created, facts, probeErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
@@ -736,7 +749,7 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}
 	// From this point the tree is this operation's own creation, so every
 	// later failure is compensated from these facts.
-	createdTree := &WorktreeClaimCreation{RepoRoot: location.Repo, Path: location.Path, Branch: location.Branch, Base: req.BaseSHA, CreatedBranch: native.CreatedBranch}
+	createdTree := &WorktreeClaimCreation{WorkID: req.WorkID, ProjectID: req.ProjectID, ClaimOpID: req.OpID, RepoRoot: location.Repo, Path: location.Path, Branch: location.Branch, Base: req.BaseSHA, CreatedBranch: native.CreatedBranch, generation: native.generation}
 	created, facts, verifyErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
 	if verifyErr != nil {
 		return native, createdTree, verifyErr
@@ -797,6 +810,9 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 		}
 		out.Reconciled = true
 	case err == sql.ErrNoRows:
+		if err := checkClaimNativeGeneration(ctx, tx, native); err != nil {
+			return out, err
+		}
 		// A second active worktree for one Project is refused before git is
 		// ever invoked (CD-0008 D1: at most one active per affected Project).
 		// The native add ran before this transaction under CD-0195 D2, so a
@@ -824,6 +840,12 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 		return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read claim", true, "retry once the database is readable", err)
 	}
 
+	if err := checkClaimNativeGeneration(ctx, tx, native); err != nil {
+		return out, err
+	}
+	if err := refuseForeignNativeClaim(ctx, tx, req, location); err != nil {
+		return out, err
+	}
 	// The occupancy row's process start time is derived from /proc here, on
 	// the live path only: the fold replays the recorded value and never
 	// re-derives it. A bounded single-file read stays inside the transaction
@@ -868,43 +890,41 @@ func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReq
 	return nil
 }
 
-// compensateClaimWorktree removes the native worktree and branch a failed
-// claim created, so the rolled-back transaction does not leave unowned native
-// state behind. The removal runs only when the tree is clean and holds no
-// commit beyond the pinned base, and the branch is removed only when this
-// operation created it and the pinned ref-deletion gate settles it. Incomplete
-// removal marks the failure effect-possible: the tree or ref then outlives the
-// claim row. Compensation runs detached from the caller's context, because a
-// budget deadline must not stop cleanup and falsify the no-effect classification.
-func compensateClaimWorktree(ctx context.Context, runner GitRunner, created WorktreeClaimCreation, cause error) error {
-	ctx = context.WithoutCancel(ctx)
-	incomplete := func(reason error) error {
-		var failure *Failure
-		if errors.As(cause, &failure) {
-			failure.EffectPossible = true
-			if reason != nil {
-				failure.Detail += "; claim compensation incomplete: " + reason.Error()
-			}
-			return cause
+// removeClaimCreation runs only while a pending compensation reservation owns
+// both native identities. A complete inventory makes recovery idempotent after
+// a crash between directory and branch removal.
+func removeClaimCreation(ctx context.Context, runner GitRunner, created WorktreeClaimCreation) error {
+	listing, err := runner.Run(ctx, created.RepoRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return err
+	}
+	inventory, err := parseWorktreeInventory(listing)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, entry := range inventory.entries {
+		if entry.path == created.Path {
+			found = true
 		}
-		detail := "claim failed after native creation and compensation could not finish; the created worktree or branch may outlive the rolled-back claim"
-		if reason != nil {
-			detail += ": " + reason.Error()
+	}
+	if found {
+		if err := revalidateNativeWorktree(ctx, runner, &WorktreeNativeRemoval{RepoRoot: created.RepoRoot, Path: created.Path, LiveTip: created.Base, Op: "worktree_claim"}); err != nil {
+			return err
 		}
-		wrapped := wrapFailure(KindUnavailable, "worktree_claim", detail, true, "retry the same operation with the same op id", cause)
-		wrapped.EffectPossible = true
-		return wrapped
-	}
-	statusOut, statusErr := runner.Run(ctx, created.Path, "status", "--porcelain")
-	if statusErr != nil || strings.TrimSpace(string(statusOut)) != "" {
-		return incomplete(statusErr)
-	}
-	countOut, countErr := runner.Run(ctx, created.RepoRoot, "rev-list", "--count", created.Base+".."+created.Branch)
-	if countErr != nil || strings.TrimSpace(string(countOut)) != "0" {
-		return incomplete(countErr)
-	}
-	if _, rmErr := runner.Run(ctx, created.RepoRoot, "worktree", "remove", created.Path); rmErr != nil {
-		return incomplete(rmErr)
+		statusOut, statusErr := runner.Run(ctx, created.Path, "status", "--porcelain")
+		if statusErr != nil || strings.TrimSpace(string(statusOut)) != "" {
+			return errors.Join(errors.New("created worktree is not provably clean"), statusErr)
+		}
+		countOut, countErr := runner.Run(ctx, created.RepoRoot, "rev-list", "--count", created.Base+".."+created.Branch)
+		if countErr != nil || strings.TrimSpace(string(countOut)) != "0" {
+			return errors.Join(errors.New("created branch is not provably at its pinned base"), countErr)
+		}
+		if _, rmErr := runner.Run(ctx, created.RepoRoot, "worktree", "remove", created.Path); rmErr != nil {
+			return rmErr
+		}
+	} else if _, err := os.Lstat(created.Path); !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(errors.New("unregistered creation path is not provably absent"), err)
 	}
 	if created.CreatedBranch {
 		outcome, brErr := deleteBranchPinned(ctx, runner,
@@ -914,10 +934,10 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 			brErr = errors.New(outcome.Reason)
 		}
 		if brErr != nil {
-			return incomplete(brErr)
+			return brErr
 		}
 	}
-	return cause
+	return nil
 }
 
 // worktreeAddFailure classifies a failed `git worktree add`. Git can leave a
@@ -940,19 +960,6 @@ func worktreeAddFailure(ctx context.Context, runner GitRunner, repoRoot, path, b
 		}
 	}
 	return cause
-}
-
-// CompensateWorktreeClaimCreation removes the native worktree and branch a
-// claim created, for a caller whose own transaction failed after
-// ClaimWorktreeTx or ClaimWorktree reported the creation. The creation facts
-// are the claim's report of what it itself created, so a caller never
-// compensates a tree that pre-existed the claim. A removal that cannot
-// complete marks the cause effect-possible instead of claiming no effect.
-func CompensateWorktreeClaimCreation(ctx context.Context, runner GitRunner, created WorktreeClaimCreation, cause error) error {
-	if runner == nil {
-		runner = ExecGitRunner{}
-	}
-	return compensateClaimWorktree(ctx, runner, created, cause)
 }
 
 // WorktreeReclaimRequest reclaims a worktree from git facts: the tree must be

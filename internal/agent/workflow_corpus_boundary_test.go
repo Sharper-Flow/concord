@@ -128,11 +128,8 @@ func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
 
 func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		fields := map[string]any{}
-		if action == "record_design" {
-			fields = map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:boundary", "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:boundary"}}
-		}
 		if action == "record_proposal" {
 			fields = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
 		}
@@ -171,6 +168,7 @@ func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *S
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("approved action=%+v", response)
 	}
+	recordApprovedWorkDesign(t, s, service, env, "work-1", "boundary-design")
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}

@@ -19,7 +19,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workOneVersion(t, s)
 	}
@@ -31,6 +31,7 @@ func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
+	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "design-correction-design")
 	before, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)

@@ -145,6 +145,7 @@ func TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition(t *testing.T)
 			report := WorkerReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: dependencies,
 				Assessments: []WorkerReviewAssessment{}, Findings: []WorkerReviewFinding{}, RemainingObligations: []WorkerReviewObligation{}}
 			model.Accepted = &WorkflowAcceptedReview{AttemptID: attempt, ReportRef: attempt + ":completed", ReportDigest: reviewDigest(report), ActorRef: actor, Report: report}
+			model.StaleJobs = map[string]bool{}
 			model.DependenciesCurrent = true
 			global = admissionSuccessors(definition, global, "accept_worker_result")[0]
 			accepted := check("after Main acceptance")

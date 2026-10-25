@@ -291,7 +291,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			seedWorkflowLaw(t, s)
 			seedIssue31DomainRegistry(t, s)
 			version := readWorkVersion(t, s, workID)
-			for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+			for _, action := range []string{"record_proposal", "record_alignment"} {
 				version = issue31WorkflowAction(t, s, workID, version, action, "corpus:"+action, actor)
 			}
 		}
@@ -433,7 +433,7 @@ func prepareCorpusImpactDependent(t *testing.T, s *Store, source string, registe
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	binding := corpusArchitectureBinding()
@@ -443,6 +443,7 @@ func prepareCorpusImpactDependent(t *testing.T, s *Store, source string, registe
 	}
 	binding["domain_registry_content_hash"], binding["home_domain_id"], binding["affected_domain_ids"] = hash, root, []string{root}
 	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", workID+":approve", actor, mustJSONValue(map[string]any{"architecture_binding": binding, "spec_mandate": []string{}, "law_modifies": []string{}}))
+	version = issue31WorkflowAction(t, s, workID, version, "record_design", workID+":design", actor)
 	if err := runVerdictActionAs(t, s, workID, "declare_impact", mustJSONValue(map[string]any{"target_work_id": source, "edge_id": "edge:corpus-dependent", "edge_kind": "depends_on", "edge_class": "hard", "severity": "informational"}), version, actor); err != nil {
 		t.Fatal(err)
 	}
@@ -734,7 +735,7 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 		t.Fatalf("capture fabricated an approved contract: %v", err)
 	}
 	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	binding := corpusArchitectureBinding()
@@ -779,7 +780,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
 	}
 	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))

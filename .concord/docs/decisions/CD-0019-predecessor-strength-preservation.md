@@ -34,7 +34,7 @@ Concord must carry each forward, in some shape:
 | 1 | Specs — queryable capability law | Behavioral contract that prevents drift; legislator-visible law | [`specs-as-laws.md`](../specs-as-laws.md) |
 | 2 | Per-change narrative artifacts — problem/decision/outcome trail | Each change leaves a coherent WHY, not just a git diff | [`self-documentation.md`](../self-documentation.md) §1.2 |
 | 3 | Knowledge index — concepts → docs → code map | Navigable map of what is where | [`concord-knowledge-index.md`](../concord-knowledge-index.md) |
-| 4 | Conformance — claims-vs-reality check | Automated proof stated behavior matches delivered behavior | `internal/store.TestAcceptedQ1ToQ10Corpus` and the `internal/workflowcorpus` coverage contract |
+| 4 | Conformance — claims-vs-reality check | Automated proof stated behavior matches delivered behavior | `internal/store.TestAcceptedQ1ToQ10Corpus` and `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions` |
 | 5 | Triage — issue ↔ work reconciliation + portfolio balance | Overlap coalescing and what-matters-next surfacing | GitHub Issues as work authority |
 | 6 | Reflection — post-completion learning | Durable lessons that fit in no single change | not yet identified; research under D2 |
 

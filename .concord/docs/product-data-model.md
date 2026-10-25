@@ -9,9 +9,6 @@
 > governs it*, and *how that authority is recorded*.
 > **Primary navigation:** Durable Product knowledge is navigated by
 > **Product → Domain**, with current law and architecture-bound work together.
-> **Origin:** User direction, 2026-07-25. Lifecycle stage (§8) and shared resources
-> (§9) added by user direction, 2026-07-31; resource-first C15 shape accepted
-> 2026-08-06; Domain shape accepted by CD-0222 on 2026-08-18.
 > CD-0213 places planning and business grouping in Linear through the Linear MCP server.
 
 ## TL;DR
@@ -165,12 +162,12 @@ ManagedResource {
 resource identity and attachments follow accepted C15. Domain replacement and
 work-item supersession keep their bounded owners in CD-0222 and PM4.
 
-CD-0222 and CD-0213 replace the predecessor Epic shape. Business grouping lives in
-Linear. Product embeds no grouping record, and grouping is not a second Product,
+Business grouping lives in Linear under CD-0213. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
-[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)
-keeps the event log immutable and historical planning events replayable while
-refusing new planning appends.
+[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history)
+keeps planning history in Linear; the local store keeps current state and finite
+snapshots, with no event log or replay
+([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
@@ -194,7 +191,7 @@ a flat list of changes or workflows.
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not in the default view.
 
-This applies to the terminal launcher, the optional admin panel, and agent-tool
+This applies to the optional admin panel and agent-tool
 read surfaces.
 
 ---
@@ -275,16 +272,17 @@ prototype is not obliged to carry a regression suite that will be invalidated by
 next week's redesign, which is precisely the brittleness this model exists to
 avoid.
 
-### 8.5 Transitions are appends
+### 8.5 Transitions write current rows
 
-Stage changes are **appended**, never edited in place, per
-[`design-constraints.md`](./design-constraints.md) §4 (append-only, no history
-repair).
+Each stage change writes a current row checked by its expected version
+(CD-0242 D2), per
+[`design-constraints.md`](./design-constraints.md) §4.
 
 Consequently, **evidence is judged under the stage in force when it was
 produced.** Promoting a project from `prototype` to `production` does not
 retroactively invalidate its prototype-era evidence, and it does not retroactively
-bless it either. The stage history is what makes an old completion claim
+bless it either. A record about its subject stays true of that subject
+(CD-0242 D7), which is what makes an old completion claim
 interpretable — "this was accepted at prototype rigor in March" is a fact an agent
 can act on; "this was accepted" is not.
 
@@ -365,7 +363,7 @@ question is:
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
 | [CD-0222](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
-| `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
+| `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
 | `vertical-integration.md` | Whether lgrep/vision become Product-scoped touches this model. |

@@ -10,10 +10,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0148"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0173"
     },
     {
@@ -37,9 +33,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a1c9c1f3a21a0e44f9e359baac80f54c4667ef57052ddb52a438ba01e9103fa8",
+  "sha256": "sha256:da23f9cde3c8e137562ffafbadaf90255bde39b741ff626480f88ff5c0f6f794",
   "status": "accepted",
-  "summary": "An escalated correction whose latest failed dispatch carries host_adapter host_execution attribution with a terminal or cancellation host event derives the closed host_changed convergence basis when the dispatching session's active worktree claim records a live, leased host process that started more than one minute after the failure. The basis admits one counted fresh fenced dispatch per nonprogress window, records the failure sequence and process identity, and never resets the window; the process claim is caller-supplied, not an authenticated host identity.",
+  "summary": "A same-session landing from a different host process refreshes the recorded occupancy identity, and the caller reads the host lease set before the dispatch transaction opens. Under CD-0242 D6 no host_changed or other convergence basis, escalation wall, or attempt count exists; a recorded process claim or failure attribution authorizes no launch.",
   "tags": [
     "worker",
     "retry",
@@ -47,5 +43,5 @@
     "host",
     "workflow"
   ],
-  "title": "A later process claim permits one bounded host-recovery attempt"
+  "title": "A later process claim refreshes the recorded host identity"
 }

@@ -11,10 +11,8 @@ import (
 // leaves every occupancy row standing (a refused host move must not leave a
 // live session in a worktree recorded as empty); the adapter-only
 // vacate-landing verb records the verified landing and releases the session's
-// rows in one transaction; and a recorded work.session_vacated of the prior
-// payload version still releases on fold, replayed unchanged.
-// TestSessionVacateReleasesEveryWorkItemRow in
-// worktree_occupancy_release_test.go carries the prior-version replay.
+// rows in one transaction. Migrated prior-version requests remain stored but
+// cannot supply a current relocation target.
 
 func vacateRequestEvent(eventID, source string) Event {
 	return Event{
@@ -47,12 +45,12 @@ func TestSessionVacateRequestLeavesOccupancyStanding(t *testing.T) {
 		t.Fatalf("the vacate request released a stale row on another work item: %q", got)
 	}
 	var version int
-	var landed string
-	if err := s.db.QueryRow(`SELECT payload_version, COALESCE(json_extract(payload,'$.landed_directory'),'') FROM domain_events WHERE kind='work.session_vacated' AND event_id='vacate-request-stands'`).Scan(&version, &landed); err != nil {
+	var landed bool
+	if err := s.db.QueryRow(`SELECT r.payload_version,v.landed FROM session_vacate_requests v JOIN effect_receipts r ON r.effect_seq=v.request_seq WHERE r.kind='work.session_vacated' AND r.event_id='vacate-request-stands' AND v.work_id='work-w' AND v.session_ref='ses-x' AND v.project_id='project-w' AND v.source_directory=? AND v.destination_directory='/data/repo-main'`, claimPath(s)).Scan(&version, &landed); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 || landed != "" {
-		t.Fatalf("recorded request version=%d landed_directory=%q, want version 2 with no landing", version, landed)
+	if version != 2 || landed {
+		t.Fatalf("recorded request version=%d landed=%v, want version 2 with no landing", version, landed)
 	}
 }
 
@@ -94,8 +92,7 @@ func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
 // request with no recorded landing after it. A request its recorded landing
 // already completed resolves too while the session holds no occupancy rows,
 // so an uncertain landing result recovers as a completed replay, and refuses
-// once a later claim's rows stand: those rows belong to the later claim. A
-// version 1 request that released on fold refuses at its payload version. No
+// once a later claim's rows stand: those rows belong to the later claim. No
 // resolved or refused replay appends a landing.
 func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	t.Parallel()
@@ -142,20 +139,8 @@ func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
 		t.Fatalf("err=%v, want invalid_operation for the completed request with later-claim rows", err)
 	}
-	// A recorded version 1 request released on fold, so the replay refuses
-	// it at the payload version.
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "vacate-v1-completed", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "ses-old", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1,
-		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + claimPath(s) + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolve("ses-old"); failureKind(err) != KindInvalidOperation {
-		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
-	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT vacate_landing_count FROM session_relocation_counts WHERE work_id='work-w' AND session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -202,7 +187,7 @@ func TestSessionVacateLandingRefusesACompletedRequestWithLaterClaimRows(t *testi
 		t.Fatalf("the repeated landing released the later claim's row: %q", got)
 	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT COALESCE(SUM(vacate_landing_count),0) FROM session_relocation_counts WHERE session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -281,7 +266,7 @@ func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 		t.Fatalf("replay result=%+v, want already_recorded", replay)
 	}
 	var landings int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+	if err := s.db.QueryRow(`SELECT vacate_landing_count FROM session_relocation_counts WHERE work_id='work-w' AND session_ref='ses-x'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {

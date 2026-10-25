@@ -16,18 +16,19 @@ import (
 // delivery routes refuse: the combined accept's pending disposition satisfies
 // the population check but never supplies integration.
 func TestCombinedAcceptanceRequiresIntegration(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	state := WorkflowAdmissionState{Delivery: workflowDeliveryAdmission{
 		Started: true, JobsRecorded: true, JobsIntegrated: false, JobsScopeKeys: "project-1",
 	}}
-	if standalone := workflowAdmitDelivery(state, WorkflowAdmissionDecision{}); standalone.Failure == nil {
+	if standalone := workflowAdmitDelivery(definition, state, WorkflowAdmissionDecision{}); standalone.Failure == nil {
 		t.Fatal("control: standalone delivery admitted missing integration")
 	}
 	job := &WorkerJobBinding{JobID: "job:final", Revision: 1}
-	combined := workflowAdmitDeliveryForAccept(state, WorkflowAdmissionDecision{}, job)
+	combined := workflowAdmitDeliveryForAccept(definition, state, WorkflowAdmissionDecision{}, job)
 	if combined.Failure == nil {
 		t.Fatal("combined final acceptance admitted the same missing integration rejected by standalone delivery")
 	}
-	if !strings.Contains(combined.Failure.Detail, "verification evidence") {
+	if !strings.Contains(combined.Failure.Detail, "requires passing producer verification on the current integrated candidate") {
 		t.Fatalf("combined refusal = %q, want the integration remedy", combined.Failure.Detail)
 	}
 }
@@ -35,14 +36,15 @@ func TestCombinedAcceptanceRequiresIntegration(t *testing.T) {
 // A fully integrated state admits both routes, so the combined path stays
 // reachable behind real integration evidence.
 func TestCombinedAcceptanceAdmitsBehindIntegrationEvidence(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	state := WorkflowAdmissionState{Delivery: workflowDeliveryAdmission{
 		Started: true, JobsRecorded: true, JobsIntegrated: true, JobsScopeKeys: "project-1",
 	}}
-	if standalone := workflowAdmitDelivery(state, WorkflowAdmissionDecision{}); standalone.Failure != nil {
+	if standalone := workflowAdmitDelivery(definition, state, WorkflowAdmissionDecision{}); standalone.Failure != nil {
 		t.Fatalf("standalone delivery behind integration refused: %v", standalone.Failure)
 	}
 	job := &WorkerJobBinding{JobID: "job:final", Revision: 1}
-	if combined := workflowAdmitDeliveryForAccept(state, WorkflowAdmissionDecision{}, job); combined.Failure != nil {
+	if combined := workflowAdmitDeliveryForAccept(definition, state, WorkflowAdmissionDecision{}, job); combined.Failure != nil {
 		t.Fatalf("combined final acceptance behind integration refused: %v", combined.Failure)
 	}
 }

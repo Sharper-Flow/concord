@@ -17,7 +17,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
-	reviewSubjectClaim(t, s, workID)
+	native := newChecksRepairNativeFixture(t, s, workID)
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/checks-repair-second-open-worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	acceptor := reviewGateAcceptor(workID)
 
@@ -40,7 +40,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	}
 	record := func(fields map[string]any, what string) {
 		t.Helper()
-		if err := recordWorkerJobFieldsForTest(t, s, workID, fixture.owner, fields); err != nil {
+		if err := native.record(t, fixture.owner, fields); err != nil {
 			t.Fatalf("record the %s: %v", what, err)
 		}
 	}
@@ -64,12 +64,8 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	oneOpenRepairA := func(stage string) {
 		t.Helper()
 		candidates, err := workerChecksRepairAwaitingReviewTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(candidates) != 1 || candidates[0].Repairing != *revA || !candidates[0].Funded {
-			t.Fatalf("candidates %s = (%#v, %v), want exactly the one funded repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
-		}
-		fundings, err := workerChecksRepairReviewFundingsTx(ctx, s.DatabaseForTesting(), workID)
-		if err != nil || len(fundings) != 1 || fundings[jobID].Repairing != *revA {
-			t.Fatalf("fundings %s = (%#v, %v), want the one funded repair A", stage, fundings, err)
+		if err != nil || len(candidates) != 1 || candidates[0] != *revA {
+			t.Fatalf("candidates %s = (%#v, %v), want exactly repair A %s@%d", stage, candidates, err, revA.JobID, revA.Revision)
 		}
 	}
 
@@ -91,7 +87,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	pin = issue1013Pin(t, s, workID)
 	attemptA := "attempt:" + workID + ":A"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptA, pin.Correction, worker, pin.Version, "checks-repair-second-open-A", revA)
-	completeChecksRepairAttemptObserved(t, s, workID, attemptA, "checks-repair-completed-"+attemptA)
+	completeChecksRepairAttemptObserved(t, s, workID, attemptA, "checks-repair-completed-"+attemptA, native.execute(t, attemptA))
 
 	// Repair B records while A is still unaccepted — the legal window the
 	// race rides: A's repair holds no acceptance, so the recording guard
@@ -102,7 +98,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 		t.Fatalf("repair B = %s@%d, want the revision beside %d", revB.JobID, revB.Revision, revA.Revision)
 	}
 
-	// A accepts and opens: exactly one funded candidate stands for the job.
+	// A accepts and opens: exactly one candidate stands for the job.
 	acceptChecksRepairAttempt(t, s, workID, attemptA, acceptor)
 	oneOpenRepairA("behind the accepted repair A")
 
@@ -114,7 +110,7 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	pin = issue1013Pin(t, s, workID)
 	attemptB := "attempt:" + workID + ":B"
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, pin.Correction, worker, pin.Version, "checks-repair-second-open-B", revB)
-	completeChecksRepairAttemptObserved(t, s, workID, attemptB, "checks-repair-completed-"+attemptB)
+	completeChecksRepairAttemptObserved(t, s, workID, attemptB, "checks-repair-completed-"+attemptB, native.execute(t, attemptB))
 
 	version := readWorkVersion(t, s, workID)
 	seq := maxEventSeq(t, s, workID)
@@ -142,16 +138,4 @@ func TestChecksRepairSecondRepairingAcceptanceRefusesWhileOneOpen(t *testing.T) 
 	}
 	oneOpenRepairA("behind the refused second acceptance")
 
-	// Rebuild parity: the refused acceptance left no event, so the log folds
-	// the same single open repair from scratch.
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	if after := readWorkVersion(t, s, workID); after != version {
-		t.Fatalf("rebuilt work version = %d, want %d", after, version)
-	}
-	if state, ref := jobRow(*revB); state != "recorded" || ref != "" {
-		t.Fatalf("the rebuilt refused repairing revision = %s via %q, want recorded with no disposition", state, ref)
-	}
-	oneOpenRepairA("behind the rebuild")
 }

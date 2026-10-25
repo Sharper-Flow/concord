@@ -45,7 +45,7 @@ func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -68,9 +68,9 @@ func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('worktree_entries') WHERE name='occupant_session_ref'`).Scan(&column); err != nil || column != 0 {
 		t.Fatalf("occupant_session_ref column count=%d err=%v, want the column dropped", column, err)
 	}
-	// The table is fold-only: a direct INSERT is refused with the guard off.
+	// The table is write-seam-only: a direct INSERT is refused with the guard off.
 	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('set-work-x:project-x:claim-x','ses-direct','2026-09-25T00:00:00Z',0)`); err == nil {
-		t.Fatal("direct INSERT bypassed the fold guard on worktree_occupancy")
+		t.Fatal("direct INSERT bypassed the write guard on worktree_occupancy")
 	}
 }
 
@@ -113,7 +113,7 @@ func TestMigrateV103ToV104AcceptsRealCompositeWorktreeIDs(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration 104 rejected a real composite worktree_id (%d bytes): %v", len(composite), err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	var count int
@@ -194,8 +194,17 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
+	// Check migration 88's historical counter before migration 152 retires it.
+	for _, migration := range migrations {
+		if migration.Version != 88 {
+			continue
+		}
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration 88: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-16T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var ref, digest string
 	var version int
@@ -204,6 +213,18 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	}
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if ref != definitionRef || digest != historicalDefinitionDigest {
+		t.Fatalf("current contract content identity = %q, %q", ref, digest)
+	}
+	if tableColumns(t, db, "workflow_contracts")["definition_version"] {
+		t.Fatal("migration 152 retained the definition counter")
 	}
 }
 
@@ -365,8 +386,8 @@ func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *te
 	if laws != "law:a,law:b" {
 		t.Fatalf("v40 law-modification backfill=%q", laws)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-v39',1,'law:c')`); err == nil || !strings.Contains(err.Error(), "fold-only") {
-		t.Fatalf("law-modification projection bypassed fold guard: %v", err)
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES('work-v39',1,'law:c')`); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("law-modification projection bypassed write guard: %v", err)
 	}
 	for _, index := range []string{"workflow_overlap_resolutions_pair", "workflow_overlap_resolutions_reverse_pair", "relations_merged_into_source"} {
 		var count int
@@ -405,14 +426,14 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','lesson','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
-		t.Fatal("coverage write bypassed fold guard")
+		t.Fatal("coverage write bypassed write guard")
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','invalid','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
@@ -463,12 +484,12 @@ func TestMigrateV19ToV20AddsProjectStageOverridesAndC14OrderingIndexes(t *testin
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`); err != nil {
@@ -523,7 +544,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 		}
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`); err == nil {
-		t.Fatal("law subject write bypassed fold guard")
+		t.Fatal("law subject write bypassed write guard")
 	}
 	var lawModifies, lawBoundaryVersion int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='law_modifies'`).Scan(&lawModifies); err != nil || lawModifies != 1 {
@@ -575,12 +596,12 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT narrative FROM work_items WHERE id='pre-existing'`).Scan(&narrative); err != nil || narrative != "" {
 		t.Fatalf("pre-existing narrative=%q err=%v, want empty default", narrative, err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx, `UPDATE work_items SET narrative=? WHERE id='pre-existing'`, strings.Repeat("n", 16385)); err == nil {
@@ -688,9 +709,9 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	// The fold guard must be re-deactivated so a direct INSERT is rejected
+	// The write guard must be re-deactivated so a direct INSERT is rejected
 	// by the trigger rather than permitted because the guard is open.
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	for _, column := range []string{"routing_policy_version", "routing_policy_digest", "resolved_model", "resolution_role", "fallback_reason"} {
@@ -711,9 +732,9 @@ func TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows(t *testing.T)
 	if _, err := db.ExecContext(ctx, `UPDATE worker_attempts SET lifecycle_state='completed', readback_model='', completed_at='2026-08-22T00:00:00Z' WHERE attempt_id='pre-existing'`); err == nil {
 		t.Fatal("completed-with-empty-readback bypassed the lifecycle CHECK")
 	}
-	// The fold-only triggers must be reinstalled so direct INSERT is refused.
-	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',1,?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
-		t.Fatal("direct INSERT bypassed the fold guard")
+	// The write-seam-only triggers must be reinstalled so direct INSERT is refused.
+	if _, err := db.ExecContext(ctx, `INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('direct','direct','research',?,'research','openai/gpt-5.6-luna','1.0','1.0','dispatched','2026-08-22T00:00:00Z')`, "sha256:"+strings.Repeat("a", 64)); err == nil {
+		t.Fatal("direct INSERT bypassed the write guard")
 	}
 }
 
@@ -752,7 +773,7 @@ func TestMigrateV36ToV37AddsWorkflowLawRevisionProjection(t *testing.T) {
 		t.Fatalf("law revision projection table/index = %d/%d", tableCount, indexCount)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES('missing',1,'spec:law','sha256:`+strings.Repeat("a", 64)+`')`); err == nil {
-		t.Fatal("law revision projection write bypassed fold guard or foreign keys")
+		t.Fatal("law revision projection write bypassed write guard or foreign keys")
 	}
 }
 
@@ -1260,12 +1281,12 @@ func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) 
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_native_run_statuses`).Scan(&nativeStatuses); err != nil || nativeStatuses != 10 {
 		t.Fatalf("native status rows=%d err=%v", nativeStatuses, err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('native-registry-work','task','Native registry','needed',1,1,'now','now',NULL)`); err != nil {
@@ -1416,7 +1437,7 @@ func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	actorRef := seedRigorClassPrerequisites(t, db)
@@ -1545,13 +1566,13 @@ func TestArchivedWorkKindVocabulary(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
-	seedArchivedWorkKindHome(t, db)
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	seedArchivedWorkKindHome(t, db, "write_guard")
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 
@@ -1572,7 +1593,7 @@ func TestMigration56UpgradesValidArchivedWorkKind(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db := openV55(t, "archived-work-kind-v55-valid.db")
-	seedArchivedWorkKindHome(t, db)
+	seedArchivedWorkKindHome(t, db, "fold_guard")
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -1594,7 +1615,7 @@ func TestMigration56RejectsUndeclaredArchivedWorkKind(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db := openV55(t, "archived-work-kind-v55-invalid.db")
-	seedArchivedWorkKindHome(t, db)
+	seedArchivedWorkKindHome(t, db, "fold_guard")
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -1616,10 +1637,10 @@ func openV55(t *testing.T, name string) *sql.DB {
 	return openMigratedTo(t, filepath.Join(t.TempDir(), name), 55)
 }
 
-func seedArchivedWorkKindHome(t *testing.T, db *sql.DB) {
+func seedArchivedWorkKindHome(t *testing.T, db *sql.DB, guard string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO `+guard+`(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	statements := []string{
@@ -1633,7 +1654,7 @@ func seedArchivedWorkKindHome(t *testing.T, db *sql.DB) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM `+guard); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1770,13 +1791,13 @@ func TestMigration40AddsDomainOverlapProjectionTables(t *testing.T) {
 	for _, table := range []string{"domains", "domain_project_attachment_edges", "domain_resource_attachment_edges", "managed_resources", "resource_products"} {
 		var err error
 		if _, err = db.ExecContext(ctx, "INSERT INTO "+table+" DEFAULT VALUES"); err == nil {
-			t.Fatalf("direct write to %s bypassed fold guard", table)
+			t.Fatalf("direct write to %s bypassed write guard", table)
 		}
 	}
 	for _, table := range []string{"domain_registries", "domains", "domain_architecture_relations", "law_domain_homes", "law_domain_applicability", "domain_project_attachment_sets", "domain_resource_attachment_sets"} {
 		var count int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name=?`, table+"_guard_insert").Scan(&count); err != nil || count != 1 {
-			t.Fatalf("fold guard for %s count=%d err=%v", table, count, err)
+			t.Fatalf("write guard for %s count=%d err=%v", table, count, err)
 		}
 	}
 }
@@ -1891,15 +1912,16 @@ func TestMigrationReplayFromScratchDropsWorkerRoutingEvidence(t *testing.T) {
 	if replayReadback != "openai/gpt-5.6-luna" {
 		t.Fatalf("replay readback_model = %q, want openai/gpt-5.6-luna", replayReadback)
 	}
-	// The fold triggers must be reinstalled by migration 44: a direct INSERT
-	// with no fold_guard row active must be rejected.
+	// The current write guard must reject direct INSERT after the full replay.
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		"replay-work", "replay-44-attempt", "research", 1,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		"replay-work", "replay-44-attempt", "research",
 		"sha256:"+strings.Repeat("a", 64), "research",
 		"openai/gpt-5.6-luna", "1.0", "1.0", "dispatched", appliedAt,
 	); err == nil {
-		t.Fatal("post-migration-44 INSERT bypassed the fold guard")
+		t.Fatal("post-replay INSERT bypassed the write guard")
+	} else if !strings.Contains(err.Error(), "write-seam-only") {
+		t.Fatalf("post-replay INSERT refused outside the write guard: %v", err)
 	}
 }
 
@@ -2080,8 +2102,8 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 		t.Fatalf("seed fold guard: %v", err)
 	}
 	defer func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Logf("release fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Logf("release write guard: %v", err)
 		}
 	}()
 	if _, err := db.ExecContext(ctx,
@@ -2335,7 +2357,7 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 			struct {
 				query string
 				args  []any
-			}{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"m89-event-" + item.id, WorkflowActionCompleted, SubjectWorkItem, item.id, item.actor, "2026-09-16T00:00:01Z", 1, `{}`}},
+			}{`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, []any{"m89-event-" + item.id, WorkflowActionCompleted, SubjectWorkItem, item.id, item.actor, "2026-09-16T00:00:01Z", 1, `{"step_id":"proposal","action_id":"record_proposal"}`}},
 			struct {
 				query string
 				args  []any

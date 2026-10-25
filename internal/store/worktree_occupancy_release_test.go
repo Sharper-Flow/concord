@@ -43,36 +43,6 @@ func TestClaimRecordsHostProcessIdentity(t *testing.T) {
 	}
 }
 
-func TestSessionVacateReleasesEveryWorkItemRow(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	req.SessionRef = "ses-x"
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	// The same session holds a stale row on another work item's worktree.
-	auditWork(t, s, git, "work-b", true)
-	setWorktreeOccupant(t, s, "work-b", "ses-x")
-
-	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-b"), "project-w", "wt-work-b") != "ses-x" {
-		t.Fatal("the second work item's row must exist before the vacate")
-	}
-	vacatePayload := jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-x","source_directory":"` + claimPath(s) + `"}`)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "vacate-cross", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "ses-x", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 1, Payload: vacatePayload,
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", "wt-op-1"); got != "" {
-		t.Fatalf("vacated worktree still records %q", got)
-	}
-	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-b"), "project-w", "wt-work-b"); got != "" {
-		t.Fatalf("the vacate left a stale row on another work item: %q", got)
-	}
-}
-
 func TestClaimLandingReleasesEveryWorkItemRow(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -138,7 +108,9 @@ func TestLegacyRowReleasesOnEndedRecordingProcess(t *testing.T) {
 		t.Fatalf("the ended recording process must release the legacy row: %v", err)
 	}
 	var released int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-old'`).Scan(&released); err != nil {
+	wantRelease := worktreeOccupancyReleasedPayload{SetID: WorktreeSetID(req.WorkID), ProjectID: req.ProjectID, ClaimOpID: req.OpID, SessionRef: req.SessionRef}
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=? AND kind='work.worktree_occupancy_released' AND subject_type='work_item' AND subject_id=? AND actor='principal-1' AND payload_version=2 AND payload_digest=?`,
+		occupancyReleasedEventID(req.WorkID, req.ProjectID, req.OpID, req.SessionRef, 0), req.WorkID, historicalFixturePayloadDigest(t, string(mustJSONValue(wantRelease)))).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != 1 {

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -68,7 +67,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 				WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: mustJSONValue(fields), Actor: actor,
 				AcceptedInputsDigest: "sha256:derived-successor", IdempotencyIdentity: "supersede-derived", OperationID: "supersede-derived",
 				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "supersede-derived",
@@ -107,23 +106,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 				if err := s.DatabaseForTesting().QueryRow(`SELECT superseded_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&supersededBy); err != nil || supersededBy != 2 {
 					t.Fatalf("predecessor superseded_by=%d, want 2: %v", supersededBy, err)
 				}
-			}
-			assertSuccessor()
-			var payload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractSuperseded).Scan(&payload); err != nil {
-				t.Fatal(err)
-			}
-			var event struct {
-				Successor map[string]json.RawMessage `json:"successor_contract"`
-			}
-			if err := json.Unmarshal([]byte(payload), &event); err != nil {
-				t.Fatal(err)
-			}
-			if _, present := event.Successor["law_modifies"]; present != (len(scenario.modifies) != 0) {
-				t.Errorf("successor event law_modifies present=%t, want %t", present, len(scenario.modifies) != 0)
-			}
-			if err := RebuildFromLog(ctx, s); err != nil {
-				t.Fatalf("rebuild admitted successor: %v", err)
 			}
 			assertSuccessor()
 		})

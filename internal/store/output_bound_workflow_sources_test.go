@@ -36,23 +36,20 @@ func init() {
 	const readSizeRefusalPath = "internal/agent/runtime.go:readSizeRefusal"
 	const mutationResultPath = "internal/agent/mutations.go:mutationResult"
 
-	// The RFC3339Nano timestamp every fold writes into recorded_at,
-	// approved_at, and last_progress columns. The shared bounded-layout
+	// The RFC3339Nano timestamps written into recorded_at, approved_at,
+	// and last_progress_at columns. The shared bounded-layout
 	// helper verifies each cited writer carries exactly one Format layout
-	// and derives the render width from the recorded RFC3339Nano grammar
-	// (date 10, T 1, clock 8, the fraction dot plus at most 9 digits, and a
-	// zone of 1 or 6 characters = 35).
+	// and derives the maximum render width from its tokens and the stdlib
+	// time representation, without assuming a four-digit year or bounded zone.
 	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContractApproved", "time.RFC3339Nano")
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
 	sizeRecordedAt := pkTimeLayoutWidthBound("internal/store/work_size.go", "foldWorkSized", "time.RFC3339Nano")
-	// last_progress is the max domain_events.occurred_at column value, whose
-	// only two writers each render the same recorded layout.
-	eventOccurredAt := maxBound(
-		pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
-		pkTimeLayoutWidthBound("internal/store/workflow.go", "appendWorkflowContractImpactNoticesTx", "time.RFC3339Nano"),
-	)
+	// advanceWorkEffectSeqTx retains the lexical maximum in
+	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
+	// workLivenessFromCounts copies it to LastProgress without reformatting.
+	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
 
 	// Step identity and workflow references are admitted through anchored
 	// regexp.MustCompile variables at definition registration; the pattern
@@ -116,7 +113,7 @@ func init() {
 	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
 	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
-	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems)
+	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 	evidenceRefBound := goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes)
@@ -149,9 +146,9 @@ func init() {
 	observationStatementGuard := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(statement)", boundCharacters)
 	observationRefsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(refs)", boundItems)
 	observationTagsCount := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "len(tags)", boundItems)
-	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Approach)", boundBytes)
-	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "len(p.Decisions)", boundItems)
-	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContentWithReference", "workflowList", "", 1, boundItems)
+	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Approach)", boundBytes)
+	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Decisions)", boundItems)
+	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "workflowList", "", 1, boundItems)
 	proposalProblemGuard := pkGuardArgBound("internal/store/workflow.go", "validateWorkflowProposalContent", "validWorkflowProseItem", "content.Problem", 1, boundCharacters)
 	proposalConstraintsCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.Constraints)", boundItems)
 	proposalUserOutcomesCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.UserOutcomes)", boundItems)
@@ -162,7 +159,7 @@ func init() {
 	// surface's declaration guard gates definition admission directly.
 	// (workflow_registry.go:463; the sibling PublicPayload refusal at :472
 	// is nil-check-conjoined and stays an honest named gap.)
-	declaredPayloadFields := goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(action.Payload.Fields)", boundItems)
+	declaredPayloadFields := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(action.Payload.Fields)", boundItems)
 
 	// The approved contract's outcome predicates: the live approve_contract
 	// write admits at most 8 through this action-input shape and the fold
@@ -288,7 +285,7 @@ func init() {
 	// Work context domain groups: one group per distinct Domain across the
 	// readings and the finding slots; the partition members ride the view
 	// bounds they partition.
-	domainGroupDefs := []string{"work_context_domain_group", "work_context_domain_group2", "work_context_domain_group3"}
+	domainGroupDefs := []string{"work_context_domain_group"}
 	for _, def := range domainGroupDefs {
 		registerOutputBound("/$defs/"+def+"/properties/domain_id/maxLength", domainIDMaxBytes)
 		registerOutputBound("/$defs/"+def+"/properties/finding_ids/maxItems", viewFindingsMax)
@@ -352,11 +349,9 @@ func init() {
 	registerOutputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength",
 		inputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength"))
 
-	// Work context view: the read parents' retained twin and the two packet
-	// variants render one shared assembly, so each row cites the same
-	// source; the unversioned view is output only through its twin. The subject
-	// commit rides the inline 40..64 lowercase-hex guard.
-	viewDefs := []string{"retained_work_context_view", "work_context_view2", "work_context_view3"}
+	// CD-0242 D14: the current packet and read twin share the same assembly.
+	// The subject commit rides the inline 40..64 lowercase-hex guard.
+	viewDefs := []string{"retained_work_context_view", "work_context_view"}
 	for _, def := range viewDefs {
 		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
 			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
@@ -371,17 +366,17 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}
 	registerOutputBound("/$defs/retained_work_context_view/properties/research_findings/maxItems", viewFindingsMax)
-	registerOutputBound("/$defs/work_context_view3/properties/research_findings/maxItems", viewFindingsMax)
+	registerOutputBound("/$defs/work_context_view/properties/research_findings/maxItems", viewFindingsMax)
 
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each
 	// element is a fixed prose format with one int64 count. last_progress
-	// rides the event timestamp format.
+	// rides the current work row's timestamp format.
 	registerOutputBound("/$defs/work_liveness/properties/evidence/items/maxLength",
 		workflowStringConstructionCharactersBound("internal/store/work_removal.go", "workLivenessFromCounts"))
 	registerOutputBound("/$defs/work_liveness/properties/evidence/maxItems",
 		workflowAppendChainItemsBound("internal/store/work_removal.go", "workLivenessFromCounts", "out.Evidence"))
-	registerOutputBound("/$defs/work_liveness/properties/last_progress/maxLength", eventOccurredAt)
+	registerOutputBound("/$defs/work_liveness/properties/last_progress/maxLength", lastProgressAt)
 
 	// Work pin.
 	registerOutputBound("/$defs/work_pin/allOf/0/then/properties/next_valid_intents/maxItems",
@@ -392,7 +387,7 @@ func init() {
 		declaredPayloadFields) // one intent's required fields are the Required subset of one action's declared payload; the sibling PublicPayload refusal (workflow_registry.go:472) sits inside a nil-check conjunction the inline verifier cannot confirm and is named in the report
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
 		workflowIntentChainItemsBound(
-			goInlineBound("internal/store/workflow_registry.go", "validateWorkflowDefinitionWithReference", "len(step.Actions)", boundItems),
+			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
 			[]string{"workPinIntents", "workPinWithoutAction", "workPinEscalatedRetryIntents"},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", baseLoopOK: true},
 			workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents"},
@@ -608,12 +603,6 @@ func init() {
 	registerOutputBound("/$defs/workflow_read/properties/unreadable_conditions/maxItems",
 		unboundedOutput("deriveWorkflowReady scans every open workflow_external_conditions row with no LIMIT (internal/store/workflow_conditions.go:21) and appends one unknown entry per condition whose authority is not a durable_operation of this work (internal/store/workflow_conditions.go:44-52), while the add_condition fold admits one condition per call with per-field byte caps only (internal/store/workflow.go:3906-3927), so the open-condition count is uncapped", readSizeRefusalPath))
 	registerOutputBound("/$defs/workflow_read/properties/unresolved_conditions/maxItems", readPageLimit)
-
-	// Retry window: the unresolved obligation identity list is hard-truncated
-	// to the window's own limit constant with the explicit omitted count
-	// (workflow_retry_window.go:109-112), so the array rides that constant.
-	registerOutputBound("/$defs/workflow_retry_window/properties/unresolved_obligations/maxItems",
-		goConstantBound("internal/store/workflow_retry_window.go", "WorkflowRetryWindowObligationLimit", boundItems))
 
 	// Self-repair: the shape validator's own constant.
 	registerOutputBound("/$defs/workflow_self_repair/properties/evidence_refs/maxItems",

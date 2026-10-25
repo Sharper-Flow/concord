@@ -98,7 +98,7 @@ type retryDispatchRecord struct {
 // including the CD-0173 escalation wall the post-rejection state arms —
 // fails the whole transaction, so the rejection commits no partial writes
 // and the rejection-only escape stays available.
-func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, intent *rejectRetryIntent) (WorkflowActionExecutionResult, retryDispatchRecord, error) {
+func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, intent *rejectRetryIntent) (WorkflowActionExecutionResult, retryDispatchRecord, error) {
 	var result WorkflowActionExecutionResult
 	var record retryDispatchRecord
 	fields, err := workflowActionObject(request.Payload)
@@ -202,19 +202,13 @@ func workflowInstanceStateTx(ctx context.Context, tx *sql.Tx, workID string) (st
 
 // workerPacketSchemaIdentity resolves the packet schema version and the
 // report protocol from the generated worker-packet contract, so the derived
-// packet reads the live published identity instead of restating it. The
-// packet2 and packet3 closures share the same schema_version and report
-// protocol, so reading the identity through the packet2 definition is
-// generation-neutral. The pinned dispatch admission owns the generation
-// closure — packet2 on the retained heads, packet3 on the research heads —
-// and the combined response returns exactly the bytes that admission
-// produced.
+// packet reads the current published format instead of restating it.
 func workerPacketSchemaIdentity() (string, string, error) {
 	doc := payloadschema.Document()
 	defs, _ := doc["$defs"].(map[string]any)
-	def, _ := defs["worker_packet2"].(map[string]any)
+	def, _ := defs["worker_packet"].(map[string]any)
 	if def == nil {
-		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no versioned worker packet definition", false, "regenerate the payload contracts")
+		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no current worker packet definition", false, "regenerate the payload contracts")
 	}
 	properties, _ := def["properties"].(map[string]any)
 	schemaVersion, err := payloadSchemaLastEnumString(properties, "schema_version")
@@ -297,6 +291,13 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 		binding["contract_version"] = contractVersionValue
 	}
 	inputs := map[string]any{"task": task, "binding": binding, "report_protocol": reportProtocol}
+	reviewInput, err := currentWorkerReviewInput(ctx, tx, workID, lane, definition)
+	if err != nil {
+		return nil, err
+	}
+	if reviewInput != nil {
+		inputs["review_input"] = reviewInput
+	}
 	if err := retryPacketWorkerJobTx(ctx, tx, definition, workID, currentStep, lane, rejectedAttempt, inputs); err != nil {
 		return nil, err
 	}
@@ -317,7 +318,7 @@ func deriveRetryWorkerPacketTx(ctx context.Context, tx *sql.Tx, definition Workf
 	}
 	packet := map[string]any{
 		"schema_version": schemaVersion, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": currentStep, "inputs": inputs,
 	}
 	return json.Marshal(packet)
@@ -375,7 +376,7 @@ func retryPacketWorkerJobTx(ctx context.Context, tx *sql.Tx, definition Workflow
 		// A size-capable implementation retry carries the same computed
 		// caller exclusions first dispatch would, so the packet binds the
 		// work's other corrections identically.
-		if lane.CapabilityClass == "implementation" && workflowJobSizeActive(definition) {
+		if lane.CapabilityClass == "implementation" && workflowCallerScopeActive(definition) {
 			exclusions, exclusionsErr := workerJobCallerExclusionsTx(ctx, tx, workID, view.Binding.JobID)
 			if exclusionsErr != nil {
 				return exclusionsErr
@@ -397,7 +398,7 @@ func retryPacketRecordsTx(ctx context.Context, tx *sql.Tx, workID string, inputs
 	} else if lawContext != nil {
 		inputs["law_context"] = lawContext
 	}
-	if design, _, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
+	if design, err := readCurrentWorkflowDesign(ctx, tx, workID); err != nil {
 		return err
 	} else if design != nil {
 		inputs["design_record"] = design
@@ -477,7 +478,7 @@ func retryPacketOutcomePredicatesTx(ctx context.Context, tx *sql.Tx, workID stri
 	for _, predicate := range predicates {
 		var payload json.RawMessage
 		if json.Unmarshal([]byte(predicate.OutcomePayload), &payload) != nil {
-			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "rebuild workflow projections from the event log")
+			return newFailure(KindInvariantViolation, "workflow_action", "the pinned contract's outcome predicate payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		decoded = append(decoded, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": payload})
 	}

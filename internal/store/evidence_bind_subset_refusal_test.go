@@ -12,18 +12,17 @@ import (
 // runBindAction submits one workflow action with an explicit top-level
 // evidence-ref list and its parallel per-entry evidence kinds, mirroring the
 // agent layer's evidenceLocators and evidenceKinds threading.
-func runBindAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, evidenceRefs []string, evidenceKinds ...string) error {
+func runBindAction(t *testing.T, s *Store, workID string, payload json.RawMessage, evidenceRefs []string, evidenceKinds ...string) error {
 	t.Helper()
-	if version == 0 {
-		version = readWorkVersion(t, s, workID)
-	}
+	const action = "bind_evidence"
+	version := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: evidenceRefs, EvidenceKinds: evidenceKinds, WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
@@ -49,7 +48,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 		thirdRef  = "ci:run/333"
 	)
 
-	err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{firstRef, secondRef, thirdRef})
+	err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{firstRef, secondRef, thirdRef})
 	if err == nil {
 		t.Fatal("bind_evidence admitted a call submitting several subjects while it can bind only one")
 	}
@@ -62,7 +61,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 	// bound or refused at bind time; nothing may be half-submitted.
 	for _, ref := range []string{secondRef, thirdRef} {
 		var bound int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref).Scan(&bound); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref).Scan(&bound); err != nil {
 			t.Fatal(err)
 		}
 		if bound != 0 {
@@ -81,7 +80,7 @@ func TestBindEvidenceRefusesArraySubjectOutsideTheReferenceRule(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 	const invalidLocator = "go test ./internal/store/ -run TestThing"
 
-	err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{invalidLocator})
+	err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{invalidLocator})
 	if err == nil {
 		t.Fatalf("bind_evidence admitted an array-derived subject the verdict cannot name: %q", invalidLocator)
 	}
@@ -100,7 +99,7 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	const subject = "ci:run/777"
 	before := readWorkVersion(t, s, workID)
 
-	if err := runBindAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification"}`), 0, []string{subject}, "verification", "review"); err != nil {
+	if err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{subject}, "verification", "review"); err != nil {
 		t.Fatalf("two-kind bind of one subject refused: %v", err)
 	}
 	if after := readWorkVersion(t, s, workID); after <= before {
@@ -108,7 +107,7 @@ func TestBindEvidenceBindsOneEventPerSubmittedKind(t *testing.T) {
 	}
 	// accept_worker_result also mints a bound event for the attempt id, so
 	// the count scopes to the subject this bind submitted.
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY seq`, workID, WorkflowEvidenceBound, subject)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? ORDER BY binding_seq`, workID, subject)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,8 @@
     "internal/store/workflow_operator.go",
     "internal/store/workflow_admission_liveness_test.go",
     "internal/store/workflow_admission_conformance_test.go",
+    "internal/store/workflow_admission_review_model_test.go",
+    "internal/store/workflow_review_conformance_test.go",
     "internal/store/workflow_approval_step_kind_test.go",
     "internal/store/workflow_correction_test.go"
   ],
@@ -34,14 +36,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b104bc5bfcf02e3f6a608f02598af3a034cdcfdeb48775cc53e7918d4e4ab477",
+  "sha256": "sha256:56653ff0f1cb6b0595a4d90866b83efec5762356f86771e5ead804825857439e",
   "status": "accepted",
-  "summary": "The liveness, well-formed-exit, and conformance checks fold every condition workflowAdmit reads over all registered definition versions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
+  "summary": "The liveness, well-formed-exit, and conformance checks derive every condition workflowAdmit reads over the registered definitions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
   "tags": [
     "workflow",
     "workflow-engine",
     "admission",
     "liveness"
   ],
-  "title": "The admission model folds every condition and three strands recover"
+  "title": "The admission model derives every condition and three strands recover"
 }

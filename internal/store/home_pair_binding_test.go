@@ -42,12 +42,12 @@ func openV51(t *testing.T, name string) *sql.DB {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	})
 	return db
@@ -66,7 +66,7 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 
 	unanchored := map[string]string{
 		"law_subjects":            `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('nope','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit')`,
-		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','supersedes','b','commit')`,
+		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','refines','b','commit')`,
 		"archived_work":           `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S','nope','l','.concord/docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `')`,
 		"knowledge_kind_coverage": `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('nope','l','HEAD','lesson','indexed','test','` + strings.Repeat("a", 40) + `')`,
 		"domains":                 `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('nope','l','prod','d','D','purpose','current','sha256:` + strings.Repeat("c", 64) + `','commit')`,
@@ -161,13 +161,13 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 	ctx := context.Background()
 	s := openTemp(t)
 	anchorHomePair(t, s, "law-project", "law-locator")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('law-project','law-locator','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,69 +175,4 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 	// and the pre-fold version check passes with expected_version 1.
 	err := s.RemoveProjectLocator(ctx, "law-project", "law-locator", 1)
 	assertFailureKind(t, err, KindProjectionConflict)
-}
-
-func TestRebuildFromLogPreservesAnchoredKnowledgeAndRebindsGuard(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	repo := t.TempDir()
-	seedEventDerivedLocator(t, s, "surviving-project", "surviving-locator", repo)
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('surviving-project','surviving-locator','CD-0002','decision','accepted','.concord/docs/decisions/CD-0002-b.md','B','sha256:`+strings.Repeat("b", 64)+`','commit')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	var surviving int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM law_subjects WHERE law_id='CD-0002'`).Scan(&surviving); err != nil || surviving != 1 {
-		t.Fatalf("law_subjects rows=%d err=%v after rebuild, want 1", surviving, err)
-	}
-	// The guard trigger is re-created after replay: an unanchored write is
-	// still refused post-rebuild.
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	_, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`)
-	if err == nil {
-		t.Fatal("unanchored law_subjects insert succeeded after rebuild")
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRebuildFromLogRefusesOrphanedKnowledgePairs(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	// The locator is seeded through SQL only: the event log holds no
-	// locator event, so replay cannot restore what knowledge references.
-	anchorHomePair(t, s, "orphan-project", "orphan-locator")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','L','2026-08-27T00:00:00Z','published','[]','completed',1,'S','orphan-project','orphan-locator','.concord/docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	err := RebuildFromLog(ctx, s)
-	assertFailureKind(t, err, KindProjectionConflict)
-
-	// The refusal rolled back: the seeded row is still present and the store
-	// is usable.
-	var remaining int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM archived_work WHERE id='w'`).Scan(&remaining); err != nil || remaining != 1 {
-		t.Fatalf("archived_work rows=%d err=%v after refused rebuild, want 1 (rollback must preserve)", remaining, err)
-	}
 }

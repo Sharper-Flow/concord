@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -68,6 +69,34 @@ func assertReleasePendingBreaking(t *testing.T, plan store.UpgradeReadiness, ver
 		if m.Version != versions[i] || !m.Breaking {
 			t.Fatalf("pending breaking migrations = %+v, want %v", plan.PendingBreaking, versions)
 		}
+	}
+}
+
+func assertAppliedMigrationTail(t *testing.T, applied []int, baseline int) {
+	t.Helper()
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "manifest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	rows, err := s.DatabaseForTesting().Query(`SELECT version FROM schema_migrations WHERE version>? ORDER BY version`, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var want []int
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, version)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(applied, want) || len(want) == 0 {
+		t.Fatalf("applied migration tail = %v, want exact manifest tail %v", applied, want)
 	}
 }
 
@@ -439,14 +468,10 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &upgrade); err != nil {
 			t.Fatal(err)
 		}
-		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != store.CurrentSchemaVersion()-compatiblePairSchema {
+		if upgrade.SchemaVersion != store.CurrentSchemaVersion() {
 			t.Fatalf("the candidate must commit the complete pending tail: %+v", upgrade)
 		}
-		for i, applied := range upgrade.Applied {
-			if applied != compatiblePairSchema+i+1 {
-				t.Fatalf("the candidate must apply every pending step in order: %+v", upgrade)
-			}
-		}
+		assertAppliedMigrationTail(t, upgrade.Applied, compatiblePairSchema)
 		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
 		if err != nil || readiness.CompatibilityFloor != floor || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
 			t.Fatalf("the committed store must require floor %d: %+v %v", floor, readiness, err)
@@ -489,8 +514,6 @@ func releaseMigrationSnapshot(t *testing.T, path string) string {
 SELECT json_array('schema',type,name,tbl_name,sql) FROM sqlite_schema
 UNION ALL
 SELECT json_array('migration',version,name,checksum,applied_at,breaking) FROM schema_migrations
-UNION ALL
-SELECT json_array('events',count(*),max(seq)) FROM domain_events
 ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
@@ -507,6 +530,66 @@ ORDER BY 1`)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Fingerprint every actual table on either side of the floor. This is one
+	// schema-independent no-write observer, not an old/new query fallback.
+	tables, err := db.Query(`SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for tables.Next() {
+		var name string
+		if err := tables.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	if err := tables.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tables.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		quoted := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+		probe, err := db.Query(`SELECT * FROM ` + quoted + ` LIMIT 0`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns, err := probe.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := probe.Err(); err != nil {
+			t.Fatal(err)
+		}
+		for i, column := range columns {
+			columns[i] = `quote("` + strings.ReplaceAll(column, `"`, `""`) + `")`
+		}
+		data, err := db.Query(`SELECT json_array(` + strings.Join(columns, ",") + `) FROM ` + quoted + ` ORDER BY 1`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for data.Next() {
+			var row string
+			if err := data.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			snapshot.WriteString(name + ":" + row + "\n")
+		}
+		if err := data.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := data.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return snapshot.String()
 }
@@ -597,14 +680,10 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("the current upgrade report is not JSON: %v: %s", err, out)
 	}
-	if report.SchemaVersion != store.CurrentSchemaVersion() || len(report.Applied) != store.CurrentSchemaVersion()-releasedPairSchema {
+	if report.SchemaVersion != store.CurrentSchemaVersion() {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	for i, applied := range report.Applied {
-		if applied != releasedPairSchema+i+1 {
-			t.Fatalf("the confirmed upgrade must apply every pending step in order: %+v", report)
-		}
-	}
+	assertAppliedMigrationTail(t, report.Applied, releasedPairSchema)
 	floor := breaking[len(breaking)-1]
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != floor || len(after.PendingBreaking) != 0 {
@@ -640,21 +719,24 @@ const cutoverBaselineTag = "v13.4.0"
 const cutoverBaselineSchema = 122
 
 // cutoverEvidenceQueries fingerprints the living evidence a cutover must
-// carry across the breaking floor: the original event log with its actors,
-// the active research consumer, the claimed worktree with its live session
+// carry across the breaking floor: the active research consumer, the claimed
+// worktree with its live session
 // landing, and the completed retained worker report. Every query names only
 // columns that exist identically at the baseline and candidate schemas.
 var cutoverEvidenceQueries = []struct {
 	name  string
 	query string
 }{
-	{"domain_events", `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`},
 	{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
 	{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
 	{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
 	{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
 	{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
-	{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
+	{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
+	{"durable_knowledge", `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work ORDER BY home_project_id,home_locator_id,id`},
+	{"durable_knowledge_products", `SELECT home_project_id,home_locator_id,work_id,product_id FROM archived_work_products ORDER BY home_project_id,home_locator_id,work_id,product_id`},
+	{"durable_knowledge_projects", `SELECT home_project_id,home_locator_id,work_id,project_id FROM archived_work_projects ORDER BY home_project_id,home_locator_id,work_id,project_id`},
+	{"product_knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 }
 
 // mustOpenCutoverStore opens the store file directly, without either core's
@@ -705,6 +787,65 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 		}
 		_ = rows.Close()
 		captured[evidence.name] = population
+	}
+	return captured
+}
+
+// Baseline receipts are the exact identities migration 145 must derive from
+// the real released log. Only worker payloads remain retained after 151.
+func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
+	t.Helper()
+	captured := captureCutoverEvidence(t, db)
+	rows, err := db.Query(`SELECT seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload FROM domain_events ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int64
+		var version int
+		var id, kind, subjectType, subjectID, actor string
+		var payload []byte
+		if err := rows.Scan(&seq, &id, &kind, &subjectType, &subjectID, &actor, &version, &payload); err != nil {
+			t.Fatal(err)
+		}
+		captured["effect_receipts"] = append(captured["effect_receipts"], mustJSON(t, []any{seq, id, kind, subjectType, subjectID, actor, version, cliPayloadDigest(t, payload)}))
+		if kind == store.WorkerDispatched || kind == store.WorkerCompleted || kind == store.WorkerFailed {
+			captured["worker_payloads"] = append(captured["worker_payloads"], mustJSON(t, []any{id, string(payload)}))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return captured
+}
+
+func captureCurrentCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
+	t.Helper()
+	captured := captureCutoverEvidence(t, db)
+	for _, query := range []struct{ name, sql string }{
+		{"effect_receipts", `SELECT json_array(effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts ORDER BY effect_seq`},
+		{"worker_payloads", `SELECT json_array(event_id,payload) FROM (
+SELECT r.effect_seq,r.event_id,CAST(a.dispatch_payload AS TEXT) AS payload FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.dispatch_event_id=r.event_id AND a.dispatch_seq=r.effect_seq AND a.dispatch_payload_version=r.payload_version AND a.dispatch_actor=r.actor WHERE r.kind='worker.dispatched'
+UNION ALL SELECT r.effect_seq,r.event_id,CAST(a.terminal_payload AS TEXT) FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND a.terminal_event_id=r.event_id AND a.terminal_seq=r.effect_seq AND a.terminal_payload_version=r.payload_version AND a.terminal_kind=r.kind WHERE r.kind IN ('worker.completed','worker.failed')) ORDER BY effect_seq`},
+	} {
+		rows, err := db.Query(query.sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Fatal(err)
+			}
+			captured[query.name] = append(captured[query.name], row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return captured
 }
@@ -911,9 +1052,43 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	session := startAdapterSessionOperation(t, baselineAdapter, path, "/srv/cutover-baseline-session")
 	sessionPID := session.command.Process.Pid
 	seedCutoverLivingEvidence(t, path, sessionPID)
-	want := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["domain_events"]) != 13 {
-		t.Fatalf("seeded event log = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, and completion", len(want["domain_events"]))
+	code, out, errText = runRelease(t, baselineBinary, path, "project-locator-add", mustJSON(t, map[string]any{
+		"project_id": "project", "locator_id": "cutover-knowledge", "kind": "canonical_path", "value": t.TempDir(), "expected_version": 1,
+	}))
+	if code != 0 {
+		t.Fatalf("register baseline knowledge locator: %d %s %s", code, out, errText)
+	}
+	code, out, errText = runRelease(t, baselineBinary, path, "product-knowledge-home-designate", `{"product_id":"cutover-product","project_id":"project","locator_id":"cutover-knowledge","expected_version":2}`)
+	if code != 0 {
+		t.Fatalf("designate baseline Product knowledge home: %d %s %s", code, out, errText)
+	}
+	// Seed the released index's durable lesson and explicit Product scope
+	// before cutover, not by reconstructing knowledge in the migrated store.
+	knowledgeTx, err := mustOpenCutoverStore(t, path).Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer knowledgeTx.Rollback()
+	if _, err := knowledgeTx.Exec(`
+INSERT INTO fold_guard(active) VALUES(1);
+INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+VALUES('lesson-cutover','lesson','Preserve required research pins','2026-10-12T00:00:00Z','published','["cutover"]','completed',0,'A new research revision must not move an existing required consumer pin.','project','cutover-knowledge','.concord/docs/lessons/cutover.md','1f2e3d4c5b6a79887766554433221100ffeeddccb','sha256:` + strings.Repeat("a", 64) + `','explicit','1.0');
+INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id)
+VALUES('project','cutover-knowledge','lesson-cutover','cutover-product');
+INSERT INTO archived_work_projects(home_project_id,home_locator_id,work_id,project_id)
+VALUES('project','cutover-knowledge','lesson-cutover','project');
+DELETE FROM fold_guard;`); err != nil {
+		t.Fatalf("seed baseline durable Product knowledge: %v", err)
+	}
+	if err := knowledgeTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	want := captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, path))
+	if len(want["durable_knowledge"]) != 1 || len(want["durable_knowledge_products"]) != 1 || len(want["durable_knowledge_projects"]) != 1 || len(want["product_knowledge_homes"]) != 1 {
+		t.Fatalf("baseline must carry one durable lesson with Product and Project scope: %+v", want)
+	}
+	if len(want["effect_receipts"]) != 15 {
+		t.Fatalf("seeded identities = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, completion, Project locator, and Product knowledge home", len(want["effect_receipts"]))
 	}
 	if len(want["active_research_consumers"]) != 1 ||
 		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {
@@ -925,12 +1100,12 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if len(want["worker_attempts"]) != 1 || !strings.Contains(want["worker_attempts"][0], "\x1fcompleted\x1f") {
 		t.Fatalf("seeded worker attempts = %v, want the one completed retained report", want["worker_attempts"])
 	}
-	assertPreserved := func(t *testing.T) {
+	assertPreserved := func(t *testing.T, capture func(*testing.T, *sql.DB) map[string][]string) {
 		t.Helper()
-		got := captureCutoverEvidence(t, mustOpenCutoverStore(t, path))
-		for _, evidence := range cutoverEvidenceQueries {
-			if strings.Join(got[evidence.name], "\x1e") != strings.Join(want[evidence.name], "\x1e") {
-				t.Fatalf("%s evidence =\n%s\nwant\n%s", evidence.name, strings.Join(got[evidence.name], "\n"), strings.Join(want[evidence.name], "\n"))
+		got := capture(t, mustOpenCutoverStore(t, path))
+		for name, expected := range want {
+			if strings.Join(got[name], "\x1e") != strings.Join(expected, "\x1e") {
+				t.Fatalf("%s evidence =\n%s\nwant\n%s", name, strings.Join(got[name], "\n"), strings.Join(expected, "\n"))
 			}
 		}
 	}
@@ -946,7 +1121,7 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
 			t.Fatalf("a refused upgrade must close the boundary it opened: %+v %v", fence, err)
 		}
-		assertPreserved(t)
+		assertPreserved(t, captureBaselineCutoverEvidence)
 	}
 
 	// The unstamped baseline tree refuses first, and the refusal names the
@@ -1025,14 +1200,10 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("the confirmed upgrade report is not JSON: %v: %s", err, out)
 	}
-	if report.SchemaVersion != candidateSchema || len(report.Applied) != candidateSchema-cutoverBaselineSchema {
+	if report.SchemaVersion != candidateSchema {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	for i, applied := range report.Applied {
-		if applied != cutoverBaselineSchema+i+1 {
-			t.Fatalf("the confirmed upgrade must apply every pending step in order: %+v", report)
-		}
-	}
+	assertAppliedMigrationTail(t, report.Applied, cutoverBaselineSchema)
 	for _, pending := range breaking {
 		found := false
 		for _, applied := range report.Applied {
@@ -1055,8 +1226,8 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if err != nil {
 		t.Fatalf("the pre-migration snapshot must verify at the baseline schema: %v", err)
 	}
-	if verified.SchemaVersion != cutoverBaselineSchema || verified.EventWatermark != int64(len(want["domain_events"])) {
-		t.Fatalf("the verified snapshot = %+v, want the baseline schema and the seeded event watermark %d", verified, len(want["domain_events"]))
+	if verified.SchemaVersion != cutoverBaselineSchema || verified.EventWatermark != 0 {
+		t.Fatalf("the verified snapshot = %+v, want the baseline schema and zero pre-revision inventory", verified)
 	}
 
 	// The migrated store requires the manifest-derived floor, keeps the
@@ -1074,7 +1245,7 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if !cutoverPlanningProjectionsAbsent(t, path, "initiative_entries", "linear_outbox") {
 		t.Fatal("the retired planning projections must be absent after the migration")
 	}
-	assertPreserved(t)
+	assertPreserved(t, captureCurrentCutoverEvidence)
 
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	// The candidate operates the migrated store with no further migration.
@@ -1100,7 +1271,71 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if after := releaseMigrationSnapshot(t, path); after != upgradedSnapshot {
 		t.Fatal("the baseline core's floor refusal changed the migrated store")
 	}
-	assertPreserved(t)
+	assertPreserved(t, captureCurrentCutoverEvidence)
+
+	// Continue the surviving owner's actual research through the current
+	// transactional API. A successful upgrade no-op alone proves no authoring.
+	ctx := context.Background()
+	current, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	assertActiveWithoutLog := func() {
+		t.Helper()
+		var logs, active int
+		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logs); err != nil {
+			t.Fatal(err)
+		}
+		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id IN ('cutover-owner','cutover-consumer') AND lifecycle='in_progress'`).Scan(&active); err != nil {
+			t.Fatal(err)
+		}
+		if logs != 0 || active != 2 {
+			t.Fatalf("continued work requires both surviving active items and no domain_events: logs=%d active=%d", logs, active)
+		}
+	}
+	assertActiveWithoutLog()
+	const continuedQuestion = "Can the surviving research owner publish a new revision without moving its required consumer?"
+	if err := current.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{
+			PackID: "pack-cutover-living", ExpectedVersion: 1,
+			Revision: store.ResearchRevisionInput{
+				Question: continuedQuestion, Method: "compare the new revision with the retained required consumer pin",
+				ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`),
+			},
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("surviving active research must remain authorable without the log: %v", err)
+	}
+	if err := current.Close(); err != nil {
+		t.Fatal(err)
+	}
+	current, err = store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	continued, err := current.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: "pack-cutover-living", Limit: 100})
+	if err != nil {
+		t.Fatalf("read continued research after reopen: %v", err)
+	}
+	if continued.OwnerWorkID != "cutover-owner" || continued.CurrentRevision != 2 || continued.ExpectedVersion != 2 ||
+		len(continued.Revisions) != 2 || continued.Revisions[0].Question != "does the cutover preserve living evidence?" || continued.Revisions[1].Question != continuedQuestion ||
+		len(continued.Consumers) != 1 || continued.Consumers[0].ConsumerWorkID != "cutover-consumer" || continued.Consumers[0].Revision != 1 || !continued.Consumers[0].Required {
+		t.Fatalf("continued research must persist its new revision and retain the original required consumer pin: %+v", continued)
+	}
+	assertActiveWithoutLog()
+	afterContinuation := captureCurrentCutoverEvidence(t, current.DatabaseForTesting())
+	for name, expected := range want {
+		if name == "active_research_packs" || name == "active_research_revisions" {
+			continue // Only the owner's research revision and pack version advance.
+		}
+		got := afterContinuation[name]
+		if !reflect.DeepEqual(got, expected) {
+			t.Fatalf("continued work changed retained %s: got %v, want %v", name, got, expected)
+		}
+	}
 }
 
 // stampAdapterRuntime copies one source tree's adapter runtime into a

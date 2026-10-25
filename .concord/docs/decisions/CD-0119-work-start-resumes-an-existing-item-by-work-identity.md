@@ -8,15 +8,9 @@
 - **Approval:** The operator approved the contract in session on 2026-09-06
   (Concord work `work-daa4c53e214c07b611364073`), choosing the
   `concord_work_start` resume shape over a `worktree_enter` operation. The
-  operator amended D3 in session on 2026-09-08 (observation
-  `obs:a61be78c4a8ddee1`): the read derives the target before the origin
-  gate, so a dirty same-target resume converges instead of refusing. The
-  operator amended D1-D2 in the approved bootstrap-first plan: an eligible
-  existing item without an active worktree starts through the durable
-  host-owned bootstrap under its original work identity.
+  operator approved D3 in session on 2026-09-08 (observation
+  `obs:a61be78c4a8ddee1`) and D1-D2 in the bootstrap-first plan.
 - **Related:** CD-0096, CD-0098, CD-0104, CD-0110, issues #891, #822
-- **Amends:** CD-0098 D1 at its capture-only clause; CD-0104 D3 at its
-  digest-keyed clause
 - **Preserves:** CD-0096 D2 (identity over input), CD-0098 D2 and D3 (the move
   route and its read-back), CD-0104 D1 and D5 (no stored session binding; no
   occupancy refusal)
@@ -123,8 +117,8 @@ Scenario: Occupancy never refuses the move
 
 - The CD-0104 D5 clause has a reachable implementation for an item captured
   by any session, by intake, or with a lost idempotency key.
-- `session-prepare` no longer requires a task, so its prompt omits the task
-  line for a resume.
+- A resume supplies no task; `session-prepare` omits the task line when none
+  is supplied.
 - The published model-facing view of `concord_work_start` carries no required
   field; callers read the manifest or the refusal to learn the two shapes.
 - The `work-resume` read joins `work-bootstrap` as a host-consumed CLI verb;

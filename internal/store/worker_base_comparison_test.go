@@ -23,7 +23,7 @@ func baseComparisonFixture() *WorkerBaseComparison {
 func baseComparisonCompleteEvent(workID, eventID, attemptID string, lane LaneDefinition, comparison *WorkerBaseComparison, directory string) Event {
 	evidence := laneCoveringEvidence(lane)
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: WorkerEvidenceReported, BaseComparison: comparison}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // A completion may carry the optional base_comparison object; it folds like
@@ -50,7 +50,7 @@ func TestWorkerCompletionCarriesBaseComparisonDurably(t *testing.T) {
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "base-comparison-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "base-comparison-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -94,7 +94,7 @@ func TestWorkerCompletionAdmitsBaseComparisonSchemaBounds(t *testing.T) {
 				t.Fatalf("completion at the schema bound was refused: %v", err)
 			}
 			var stored []byte
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "base-comparison-bound-complete").Scan(&stored); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "base-comparison-bound-complete", WorkerCompleted).Scan(&stored); err != nil {
 				t.Fatal(err)
 			}
 			var durable WorkerCompletedPayload
@@ -136,6 +136,7 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "base-comparison-shape-attempt"
+			seedWork(t, s, "base-comparison-shape")
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
@@ -157,9 +158,7 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 	}
 }
 
-// A completion without the optional object folds exactly as before, and a
-// stored v1 completion upcasts to a payload that carries no comparison — no
-// shape change reaches payloads that predate the field.
+// A current completion may omit the optional comparison object.
 func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -174,22 +173,10 @@ func TestWorkerCompletionWithoutBaseComparisonIsUnchanged(t *testing.T) {
 		t.Fatalf("completion without base_comparison was refused: %v", err)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "no-comparison-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=? AND terminal_kind=?`, "no-comparison-complete", WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(stored), "base_comparison") {
 		t.Fatalf("payload without a comparison carries the field anyway: %s", stored)
-	}
-	legacy := workerCompleteEvent("no-comparison-legacy", "no-comparison-legacy-complete", attemptID, preferredModelForLane(lane), "")
-	upcast, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)
-	}
-	var upcastPayload WorkerCompletedPayload
-	if err := json.Unmarshal(upcast.Payload, &upcastPayload); err != nil {
-		t.Fatal(err)
-	}
-	if upcastPayload.BaseComparison != nil {
-		t.Fatalf("upcast payload carries base_comparison %+v, want none", upcastPayload.BaseComparison)
 	}
 }

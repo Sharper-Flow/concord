@@ -92,7 +92,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 		t.Setenv(dbOverrideEnv, dbPath)
 		t.Chdir(result.Entry.Path)
 		var before int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&before); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&before); err != nil {
 			t.Fatal(err)
 		}
 		eventID := "neighbor-prepare-identity-1"
@@ -123,7 +123,7 @@ func prepareSessionPrepareNeighborRow(ctx context.Context) func(t *testing.T) cl
 		verify := func() {
 			assertCommittedEventOnce(t, s, eventID)
 			var total int
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&total); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&total); err != nil {
 				t.Fatal(err)
 			}
 			if total != before+1 {
@@ -160,6 +160,9 @@ func prepareWorkerEvidenceNeighborRow(ctx context.Context, verb string) func(t *
 			seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 		}
 		request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-neighbor-"+strings.TrimPrefix(verb, "worker-")+"-01")
+		if verb == agent.WorkerEvidenceVerbFail {
+			assertion = wFailureObservation(t, request, assertion, attributionWorkerReportObservation())
+		}
 		request["assertion"] = signWorkerEvidence(t, key, assertion)
 		run := func() error {
 			var out, errOut bytes.Buffer
@@ -252,15 +255,49 @@ func preparePredecessorImportNeighborRow(ctx context.Context) func(t *testing.T)
 }
 
 // assertCommittedEventOnce proves the identity the command acknowledged is
-// exactly one committed event: the durable commit landed and no duplicate
-// landed with it.
+// exactly one committed receipt with a unique effect position and its owning
+// current identity. Payload retention is checked only for the worker kinds.
 func assertCommittedEventOnce(t *testing.T, s *store.Store, eventID string) {
 	t.Helper()
 	var committed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&committed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, eventID).Scan(&committed); err != nil {
 		t.Fatal(err)
 	}
 	if committed != 1 {
 		t.Fatalf("event %q committed %d times, want 1", eventID, committed)
+	}
+	var kind, subjectType, subjectID, actor, digest string
+	var seq int64
+	var version int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,subject_type,subject_id,actor,payload_version,payload_digest,effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&kind, &subjectType, &subjectID, &actor, &version, &digest, &seq); err != nil {
+		t.Fatal(err)
+	}
+	if kind == "" || subjectID == "" || actor == "" || version <= 0 || seq <= 0 || len(digest) != 71 || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("incomplete committed receipt %q: %s/%s/%s actor=%q version=%d digest=%q seq=%d", eventID, kind, subjectType, subjectID, actor, version, digest, seq)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE effect_seq=?`, seq).Scan(&committed); err != nil || committed != 1 {
+		t.Fatalf("effect position %d is not unique: count=%d err=%v", seq, committed, err)
+	}
+	switch kind {
+	case store.WorkerDispatched:
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND dispatch_event_id=? AND dispatch_seq=? AND dispatch_actor=? AND dispatch_payload_version=? AND length(dispatch_payload)>0`, subjectID, eventID, seq, actor, version).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
+			t.Fatalf("dispatch receipt has no exact current identity: count=%d err=%v", committed, err)
+		}
+		storedWorkerEventRow(t, s.Path(), eventID)
+	case store.WorkerCompleted, store.WorkerFailed:
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND terminal_event_id=? AND terminal_seq=? AND terminal_kind=? AND terminal_payload_version=? AND length(terminal_payload)>0`, subjectID, eventID, seq, kind, version).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
+			t.Fatalf("terminal receipt has no exact current identity: count=%d err=%v", committed, err)
+		}
+		storedWorkerEventRow(t, s.Path(), eventID)
+	case "work.created":
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id=?`, subjectID).Scan(&committed); err != nil || committed != 1 || subjectType != "work_item" {
+			t.Fatalf("creation receipt has no current work: count=%d err=%v", committed, err)
+		}
+	case store.EventSessionOrchestratorIdentityAsserted:
+		if subjectType != "session" {
+			t.Fatalf("session receipt subject type=%q", subjectType)
+		}
+	default:
+		t.Fatalf("unhandled committed identity kind %q", kind)
 	}
 }

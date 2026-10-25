@@ -24,6 +24,9 @@ func (s *Store) ReadWorkItemSummary(ctx context.Context, workID string) (WorkIte
 }
 
 func readWorkItemSummary(ctx context.Context, q queryer, workID string) (WorkItemSummary, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, workID, "read_work_item_summary"); err != nil {
+		return WorkItemSummary{}, err
+	}
 	var summary WorkItemSummary
 	err := q.QueryRowContext(ctx, `SELECT kind, title, narrative FROM work_items WHERE id=?`, workID).Scan(&summary.Kind, &summary.Title, &summary.Narrative)
 	if err == sql.ErrNoRows {
@@ -33,23 +36,6 @@ func readWorkItemSummary(ctx context.Context, q queryer, workID string) (WorkIte
 		return WorkItemSummary{}, wrapFailure(KindUnavailable, "read_work_item_summary", "cannot read work item summary", true, "retry once the database is readable", err)
 	}
 	return summary, nil
-}
-
-// DomainEventWatermark returns the current append-only event sequence. The
-// COALESCE keeps an empty authority deterministic at zero.
-func (s *Store) DomainEventWatermark(ctx context.Context) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, newFailure(KindUnavailable, "domain_event_watermark", "database is not open", true, "open the authority database")
-	}
-	return domainEventWatermark(ctx, s.db)
-}
-
-func domainEventWatermark(ctx context.Context, q queryer) (int64, error) {
-	var watermark int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(max(seq),0) FROM domain_events`).Scan(&watermark); err != nil {
-		return 0, wrapFailure(KindUnavailable, "domain_event_watermark", "cannot read the domain-event watermark", true, "retry once the database is readable", err)
-	}
-	return watermark, nil
 }
 
 // KnowledgeIndexWatermark returns the latest indexed commit for a home

@@ -2,17 +2,13 @@ package store
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 )
 
-// The approval classification owner is one pure policy reader over a verified
-// definition, the action, declared decision domains, and typed consequence
-// facts. The discriminator approval_policy=consequence_v1 is definition-owned:
-// absence selects the released legacy policy, unknown values refuse, and no
-// registered current definition carries the new value, so current authoring is
-// unchanged.
+// The pure policy reader classifies declared decision domains and typed
+// consequences. Synthetic definitions witness the absent-policy contract;
+// current Product families carry consequence_v1.
 
 // approvalPolicyDefinition builds a minimal definition value for the pure
 // reader: the registry owns full definition validation, the reader owns policy
@@ -23,7 +19,7 @@ func approvalPolicyDefinition(policy string, actions ...string) WorkflowDefiniti
 		definitions = append(definitions, WorkflowActionDefinition{ID: id, Consequence: ActionInternalSQLite, Approval: ActionApprovalNone})
 	}
 	changes := false
-	return WorkflowDefinition{Ref: "workflow.approval_policy_fixture", Version: 1, WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &changes, ApprovalPolicy: policy, AvailableActions: actions, ActionDefinitions: definitions}
+	return WorkflowDefinition{Ref: "workflow.approval_policy_fixture", WorkKind: WorkKindStaticAnalysis, ChangesProductTruth: &changes, ApprovalPolicy: policy, AvailableActions: actions, ActionDefinitions: definitions}
 }
 
 // canonicalDecisionDomainSets enumerates all eight canonical decision-domain
@@ -64,7 +60,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 				}
 			}
 		}
-		legacy := legacyApprovalPolicyHeads(t)[0]
+		legacy := approvalPolicyDefinition("", "record_verdict", "complete", "request_correction", "confirm_premise", "dispatch_worker", "approve_contract")
 		overrides := map[string]WorkflowApprovalConsent{}
 		for _, action := range legacy.ActionDefinitions {
 			result, err := ClassifyWorkflowApproval(legacy, action.ID, WorkflowApprovalFacts{OperatorRequired: true})
@@ -85,13 +81,6 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 			if declared != WorkflowApprovalConsent(legacyActionApproval(t, legacy, actionID)) {
 				t.Errorf("legacy operator-required override moved undeclared-gate action %s to %q, want its declared metadata", actionID, declared)
 			}
-		}
-		retry, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
-		if err != nil {
-			t.Fatalf("legacy failed-retry classification refused: %v", err)
-		}
-		if retry.Consent != WorkflowConsentRequired {
-			t.Fatalf("legacy failed-retry-below-wall consent = %q, want required", retry.Consent)
 		}
 		plain, err := ClassifyWorkflowApproval(legacy, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
@@ -256,41 +245,33 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if engineeringConfirmation.Class != WorkflowApprovalClassDecision || engineeringConfirmation.Consent != WorkflowConsentNone {
 			t.Fatalf("operator-required engineering confirmation classified %s/%s, want decision/none", engineeringConfirmation.Class, engineeringConfirmation.Consent)
 		}
-		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{FailedRetryBelowWall: true})
+		retry, err := ClassifyWorkflowApproval(definition, "dispatch_worker", WorkflowApprovalFacts{})
 		if err != nil {
 			t.Fatalf("new-policy failed-retry classification refused: %v", err)
 		}
 		if retry.Class != WorkflowApprovalClassRoutine || retry.Consent != WorkflowConsentNone {
-			t.Fatalf("new-policy failed retry classified %s/%s, want routine/none with binding revalidation", retry.Class, retry.Consent)
+			t.Fatalf("new-policy dispatch classified %s/%s, want routine/none", retry.Class, retry.Consent)
 		}
 	})
 
-	t.Run("engineering consequence generations retain their declared policy", func(t *testing.T) {
+	t.Run("engineering definitions retain their declared policy", func(t *testing.T) {
 		t.Parallel()
-		generations := map[string][]int64{
-			"workflow.implementation": {34, 35, 36, 37},
-			"workflow.break_fix":      {31, 32, 33, 34},
-			"workflow.research":       {21, 22},
-		}
-		live := map[string]int64{}
+		live := map[string]bool{}
 		for _, head := range BuiltinWorkflowDefinitions() {
-			live[head.Ref] = head.Version
+			live[head.Ref] = true
 		}
 		for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
 			if _, ok := live[ref]; !ok {
 				t.Fatalf("%s is not a live authoring head", ref)
 			}
-			if !slices.Contains(generations[ref], live[ref]) {
-				t.Fatalf("%s v%d is not a declared consequence generation", ref, live[ref])
-			}
 		}
-		for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		for _, definition := range BuiltinWorkflowDefinitions() {
 			want := ""
-			if slices.Contains(generations[definition.Ref], definition.Version) {
+			if definition.Ref == "workflow.implementation" || definition.Ref == "workflow.break_fix" || definition.Ref == "workflow.research" {
 				want = WorkflowApprovalPolicyConsequenceV1
 			}
 			if definition.ApprovalPolicy != want {
-				t.Errorf("registered %s v%d carries approval policy %q, want %q", definition.Ref, definition.Version, definition.ApprovalPolicy, want)
+				t.Errorf("registered %s carries approval policy %q, want %q", definition.Ref, definition.ApprovalPolicy, want)
 			}
 		}
 	})
@@ -334,7 +315,7 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 		if registered.Digest != declaredDigest {
 			t.Fatalf("registered digest = %s, want %s", registered.Digest, declaredDigest)
 		}
-		if err := registry.Verify(declared.Ref, declared.Version, declaredDigest); err != nil {
+		if err := registry.Verify(declared.Ref, declaredDigest); err != nil {
 			t.Fatalf("declared digest did not verify: %v", err)
 		}
 		encoded, err := json.Marshal(declared)
@@ -354,18 +335,14 @@ func TestWorkflowApprovalPolicy(t *testing.T) {
 // newest version that answers consent under the released legacy policy.
 func legacyApprovalPolicyHeads(t *testing.T) []WorkflowDefinition {
 	t.Helper()
-	var heads []WorkflowDefinition
-	for _, head := range BuiltinWorkflowDefinitions() {
-		heads = append(heads, legacyApprovalPolicyDefinitionForRef(t, head.Ref).Definition)
-	}
-	return heads
+	return []WorkflowDefinition{workflowFixtureDefinition(t, 1).Definition, workflowFixtureDefinition(t, 2).Definition}
 }
 
 func headDigestForTest(t *testing.T, definition WorkflowDefinition) string {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+	registered, ok := BuiltinWorkflowRegistry().Current(definition.Ref)
 	if !ok {
-		t.Fatalf("builtin head %s v%d is not registered", definition.Ref, definition.Version)
+		t.Fatalf("builtin head %s is not registered", definition.Ref)
 	}
 	return registered.Digest
 }

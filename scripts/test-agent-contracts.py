@@ -17,6 +17,342 @@ packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").re
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
+# CD-0218 D1/D2 absence witnesses, not a production action catalog.
+RETIRED_PUBLISHED_ACTIONS = {
+    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
+    "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
+    "cleanup_run", "declare_scope", "discard_poc", "frame_question", "record_decision",
+    "record_health", "record_option", "record_research", "resolve_condition", "rollback_run",
+    "run_analysis", "start_action", "start_poc", "start_run", "record_reproduction",
+    "record_root_cause", "start_repair", "start_refine", "record_worker_failure", "record_discovery",
+}
+
+
+class IndependentPartIntegrationTests(unittest.TestCase):
+    """Exercise composition identity and real regeneration on disposable source bytes."""
+
+    PROBE = r'''
+package main
+
+import (
+    "encoding/json"
+    "errors"
+    "os"
+
+    "github.com/sharper-flow/concord/internal/store"
+)
+
+func must(err error) {
+    if err != nil { panic(err) }
+}
+
+func main() {
+    previous := map[string][]string{}
+    must(json.NewDecoder(os.Stdin).Decode(&previous))
+    registry := store.NewWorkflowDefinitionRegistry()
+    result := map[string]any{}
+    for _, definition := range store.BuiltinWorkflowDefinitions() {
+        registered, err := registry.Register(definition)
+        must(err)
+        current, ok := registry.Current(definition.Ref)
+        if !ok { panic("current definition missing") }
+        digest, err := store.WorkflowDefinitionDigest(current.Definition)
+        must(err)
+        if digest != current.Digest || digest != registered.Digest {
+            panic("current definition digest differs from registered content")
+        }
+        must(registry.Verify(definition.Ref, digest))
+        canonical, err := store.CanonicalWorkflowDefinition(current.Definition)
+        must(err)
+        rejected := []string{}
+        for _, old := range previous[definition.Ref] {
+            if old == digest {
+                must(registry.Verify(definition.Ref, old))
+                continue
+            }
+            var failure *store.Failure
+            err := registry.Verify(definition.Ref, old)
+            if !errors.As(err, &failure) || failure.Kind != store.KindDefinitionDigestMismatch {
+                panic("old definition digest did not receive a typed mismatch refusal")
+            }
+            rejected = append(rejected, old)
+        }
+        result[definition.Ref] = map[string]any{
+            "digest": digest, "manifest": json.RawMessage(canonical), "rejected": rejected,
+        }
+    }
+    must(json.NewEncoder(os.Stdout).Encode(result))
+}
+'''
+
+    def _run(self, root, *argv, input=None, show=True):
+        # The proof uses cached dependencies only, never an install or network fetch.
+        result = subprocess.run(
+            argv, cwd=root, input=input, text=True, capture_output=True,
+            timeout=240, env=os.environ | {"GOPROXY": "off", "GOSUMDB": "off"},
+        )
+        if show or result.returncode:
+            print(f"$ {' '.join(map(str, argv))}\n{result.stdout}{result.stderr}", flush=True)
+        self.assertEqual(result.returncode, 0, f"command failed: {argv}")
+        return result.stdout
+
+    def _assert_no_content_counters(self, root):
+        for filename, names in (
+            ("workflow_parts.go", ("WorkflowPart", "WorkflowPartUse")),
+            ("workflow_composition.go", ("WorkflowComposition",)),
+        ):
+            source = (root / "internal/store" / filename).read_text()
+            for name in names:
+                body = re.search(rf"type {name} struct \{{(.*?)\n\}}", source, re.S)
+                self.assertIsNotNone(body, f"missing {name} declaration")
+                self.assertNotRegex(body[1], r"(?m)^\s*Version\s+", f"retained {name}.Version content counter")
+            self.assertNotIn("ActionCatalogVersion", source, "retained action catalog content counter")
+
+    def test_independent_part_edits_merge_and_regenerate_without_version_edits(self):
+        self._assert_no_content_counters(ROOT)
+        with tempfile.TemporaryDirectory(prefix="concord-part-integration-") as temporary:
+            scratch = Path(temporary)
+            root = scratch / "source"
+            root.mkdir()
+            tracked = self._run(ROOT, "git", "ls-files", "-z", show=False).split("\0")
+            excluded = {".git", "node_modules", "__pycache__", ".ruff_cache", "build", "dist"}
+            for relative in filter(None, tracked):
+                path = Path(relative)
+                self.assertFalse(path.is_absolute() or ".." in path.parts)
+                if excluded.intersection(path.parts):
+                    continue
+                source = ROOT / path
+                self.assertFalse(source.is_symlink(), f"tracked source symlink: {relative}")
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+            self.assertFalse((root / ".git").exists())
+
+            parts = root / "internal/store/workflow_parts.go"
+            base = parts.read_text()
+            # Reorder existing actions in distant, disjoint parts, not shared counters.
+            edits = (
+                ('"record_alignment", "record_work_context"', '"record_work_context", "record_alignment"'),
+                ('"record_report", "link_successor"', '"link_successor", "record_report"'),
+            )
+            copies = []
+            for name, source in (("base", base), ("left", base.replace(*edits[0])), ("right", base.replace(*edits[1]))):
+                path = scratch / f"{name}.go"
+                path.write_text(source)
+                copies.append(path)
+            for old, new in edits:
+                self.assertEqual(base.count(old), 1)
+                self.assertNotIn(new, base)
+            merged = self._run(scratch, "git", "merge-file", "-p", str(copies[1]), str(copies[0]), str(copies[2]), show=False)
+            self.assertEqual(merged, base.replace(*edits[0]).replace(*edits[1]))
+            for old, new in edits:
+                self.assertNotIn(old, merged)
+                self.assertEqual(merged.count(new), 1)
+
+            probe = root / "scripts/part-integration-probe/main.go"
+            probe.parent.mkdir()
+            probe.write_text(self.PROBE)
+            states = {}
+            previous = {}
+            for name, source in (("base", base), ("left", copies[1].read_text()), ("right", copies[2].read_text()), ("merged", merged)):
+                parts.write_text(source)
+                self._assert_no_content_counters(root)
+                states[name] = json.loads(self._run(root, "go", "run", "./scripts/part-integration-probe", input=json.dumps(previous), show=False))
+                self.assertEqual(set(states[name]), {"workflow.implementation", "workflow.break_fix", "workflow.research"})
+                for ref, row in states[name].items():
+                    self.assertRegex(row["digest"], r"^sha256:[0-9a-f]{64}$")
+                    self.assertNotIn("version", row["manifest"])
+                    self.assertIn("capabilities", row["manifest"])
+                    self.assertTrue(row["manifest"]["capabilities"])
+                    self.assertEqual(row["rejected"], [old for old in previous.get(ref, []) if old != row["digest"]])
+                print(f"{name} digests: {json.dumps({ref: row['digest'] for ref, row in states[name].items()}, sort_keys=True)}", flush=True)
+                for ref, row in states[name].items():
+                    previous.setdefault(ref, []).append(row["digest"])
+
+            for ref in states["base"]:
+                expected_left = copy.deepcopy(states["base"][ref]["manifest"])
+                expected_right = copy.deepcopy(expected_left)
+                expected_merged = copy.deepcopy(expected_left)
+                for step in expected_left["step_graph"]["steps"]:
+                    if step["id"] == "alignment":
+                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
+                for step in expected_right["step_graph"]["steps"]:
+                    if step["id"] == "findings":
+                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
+                for step in expected_merged["step_graph"]["steps"]:
+                    if step["id"] in ("alignment", "findings"):
+                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
+                # Root available/action-definition ordering may also change with first use.
+                for name, expected in (("left", expected_left), ("right", expected_right), ("merged", expected_merged)):
+                    self.assertEqual(states[name][ref]["manifest"]["step_graph"], expected["step_graph"])
+                    changed = ref == "workflow.implementation" and name in ("left", "merged") or ref == "workflow.research" and name in ("right", "merged")
+                    self.assertEqual(states[name][ref]["digest"] != states["base"][ref]["digest"], changed, (name, ref))
+                owner = "left" if ref == "workflow.implementation" else "right" if ref == "workflow.research" else "base"
+                self.assertEqual(states["merged"][ref]["manifest"], states[owner][ref]["manifest"])
+                self.assertEqual(states["merged"][ref]["digest"], states[owner][ref]["digest"])
+
+            print("Independent edits merged exactly; current digests verified and stale affected digests received typed mismatch refusals.", flush=True)
+            self._run(root, sys.executable, "scripts/generate-agent-contracts.py")
+            for row in states["merged"].values():
+                exported = json.loads(self._run(root, "go", "run", "./scripts/workflow-action-contracts", "--canonical-definition",
+                                                input=json.dumps(row["manifest"]), show=False))
+                self.assertEqual(exported.pop("digest"), row["digest"])
+                self.assertEqual(exported, row["manifest"])
+            print("Generator canonical exporter agrees with all merged current definitions.", flush=True)
+            self._run(root, sys.executable, "scripts/generate-agent-contracts.py", "--check")
+            self._run(root, sys.executable, "scripts/generate-agent-lanes.py", "--check")
+            self._run(root, "go", "test", "-timeout=4m", "./internal/store", "-run",
+                      "^Test(WorkflowDefinitionCanonicalEncodingMatchesPublicFixture|WorkflowCapabilityVocabularyMatchesPublicSchema|WorkflowDefinitionCanonicalDigestAndDriftProtection)$", "-count=1", "-v")
+            self.assertEqual(parts.read_text(), merged)
+            self._assert_no_content_counters(root)
+
+
+class CurrentScenarioCarrierTests(unittest.TestCase):
+    def setUp(self):
+        self.schema_path = ROOT / "contracts/workflow-engine-scenarios.schema.json"
+        corpus = json.loads((ROOT / ".concord/scenarios/workflow-engine.v1.json").read_text())
+        self.current = next(item for item in corpus["scenarios"] if "current_state" in item.get("setup", {}))
+        self.corpus = {"scenarios": [self.current]}
+
+    def test_current_carrier_checks_need_no_historical_scenario(self):
+        self.assertEqual(lane_checker._current_scenario_carrier_check(self.corpus), [])
+
+    def test_current_operation_rejects_recorded_execution_members(self):
+        schema = lane_checker._load_json(self.schema_path)
+        operation = {"op_id": self.current["request"]["operation"]["op_id"]}
+        generator.schema_validate(operation, schema["$defs"]["operationInput"], schema)
+        for member, value in (
+            ("attempt_epoch", 1),
+            ("step_id", "proposal"),
+            ("step_kind", "internal_sqlite"),
+            ("state", "pending"),
+        ):
+            with self.subTest(member=member):
+                with self.assertRaisesRegex(ValueError, rf"unknown properties.*{member}"):
+                    generator.schema_validate(operation | {member: value}, schema["$defs"]["operationInput"], schema)
+
+    def test_actor_identity_refs_accept_real_fixture_slashes(self):
+        schema = lane_checker._load_json(self.schema_path)
+        corpus = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
+        actor = next(actor for actor in corpus["fixtures"]["actors"] if actor["agent_ref"] == "agent/owner")
+        grant = {key: actor[key] for key in ("principal_ref", "client_ref", "agent_ref", "session_ref")}
+        grant.update(capability="workflow_action", scope="project")
+        for name, value in (("actor", actor), ("grantInput", grant)):
+            with self.subTest(schema=name):
+                generator.schema_validate(value, schema["$defs"][name], schema)
+                old_rule = copy.deepcopy(schema)
+                old_rule["$defs"]["actorIdentityRef"] = old_rule["$defs"]["id"]
+                with self.assertRaisesRegex(ValueError, "pattern"):
+                    generator.schema_validate(value, old_rule["$defs"][name], old_rule)
+
+    def test_actor_identity_refs_refuse_unicode_whitespace(self):
+        schema = lane_checker._load_json(self.schema_path)
+        corpus = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
+        actor = next(actor for actor in corpus["fixtures"]["actors"] if actor["agent_ref"] == "agent/owner")
+        keys = ("principal_ref", "client_ref", "agent_ref", "session_ref")
+        grant = {key: actor[key] for key in keys} | {"capability": "workflow_action", "scope": "project"}
+        spaces = "\t\n\v\f\r \u0085\u00a0\u1680" + "".join(chr(code) for code in range(0x2000, 0x200b)) + "\u2028\u2029\u202f\u205f\u3000"
+        for name, value in (("actor", actor), ("grantInput", grant)):
+            for key in keys:
+                for space in spaces:
+                    with self.subTest(schema=name, field=key, whitespace=hex(ord(space))):
+                        with self.assertRaisesRegex(ValueError, "pattern"):
+                            generator.schema_validate(value | {key: value[key] + space + "other"}, schema["$defs"][name], schema)
+
+    def test_actor_identity_rule_does_not_relax_scenario_ids(self):
+        schema = lane_checker._load_json(self.schema_path)
+        generator.schema_validate("session/work-alpha", schema["$defs"]["actorIdentityRef"], schema)
+        with self.assertRaisesRegex(ValueError, "pattern"):
+            generator.schema_validate("WF02/planning", schema["$defs"]["id"], schema)
+
+    def test_full_checker_reports_missing_inventory_without_historical_lookup(self):
+        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
+        load = lane_checker._load_json
+        corpus = load(corpus_path)
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF26-condition-actions-refused"]
+        with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
+            findings = lane_checker.check_workflow_contracts()
+        self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
+        self.assertFalse(any("current-scenario" in finding for finding in findings), findings)
+
+    def test_each_current_carrier_rule_has_a_negative_control(self):
+        original = lane_checker._load_json(self.schema_path)
+        for mutation in ("history", "pin", "missing_step", "unknown_current_field"):
+            with self.subTest(mutation=mutation):
+                schema = copy.deepcopy(original)
+                if mutation == "history":
+                    schema["$defs"]["scenarioSetup"]["additionalProperties"] = True
+                elif mutation == "pin":
+                    schema["$defs"]["scenarioRequest"]["additionalProperties"] = True
+                elif mutation == "missing_step":
+                    schema["$defs"]["scenarioSetup"]["properties"]["current_state"]["required"] = []
+                else:
+                    schema["$defs"]["scenarioSetup"]["properties"]["current_state"]["additionalProperties"] = True
+                with unittest.mock.patch.object(lane_checker, "_load_json", return_value=schema):
+                    findings = lane_checker._current_scenario_carrier_check(self.corpus)
+                self.assertEqual(findings, [f"current-scenario-{mutation}: schema accepted malformed current fixture"])
+
+    def test_invalid_baseline_cannot_supply_negative_controls(self):
+        del self.current["setup"]["current_state"]["step"]
+        findings = lane_checker._current_scenario_carrier_check(self.corpus)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("current-scenario-baseline:", findings[0])
+
+    def test_missing_current_fixture_is_reported(self):
+        self.assertEqual(lane_checker._current_scenario_carrier_check({"scenarios": []}), ["current-scenario-baseline: no current-state scenario exists"])
+
+    def test_workflow_contract_checker_accepts_current_inventory(self):
+        self.assertEqual(lane_checker.check_workflow_contracts(), [])
+
+    def test_pipeline_inventory_requires_owner_and_worker_cases(self):
+        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
+        original = lane_checker._load_json(corpus_path)
+        load = lane_checker._load_json
+        for missing in ("WF48-owner-accepts-typed-result", "WF48-worker-self-accept-refused"):
+            with self.subTest(missing=missing):
+                corpus = copy.deepcopy(original)
+                pipeline = next(item for item in corpus["scenarios"] if item["scenario_number"] == 48)
+                pipeline["cases"] = [case for case in pipeline["cases"] if case["id"] != missing]
+                with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
+                    findings = lane_checker.check_workflow_contracts()
+                self.assertTrue(any("expected current cases" in finding and missing in finding for finding in findings), findings)
+
+    def test_native_requests_keep_their_required_fields(self):
+        original = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
+        for action, field in (("approve_contract", "premise"), ("record_proposal", "problem"), ("record_verdict", "verdicts"), ("complete", "impact_verdict"), ("accept_worker_result", "attempt_id")):
+            with self.subTest(action=action, field=field):
+                corpus = copy.deepcopy(original)
+                scenario = next(item for item in corpus["scenarios"] if item["action"] == action)
+                del scenario["request"]["fields"][field]
+                findings = lane_checker._structured_scenario_check(corpus)
+                self.assertTrue(any("mandatory structured request field" in finding and field in finding for finding in findings), findings)
+
+    def test_checker_mutations_reach_current_safeguards(self):
+        corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
+        original = lane_checker._load_json(corpus_path)
+        for mutation, expected in (
+            ("actor", "actor-ID derivation mismatch"),
+            ("scope", "request scope mismatch"),
+            ("definition", "dangling fixture reference definition"),
+            ("error", "undeclared scenario error kind"),
+        ):
+            with self.subTest(mutation=mutation):
+                corpus = copy.deepcopy(original)
+                scenario = corpus["scenarios"][0]
+                if mutation == "actor":
+                    scenario["request"]["grant"]["agent_ref"] = "agent:other"
+                elif mutation == "scope":
+                    scenario["request"]["grant"]["scope"] = "project:other"
+                elif mutation == "definition":
+                    scenario["request"]["definition_ref"] = "workflow.missing"
+                else:
+                    condition = next(item for item in corpus["scenarios"] if item["id"] == "WF26-condition-actions-refused")
+                    condition["cases"][0]["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                load = lane_checker._load_json
+                with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
+                    findings = lane_checker.check_workflow_contracts()
+                self.assertTrue(any(expected in finding for finding in findings), findings)
+
 
 class ContractGuidanceProjectionTests(unittest.TestCase):
     def test_guidance_keeps_schema_key_order(self):
@@ -322,6 +658,42 @@ class ToolDescriptionTests(unittest.TestCase):
                                             re.compile(r"\b" + re.escape(name) + r"\b", re.I))
 
 
+class WorkStartHostContractTests(unittest.TestCase):
+    def setUp(self):
+        host = json.loads((ROOT / "contracts/host-tool-surface.v1.json").read_text())
+        self.tool = next(tool for tool in host["tools"] if tool["name"] == "concord_work_start")
+
+    def edited(self, change):
+        tool = copy.deepcopy(self.tool)
+        change(tool["args"]["oneOf"][0], tool["args"]["oneOf"][1])
+        return tool
+
+    def test_shipped_capture_and_resume_selector_xor_validate(self):
+        generator.validate_work_start_host_tool(self.tool)
+        capture, resume = self.tool["args"]["oneOf"]
+        self.assertEqual(list(resume["properties"]), ["issue_key", "work_id"])
+        self.assertEqual(resume["oneOf"], [{"required": ["work_id"]}, {"required": ["issue_key"]}])
+        self.assertNotIn("issue_key", capture["properties"])
+
+    def test_selector_shape_closure_and_bounds_cannot_drift(self):
+        changes = {
+            "work_id only": lambda _, resume: (resume["properties"].pop("issue_key"), resume.pop("oneOf"), resume.update(required=["work_id"])),
+            "both required": lambda _, resume: resume.update(required=["work_id", "issue_key"]),
+            "selector optional": lambda _, resume: resume.pop("oneOf"),
+            "selector any": lambda _, resume: resume.update(anyOf=resume.pop("oneOf")),
+            "Project override": lambda _, resume: resume["properties"].update(project_id={"type": "string"}),
+            "open resume": lambda _, resume: resume.update(additionalProperties=True),
+            "capture issue key": lambda capture, resume: capture["properties"].update(issue_key=resume["properties"]["issue_key"]),
+            "key pattern": lambda _, resume: resume["properties"]["issue_key"].update(pattern="^.+$"),
+            "key minimum": lambda _, resume: resume["properties"]["issue_key"].update(minLength=1),
+            "key maximum": lambda _, resume: resume["properties"]["issue_key"].update(maxLength=128),
+            "key type": lambda _, resume: resume["properties"]["issue_key"].update(type=["string", "null"]),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name), self.assertRaises(ValueError):
+                generator.validate_work_start_host_tool(self.edited(change))
+
+
 class WorkerReadingHostContractTests(unittest.TestCase):
     TOOL = "concord_worker_read"
     FIELDS = ["ordinal", "offset", "length"]
@@ -555,9 +927,10 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
         value["properties"]["methodology"] = {"type": "string", "minLength": 1, "maxLength": 64}
         self.assertTrue(any("'methodology' property is rejected" in f for f in self.findings(packet=value)))
 
-    def test_registry_version_bump_is_rejected(self):
-        value = copy.deepcopy(lane_registry); value["version"] = 2
-        self.assertTrue(any("pinned version 1" in f for f in self.findings(registry=value)))
+    def test_authored_registry_counter_is_rejected(self):
+        for version in (1, 2, None):
+            value = copy.deepcopy(lane_registry); value["version"] = version
+            self.assertTrue(any("authored version counter is forbidden" in f for f in self.findings(registry=value)))
 
     def test_extra_skill_entry_is_rejected(self):
         findings = self.findings(skills=["README.md", "review-rubric.md"])
@@ -648,6 +1021,30 @@ class EvidenceBoundParityTests(unittest.TestCase):
             self.check(payload=value)
 
 
+class WorkflowDefinitionContentIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.schema = json.loads((ROOT / "contracts/workflow-definition.schema.json").read_text())
+        self.definition = json.loads((ROOT / "contracts/workflow-engine.fixtures.json").read_text())["cases"][0]["instance"]
+
+    def test_definition_is_version_free_and_capabilities_are_digest_covered(self):
+        generator.schema_validate(self.definition, self.schema, self.schema)
+        self.assertNotIn("version", self.definition)
+        self.assertEqual(lane_checker._validate_definition_semantics(self.definition), None)
+        changed = copy.deepcopy(self.definition)
+        changed["capabilities"] = ["worker_jobs"]
+        self.assertEqual(lane_checker._validate_definition_semantics(changed), "definition digest mismatch")
+        with self.assertRaises(ValueError):
+            generator.schema_validate(self.definition | {"version": 1}, self.schema, self.schema)
+
+    def test_capabilities_require_known_unique_sorted_names(self):
+        for capabilities in (["unknown"], ["worker_jobs", "worker_jobs"]):
+            with self.subTest(capabilities=capabilities), self.assertRaises(ValueError):
+                generator.schema_validate(self.definition | {"capabilities": capabilities}, self.schema, self.schema)
+        self.assertEqual(lane_checker._validate_definition_semantics(
+            self.definition | {"capabilities": ["worker_jobs", "accept_delivery"]}),
+            "definition capabilities must be sorted and unique")
+
+
 class WorkerPacketMirrorProjectionTests(unittest.TestCase):
     """The TS8 worker_packet inputs mirror is derived from the canonical
     lane packet contract, not handwritten.
@@ -672,12 +1069,8 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
     def test_projection_is_idempotent_on_the_shipped_mirror(self):
         self.assertEqual(self.project(), payload_schema["$defs"]["worker_packet"]["properties"]["inputs"])
 
-    def test_live_projection_keeps_published_versioned_identities_frozen(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+    def test_live_projection_keeps_one_current_packet_shape(self):
         payload = copy.deepcopy(payload_schema)
-        identities = ("worker_packet2", "work_context_view2", "work_context_domain_group2")
-        for name in identities:
-            payload["$defs"][name] = copy.deepcopy(frozen[name])
         packet = copy.deepcopy(packet_schema)
         packet["properties"]["inputs"]["properties"]["focus"] = {"type": "string"}
         packet["properties"]["inputs"]["properties"]["work_context"]["description"] = "Current canonical teaching."
@@ -685,9 +1078,14 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
         live = payload["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]
         self.assertEqual(live["focus"], {"type": "string"})
         self.assertEqual(live["work_context"]["description"], generator.WORKER_PACKET_INPUT_PUBLISHED_TEXT["work_context"])
-        for name in identities:
-            with self.subTest(identity=name):
-                self.assertEqual(payload["$defs"][name], frozen[name])
+        # CD-0242 D14 removes the history-only closures, not their current members.
+        for name in ("worker_packet2", "worker_packet3", "worker_packet4", "worker_packet5",
+                     "work_context_view2", "work_context_view3", "work_context_domain_group2",
+                     "work_context_domain_group3", "worker_packet_checks_repair_job", "worker_packet5_worker_job"):
+            self.assertNotIn(name, payload["$defs"])
+        job = payload["$defs"]["worker_packet_worker_job"]
+        self.assertEqual(set(job["properties"]), set(packet_schema["$defs"]["lane_packet_worker_job"]["properties"]))
+        self.assertTrue({"checks_repair", "direct_caller_allowance", "caller_exclusions"} <= set(job["properties"]))
 
     def test_record_fields_keep_shared_aliases_and_canonical_teaching(self):
         projected = self.project()["properties"]
@@ -774,12 +1172,13 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
         self.assertIn("continuity_checkpoint", str(ctx.exception))
 
     def test_the_packets_top_level_fields_stay_declared(self):
-        # The projection derives only the inputs object; the packet's
-        # top-level fields remain the payloads schema's own declaration.
         payload = copy.deepcopy(payload_schema)
         payload["$defs"]["worker_packet"]["properties"]["lane_digest"] = {"$ref": "#/$defs/id"}
-        self.project(payload=payload)
-        self.assertEqual(payload["$defs"]["worker_packet"]["properties"]["lane_digest"], {"$ref": "#/$defs/id"})
+        generator.project_worker_packet_inputs(payload, packet_schema)
+        packet = payload["$defs"]["worker_packet"]
+        self.assertEqual(packet["properties"]["lane_digest"], packet_schema["properties"]["lane_digest"])
+        self.assertEqual(packet["required"], packet_schema["required"])
+        self.assertNotIn("lane_version", packet["properties"])
 
 
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
@@ -1198,7 +1597,8 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
         ordinary = [branch for branch in current if "acceptance_oracle" in _fields_object(branch).get("required", [])]
         self.assertEqual(len(ordinary), 1)
-        for branch in current:
+        splits = [branch for branch in current if "split" in _fields_object(branch).get("required", [])]
+        for branch in ordinary + splits:
             fields = _schema_sample(_fields_object(branch), payload_schema)
             historical = copy.deepcopy(fields)
             if "split" in historical:
@@ -1220,7 +1620,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
     def test_no_merged_union_admits_combinations_no_definition_allows(self):
         defs = payload_schema["$defs"]
         branches = _condition_branches(_action_condition(defs, "record_worker_job"))
-        oracle_branch = branches[0]
+        oracle_branch = next(branch for branch in branches if "acceptance_oracle" in _fields_object(branch).get("required", []))
         # A malformed oracle value passes no definition: the current variant
         # refuses the value, and the retained shapes never declared the
         # field at all. A merged optional-union would admit both payloads.
@@ -1253,15 +1653,9 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         self.assertNotIn("anyOf", then["properties"]["fields"], "an action with one current contract must stay a single branch")
 
     def test_the_public_dispatch_override_remains_correct(self):
-        # Versioned packet schemas do not expose packet authoring publicly.
-        # The size-capable heads anchor dispatch at the size-bearing
-        # worker_packet5 closure and research at worker_packet3. The
-        # historical repair-capable packet4 stays frozen but is not a
-        # current authoring variant, so the current families'
-        # identical public halves project one variant per closure whose
-        # public override stays the lane identity alone.
+        # CD-0242 D14 has one packet; public authoring remains lane identity alone.
         action = self.action("dispatch_worker")
-        self.assertEqual(len(action["variants"]), 2)
+        self.assertEqual(len(action["variants"]), 1)
         for variant in action["variants"]:
             self.assertNotEqual(variant["payload"], variant["public_payload"])
             self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
@@ -1271,10 +1665,10 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
             for field in variant["payload"]["fields"]
             if field["name"] == "worker_packet"
         }
-        self.assertEqual(packet_refs, {"worker_packet3", "worker_packet5"})
+        self.assertEqual(packet_refs, {"worker_packet"})
         internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
         branches = internal.get("anyOf", internal.get("oneOf", [internal]))
-        self.assertEqual(len(branches), 2)
+        self.assertEqual(len(branches), 1)
         for fields in branches:
             self.assertEqual(sorted(fields["properties"]), ["attempt_id", "worker_packet"])
         public = payload_schema["$defs"]["work_transition_action_public_variant_dispatch_worker"]["properties"]["fields"]
@@ -1296,8 +1690,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
     def test_the_live_projection_is_the_approved_closed_set(self):
         live_ids = {action["id"] for action in self.actions}
         self.assertNotIn("record_worker_failure", live_ids)
-        self.assertEqual(len(live_ids), generator.LIVE_ACTION_TARGET)
-        for action_id in generator.RETIRED_PUBLISHED_ACTIONS:
+        for action_id in RETIRED_PUBLISHED_ACTIONS:
             self.assertNotIn(action_id, live_ids, f"retired action {action_id} is authorable")
         self.assertIn("record_diagnosis", live_ids)
 
@@ -1339,38 +1732,18 @@ class LiveAuthoringClosureTests(unittest.TestCase):
         self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
         self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
 
-    def test_the_frozen_decoder_keeps_the_retired_vocabulary(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
-        for name in ("decision_record_text", "native_report_timestamp", "workflow_outcome_decision_record",
-                     "workflow_outcome_outcome", "workflow_action_outcome_predicates"):
-            self.assertIn(name, frozen, f"the frozen decoder lost {name}")
-        frozen_outcome = frozen["workflow_outcome_outcome"]
-        self.assertIn("decision_record", frozen_outcome["properties"])
-        self.assertEqual(sorted(frozen_outcome["properties"]["allowed"]["items"]["enum"]),
-                         sorted(["no_change", "accepted_decision", "insufficient_evidence", "resolved",
-                                 "remediated", "report_recorded", "completed", "operator_defined"]))
-        # Every schema ref the retained pins still declare resolves in the
-        # frozen decoder, and the current refs resolve in the live document.
-        generator.validate_historical_decoder(self.schema_refs, payload_schema["$defs"])
+    def test_current_schema_refs_resolve_in_the_public_document(self):
+        self.assertEqual(set(self.schema_refs), {"current"})
+        generator.validate_current_schema_refs(self.schema_refs, payload_schema["$defs"])
 
-    def test_a_freeze_run_never_rewrites_frozen_definitions(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "workflow-historical-decoder.schema.json"
-            original = generator.HISTORICAL_DECODER.read_text()
-            target.write_text(original)
-            with unittest.mock.patch.object(generator, "HISTORICAL_DECODER", target):
-                generator.freeze_historical_decoder(self.schema_refs)
-            frozen = json.loads(target.read_text())["$defs"]
-            before = json.loads(original)["$defs"]
-            for name, schema in before.items():
-                self.assertEqual(frozen.get(name), schema, f"freeze rewrote frozen definition {name}")
+    def test_current_schema_refs_refuse_missing_or_dangling_definitions(self):
+        for defs in ({}, {"root": {"$ref": "#/$defs/missing"}}):
+            with self.subTest(defs=defs), self.assertRaises(ValueError):
+                generator.validate_current_schema_refs({"current": ["root"]}, defs)
 
 
 class ProjectionAdmissionTests(unittest.TestCase):
-    """The projection loader refuses a registry that still names a retired
-    published action or misses the approved live target — checked against a
-    canned projection, so the refusal needs no registry run (CD-0218 D1/D2).
-    """
+    """The projection loader checks structure, not a second action catalog."""
 
     @staticmethod
     def canned(actions):
@@ -1379,7 +1752,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
             "architecture_domain_rule", "alignment_combination_rule", "outcome_kind_equality_rule")}
         return json.dumps({
             "schema_version": "2.0", "actions": actions, "workflows": [],
-            "teaching": teaching, "schema_refs": {"current": [], "historical": []},
+            "teaching": teaching, "schema_refs": {"current": []},
         })
 
     def load(self, projection):
@@ -1387,27 +1760,23 @@ class ProjectionAdmissionTests(unittest.TestCase):
             run.return_value.stdout = projection
             generator.load_workflow_action_contracts()
 
-    def test_the_projection_refuses_a_retired_action_in_the_registry(self):
-        fake = self.canned([{"id": "add_condition", "variants": [], "cross_field": {}}])
+    def test_the_projection_refuses_an_action_without_a_contract(self):
+        fake = self.canned([{"id": "action", "variants": [], "cross_field": {}}])
         with self.assertRaises(ValueError) as caught:
             self.load(fake)
-        self.assertIn("retired published actions remain authorable", str(caught.exception))
+        self.assertIn("names no variant", str(caught.exception))
 
-    def test_the_projection_refuses_an_open_live_target(self):
-        filler = [{"id": f"live_action_{index}",
-                   "variants": [{"payload": {"closed": True, "fields": []}, "public_payload": {"closed": True, "fields": []}}],
-                   "cross_field": {}}
-                  for index in range(generator.LIVE_ACTION_TARGET + 1)]
+    def test_the_projection_refuses_duplicate_actions(self):
+        filler = [{"id": "same-action"}, {"id": "same-action"}]
         with self.assertRaises(ValueError) as caught:
             self.load(self.canned(filler))
-        self.assertIn(str(generator.LIVE_ACTION_TARGET), str(caught.exception))
-        self.assertIn("approved target", str(caught.exception))
+        self.assertIn("no unique actions", str(caught.exception))
 
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({
             "schema_version": "1.0",
             "actions": [{"id": "record_verdict", "variants": [], "legacy_payloads": [], "cross_field": {}}],
-            "workflows": [], "teaching": {}, "schema_refs": {"current": [], "historical": []},
+            "workflows": [], "teaching": {}, "schema_refs": {"current": []},
         })
         with self.assertRaises(ValueError) as caught:
             self.load(fake)
@@ -1473,7 +1842,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, self.workflows, self.teaching)
         defs = projected["$defs"]
         live_ids = {action["id"] for action in self.actions}
-        for action_id in sorted(generator.RETIRED_PUBLISHED_ACTIONS):
+        for action_id in sorted(RETIRED_PUBLISHED_ACTIONS):
             self.assertNotIn(f"work_transition_action_variant_{action_id}", defs, action_id)
             self.assertNotIn(f"work_transition_action_public_variant_{action_id}", defs, action_id)
         consts = set()
@@ -1485,7 +1854,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
                 consts.add(schema["properties"]["action_id"]["const"])
         self.assertEqual(consts, live_ids)
         union = defs["work_transition_action_input"]
-        for action_id in sorted(generator.RETIRED_PUBLISHED_ACTIONS):
+        for action_id in sorted(RETIRED_PUBLISHED_ACTIONS):
             call = {"work_id": "work-1", "expected_version": 1, "action_id": action_id, "idempotency_key": "x-1"}
             with self.assertRaises(ValueError, msg=f"core input admits retired action {action_id}"):
                 generator.schema_validate(call, union, projected)
@@ -2924,7 +3293,13 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             for key in schema.get("required", []):
                 result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
             return result
-        if kind == "array": return [self._sample(schema.get("items", {"type": "string"}), path) for _ in range(schema.get("minItems", 0))]
+        if kind == "array":
+            items = schema.get("items", {"type": "string"})
+            values = [self._sample(items, path) for _ in range(schema.get("minItems", 0))]
+            if items.get("$ref") == "#/$defs/workflow_member_job_binding":
+                for index, member in enumerate(values):
+                    member["job_id"] = f"job-{index + 1}"
+            return values
         if kind == "integer": return schema.get("minimum", 0)
         if kind == "boolean": return True
         if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
@@ -3027,22 +3402,18 @@ class ResearchContextProjectionTests(unittest.TestCase):
             self._project_with_lane_packet(canonical)
         self.assertIn("lane_plan", str(ctx.exception))
 
-    def test_the_frozen_research_identities_stay_published(self):
-        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
-        for name in ("worker_packet3", "work_context_view3", "work_context_domain_group3"):
-            self.assertEqual(self.projected["$defs"][name], frozen[name],
-                             f"the frozen {name} identity drifted from the published shape")
-        work_context = self.projected["$defs"]["worker_packet3"]["properties"]["inputs"]["properties"]["work_context"]
-        self.assertEqual(work_context["$ref"], "#/$defs/work_context_view3")
-        group_ref = self.projected["$defs"]["work_context_view3"]["properties"]["domain_groups"]["items"]["$ref"]
-        self.assertEqual(group_ref, "#/$defs/work_context_domain_group3")
+    def test_current_research_identity_matches_its_declared_source(self):
+        declared = payload_schema["$defs"]
+        for name in ("worker_packet", "work_context_view", "work_context_domain_group"):
+            self.assertEqual(self.projected["$defs"][name], declared[name],
+                             f"the {name} identity differs from its declared source")
+        work_context = self.projected["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]["work_context"]
+        self.assertEqual(work_context["$ref"], "#/$defs/work_context_view")
+        group_ref = self.projected["$defs"]["work_context_view"]["properties"]["domain_groups"]["items"]["$ref"]
+        self.assertEqual(group_ref, "#/$defs/work_context_domain_group")
         self.assertEqual(
-            self.projected["$defs"]["work_context_domain_group3"]["properties"]["finding_ids"]["items"]["pattern"],
+            self.projected["$defs"]["work_context_domain_group"]["properties"]["finding_ids"]["items"]["pattern"],
             "^(finding|research):[0-9]+:[0-9]+$")
-        self.assertEqual(
-            self.projected["$defs"]["work_context_domain_group2"]["properties"]["finding_ids"]["items"]["pattern"],
-            "^finding:[0-9]+:[0-9]+$",
-            "the old frozen group keeps its generic-only id namespace")
 
     def test_the_closed_research_entry_branches_decide_the_verdict(self):
         selection = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"}
@@ -3076,18 +3447,7 @@ class ResearchContextProjectionTests(unittest.TestCase):
 
 
 class RetryResponsePacketUnionTests(unittest.TestCase):
-    """The combined rejection's response transports the packet generation
-    the pinned dispatch already admitted.
-
-    mutation_result.retry_worker_packet is a closed anyOf over the unchanged
-    worker_packet2, worker_packet3, worker_packet4, and worker_packet5
-    closures. They overlap — a plain packet validates under several — so
-    oneOf would refuse exactly the ordinary packets the union must keep
-    admitting. The response member carries no schema_version gate of its
-    own: the pinned dispatch admission selects the generation the work's
-    pinned definition declares, and the response returns exactly those
-    admitted bytes.
-    """
+    """CD-0242 D14: retry transports the exact current admitted packet."""
 
     def member(self):
         return payload_schema["$defs"]["mutation_result"]["properties"]["retry_worker_packet"]
@@ -3098,8 +3458,8 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
     def plain_packet(self, name):
         return _schema_sample(payload_schema["$defs"][name], payload_schema)
 
-    def research_packet3(self):
-        packet = self.plain_packet("worker_packet3")
+    def research_packet(self):
+        packet = self.plain_packet("worker_packet")
         finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
                    "statement": "the selected finding", "confidence": "high", "freshness": "current",
                    "status": "active", "scopes": {"mode": "home"}}
@@ -3111,44 +3471,28 @@ class RetryResponsePacketUnionTests(unittest.TestCase):
                  "ordinal": 0, "required": True, "state": "resolved", "finding": finding, "sources": [source]}
         view = packet["inputs"].get("work_context")
         if view is None:
-            view = _schema_sample(payload_schema["$defs"]["work_context_view3"], payload_schema)
+            view = _schema_sample(payload_schema["$defs"]["work_context_view"], payload_schema)
             packet["inputs"]["work_context"] = view
         view["research_findings"] = [entry]
         view["domain_groups"] = [{"domain_id": "root", "required_reading_ordinals": [],
                                   "finding_ids": ["research:9:0"]}]
         return packet
 
-    def test_the_retry_response_is_the_closed_four_generation_anyof(self):
+    def test_the_retry_response_uses_the_current_packet(self):
         member = self.member()
-        self.assertEqual([branch["$ref"] for branch in member["anyOf"]],
-                         ["#/$defs/worker_packet2", "#/$defs/worker_packet3", "#/$defs/worker_packet4",
-                          "#/$defs/worker_packet5"])
+        self.assertEqual(member["$ref"], "#/$defs/worker_packet")
+        self.assertNotIn("anyOf", member)
         self.assertNotIn("oneOf", member)
-        self.assertNotIn("$ref", member)
-        self.assertNotIn("always the versioned packet2 identity", member["description"],
-                         "the response description must not pin one packet generation")
 
-    def test_overlapping_plain_packets_admit_under_the_union(self):
-        # A plain packet validates under each closure, so a oneOf here would
-        # refuse exactly the ordinary packets the transport must keep
-        # admitting.
-        self.validate(self.plain_packet("worker_packet2"))
-        self.validate(self.plain_packet("worker_packet3"))
-        self.validate(self.plain_packet("worker_packet4"))
-        self.validate(self.plain_packet("worker_packet5"))
+    def test_plain_packet_admits(self):
+        self.validate(self.plain_packet("worker_packet"))
 
-    def test_research_bearing_packet3_transports_and_malformed_refuses(self):
-        self.validate(self.research_packet3())
-        malformed = self.research_packet3()
+    def test_research_bearing_packet_transports_and_malformed_refuses(self):
+        self.validate(self.research_packet())
+        malformed = self.research_packet()
         malformed["inputs"]["work_context"]["research_findings"][0]["selection"]["unknown_member"] = True
         with self.assertRaises(ValueError):
             self.validate(malformed)
-        # The retained packet2 closure keeps refusing the research member —
-        # the frozen decoder replay and the live retained route own that
-        # verdict, and a packet3-shaped view can never re-enter it.
-        frozen_member = payload_schema["$defs"]["worker_packet2"]["properties"]["inputs"]["properties"]["work_context"]
-        self.assertEqual(frozen_member["$ref"], "#/$defs/work_context_view2")
-        self.assertNotIn("research_findings", payload_schema["$defs"]["work_context_view2"]["properties"])
 
 
 class _WorkloadReached(Exception):
@@ -3237,8 +3581,8 @@ class GeneratorCLISafetyTests(unittest.TestCase):
                     self.assertEqual(exit.exception.code, 2)
                     self.assertTrue(stderr.getvalue().strip())
 
-    def test_contracts_freeze_with_unknown_argument_refuses_without_work(self):
-        args = ["--freeze-historical-decoder", "--unknown-option"]
+    def test_contracts_freeze_mode_refuses_without_work(self):
+        args = ["--freeze-historical-decoder"]
         with (
             redirect_stdout(io.StringIO()),
             redirect_stderr(io.StringIO()),
@@ -3262,23 +3606,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
                         self.assertRaises(_WorkloadReached),
                     ):
                         module.main()
-
-    def test_contracts_freeze_dispatch_precedes_check(self):
-        schema_refs = {"current": ["alpha"], "historical": ["beta"]}
-        for args in (["--freeze-historical-decoder"], ["--check", "--freeze-historical-decoder"]):
-            with self.subTest(args=args):
-                load_mock = unittest.mock.MagicMock(return_value=([], [], {}, schema_refs))
-                freeze_mock = unittest.mock.MagicMock(return_value=0)
-                validate_mock = unittest.mock.MagicMock(
-                    side_effect=AssertionError("freeze dispatch reached the normal projection workload"))
-                with unittest.mock.patch.object(generator, "load_workflow_action_contracts", load_mock), \
-                        unittest.mock.patch.object(generator, "freeze_historical_decoder", freeze_mock), \
-                        unittest.mock.patch.object(generator, "validate_historical_decoder", validate_mock), \
-                        self._argv("generate-agent-contracts.py", args):
-                    self.assertEqual(generator.main(), 0)
-                load_mock.assert_called_once_with()
-                freeze_mock.assert_called_once_with(schema_refs)
-                validate_mock.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()

@@ -30,7 +30,7 @@ func workflowEvidenceGapDefinition() WorkflowDefinition {
 	}
 	actions := []string{"accept_worker_result", "approve_contract", "complete"}
 	return WorkflowDefinition{
-		Ref: "workflow.evidence_gap", Version: 1, WorkKind: WorkKindGenericOneOff, ChangesProductTruth: &changesProductTruth,
+		Ref: "workflow.evidence_gap", WorkKind: WorkKindGenericOneOff, ChangesProductTruth: &changesProductTruth,
 		StepGraph:             WorkflowStepGraph{StartStep: "gate", TerminalSteps: []string{"complete"}, Steps: steps, Edges: edges},
 		AvailableActions:      actions,
 		ActionDefinitions:     actionDefinitions(actions, false),
@@ -110,7 +110,7 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 			AcceptedInputsDigest: "sha256:reachability", IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
@@ -143,7 +143,7 @@ func TestApproveContractRefusesUnproducibleRequiredEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	var approvals int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&approvals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&approvals); err != nil {
 		t.Fatal(err)
 	}
 	var versionAfter int64

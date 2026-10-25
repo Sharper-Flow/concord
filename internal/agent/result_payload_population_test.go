@@ -240,13 +240,13 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -363,7 +363,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex()},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + repeatHex()},
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
@@ -390,7 +390,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		CompletionWarnings:       []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
 			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
-			AcceptedSuccessorLawID: "spec-2", AcceptedSuccessorContentHash: "sha256:" + repeatHex(),
 			RecoveryActions: []string{"supersede_contract"},
 		},
 		ChangesProductTruth: true,
@@ -410,38 +409,6 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-01-02T00:00:00Z",
 			},
 		},
-		RetryWindow: fullyPopulatedRetryWindow(),
-	}
-}
-
-// fullyPopulatedRetryWindow populates the CD-0164 D5 window the way the store
-// producer writes it: every population counted, every anchor present with its
-// exact identity, and the bounded obligation list carried with its count.
-func fullyPopulatedRetryWindow() *store.WorkflowRetryWindow {
-	// The store's unexported workflowCorrectionAttemptLimit: every
-	// population shares it (CD-0164).
-	limit := int64(3)
-	anchor := func(seq int64, qualification, obligation, action string) *store.WorkflowProgressAnchor {
-		return &store.WorkflowProgressAnchor{
-			EventID: "event:retry-anchor-" + strconv.FormatInt(seq, 10), Kind: "workflow.verdict_recorded", Seq: seq,
-			Qualification: qualification, ObligationID: obligation, ActionID: action,
-		}
-	}
-	return &store.WorkflowRetryWindow{
-		Population: "distinct_failed_rejected_no_ship", Policy: "obligation_satisfaction_v1",
-		Count: limit, Limit: limit, Prefix: 90,
-		DispatchCount: limit, DispatchLimit: limit,
-		VerificationCount: 1, VerificationLimit: limit,
-		NonprogressAnchor:         anchor(84, "comparable_predicate_satisfied", "predicate:"+repeatHex(), "record_verdict"),
-		WorkerSatisfactionAnchor:  anchor(60, "satisfying_worker_acceptance", "worker_result", "accept_worker_result"),
-		VerificationBaseline:      anchor(70, "comparable_healthy_verdict_baseline", "", ""),
-		Step:                      "execution",
-		CorrectionEscalated:       true,
-		BlockingPopulation:        "both",
-		ConvergenceBasis:          "findings_shrinking",
-		FundedConfirmingReviews:   1,
-		UnresolvedObligations:     []string{"evidence:verification", "premise_confirmation"},
-		UnresolvedObligationCount: 2,
 	}
 }
 
@@ -724,6 +691,8 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		return enum[0]
 	}
 	if oneOf, ok := schema["oneOf"].([]any); ok {
+		siblings := maps.Clone(schema)
+		delete(siblings, "oneOf")
 		for _, branch := range oneOf {
 			branchSchema, ok := branch.(map[string]any)
 			if !ok {
@@ -732,7 +701,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if branchSchema["type"] == "null" {
 				continue
 			}
-			return schemaFixtureValue(t, branchSchema, defs, depth+1)
+			return schemaFixtureValue(t, mergeFixtureSchema(branchSchema, siblings), defs, depth+1)
 		}
 		return nil
 	}
@@ -980,7 +949,11 @@ func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
 func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 	defs := payloadSchemaDefs(t)
 	t.Run("typeless_anyOf_selects_first_non_null_arm", func(t *testing.T) {
-		union := defs["mutation_result"]["properties"].(map[string]any)["retry_worker_packet"].(map[string]any)
+		// CD-0242 D14 removes the packet ladder; keep the generic union witness synthetic.
+		union := map[string]any{"anyOf": []any{
+			map[string]any{"$ref": "#/$defs/worker_packet"},
+			map[string]any{"type": "null"},
+		}}
 		if _, typed := union["type"]; typed {
 			t.Fatal("retry_worker_packet stopped being a typeless union; this subtest no longer exercises the typeless rule")
 		}
@@ -989,8 +962,8 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := payloadschema.Validate("worker_packet2", data); err != nil {
-			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet2: %v", err)
+		if err := payloadschema.Validate("worker_packet", data); err != nil {
+			t.Fatalf("typeless anyOf fixture does not satisfy the first arm worker_packet: %v", err)
 		}
 	})
 	t.Run("typeless_anyOf_sibling_constraints_bind_the_arm", func(t *testing.T) {
@@ -1143,7 +1116,7 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.resource_claims":      {"claims"},
 	"concord_work_browse.messages":             {"messages"},
 	"concord_work_browse.worktree_audit":       {"drift"},
-	"concord_work_trace.history":               {"events"},
+	"concord_work_trace.history":               {"entries"},
 	"concord_work_trace.observations":          {"observations"},
 	"concord_work_trace.external_observations": {"external_observations"},
 	"concord_work_trace.relations":             {"edges"},

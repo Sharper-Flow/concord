@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -154,7 +155,7 @@ func assertIdempotencyConflict(t *testing.T, err error, expectField string) {
 func assertEventRowCount(t *testing.T, ctx context.Context, s *Store, eventID string, count int) {
 	t.Helper()
 	var got int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id = ?`, eventID).Scan(&got); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE event_id = ?`, eventID).Scan(&got); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if got != count {
@@ -163,26 +164,32 @@ func assertEventRowCount(t *testing.T, ctx context.Context, s *Store, eventID st
 }
 
 // TestAppendEventRejectsDifferentPayloadVersion covers the payload_version
-// dimension explicitly. project.created accepts both v1 and v2, so two
-// attempts at the same event_id with different versions reach the conflict
-// path rather than failing payload-version validation. The stored values are
-// the caller-supplied payload_version and payload, so the readback exposes the
-// difference directly.
+// dimension explicitly. A current append cannot reuse a migrated event's ID
+// with a different payload version, or change that stored record's bytes.
 func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
 	ctx := context.Background()
-
 	first := projectIdentityEvent("divergent-version-evt", 1)
-	if _, err := appendInTx(t, s, first); err != nil {
-		t.Fatalf("first AppendEvent() error = %v", err)
+	path := filepath.Join(t.TempDir(), "historical-identity.db")
+	db := openMigratedTo(t, path, 144)
+	insertHistoricalEvents(t, db, []Event{first})
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
 	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
 	original, err := readRawEventRow(t, ctx, s, first.EventID)
 	if err != nil {
 		t.Fatalf("read original event: %v", err)
 	}
 
-	second := projectIdentityEvent("divergent-version-evt", 2)
+	second := projectIdentityEvent("divergent-version-evt", CurrentEventPayloadVersion("project.created"))
 	_, err = appendInTx(t, s, second)
 	var f *Failure
 	if !errors.As(err, &f) {
@@ -360,7 +367,7 @@ func TestAppendEventConcurrentEquivalentAppends(t *testing.T) {
 		t.Errorf("duplicates = %d, want %d", duplicates, workers-1)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id = ?`, testEvent().EventID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE event_id = ?`, testEvent().EventID).Scan(&count); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if count != 1 {
@@ -433,7 +440,7 @@ func TestAppendEventConcurrentDivergentAppends(t *testing.T) {
 		t.Errorf("conflicts = %d, want %d", conflicts, workers-1)
 	}
 	var actor string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT actor FROM domain_events WHERE event_id = ?`, testEvent().EventID).Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT actor FROM effect_receipts WHERE event_id = ?`, testEvent().EventID).Scan(&actor); err != nil {
 		t.Fatalf("read winning actor: %v", err)
 	}
 	if !strings.HasPrefix(actor, "operator-") {
@@ -464,12 +471,12 @@ func TestAppendEventUniqueViolationLeavesTransactionUsable(t *testing.T) {
 		}
 	}()
 
-	if _, err := AppendEvent(ctx, tx, testEvent()); err == nil {
-		t.Fatal("second AppendEvent() succeeded; a UNIQUE violation was expected")
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts SELECT * FROM effect_receipts WHERE event_id=?`, testEvent().EventID); !isUniqueViolation(err) && !isIdentityConflict(err) {
+		t.Fatalf("duplicate receipt insert = %v, want a unique identity violation", err)
 	}
 
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id = ?`, testEvent().EventID).Scan(&seq); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id = ?`, testEvent().EventID).Scan(&seq); err != nil {
 		t.Fatalf("SELECT after UNIQUE violation: %v (statement-level rollback did not hold)", err)
 	}
 	if seq <= 0 {
@@ -507,7 +514,7 @@ func readRawEventRow(t *testing.T, ctx context.Context, s *Store, eventID string
 	t.Helper()
 	var row string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx,
-		`SELECT seq || '|' || event_id || '|' || kind || '|' || subject_type || '|' || subject_id || '|' || actor || '|' || occurred_at || '|' || payload_version || '|' || payload FROM domain_events WHERE event_id = ?`,
+		`SELECT effect_seq || '|' || event_id || '|' || kind || '|' || subject_type || '|' || subject_id || '|' || actor || '|' || payload_version || '|' || payload_digest || '|' || delivery_assertion || '|' || COALESCE(relation_seq,'') FROM effect_receipts WHERE event_id = ?`,
 		eventID,
 	).Scan(&row); err != nil {
 		return "", err

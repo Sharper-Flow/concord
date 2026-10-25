@@ -59,13 +59,13 @@ func workflowDeclaredStep(definition WorkflowDefinition, stepID string) (string,
 // verifies the pin against the registry.
 func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return RegisteredDefinition{}, newFailure(KindProjectionNotFound, "workflow_step", "workflow instance does not exist", false, "select a workflow definition first")
 		}
 		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_step", "cannot read the pinned workflow definition", true, "retry once the database is readable", err)
 	}
-	return VerifyWorkflowDefinitionPin(registry, pin)
+	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 // pinWorkflowInstanceTx records the definition an instance follows and places
@@ -75,12 +75,10 @@ func pinnedWorkflowDefinitionTx(ctx context.Context, tx *sql.Tx, registry Defini
 // definition does not declare. A same-family carry forward keeps the step the
 // instance holds instead and goes through pinWorkflowInstanceToStepTx.
 //
-// The selecting session is also pinned as the executing actor. A lane-less
-// instance never runs the fenced action that would otherwise assign one, so
-// without this pin every distinctness check on it fails for a missing
-// executor tuple (#970). The pin is conditional on the actor row existing:
-// legacy definition events can name an unrecorded actor, and those keep the
-// empty executor rather than failing the fold.
+// A lane-less instance has no fenced start to record its execution identity.
+// Its authenticated initialization actor supplies the current tuple that
+// verdict redaction reads. A later step start or dispatch records the actual
+// executing actor instead. This records identity, not an agent or model choice.
 func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition, selectingActor string) error {
 	start, err := workflowDefinitionStartStep(definition.Definition)
 	if err != nil {
@@ -95,11 +93,11 @@ func pinWorkflowInstanceTx(ctx context.Context, tx *sql.Tx, workID string, defin
 // start step, or from the instance's current step after the fold verified the
 // carried-forward definition declares it.
 func pinWorkflowInstanceToStepTx(ctx context.Context, tx *sql.Tx, workID string, definition RegisteredDefinition, stepID, selectingActor string) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES(?,?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_version=excluded.definition_version,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, stepID)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES(?,?,?,?,'planned') ON CONFLICT(work_id) DO UPDATE SET definition_ref=excluded.definition_ref,definition_digest=excluded.definition_digest,current_step=excluded.current_step`, workID, definition.Definition.Ref, definition.Digest, stepID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow definition")
 	}
-	if err := recordRuntimeStateWriter(ctx, tx, "workflow", definition.Definition.Ref, definition.Definition.Version, definition.Digest); err != nil {
+	if err := recordRuntimeStateWriter(ctx, tx, workflowStateWriter(WorkflowDefinitionPin{Ref: definition.Definition.Ref, Digest: definition.Digest})); err != nil {
 		return err
 	}
 	if selectingActor == "" {
@@ -109,34 +107,6 @@ func pinWorkflowInstanceToStepTx(ctx context.Context, tx *sql.Tx, workID string,
 		return workflowProjectionError(err, "cannot record the selecting workflow actor")
 	}
 	return nil
-}
-
-// workflowSelectingActorTx derives the executing identity for instances whose
-// projection predates selector pinning (#970): the actor on the most recent
-// definition_selected event chose the pinned definition, and the immutable
-// event order makes the derivation stable under rebuild. An unrecorded or
-// absent actor yields found=false so callers keep their refusing behavior.
-func workflowSelectingActorTx(ctx context.Context, q queryer, workID string) (WorkflowActor, bool, error) {
-	var ref string
-	err := q.QueryRowContext(ctx, `SELECT actor FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowDefinitionSelected).Scan(&ref)
-	if err == sql.ErrNoRows {
-		return WorkflowActor{}, false, nil
-	}
-	if err != nil {
-		return WorkflowActor{}, false, wrapFailure(KindUnavailable, "workflow_step", "cannot read the selecting workflow actor", true, "retry once the database is readable", err)
-	}
-	if ref == "" {
-		return WorkflowActor{}, false, nil
-	}
-	var actor WorkflowActor
-	err = q.QueryRowContext(ctx, `SELECT actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, ref).Scan(&actor.ActorRef, &actor.PrincipalRef, &actor.ClientRef, &actor.AgentRef, &actor.SessionRef, &actor.ActorClass)
-	if err == sql.ErrNoRows {
-		return WorkflowActor{}, false, nil
-	}
-	if err != nil {
-		return WorkflowActor{}, false, wrapFailure(KindUnavailable, "workflow_step", "cannot read the selecting workflow actor tuple", true, "retry once the database is readable", err)
-	}
-	return actor, true, nil
 }
 
 // startWorkflowInstanceStepTx moves an instance onto the step an action

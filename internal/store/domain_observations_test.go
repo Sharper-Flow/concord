@@ -28,7 +28,7 @@ func foldTestEvent(t *testing.T, s *Store, event Event) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx)); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}}, newWriteScope(tx)); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -55,7 +55,7 @@ func domainDismissEvent(id string, at time.Time) Event {
 
 func observationID(n int) string { return fmt.Sprintf("dob:%016x", n) }
 
-func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
+func TestDomainObservationStaysVisible(t *testing.T) {
 	t.Parallel()
 	s := domainObservationFixture(t)
 	ctx := context.Background()
@@ -69,16 +69,6 @@ func TestDomainObservationSurvivesRebuildAndStaysVisible(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Statement != "the scanner has no failure path" || rows[0].State != DomainObservationOpen {
 		t.Fatalf("observations = %+v", rows)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	rows, err = observationsForDomain(ctx, s.db, "obs-product", "obs-domain", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("observations after rebuild = %+v", rows)
 	}
 	// A duplicate id is a projection conflict, not a silent overwrite.
 	err = foldTestEvent(t, s, domainObservationEvent(observationID(1), "obs-domain", "second", at.Add(time.Second)))

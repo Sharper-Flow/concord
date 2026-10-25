@@ -20,7 +20,7 @@ func TestStoreClockControlsDurableEventTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	var occurredAt string
-	if err := s.db.QueryRow(`SELECT occurred_at FROM domain_events WHERE event_id=?`, result.EventIDs[0]).Scan(&occurredAt); err != nil {
+	if err := s.db.QueryRow(`SELECT p.created_at FROM products p JOIN effect_receipts r ON r.subject_id=p.id AND r.subject_type='product' AND r.kind='product.created' WHERE r.event_id=?`, result.EventIDs[0]).Scan(&occurredAt); err != nil {
 		t.Fatal(err)
 	}
 	if occurredAt != want.UTC().Format(time.RFC3339Nano) {

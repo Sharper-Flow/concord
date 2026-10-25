@@ -17,12 +17,13 @@ import (
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "")
-	execActor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent}
+	f := newSpineFixtureForFamily(t, "workflow.break_fix")
+	s := f.s
+	execActor := store.WorkflowActor{PrincipalRef: f.env.PrincipalRef, ClientRef: f.env.ClientRef, AgentRef: f.env.AgentRef, SessionRef: f.env.SessionRef, ActorClass: store.ActorAgent}
 	currentStep := func() string {
 		t.Helper()
 		var step string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&step); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, f.work).Scan(&step); err != nil {
 			t.Fatal(err)
 		}
 		return step
@@ -30,7 +31,7 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	version := func() int64 {
 		t.Helper()
 		var v int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, "work-1").Scan(&v); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, f.work).Scan(&v); err != nil {
 			t.Fatal(err)
 		}
 		return v
@@ -43,12 +44,12 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		raw, _ := json.Marshal(payload)
 		v := version()
 		request := store.WorkflowActionExecutionRequest{
-			WorkID: "work-1", ExpectedVersion: v, ActionID: actionID, Payload: raw,
+			WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw,
 			Actor: execActor, AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: identity,
 			OperationID: "delivery-op-" + identity, PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "delivery-key-" + identity,
 			RequestID: "delivery-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: ManifestDigest, Now: fixedTime(),
 		}
-		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor}
+		preflight := store.WorkflowActionPreflightRequest{WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor}
 		return store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
 			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
 			return err
@@ -85,11 +86,11 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	// qualifying checkpoint; the callable start is gone from it.
 	refineEntry := "start_refine"
 	{
-		var definitionVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+		var ref string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, f.work).Scan(&ref); err != nil {
 			t.Fatal(err)
 		}
-		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", definitionVersion); ok {
+		if pinned, ok := store.BuiltinWorkflowRegistry().Current(ref); ok {
 			declares := false
 			for _, step := range pinned.Definition.StepGraph.Steps {
 				if slices.Contains(step.Actions, "start_refine") {
@@ -107,8 +108,8 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
 		t.Fatalf("refine artifact binding refused: %v", err)
 	}
-	// CD-0192: the refine exit consumes a green verify run bound in the epoch.
-	proofRef := agentSeedRefineProofRun(t, s, "work-1", strings.Repeat("b", 64))
+	// The unchanged candidate reuses its passing producer receipt.
+	proofRef := f.proof
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}); err != nil {
 		t.Fatalf("refine verification binding refused: %v", err)
 	}
@@ -130,14 +131,9 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Delivery without start", "task", "workflow.implementation", "delivery-no-start")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	f := newSpineFixture(t)
+	s, service, env, workID := f.s, f.service, f.env, f.work
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)

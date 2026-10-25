@@ -12,7 +12,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "The historical-tier join remains deferred under CD-0217. Existing watermark evidence is TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go; no executed prune mechanism is asserted."
+      "exemption": "Cross-tier deduplication and watermark composition are query properties, not a single corpus case. TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go is a watermark witness; integrated cleanup and historical-tier coverage remain unmeasured."
     },
     {
       "criterion": 3,
@@ -24,7 +24,7 @@
     },
     {
       "criterion": 5,
-      "exemption": "Historical derivation is a rebuild property, covered by TestCompactionPayloadRequiresExplicitUniqueScopeArrays and TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder in internal/store/knowledge_index_test.go."
+      "exemption": "Historical derivation is a rebuild property. TestCompactionPayloadRequiresExplicitUniqueScopeArrays and TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag in internal/store/knowledge_index_test.go are candidate witnesses; derivation of every historical field remains unmeasured."
     },
     {
       "criterion": 6,
@@ -55,9 +55,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f4d635883dd616f7c2080e8101c02f53c5f8d24ba8e35b73ff988bf5bd2a4c27",
+  "sha256": "sha256:6ac5d8c9df7bc89c63e58db8dbccbf8700b593e4a23bbe3f8b130cab7ad04f49",
   "status": "accepted",
-  "summary": "Complete retention policy preserving deferred terminal work pruning, Git and event authority, canonical locator proof, historical front matter and frozen Domain scope, live/historical query composition, immutable pruned identities and PM10 separation. Replaces archive-driven research cleanup with reusable read-only terminal packs and explicit bounded idempotent retirement of terminal-owner packs with zero active required or optional pins, without calendar expiration. Live cutover and integrated conformance remain deployment obligations.",
+  "summary": "Gates terminal execution cleanup on verified closure, settled publication and released consumers; keeps research retirement separate and historical indexes Git-derived.",
   "tags": [
     "compaction",
     "retention",

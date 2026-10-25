@@ -253,9 +253,7 @@ func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 	}
 	defer s.Close()
 	seedLocatorAuthority(t, s, repoA)
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: productProjectMembershipEvents("other", "product-other", "project-other", "other"), ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-other"): 0, store.VersionRef(store.SubjectProject, "project-other"): 0}}); err != nil {
-		t.Fatal(err)
-	}
+	seedProductProject(t, s, "product-other", "project-other", "other")
 	if err := s.AddProjectLocator(context.Background(), "project-other", store.ProjectLocator{ID: "other-path", Kind: store.LocatorCanonicalPath, Value: repoB}, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +404,7 @@ func TestWorkBootstrapConcurrentExactReplayHasOneNativeResult(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM work_items WHERE id=?", workID).Scan(&works); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events WHERE event_id=?", operationID+":worktree-created").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts WHERE event_id=?", operationID+":worktree-created").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM worktree_claims WHERE op_id=?", operationID).Scan(&claims); err != nil {
@@ -479,9 +477,9 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 func modelCLIHistoricalInitiative(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	// Model a projection folded from pre-retirement history in a temporary store.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -499,7 +497,7 @@ func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
 	t.Chdir(result.Entry.Path)
 	modelCLIHistoricalInitiative(t, s, result.WorkID)
 	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -516,7 +514,7 @@ func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
 		},
 		func(context.Context, string, string, string) ([]byte, error) { calls++; return []byte(`{}`), nil })
 	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if code != sessionPrepareRefusalExit || calls != 0 || after != before || out.Len() != 0 || !strings.Contains(errOut.String(), "CD-0213") {
@@ -553,7 +551,7 @@ func TestWorkerCommandsRefuseRetiredInitiativeBeforeAssertion(t *testing.T) {
 			}
 			request["assertion"] = signWorkerEvidence(t, key, assertion)
 			var before, after int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
 				t.Fatal(err)
 			}
 			assertionCalls := 0
@@ -561,7 +559,7 @@ func TestWorkerCommandsRefuseRetiredInitiativeBeforeAssertion(t *testing.T) {
 			service.Now = func() time.Time { assertionCalls++; return time.Now().UTC() }
 			var out, errOut bytes.Buffer
 			code := runWorkerCommand(command, []byte(mustJSON(t, request)), s, service, time.Now, &out, &errOut)
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
 				t.Fatal(err)
 			}
 			if code != 1 || assertionCalls != 0 || after != before || !strings.Contains(errOut.String(), "CD-0213") {
@@ -583,7 +581,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Chdir(result.Entry.Path)
 	var before int
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&before); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
 	laneCalls, identityCalls, bootCalls := 0, 0, 0
@@ -620,7 +618,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 		t.Fatalf("prepare title=%q", prepared.Title)
 	}
 	var after int
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before+1 {
@@ -644,7 +642,7 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	if code == 0 || laneCalls != 1 || identityCalls != 0 || bootCalls != 0 {
 		t.Fatalf("missing lane code=%d lane=%d identity=%d boot=%d stderr=%q", code, laneCalls, identityCalls, bootCalls, errOut.String())
 	}
-	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&after); err != nil {
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM effect_receipts").Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if after != before {

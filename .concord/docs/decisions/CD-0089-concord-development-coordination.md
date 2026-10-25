@@ -7,10 +7,6 @@
 - **Approval:** The operator approved the decision contract in issue #602 on
   2026-08-30.
 - **Related:** CD-0007, CD-0010, CD-0017, CD-0082, CD-0088, issue #600, and pull request #605
-- **Amended by:** [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) at
-  planning authority and development-session issue linkage only
-- **Supersedes:** CD-0010's prohibition on Concord coordinating its own
-  development before replacement readiness, and only that prohibition
 - **Preserves:** GitHub Issues as planning authority; pull requests and required
   checks as main-branch review and merge authority; branch and worktree isolation; Product
   law; replacement readiness as an evidence claim; and Advance as reference-only
@@ -61,34 +57,16 @@ material for predecessor lessons.
 
 ### D5. The bootstrap exception ends with issue #600
 
-Issue #600 and its release used the existing GitHub-native path because the
-defect blocked Concord bootstrap. After that release, Concord development uses
-Concord while retaining the external authority boundaries in D2.
+Concord development uses Concord while retaining the external authority
+boundaries in D2.
 
 ## Supersession boundary
 
-This decision supersedes only CD-0010's self-hosting prohibition. It also
-retires equivalent restatements in CD-0007 D5, CD-0017 D9, CD-0019 D4,
-CD-0021's consequences, CD-0047's context and consequences, CD-0082 D2, and
-CD-0084's context. CD-0010's surviving planning, isolation, Product-law, and Advance rules remain
-current. Its review and merge evidence governs main-branch integration;
-CD-0241 defines eligible phase-local integration evidence. Historical research
-records remain unchanged.
-
-The self-hosting prohibition is not current law. A compatible edit states the
-current rule in the owning record under CD-0036. Git history preserves the
-earlier prohibition and the decision that removed it.
-
-CD-0088 D5 records the same self-hosting prohibition for the host-owned work
-bootstrap. This decision supersedes that prohibition after the issue #600 release.
-CD-0088's surviving authority boundaries and bootstrap contract remain current.
-Its main-branch review and merge evidence remains GitHub-native; CD-0241 defines
-eligible phase-local integration evidence. The default-checkout implementation
-firewall remains unchanged.
-
-Current instructions and living law cite this decision where they describe
-Concord development authority. This record supersedes only the boundary named
-above.
+Concord development requires branch and worktree isolation, Product-law
+compliance, and reference-only use of Advance. Main-branch review and merge
+evidence is GitHub-native; CD-0241 defines eligible phase-local integration
+evidence. The default-checkout implementation firewall and CD-0088's
+bootstrap authority boundaries apply to self-development.
 
 ## Consequences
 
@@ -99,7 +77,6 @@ above.
   without waiving independent review.
 - The readiness floor remains measurable evidence and does not block dogfooding.
 - Advance remains a reference source with no Concord write path.
-- Issue #600 is the final bootstrap exception.
 
 ## Rejected alternatives
 
@@ -126,5 +103,3 @@ remains an evidence claim governed by the accepted floor and release evidence.
 - The existing readiness floor remains the source of replacement-readiness
   evidence without blocking Concord development.
 - No Concord operation writes Advance state.
-- The knowledge record, coverage shard, aggregate manifests, and repository
-  validators identify and verify this supersession.

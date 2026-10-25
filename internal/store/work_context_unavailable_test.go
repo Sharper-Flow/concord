@@ -156,7 +156,7 @@ func TestWorkContextUnavailableCompoundReads(t *testing.T) {
 	// unchanged version, unchanged durable operations, and unchanged event
 	// rows — the overflow is never dropped or truncated into a packet.
 	job := seedReadyWorkerJob(t, fixture)
-	rows, version, operations := histEventRows(t, fixture.store), readWorkVersion(t, fixture.store, fixture.workID), durableOperationCount(t, fixture)
+	rows, version, operations := currentEffectRows(t, fixture.store), readWorkVersion(t, fixture.store, fixture.workID), durableOperationCount(t, fixture)
 	dispatchErr := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-strict-refusal", job, nil))
 	if !hasFailureKind(dispatchErr, KindLimitExceeded) {
 		t.Fatalf("strict dispatch refusal = %v, want %s from the over-bound work context reader", dispatchErr, KindLimitExceeded)
@@ -168,7 +168,7 @@ func TestWorkContextUnavailableCompoundReads(t *testing.T) {
 	if got := durableOperationCount(t, fixture); got != operations {
 		t.Fatalf("refused dispatch left %d durable operations, want %d", got, operations)
 	}
-	if !reflect.DeepEqual(rows, histEventRows(t, fixture.store)) {
+	if !reflect.DeepEqual(rows, currentEffectRows(t, fixture.store)) {
 		t.Fatal("refused dispatch changed retained event headers, order, or bytes")
 	}
 }
@@ -244,12 +244,12 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 				t.Fatalf("strict read after the report = (%+v, %v), want nil with %s", view, viewErr, KindLimitExceeded)
 			}
 			var terminalPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, terminal.EventID).Scan(&terminalPayload); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&terminalPayload); err != nil {
 				t.Fatal(err)
 			}
-			before := histEventRows(t, s)
+			before := currentEffectRows(t, s)
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-			if !reflect.DeepEqual(before, histEventRows(t, s)) {
+			if !reflect.DeepEqual(before, currentEffectRows(t, s)) {
 				t.Fatal("compound reads changed retained event headers, order, or bytes")
 			}
 			if err := fixture.recordWorkContext(t, map[string]any{"required_reading": []map[string]any{}, "finding_refs": []string{}, "context_findings": []map[string]any{}}); err != nil {
@@ -257,7 +257,7 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 			}
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
 			var retainedPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, terminal.EventID).Scan(&retainedPayload); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE terminal_event_id=?`, terminal.EventID).Scan(&retainedPayload); err != nil {
 				t.Fatal(err)
 			}
 			if retainedPayload != terminalPayload {
@@ -267,27 +267,14 @@ func TestWorkContextUnavailableTerminalCustody(t *testing.T) {
 	}
 }
 
-// Replay and reopen custody: the historical over-bound declaration survives a
-// full log rebuild and a close/reopen with identical event rows and the same
-// compound-read state. The live bounded-selection recovery is not repeated: a
-// rebuild removes the seeded registry fixture, and that recovery is already
-// exercised live in the terminal custody test.
-func TestWorkContextUnavailableReplayAndRecovery(t *testing.T) {
+// An over-bound declaration keeps its compound-read state across reopen.
+func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-unavailable-replay")
 	defer fixture.store.Close()
 	seedWorkContextOverflow(t, fixture)
-	before := histEventRows(t, fixture.store)
+	before := currentEffectRows(t, fixture.store)
 	state := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(before, histEventRows(t, fixture.store)) {
-		t.Fatal("rebuild changed retained event headers, order, or bytes")
-	}
-	if after := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable); after != state {
-		t.Fatalf("rebuild changed the compound-read state:\nbefore %#v\nafter  %#v", state, after)
-	}
 	path := fixture.store.path
 	if err := fixture.store.Close(); err != nil {
 		t.Fatal(err)
@@ -295,7 +282,7 @@ func TestWorkContextUnavailableReplayAndRecovery(t *testing.T) {
 	reopened := openTempAtPath(t, path)
 	defer reopened.Close()
 	fixture.store = reopened
-	if !reflect.DeepEqual(before, histEventRows(t, reopened)) {
+	if !reflect.DeepEqual(before, currentEffectRows(t, reopened)) {
 		t.Fatal("reopen changed retained event headers, order, or bytes")
 	}
 	if after := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable); after != state {
@@ -383,12 +370,12 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			if len(continuity.NativeRuns) == 0 {
 				t.Fatal("the continuity snapshot carries no attributed native runs for the seeded report")
 			}
-			events, leases := histEventRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
+			events, leases := currentEffectRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
 			if len(leases) == 0 {
 				t.Fatal("the fixture holds no native verify-lease custody rows")
 			}
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
-			if !reflect.DeepEqual(events, histEventRows(t, s)) {
+			if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
 				t.Fatal("compound reads changed retained event headers, order, or bytes")
 			}
 			if !reflect.DeepEqual(leases, workContextVerifyLeaseRows(t, s, fixture.workID)) {
@@ -508,7 +495,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		if err := recordWorkerJobActionForTest(t, s, fixture.workID, fixture.owner, fields); err != nil {
 			t.Fatalf("the complete preparation inventory refused authoring: %v", err)
 		}
-		events, leases := histEventRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
+		events, leases := currentEffectRows(t, s), workContextVerifyLeaseRows(t, s, fixture.workID)
 		// Gather every selected control's receipt and prove the complete
 		// serialized metadata alone passes the bound: no control is skipped
 		// and no receipt is forged, foreign, or stale.
@@ -554,7 +541,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		if state.pinMarker == "" || state.continuityMarker == "" || state.embeddedMarker == "" {
 			t.Fatal("a compound read surface omits the work_context_unavailable marker")
 		}
-		if !reflect.DeepEqual(events, histEventRows(t, s)) {
+		if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
 			t.Fatal("the inventory reads changed retained event headers, order, or bytes")
 		}
 		if !reflect.DeepEqual(leases, workContextVerifyLeaseRows(t, s, fixture.workID)) {
@@ -569,20 +556,31 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		// Projection-only reproduction of the supersession recovery
 		// inventory (TestOwnerOracleReceiptViewRecoversAfterContractSupersession):
 		// one synthetic reported receipt past the retained bound enters the
-		// log by direct insert, beside no dispatch and no attempt. This makes
-		// no live-terminal admission claim — the separate completed and
-		// failed custody tests prove the valid terminal route — and invokes
-		// no fold: the refusal under test is the reader's classification of
-		// the over-bound retained lineage, not a producer's admission.
+		// receipt owner beside no dispatch and no attempt, and feeds
+		// the current lineage writer in that transaction. This makes no
+		// live-terminal admission claim: the separate completed and failed
+		// custody tests prove the valid terminal route. The refusal under test
+		// is the reader's classification of over-bound retained lineage.
 		receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
-		payload := string(mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}}))
+		payload := mustJSONValue(WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
 		if err := s.Transact(context.Background(), func(tx *Transaction) error {
+			scope, err := beginWrite(context.Background(), tx.tx)
+			if err != nil {
+				return err
+			}
 			for i := range oracleRetainedReceiptsMax + 1 {
-				if _, err := tx.tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item',?,'actor:fixture','2026-10-10T00:00:00Z',6,?)`, "receipt-history-"+itoa(i), WorkerCompleted, fixture.workID, payload); err != nil {
+				id := "receipt-history-" + itoa(i)
+				event := Event{EventID: id, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "actor:fixture", OccurredAt: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC), PayloadVersion: 6, Payload: payload}
+				seq, err := appendPreparedEvent(t.Context(), tx.tx, event)
+				if err != nil {
+					return err
+				}
+				event.Seq = seq
+				if err := writeOracleFindingFactsTx(context.Background(), tx.tx, event); err != nil {
 					return err
 				}
 			}
-			return nil
+			return scope.close(context.Background())
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -593,7 +591,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		if len(lineage.retainedReceipts) != oracleRetainedReceiptsMax+1 {
 			t.Fatalf("retained receipt lineage = %d, want exactly %d, one above the %d-receipt view bound", len(lineage.retainedReceipts), oracleRetainedReceiptsMax+1, oracleRetainedReceiptsMax)
 		}
-		events := histEventRows(t, s)
+		events := currentEffectRows(t, s)
 		var failure *Failure
 		view, viewErr := readWorkContextView(context.Background(), db, fixture.workID)
 		if view != nil || !errors.As(viewErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "oracle receipts") {
@@ -603,7 +601,7 @@ func TestWorkContextUnavailableInventories(t *testing.T) {
 		if state.pinMarker == "" || state.continuityMarker == "" || state.embeddedMarker == "" {
 			t.Fatal("a compound read surface omits the work_context_unavailable marker")
 		}
-		if !reflect.DeepEqual(events, histEventRows(t, s)) {
+		if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
 			t.Fatal("the inventory reads changed retained event headers, order, or bytes")
 		}
 	})

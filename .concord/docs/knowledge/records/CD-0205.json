@@ -13,7 +13,7 @@
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow_admission.go",
     "internal/store/workflow_admission_delivery.go",
-    "internal/store/workflow_registry_versions.go",
+    "internal/store/workflow_parts.go",
     "internal/store/worker_job_correction_window_test.go",
     "internal/store/worker_job_integration_admission_test.go",
     "internal/store/worker_job_lifecycle_witness_test.go",
@@ -28,14 +28,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0148"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0164"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0198"
     }
   ],
@@ -47,9 +39,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:305f6826b4147ca538f7515bdbcecd334f8698c5740db967582556572addb9c5",
+  "sha256": "sha256:5ef419a916ed8f41b957379e2349855d43c55aecc9638576e1d1a81afc5d7955",
   "status": "accepted",
-  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Earlier pins remain oracle-free. Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. Earlier unresolved obligations require unchanged base content and byte-identical old controls; added coverage can strengthen them, but control deletion or recipe re-pinning cannot discharge debt or reset retries. On repair-capable pins, a checks-only repair under the same contract and byte-identical oracle satisfies named failed revisions for readiness only and funds one confirming independent review, even at the wall. Only an accepted ship verdict confirms requirement preservation, and it resets the window only when no other obligation stays unresolved; a failed, abandoned, rejected or no_ship confirming review, or a contract supersession before confirmation, voids the repair. Repeats gain no admission of their own and at the wall need a store-derived convergence basis.",
+  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Definitions generate from one canonical source, and no released-definition version or pin is retained for history (CD-0242 D14). Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. A revision recorded under a superseded contract is not ready. Under CD-0242 D6 each launch carries its own scope and subject bindings, and no attempt count, correction window, convergence basis, or escalation wall exists.",
   "tags": [
     "workflow",
     "workflow-engine",

@@ -6,9 +6,6 @@
 **Scope:** Canonical agent jobs, current generated OpenCode surface,
 context/authorization, transport, results, digest-bound evolution, and deterministic
 pre-go-live evidence.
-**Amended by:** CD-0042 removes pre-go-live surface-version, negotiation,
-deprecation, and supported-model release policy; the current path is identified by
-the generated manifest digest.
 
 ## Context
 
@@ -23,14 +20,15 @@ accepted architecture index and invariants.
 
 ## Decision
 
+CD-0042 identifies the current path by the generated manifest digest.
+
 ### D1. Canonical jobs and evaluation
 
 Concord supports eight end-to-end jobs: orient/choose work, explain blockage,
 capture need, transition with evidence, relate/scope, compact/reconcile, retrieve
-durable knowledge, and coordinate native operational work. Twenty-two tool-neutral
+durable knowledge, and coordinate native operational work. Tool-neutral
 scenarios judge resulting state, communication, prohibited effects, and invariants;
-the operator-approved CD-0222/#195 amendment adds version-pinned Domain-overlap
-resolution within AJ5.
+AJ5 includes version-pinned Domain-overlap resolution under CD-0222.
 
 Binding: [`../agent-tool-surface-jobs.md`](../agent-tool-surface-jobs.md) and
 [`../../.concord/scenarios/agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
@@ -83,12 +81,11 @@ Binding: [`../agent-call-context-contract.md`](../agent-call-context-contract.md
 
 ### D6. OpenCode adapter and transport
 
-One globally installed `concord.ts` module initially exported eight tools and invokes the
+One globally installed `concord.ts` module exposes the generated current tool set and invokes the
 short-lived Go CLI over argv + JSON stdin/stdout. No plugin hooks, MCP daemon, FFI,
 TypeScript domain logic, or provider proxy. Signed client bootstrap protects grant
 issuance. Current OpenCode `ToolContext.ask` is pinned, tested, and fail-closed.
 
-CD-0024's Epic route and its versioned bootstrap are historical decision evidence.
 The current adapter exposes the generated current tool set, including the accepted
 `concord_work_relate.resolve_overlap` operation, and binds the exact manifest digest.
 Pre-go-live clients do not negotiate a surface version or range.

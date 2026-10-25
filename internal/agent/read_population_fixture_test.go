@@ -106,7 +106,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 		t.Fatal(err)
 	}
 	var statements strings.Builder
-	statements.WriteString("INSERT INTO fold_guard(active) VALUES(1);")
+	statements.WriteString("INSERT INTO write_guard(active) VALUES(1);")
 	for product := 0; product < readPopulationProducts; product++ {
 		productID := fmt.Sprintf("perf-product-%03d", product)
 		projectPrimary := fmt.Sprintf("perf-project-%03d-primary", product)
@@ -132,13 +132,13 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 			fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('%s','%s','Perf work %03d-%02d','%s',%d,1,'2026-08-%02dT00:00:00Z','2026-08-%02dT00:00:00Z',%s);", workID, kind, product, work, lifecycle, work+1, (work%8)+1, (work%8)+1, terminal)
 			fmt.Fprintf(&statements, "INSERT INTO work_projects(work_id,project_id,role) VALUES('%s','%s','primary'),('%s','%s','secondary');", workID, projectPrimary, workID, projectSecondary)
 			if work == 0 {
-				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,started_at) VALUES('%s','%s',%d,'%s','planning','ready','2026-08-01T00:00:00Z');", workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest)
+				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,started_at) VALUES('%s','%s','%s','planning','ready','2026-08-01T00:00:00Z');", workID, definition.Definition.Ref, definition.Digest)
 			}
 		}
 		blockerID := fmt.Sprintf("perf-work-%03d-06", product)
 		fmt.Fprintf(&statements, "INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('%s','perf-work-%03d-02','blocks','2026-08-05T00:00:00Z'),('%s','perf-work-%03d-04','blocks','2026-08-05T00:00:00Z');", blockerID, product, blockerID, product)
 	}
-	statements.WriteString("DELETE FROM fold_guard;")
+	statements.WriteString("DELETE FROM write_guard;")
 	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), statements.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	events := []store.Event{
-		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus","priority":1}`)},
+		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus","priority":1}`)},
 		{EventID: "population-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, readPopulationWork): 0}}); err != nil {
@@ -295,13 +295,13 @@ func execPopulationStatement(t *testing.T, s *store.Store, statement string, arg
 	t.Helper()
 	ctx := context.Background()
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, statement, args...); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -467,7 +467,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
 	// The unresolved overlap must follow setup mutations that enforce admission.
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
 // seedPopulationDomainRows attaches the home Project and one managed resource
@@ -557,6 +557,6 @@ func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	}
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,?,'request:population','2026-09-01T00:00:00Z')`,
-		fx.workID, focusVersion, registered.Definition.Ref, registered.Definition.Version, registered.Digest, actorRef)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,'request:population','2026-09-01T00:00:00Z')`,
+		fx.workID, focusVersion, registered.Definition.Ref, registered.Digest, actorRef)
 }

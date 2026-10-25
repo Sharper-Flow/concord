@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +27,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 
 	secondWork := []store.Event{
-		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Second Worktree","priority":1}`)},
+		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Second Worktree","priority":1}`)},
 		{EventID: "wt-dispatch-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -98,7 +100,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	}
 
 	var events int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind=?`, "work.session_vacated").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind=?`, "work.session_vacated").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 2 {
@@ -118,7 +120,7 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 
 	secondWork := []store.Event{
-		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
+		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
 		{EventID: "wt-cached-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -198,14 +200,14 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 		t.Fatalf("occupancy rows after the refused replay=%d, want the later claim's row standing", occupied)
 	}
 	var landings int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
 		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -280,7 +282,7 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 		t.Fatalf("source replay result=%+v, want the committed request's source and destination", result)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -369,7 +371,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 		t.Fatalf("new-key retry result=%+v, want the committed request's source and destination", result)
 	}
 	var vacates int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -394,7 +396,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 
 // TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest pins the
 // pending-request lookup as a decision, not a hint: a pending request the
-// core cannot decode refuses the new-key retry and appends nothing. Only a
+// core cannot read refuses the new-key retry and appends nothing. Only a
 // confirmed absence of a pending request reaches the fresh-request path, so a
 // failed lookup never records a second relocation request for one move.
 func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
@@ -428,14 +430,11 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
 	}
 
-	// Simulate a recorded request the core can no longer decode. The event
-	// log is append-only, so the test lifts the update guard on its own
-	// fixture database to damage the committed payload.
+	// Simulate a committed request whose destination the core can no longer
+	// read. The request state is fold-only, so the test opens the fold guard
+	// on its own fixture database to damage it.
 	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER domain_events_no_update`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE domain_events SET payload=json_remove(payload,'$.destination_directory') WHERE kind='work.session_vacated'`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE session_vacate_requests SET destination_directory=''; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -444,7 +443,7 @@ func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
 		t.Fatalf("new-key retry response=%+v, want a refusal for the unreadable pending request", retry)
 	}
 	var vacates int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
 		t.Fatal(err)
 	}
 	if vacates != 1 {
@@ -477,7 +476,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// One work item holds membership in two Projects: after both relocations
 	// the same work item is claimed in the second Project.
 	secondProject := []store.Event{
-		{EventID: "vacate-reoccupy-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Reoccupy Project"}`)},
+		{EventID: "vacate-reoccupy-project-2", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Reoccupy Project"}`)},
 		{EventID: "vacate-reoccupy-project-2-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-2","role":"secondary","reason":"vacate reoccupy fixture","expected_version":2,"resulting_version":3}`)},
 		{EventID: "vacate-reoccupy-work-1-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
 	}
@@ -606,17 +605,24 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		}
 	}
 	var events []vacatedEvent
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq`)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id,payload_version,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id='work-1' AND kind='work.session_vacated' ORDER BY effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rows.Next() {
 		var event vacatedEvent
-		var raw string
-		if err := rows.Scan(&event.EventID, &event.PayloadVersion, &raw); err != nil {
+		var digest string
+		if err := rows.Scan(&event.EventID, &event.PayloadVersion, &digest); err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal([]byte(raw), &event.Payload); err != nil {
+		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "session_ref": grant.SessionRef, "source_directory": worktree1, "destination_directory": repo1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if digest != fmt.Sprintf("sha256:%x", sha256.Sum256(raw)) {
+			t.Fatalf("vacate receipt %s does not bind the exact relocation request with no landing: digest=%s expected=%s", event.EventID, digest, raw)
+		}
+		if err := json.Unmarshal(raw, &event.Payload); err != nil {
 			t.Fatal(err)
 		}
 		events = append(events, event)

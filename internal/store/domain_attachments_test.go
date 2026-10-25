@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
+func TestReplaceDomainAttachmentsFoldsSets(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -37,18 +37,6 @@ func TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild(t *testing.T) {
 	}
 	if projectLinks != 1 || resourceLinks != 1 || projectVersion != 1 || resourceVersion != 1 {
 		t.Fatalf("attachments project=%d resource=%d versions=%d/%d", projectLinks, resourceLinks, projectVersion, resourceVersion)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_project_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&projectLinks); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_resource_attachment_edges WHERE product_id='domain-product' AND domain_id='domain-a'`).Scan(&resourceLinks); err != nil {
-		t.Fatal(err)
-	}
-	if projectLinks != 1 || resourceLinks != 1 {
-		t.Fatalf("attachments after rebuild project=%d resource=%d", projectLinks, resourceLinks)
 	}
 }
 
@@ -85,7 +73,7 @@ func TestDomainResourceAttachmentSchemaRequiresSameProductMembership(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -112,7 +100,7 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	hash := "sha256:" + repeatA64()
@@ -131,7 +119,7 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) {
 	if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProject, homeLocator, productID, domainID, "Domain "+domainID, "test domain", nil, "current", hash, "commit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

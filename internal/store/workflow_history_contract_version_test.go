@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var historyContractEvents = []string{WorkflowContractApproved, WorkflowContractSuperseded}
+var historyRecordKinds = []string{"lifecycle", "phase_exit"}
 
 // historyContractFixture is a work item whose contract v1 was superseded by
 // v2 through the folded supersession event.
@@ -21,17 +21,17 @@ func historyContractFixture(t *testing.T, name string) (*Store, string) {
 }
 
 // setHistoryContractPin rewrites one contract version's definition pin
-// through the fold guard, the shape of a row recorded before pins existed or
+// through the write guard, the shape of a row recorded before pins existed or
 // a pin the registry no longer holds.
 func setHistoryContractPin(t *testing.T, s *Store, workID string, version int64, ref, digest string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	_, updateErr := db.Exec(`UPDATE workflow_contracts SET definition_ref=?,definition_digest=? WHERE work_id=? AND contract_version=?`, ref, digest, workID, version)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Errorf("remove fold guard: %v", err)
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Errorf("remove write guard: %v", err)
 	}
 	if updateErr != nil {
 		t.Fatal(updateErr)
@@ -48,7 +48,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	s, workID := historyContractFixture(t, "history-contract-version")
 	ctx := context.Background()
 
-	active, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents})
+	active, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 		t.Fatalf("active history workflow = %+v, want contract v2 with its Product-truth flag", active.Workflow)
 	}
 
-	selected, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1})
+	selected, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	}
 	contract := workflow.Contract
 	var approvedAt, approvedBy, pinRef, pinDigest, modifies string
-	var pinVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT approved_at,approved_by,definition_ref,definition_version,definition_digest,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedAt, &approvedBy, &pinRef, &pinVersion, &pinDigest, &modifies); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT approved_at,approved_by,definition_ref,definition_digest,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedAt, &approvedBy, &pinRef, &pinDigest, &modifies); err != nil {
 		t.Fatal(err)
 	}
 	if contract.Version != 1 || contract.SupersededBy == nil || *contract.SupersededBy != 2 || contract.ApprovedAt != approvedAt || contract.ApprovedBy != approvedBy {
@@ -76,7 +75,7 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if pinRef == "" {
 		t.Fatal("fixture contract v1 recorded no definition pin")
 	}
-	wantPin := &WorkflowContractDefinitionPin{Ref: pinRef, Version: pinVersion, Digest: pinDigest, Verified: true}
+	wantPin := &WorkflowContractDefinitionPin{Ref: pinRef, Digest: pinDigest, Verified: true}
 	if !contract.DefinitionPin.Read || !reflect.DeepEqual(contract.DefinitionPin.Pin, wantPin) {
 		t.Fatalf("definition pin = %+v, want %+v", contract.DefinitionPin.Pin, wantPin)
 	}
@@ -95,9 +94,9 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 	if !reflect.DeepEqual(contract.LawModifies, nonNilStrings(wantModifies)) || !reflect.DeepEqual(contract.LawRevisions, wantRevisions) || !reflect.DeepEqual(contract.ArchitectureBinding, wantBinding) || !reflect.DeepEqual(workflow.ArchitectureBinding, wantBinding) {
 		t.Fatalf("selected contract law and binding = %+v %+v %+v, want v1's %+v %+v %+v", contract.LawModifies, contract.LawRevisions, contract.ArchitectureBinding, wantModifies, wantRevisions, wantBinding)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(pinRef, pinVersion)
+	registered, ok := BuiltinWorkflowRegistry().Current(pinRef)
 	if !ok || registered.Definition.ChangesProductTruth == nil {
-		t.Fatalf("fixture pin %s v%d is not a registered definition with a Product-truth flag", pinRef, pinVersion)
+		t.Fatalf("fixture pin %s is not a registered definition with a Product-truth flag", pinRef)
 	}
 	wantTruth := registered.Definition.ChangesProductTruth
 	if contract.ChangesProductTruth == nil || *contract.ChangesProductTruth != *wantTruth || workflow.ChangesProductTruth != *wantTruth {
@@ -110,24 +109,9 @@ func TestHistoryReadsASupersededContractVersion(t *testing.T) {
 		t.Fatalf("instance fields = %s/%s/%+v, want the current %s/%s/%+v", workflow.State, workflow.CurrentStep, workflow.Definition, active.Workflow.State, active.Workflow.CurrentStep, active.Workflow.Definition)
 	}
 
-	type made struct {
-		kind              string
-		version, previous int64
-	}
-	var got []made
-	for _, event := range selected.Events {
-		entry := made{kind: event.Kind}
-		if event.ContractVersion != nil {
-			entry.version = *event.ContractVersion
-		}
-		if event.PreviousContractVersion != nil {
-			entry.previous = *event.PreviousContractVersion
-		}
-		got = append(got, entry)
-	}
-	want := []made{{WorkflowContractSuperseded, 2, 1}, {WorkflowContractApproved, 1, 0}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("contract events = %+v, want %+v", got, want)
+	// CD-0242 D2 retires approval traces; selecting a contract only changes the summary.
+	if !reflect.DeepEqual(selected.Entries, active.Entries) {
+		t.Fatalf("contract selector changed the current entry population")
 	}
 }
 
@@ -141,15 +125,15 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 	_, err := s.QueryQ7(ctx, Q7Request{Work: workID, ContractVersion: 9})
 	assertFailureKind(t, err, KindUnknownScope)
 
-	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1, Limit: 1})
+	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1})
 	if err != nil || page.NextCursor == nil {
 		t.Fatalf("first selected page = %+v, %v; want a next cursor", page.NextCursor, err)
 	}
-	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
+	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
 		t.Fatalf("the cursor must continue its own selector: %v", err)
 	}
 	for _, other := range []int64{0, 2} {
-		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, EventKinds: historyContractEvents, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
+		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
 		assertFailureKind(t, err, KindInvalidCursor)
 	}
 
@@ -165,20 +149,19 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 }
 
 // TestHistoryContractVersionWithoutAVerifiedPin proves a version recorded
-// without a pin answers definition_pin null and a pin the registry no longer
-// verifies answers verified false. Neither substitutes the instance's
-// Product-truth flag: the field is omitted.
+// without a pin answers definition_pin null and a pin whose ref the registry
+// no longer carries answers verified false. A pin resolves by its ref to the
+// one current definition (CD-0242 D14), so only a retired ref is unverified.
+// Neither substitutes the instance's Product-truth flag: the field is omitted.
 func TestHistoryContractVersionWithoutAVerifiedPin(t *testing.T) {
 	t.Parallel()
-	for name, digest := range map[string]string{"unpinned": "", "unverified": "sha256:" + strings.Repeat("f", 64)} {
+	for name, ref := range map[string]string{"unpinned": "", "unverified": "workflow.retired"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s, workID := historyContractFixture(t, "history-contract-"+name)
-			ref := ""
-			if digest != "" {
-				if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref); err != nil {
-					t.Fatal(err)
-				}
+			digest := ""
+			if ref != "" {
+				digest = "sha256:" + strings.Repeat("f", 64)
 			}
 			setHistoryContractPin(t, s, workID, 1, ref, digest)
 			result, err := s.QueryQ7(context.Background(), Q7Request{Work: workID, ContractVersion: 1})
@@ -198,7 +181,7 @@ func TestHistoryContractVersionWithoutAVerifiedPin(t *testing.T) {
 			}
 			wantPin := `"definition_pin":null`
 			if digest != "" {
-				wantPin = `"definition_pin":{"ref":"` + ref + `","version":`
+				wantPin = `"definition_pin":{"ref":"` + ref + `","digest":"` + digest + `","verified":false}`
 				if contract.DefinitionPin.Pin == nil || contract.DefinitionPin.Pin.Verified {
 					t.Fatalf("definition pin = %+v, want an unverified pin", contract.DefinitionPin.Pin)
 				}

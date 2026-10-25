@@ -22,19 +22,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestRefineProofGateKeepsEarlierVersionsOpen"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestRefineToolingResolutionReadsTheDefaultRefOnly"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
-    },
-    {
-      "kind": "scenario",
-      "value": "WF57-refine-exit-needs-green-verify-run"
     },
     {
       "kind": "validator",

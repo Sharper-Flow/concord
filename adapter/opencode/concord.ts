@@ -457,8 +457,9 @@ export async function publishWorkStartDefinition(
 ): Promise<void> {
   if (input.toolID !== "concord_work_start") return
   const [capture, resume] = hostToolSchemas.concord_work_start.oneOf
-  // Anthropic rejects root oneOf/anyOf/allOf. Presence of work_id selects
-  // the same closed branch as validateWorkStartArgs, including invalid IDs.
+  // Anthropic rejects root oneOf/anyOf/allOf, and host publication admits no
+  // bare anyOf. Presence of either selector chooses the same closed resume
+  // branch as validateWorkStartArgs through nested conditionals.
   // Parameters remain unchanged: publication cannot alter runtime admission.
   // The merged root properties repeat each branch's field constraints, so the
   // published document interns like the request tools instead of carrying
@@ -469,7 +470,7 @@ export async function publishWorkStartDefinition(
     additionalProperties: false,
     if: { required: ["work_id"] },
     then: resume,
-    else: capture,
+    else: { if: { required: ["issue_key"] }, then: resume, else: capture },
   })))
 }
 
@@ -851,6 +852,10 @@ function selectedProductID() {
 
 type AmbientContext = { projectID: string; productIDs: string[]; scopeVersion: string; mainWorktree: boolean }
 
+function concordCallEnvelope(context: ToolContext, sessionDirectory: string, ambient: AmbientContext, selectedProduct: string) {
+  return { schema_version: "1.0", request_id: `${context.sessionID}-${context.messageID}`, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
+}
+
 async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessionDirectory: string): Promise<AmbientContext> {
   let result
   try {
@@ -894,7 +899,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   try { ambient = ambientOverride ?? await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
-  const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
+  const envelope: any = concordCallEnvelope(context, sessionDirectory, ambient, selectedProduct)
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   // An unreadable session_vacate answer leaves the committed relocation
   // request's state to the replay, so the refusal names that recovery
@@ -1315,14 +1320,10 @@ type WorkStartCaptureArgs = {
   }
 }
 
-// WorkStartArgs is one of two shapes (issue #891): the capture shape above, or
-// the resume shape naming an existing work item by work identity. Resume
-// records nothing, so it carries no idempotency_key and no capture fields, and
-// it names no Project: the resume claims in the Project the calling session
-// resolves. A different same-repository Project is selected through
-// concord_work_transition worktree_claim, and a different repository needs a
-// host-started session there that resumes by work_id.
-type WorkStartArgs = WorkStartCaptureArgs | { work_id: string }
+// Resume carries exactly one selector and no capture fields or Project override.
+// The CLI alone resolves recorded issue keys to canonical work identities.
+type WorkStartResumeArgs = { work_id: string; issue_key?: never } | { issue_key: string; work_id?: never }
+type WorkStartArgs = WorkStartCaptureArgs | WorkStartResumeArgs
 
 // RecordedLinearIssueSection carries only the identity held by the local store.
 type RecordedLinearIssueSection = { human_key: string; remote_issue_uuid: string; url: string }
@@ -1409,10 +1410,10 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id. Do not combine capture and resume fields.`
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires exactly one of work_id or issue_key, and names no Project: the resume claims in the Project the calling session resolves. Another Project of this repository is selected through concord_work_transition worktree_claim instead, and another repository needs a host-started session there that resumes by work_id or issue_key. Do not combine capture and resume fields.`
 
-function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
-  return saneWorkID(value.work_id)
+function isWorkStartResumeArgs(value: Record<string, unknown>): value is WorkStartResumeArgs {
+  return "work_id" in value || "issue_key" in value
 }
 
 // The published per-field view cannot enforce the closed capture/resume modes.
@@ -1422,7 +1423,7 @@ function validateWorkStartArgs(value: unknown, failures: string[]): value is Wor
     failures.push("arguments: is not of type object")
     return false
   }
-  const branch = "work_id" in value ? workStartResumeBranch : workStartCaptureBranch
+  const branch = isWorkStartResumeArgs(value) ? workStartResumeBranch : workStartCaptureBranch
   return validateAgainstSchema(branch, value, failures)
 }
 
@@ -1479,7 +1480,7 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!baseKeys.every((key) => key in value)) return false
   const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
   if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
-  if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
+  if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !saneWorkID(value.work_id) || !record(value.worktree)) return false
   const worktree = value.worktree
   const restoredKeys = ["restored", "restored_tip", "restoration_warning"]
   const restorationPresent = restoredKeys.some((key) => key in worktree)
@@ -1757,16 +1758,14 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     let renderedHandoff: ProjectHandoffSection | undefined
     let resumeFreshness: BranchFreshness | undefined
     if (resume) {
-      const workID = (args as { work_id: string }).work_id
-      // The resume claims in the Project the calling session resolves; a
-      // work whose receiving Project lives in another repository is resumed
-      // by a host-started session there.
-      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      const selector = args as WorkStartResumeArgs
+      // The CLI resolves the selector within the calling session's scope.
+      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, ...selector, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, productID) }), context.abort, { cwd: context.directory })
       if (resumed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (resumed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || resumedValue.work_id !== workID) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
+      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || (selector.work_id !== undefined ? resumedValue.work_id !== selector.work_id : resumedValue.linear_issue?.human_key !== selector.issue_key)) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
       recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
@@ -1887,7 +1886,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // handoff-free, and a boot whose landing did not record stays on the
     // warning path above.
     if (resume && !renderedHandoff && landingRecorded) {
-      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID, call_envelope: concordCallEnvelope(context, context.directory, ambient, target.product_id) }), context.abort, { cwd: context.directory })
       if (refreshed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
       if (refreshed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
       let refreshedValue: unknown

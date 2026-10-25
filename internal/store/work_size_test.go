@@ -78,12 +78,9 @@ func TestWorkSizeRecordKeepsSizeModelVersionAndInputs(t *testing.T) {
 	if err := applyWorkEvent(t, s, workSizedEvent("sized-2", "sized", WorkSizeModelVersion, WorkSizeLarger, larger), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
 	current, ok, err := readWorkSize(ctx, s.DatabaseForTesting(), "sized")
 	if err != nil || !ok || current.Size != WorkSizeLarger || current.Sequence != 2 {
-		t.Fatalf("after rebuild: %+v ok=%v err=%v", current, ok, err)
+		t.Fatalf("current size: %+v ok=%v err=%v", current, ok, err)
 	}
 	var rows int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_size_assessments WHERE work_id='sized'`).Scan(&rows); err != nil || rows != 2 {

@@ -70,19 +70,11 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimDir := t.TempDir()
-	grantActorRef, err := store.WorkflowActorRef(grantActor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'the replay journey delivers its checked change','internal_sqlite','[]','[]','now',?1,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:replay-journey","immutable_subject_ref":"commit:replay-journey","expected_result":"pass"}');
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?2,'project-1','claim:replay-journey','replay-journey',?3,?4,'repo:replay-journey','active',?5);
-		DELETE FROM fold_guard`,
-		grantActorRef,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?1,'project-1','claim:replay-journey','replay-journey',?2,?3,'repo:replay-journey','active',?4);
+		DELETE FROM write_guard`,
 		store.WorktreeSetID("work-1"), strings.Repeat("a", 40), claimDir, fixedTime().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
-		t.Fatalf("seed contract and claim: %v", err)
+		t.Fatalf("seed claim: %v", err)
 	}
 	grant.Worktree = claimDir
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -100,12 +92,24 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	}
 	version := func() int64 { return workVersion(t, s, "work-1") }
 
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "replay-journey")
+	contractFields := workflowContractFieldsFixture()
+	contractFields["premise"] = "the replay journey delivers its checked change"
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:replay-journey", "immutable_subject_ref": "commit:replay-journey", "expected_result": "pass"}}}
+	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	if approved := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "replay-journey-contract"}); approved.Outcome != OutcomeOK {
+		t.Fatalf("approve_contract: %+v", approved.Error)
+	}
+
+	recordApprovedWorkDesign(t, s, service, env, "work-1", "replay-journey-design")
 	if start := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "start_execution",
 		"fields": map[string]any{}, "idempotency_key": "replay-journey-start",
 	}); start.Outcome != OutcomeOK {
 		t.Fatalf("start_execution: %+v", start.Error)
 	}
+	recordRecoveryWorkerJob(t, s, service, env, "job:replay-architecture-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
 	recordRecoveryWorkerJob(t, s, service, env, "job:replay-journey")
 	if declared := invoke(map[string]any{
 		"work_id": "work-1", "expected_version": version(), "action_id": "record_work_context",
@@ -129,7 +133,7 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 			"worker_packet": bindPacketToRecordedState(t, s, func() map[string]any {
 				lane := recoveryProducerLane(t, "implement")
 				return map[string]any{
-					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest,
 					"work_id": "work-1", "step_id": "execution",
 					"inputs": map[string]any{"task": "deliver the replay journey change", "constraints": []string{"preserve the approved contract"}},
 				}
@@ -144,10 +148,10 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 	}
 
 	var eventsBefore, dispatchesBefore int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker'`).Scan(&dispatchesBefore); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id='work-1'`).Scan(&dispatchesBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,10 +169,10 @@ func TestDispatchRequiredReadingReplayAfterSourceRemoval(t *testing.T) {
 		t.Fatalf("replay result %s differs from the original %s", replay.Result, first.Result)
 	}
 	var eventsAfter, dispatchesAfter int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker'`).Scan(&dispatchesAfter); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id='work-1'`).Scan(&dispatchesAfter); err != nil {
 		t.Fatal(err)
 	}
 	if eventsAfter != eventsBefore || dispatchesAfter != dispatchesBefore {

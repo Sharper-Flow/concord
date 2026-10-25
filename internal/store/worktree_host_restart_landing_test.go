@@ -34,7 +34,7 @@ func TestClaimLandingRefreshesRestartedHostIdentity(t *testing.T) {
 		t.Fatal("replacement host landing replayed the ended host identity")
 	}
 	var events int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-w' AND kind='work.session_claim_landed'`).Scan(&events); err != nil || events != 2 {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-w' AND kind='work.session_claim_landed'`).Scan(&events); err != nil || events != 2 {
 		t.Fatalf("landing events = %d, error = %v; want two recorded identities", events, err)
 	}
 	check := func() {
@@ -54,11 +54,7 @@ func TestClaimLandingRefreshesRestartedHostIdentity(t *testing.T) {
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("same-process replay = %+v, error = %v", replay, err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-w' AND kind='work.session_claim_landed'`).Scan(&events); err != nil || events != 2 {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-w' AND kind='work.session_claim_landed'`).Scan(&events); err != nil || events != 2 {
 		t.Fatalf("same-process replay recorded another event: count=%d error=%v", events, err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	check()
 }

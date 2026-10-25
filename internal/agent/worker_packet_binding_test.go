@@ -70,6 +70,9 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 		if err != nil {
 			t.Fatal(err)
 		}
+		if lane.CapabilityClass == "review" && snapshot.ReviewInput != nil {
+			inputs["review_input"] = snapshot.ReviewInput
+		}
 		if len(snapshot.ReadyWorkerJobs) == 1 {
 			job := snapshot.ReadyWorkerJobs[0]
 			// As the adapter does, only an implementation lane keeps the
@@ -156,7 +159,7 @@ func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, 
 		"checks":            []string{"go vet ./..."},
 		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
 	}
-	addAgentJobSizeMembers(t, s, workID, fields)
+	addAgentJobCallerMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -193,13 +196,12 @@ func oracleCapableAgentPin(t *testing.T, s *store.Store) bool {
 func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) bool {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := store.BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := store.BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s@%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	for _, action := range registered.Definition.ActionDefinitions {
 		if action.ID != "record_worker_job" {
@@ -214,25 +216,19 @@ func agentPinRecordsJobField(t *testing.T, s *store.Store, workID, name string) 
 	return false
 }
 
-// addAgentJobSizeMembers authors the CD-0225 size members an editing job
-// carries on a size-capable pin: a per-job path scope and inventory, so
-// coexisting jobs never share measured paths, the measurement base at the
-// work's qualified subject, and an allowance inside the oracle owner's
-// Project and Domain. The oracle fields must already be present.
-func addAgentJobSizeMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
+// addAgentJobCallerMembers authors the direct-caller allowance (CD-0227 D1 as
+// amended by CD-0242 D6) an editing job carries on a caller-capable pin: a
+// per-job path scope and an allowance inside the oracle owner's Project and
+// Domain. The oracle fields must already be present.
+func addAgentJobCallerMembers(t *testing.T, s *store.Store, workID string, fields map[string]any) {
 	t.Helper()
-	if !agentPinRecordsJobField(t, s, workID, "production_size_max") {
+	if !agentPinRecordsJobField(t, s, workID, "direct_caller_allowance") {
 		return
 	}
 	owner := fields["acceptance_oracle"].(map[string]any)["owners"].([]any)[0].(map[string]any)
 	project := owner["mechanism"].(map[string]any)["project_id"]
 	inventory := "generated/" + strings.NewReplacer(":", "-", " ", "-").Replace(fmt.Sprint(fields["job_id"]))
 	fields["path_scope"] = []string{inventory}
-	fields["production_size_max"] = 400
-	fields["measurement_basis"] = map[string]any{
-		"base_commit": fixtureOracleSubjectFor(t, s, workID),
-		"paths":       []map[string]any{{"path": inventory, "class": "production"}},
-	}
 	fields["direct_caller_allowance"] = map[string]any{
 		"project_id":   project,
 		"mechanisms":   []map[string]any{{"project_id": project, "path": inventory, "entry_point": "recorded job"}},
@@ -325,9 +321,9 @@ func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, workID string) (s
 	if err == nil {
 		return path, branch
 	}
-	if _, execErr := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, execErr := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID(workID), oracleFixtureProject, "claim:oracle-fixture-"+workID, "work/oracle-fixture", strings.Repeat("a", 40), t.TempDir(), "repo:oracle-fixture", fixedTime().Format(time.RFC3339Nano)); execErr != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID(workID), oracleFixtureProject, "claim:oracle-fixture-"+workID, "work/oracle-fixture", strings.Repeat("a", 40), t.TempDir(), "repo:oracle-fixture", fixedTime().Format(time.RFC3339Nano)); execErr != nil {
 		t.Fatalf("seed the oracle fixture worktree claim: %v", execErr)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND project_id=? AND state='active' LIMIT 1`,
@@ -411,7 +407,7 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 		leaseID, workID, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, string(commandJSON), string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject lease: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify',1,'worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
+	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify','','worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
 		"worktree_verify:"+leaseID, workID, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
 	}
@@ -438,8 +434,10 @@ func deliverAgentFixtureChange(t *testing.T, s *store.Store, workID, attemptID s
 	}
 }
 
-// Size-capable fixtures record one production path. Deliver there rather than
-// changing an unscoped path and claiming an unevidenced caller repair.
+// recordedJobDeliveryPath delivers inside the authorized job's recorded path
+// scope, so acceptance holds a contained delta instead of an unscoped path
+// with no evidenced caller repair. An attempt without a scoped job delivers
+// at the root.
 func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID string) string {
 	t.Helper()
 	binding := authorizedWorkerJobFor(t, s, workID, attemptID)
@@ -447,7 +445,7 @@ func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID str
 		return "delivery.txt"
 	}
 	var raw []byte
-	err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, workID, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if err != nil {
 		t.Fatalf("read the authorized worker job %+v: %v", binding, err)
 	}
@@ -455,13 +453,10 @@ func recordedJobDeliveryPath(t *testing.T, s *store.Store, workID, attemptID str
 	if err := json.Unmarshal(raw, &job); err != nil {
 		t.Fatal(err)
 	}
-	if job.MeasurementBasis == nil {
+	if len(job.PathScope) == 0 {
 		return "delivery.txt"
 	}
-	if len(job.MeasurementBasis.Paths) != 1 || job.MeasurementBasis.Paths[0].Class != "production" {
-		t.Fatalf("delivery fixture requires one recorded production path: %+v", job.MeasurementBasis.Paths)
-	}
-	return job.MeasurementBasis.Paths[0].Path
+	return job.PathScope[0] + "/delivery.txt"
 }
 
 // seedOraclePreparationReceiptForWork records the exact native preparation
@@ -704,11 +699,11 @@ func oracleFixtureBundleDigest(t *testing.T, oracle map[string]any, controlID st
 
 func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 		VALUES('work-1',1,'predicate:second-approved',1,'check','{"kind":"check","check_ref":"check:second","immutable_subject_ref":"commit:second","expected_result":"pass"}');
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	oracle := agentOracleFieldsForTest(t, s)
@@ -798,7 +793,7 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 		return
 	}
 	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
-	addAgentJobSizeMembers(t, s, workID, fields)
+	addAgentJobCallerMembers(t, s, workID, fields)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -847,7 +842,7 @@ func authorizedWorkerJob(t *testing.T, s *store.Store, attemptID string) *store.
 func authorizedWorkerJobFor(t *testing.T, s *store.Store, workID, attemptID string) *store.WorkerJobBinding {
 	t.Helper()
 	var raw string
-	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) || raw == "" {
 		return nil
 	}
@@ -869,7 +864,7 @@ func recordedAgentOracle(t *testing.T, s *store.Store, binding *store.WorkerJobB
 		return nil
 	}
 	var raw sql.NullString
-	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, "work-1", store.WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
+	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(recorded_payload,'$.acceptance_oracle') FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, "work-1", binding.JobID, binding.Revision, binding.Digest).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("the authorized worker job has no recorded revision: %+v", binding)
 	}

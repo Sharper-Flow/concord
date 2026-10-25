@@ -9,86 +9,6 @@ import (
 	"testing"
 )
 
-// A superseded law's successor must live in the declaring manifest: the
-// qualified project_id/law_id successor form is refused fail closed
-// (CD-0200), because the cross-source supersedes edge it implies has no
-// admitted declaration. The successor is not copied into the declaring
-// source either — the refusal, not a projection, answers.
-func TestCrossSourceSuccessorRefusesQualifiedForm(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, home, source := seedCrossSourceBoundaryProduct(t, "external-successor")
-	shards, err := readKnowledgeShardsWorkingTree(source.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := composeKnowledgeManifest(shards, manifestRegisteredSourceRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Records[0].Status = "superseded"
-	manifest.Records[0].Successor = home.HomeProjectID + "/HOME-LAW"
-	writeSourceManifest(t, source.RepoPath, manifest)
-	commitKnowledgeRepo(t, source.RepoPath, "qualified external successor")
-	err = s.RebuildKnowledgeIndex(ctx, source)
-	var failure *Failure
-	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
-		t.Fatalf("qualified external successor rebuild error = %v, want the fail-closed supersedes refusal", err)
-	}
-}
-
-// Cross-source supersedes is refused fail closed even when the declaring
-// source's manifest carries a valid local supersession: the edge itself has
-// no admitted declaration, so the shared home cannot capture a source law's
-// supersession whatever the target's own successor declaration says
-// (CD-0200).
-func TestCrossSourceSupersedesRefusesBareLocalSuccessorCapture(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, home, source := seedCrossSourceBoundaryProduct(t, "successor-collision")
-	shards, err := readKnowledgeShardsWorkingTree(source.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := composeKnowledgeManifest(shards, manifestRegisteredSourceRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	local := manifest.Records[0]
-	local.ID = "HOME-LAW"
-	local.Path = ".concord/docs/decisions/CD-0999-local-next.md"
-	local.Title = "Local successor, distinct from shared law"
-	local.LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW"}}
-	writeKnowledgeFile(t, source.RepoPath, local.Path, "durable SRC-LAW blob\n")
-	manifest.Records[0].Status = "superseded"
-	manifest.Records[0].Successor = "HOME-LAW"
-	manifest.Records = append(manifest.Records, local)
-	writeSourceManifest(t, source.RepoPath, manifest)
-	commitKnowledgeRepo(t, source.RepoPath, "local supersession")
-	if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
-		t.Fatal(err)
-	}
-	shards, err = readKnowledgeShardsWorkingTree(home.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err = composeKnowledgeManifest(shards, manifestSharedHomeRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
-	writeManifestShards(t, home.RepoPath, manifest)
-	commitKnowledgeRepo(t, home.RepoPath, "incorrect external supersession")
-	err = s.RebuildKnowledgeIndex(ctx, home)
-	var failure *Failure
-	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
-		t.Fatalf("cross-source supersedes rebuild error = %v, want the fail-closed refusal", err)
-	}
-	if err := checkMandatedLawsAtHome(ctx, s, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err == nil {
-		t.Fatal("the mandated-law boundary answered for a law whose manifest declares a refused cross-source supersedes edge")
-	}
-}
-
 // A shared-home rebuild resolves an unprojected peer's relation endpoint
 // from the peer's verified git head, and verification means the manifest's
 // declaration plus its blob proof: the named law blob must exist at that
@@ -219,7 +139,7 @@ func TestSourceSetProofRefusesLocatorMove(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "locator-move")
 	seedKnowledgeWork(t, s, "locator-move-work", "Move source work")
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='locator-move-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='locator-move-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "locator-move-work")

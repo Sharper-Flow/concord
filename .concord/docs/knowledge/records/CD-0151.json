@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:46d2dcc7cc3b52abeaa08f613b864d7b1252053dfcd97efd7e41f56b7eca5a80",
+  "sha256": "sha256:a4b28590d2fd2dad260788aeacbdb3643d33d3444ed169fa8b8483a66134d5e3",
   "status": "accepted",
   "summary": "Worktree claims derive branch and path identity from the registered Project locator and work identity, and partial unique indexes reserve each active native path globally and each active native branch within one repository.",
   "tags": [

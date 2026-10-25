@@ -1,11 +1,9 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -203,34 +201,6 @@ func TestCompactionPayloadRequiresExplicitUniqueScopeArrays(t *testing.T) {
 	}
 }
 
-func TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder(t *testing.T) {
-	t.Parallel()
-	original, err := json.Marshal(compactionLinkPayloadV1{
-		ID: "work", Type: "work_note", Title: "Title", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
-		LessonTags: []string{}, TerminalState: "completed", Summary: "Summary", ProductIDs: []string{}, ProjectIDs: []string{},
-		ComponentIDs: []string{"z-domain", "a-domain"}, TagIDs: []string{}, HomeProjectID: "project", HomeLocatorID: "locator",
-		NotePath: ".concord/docs/work/note.md", CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "test", ExpectedVersion: 1, ResultingVersion: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	event := Event{PayloadVersion: 1, Payload: original}
-	upcasted, err := upcastCompactionLinkPublishedV1(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(event.Payload, original) || upcasted.PayloadVersion != 2 {
-		t.Fatal("upcast mutated the source event or did not advance version")
-	}
-	var v2 compactionLinkPayloadV2
-	if err := json.Unmarshal(upcasted.Payload, &v2); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(v2.DomainIDs, []string{"z-domain", "a-domain"}) || v2.ResultingVersion != 2 || strings.Contains(string(upcasted.Payload), "component_ids") {
-		t.Fatalf("upcast payload = %s", upcasted.Payload)
-	}
-}
-
 func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -275,22 +245,24 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	}
 }
 
-func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
+func TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	path := ".concord/docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("work-orphan", "2026-08-07T00:00:00Z"))
-	commitKnowledgeRepo(t, repo, "orphan")
+	commit := commitKnowledgeRepo(t, repo, "canonical outcome")
 	s := openTemp(t)
-	home := KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeLocator(t, s, home)
+	home := KnowledgeHome{HomeProjectID: "proj-web", HomeLocatorID: "repo-alpha-web", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "prod-alpha", home)
+	if _, err := s.db.ExecContext(t.Context(), `DROP TABLE IF EXISTS compaction_publications`); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	seedKnowledgeWork(t, s, "work-orphan", "Orphan")
 	result, err := s.QueryQ10(context.Background(), Q10Request{Work: "work-orphan", Home: home})
-	if err != nil || result.Status != "not_compacted" || result.Authority != "authoritative" {
-		t.Fatalf("Q10 orphan = %#v, err %v", result, err)
+	if err != nil || result.Status != "canonical" || result.Authority != "authoritative" || result.Note == nil || result.Note.NotePath != path || result.Note.CommitOID != commit {
+		t.Fatalf("Q10 Git-only outcome = %#v, err %v", result, err)
 	}
 }
 
@@ -382,20 +354,19 @@ func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
 	assertFailureKind(t, err, KindKnowledgeAmbiguous)
 }
 
-func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
+func TestArchivedWorkRejectsAdHocWrites(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','.concord/docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
 		t.Fatal("ad-hoc archived_work write succeeded")
 	}
-	// The public rebuild assertion is covered once a proof-backed compaction row exists.
 	if version, err := readSchemaManifestVersion(ctx, s.DatabaseForTesting()); err != nil || version < 6 {
 		t.Fatalf("schema version = %d, err %v", version, err)
 	}
 }
 
-func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.T) {
+func TestKnowledgeSchemaHasNoNoteBodyAndCompactionPersistsLink(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -433,36 +404,43 @@ func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.
 	if err := PublishCompactionLink(ctx, s, CompactionLinkRequest{EventID: "compact-linked", WorkID: "linked", ExpectedVersion: 3, Actor: "operator", OccurredAt: time.Now().UTC(), Home: home, CommitOID: commit, NotePath: path, Reason: "fixture"}); err != nil {
 		t.Fatal(err)
 	}
-	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
 	var after int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
-	if before != after || after != 1 {
-		t.Fatalf("archived_work count before=%d after=%d", before, after)
+	if after != 1 {
+		t.Fatalf("archived_work count=%d, want 1", after)
 	}
+	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
+		"Git-rebuild-admission": func() (any, error) {
+			if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+				return nil, err
+			}
+			result, err := s.QueryQ10(ctx, Q10Request{Work: "linked", Home: home})
+			return result.Note, err
+		},
+	})
 }
 
 func seedKnowledgeWork(t *testing.T, s *Store, id, title string) {
 	t.Helper()
+	seedKnowledgeWorkLifecycle(t, s, id, title, id == "work-done")
+}
+
+func seedKnowledgeWorkLifecycle(t *testing.T, s *Store, id, title string, completed bool) {
+	t.Helper()
 	ctx := context.Background()
 	events := []Event{
 		{EventID: "create-prod-" + id, Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "prod-alpha", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Alpha","stage_maturity":"production","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "create-proj-" + id, Kind: "project.created", SubjectType: SubjectProject, SubjectID: "proj-web", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Web"}`)},
+		{EventID: "create-proj-" + id, Kind: "project.created", SubjectType: SubjectProject, SubjectID: "proj-web", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: eventKindRegistry["project.created"].CurrentVersion, Payload: []byte(`{"display_name":"Web"}`)},
 		{EventID: "product-project-" + id, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "prod-alpha", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"prod-alpha","project_id":"proj-web","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "create-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"` + title + `","priority":2}`)},
+		{EventID: "create-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: workCreatedCurrentVersion(), Payload: []byte(`{"work_kind":"task","title":"` + title + `","priority":2}`)},
 		{EventID: "work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"` + id + `","project_id":"proj-web","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "prod-alpha"): 0, VersionRef(SubjectProject, "proj-web"): 0, VersionRef(SubjectWorkItem, id): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if id == "work-done" {
+	if completed {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{EventID: "complete-" + id, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"from":"needed","to":"completed","reason":"fixture","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 2}}); err != nil {
 			t.Fatal(err)
 		}

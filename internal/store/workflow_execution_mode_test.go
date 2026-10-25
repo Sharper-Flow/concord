@@ -8,14 +8,14 @@ import (
 func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		for _, action := range definition.ActionDefinitions {
 			if !validActionExecutionMode(action.ExecutionMode) {
 				t.Fatalf("%s action %s has invalid execution mode %q", definition.Ref, action.ID, action.ExecutionMode)
 			}
 		}
-		if _, ok := registry.Lookup(definition.Ref, definition.Version); !ok {
-			t.Fatalf("%s version %d is not registered", definition.Ref, definition.Version)
+		if _, ok := registry.Current(definition.Ref); !ok {
+			t.Fatalf("%s is not registered", definition.Ref)
 		}
 	}
 }
@@ -23,7 +23,7 @@ func TestBuiltinWorkflowDefinitionsCarryTypedExecutionModes(t *testing.T) {
 func TestWorkflowDefinitionEncodingCarriesModesAndProductTruth(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup("workflow.implementation", 1)
+	registered, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("implementation definition is not registered")
 	}

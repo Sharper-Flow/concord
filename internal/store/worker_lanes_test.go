@@ -32,17 +32,14 @@ func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
 		if got != definition.Digest {
 			t.Fatalf("lane %s digest = %s, generated %s", definition.ID, got, definition.Digest)
 		}
-		if _, err := LookupLane(definition.ID, definition.Version, definition.Digest); err != nil {
+		if _, err := LookupLane(definition.ID, definition.Digest); err != nil {
 			t.Fatalf("LookupLane(%s) error = %v", definition.ID, err)
 		}
 	}
-	if _, err := LookupLane("unknown", 1, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
+	if _, err := LookupLane("unknown", definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
 		t.Fatalf("unknown lane error = %v, want %s", err, KindLaneDefinitionNotRegistered)
 	}
-	if _, err := LookupLane(definitions[0].ID, 2, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
-		t.Fatalf("unknown lane version error = %v, want %s", err, KindLaneDefinitionNotRegistered)
-	}
-	if _, err := LookupLane(definitions[0].ID, definitions[0].Version, "sha256:"+strings.Repeat("0", 64)); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
+	if _, err := LookupLane(definitions[0].ID, "sha256:"+strings.Repeat("0", 64)); !hasFailureKind(err, KindLaneDefinitionDigestMismatch) {
 		t.Fatalf("digest mismatch error = %v, want %s", err, KindLaneDefinitionDigestMismatch)
 	}
 	unpinned := definitions[0]
@@ -102,7 +99,7 @@ func TestWorkerEventsRejectUnknownLanePacketAndPayloadFields(t *testing.T) {
 	}
 }
 
-func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t *testing.T) {
+func TestWorkerCompletionPreservesHostReadback(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[1]
@@ -110,7 +107,7 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-mismatch", "dispatch-mismatch", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	mismatch := workerCompleteEvent("worker-mismatch", "complete-mismatch", "dispatch-mismatch", "openai/fallback-model", workerFixtureDirectory(t, s, "worker-mismatch"))
+	mismatch := workerCompleteEvent("worker-mismatch", "complete-mismatch", "dispatch-mismatch", "openai/fallback-model", workerFixtureDirectory(t, s, "worker-mismatch"), lane)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{mismatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -123,13 +120,6 @@ func TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic(t 
 	if state != "completed" || readback != "openai/fallback-model" {
 		t.Fatalf("readback projection = %s/%s, want completed/openai/fallback-model", state, readback)
 	}
-	before := workerProjectionSnapshot(t, s)
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("rebuild changed worker projection:\n%s\nwant\n%s", after, before)
-	}
 }
 
 func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
@@ -137,6 +127,7 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 	t.Run("failed then completed", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-failed-first")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-failed-first", "terminal-failed-first-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
@@ -145,8 +136,8 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
-		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-failed-first", "terminal-failed-first-completed", "terminal-failed-first-attempt", preferredModelForLane(lane), ""), KindProjectionConflict, before, beforeEvents)
+		beforeEvents := countRows(t, s, "effect_receipts")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-failed-first", "terminal-failed-first-completed", "terminal-failed-first-attempt", preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("completed then failed", func(t *testing.T) {
 		s := openTemp(t)
@@ -155,11 +146,11 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-completed-first", "terminal-completed-first-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-completed-first", "terminal-completed-first-completed", "terminal-completed-first-attempt", preferredModelForLane(lane), workerFixtureDirectory(t, s, "terminal-completed-first"))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-completed-first", "terminal-completed-first-completed", "terminal-completed-first-attempt", preferredModelForLane(lane), workerFixtureDirectory(t, s, "terminal-completed-first"), lane)}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-completed-first", "terminal-completed-first-failed", "terminal-completed-first-attempt", preferredModelForLane(lane)), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("duplicate completed event identity differs", func(t *testing.T) {
@@ -169,31 +160,33 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-duplicate", "terminal-duplicate-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-duplicate", "terminal-duplicate-first", "terminal-duplicate-attempt", preferredModelForLane(lane), workerFixtureDirectory(t, s, "terminal-duplicate"))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-duplicate", "terminal-duplicate-first", "terminal-duplicate-attempt", preferredModelForLane(lane), workerFixtureDirectory(t, s, "terminal-duplicate"), lane)}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
-		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-duplicate", "terminal-duplicate-second", "terminal-duplicate-attempt", preferredModelForLane(lane), ""), KindProjectionConflict, before, beforeEvents)
+		beforeEvents := countRows(t, s, "effect_receipts")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-duplicate", "terminal-duplicate-second", "terminal-duplicate-attempt", preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 	})
 	t.Run("foreign completed subject", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-foreign-owner")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-owner", "terminal-foreign-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
-		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-foreign-subject", "terminal-foreign-completed", "terminal-foreign-attempt", preferredModelForLane(lane), ""), KindInvalidOperation, before, beforeEvents)
+		beforeEvents := countRows(t, s, "effect_receipts")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-foreign-subject", "terminal-foreign-completed", "terminal-foreign-attempt", preferredModelForLane(lane), "", lane), KindInvalidOperation, before, beforeEvents)
 	})
 	t.Run("foreign failed subject", func(t *testing.T) {
 		s := openTemp(t)
 		lane := BuiltinLaneDefinitions()[0]
+		seedWork(t, s, "terminal-foreign-failed-owner")
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-foreign-failed-owner", "terminal-foreign-failed-attempt", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
+		beforeEvents := countRows(t, s, "effect_receipts")
 		assertRejectedWorkerTerminal(t, s, workerFailedEvent("terminal-foreign-failed-subject", "terminal-foreign-failed-event", "terminal-foreign-failed-attempt", preferredModelForLane(lane)), KindInvalidOperation, before, beforeEvents)
 	})
 	t.Run("model mismatch records the host readback", func(t *testing.T) {
@@ -206,12 +199,12 @@ func TestWorkerTerminalTransitionsAreSingleUseAndSubjectBound(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("terminal-model-mismatch", attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-model-mismatch", "terminal-model-mismatch-event", attemptID, "openai/fallback-model", workerFixtureDirectory(t, s, "terminal-model-mismatch"))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("terminal-model-mismatch", "terminal-model-mismatch-event", attemptID, "openai/fallback-model", workerFixtureDirectory(t, s, "terminal-model-mismatch"), lane)}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)
-		beforeEvents := countRows(t, s, "domain_events")
-		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, preferredModelForLane(lane), ""), KindProjectionConflict, before, beforeEvents)
+		beforeEvents := countRows(t, s, "effect_receipts")
+		assertRejectedWorkerTerminal(t, s, workerCompleteEvent("terminal-model-mismatch", "terminal-model-recovery", attemptID, preferredModelForLane(lane), "", lane), KindProjectionConflict, before, beforeEvents)
 		var state, readback string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &readback); err != nil {
 			t.Fatal(err)
@@ -231,13 +224,13 @@ func assertRejectedWorkerTerminal(t *testing.T, s *Store, event Event, wantKind 
 	if after := workerProjectionSnapshot(t, s); after != beforeProjection {
 		t.Fatalf("rejected terminal event changed worker projection:\n%s\nwant\n%s", after, beforeProjection)
 	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
+	if got := countRows(t, s, "effect_receipts"); got != beforeEvents {
 		t.Fatalf("rejected terminal event count=%d, want %d", got, beforeEvents)
 	}
 }
 
 func workerFailedEvent(workID, eventID, attemptID, model string) Event {
-	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "bounded worker error"})}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: "bounded worker error"})}
 }
 
 func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
@@ -249,18 +242,19 @@ func TestWorkerCompletedAndFailedEventsRetainD5Evidence(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-complete", dispatchID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("worker-complete", "complete", dispatchID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-complete"))}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEvent("worker-complete", "complete", dispatchID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "worker-complete"), lane)}}); err != nil {
 		t.Fatal(err)
 	}
+	seedWork(t, s, "worker-failed")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("worker-failed", "dispatch-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	failed := Event{EventID: "failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "worker-failed", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: "dispatch-failed", ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "bounded worker error"})}
+	failed := workerFailedEvent("worker-failed", "failed", "dispatch-failed", preferredModelForLane(lane))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failed}}); err != nil {
 		t.Fatal(err)
 	}
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE lane_id=? AND lane_digest=? AND capability_class=? AND readback_model<>'' AND packet_schema_version=? AND report_schema_version=?`, lane.ID, lane.Digest, lane.CapabilityClass, WorkerPacketSchemaVersion, WorkerReportSchemaVersion).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {
@@ -273,10 +267,11 @@ func TestWorkerModelReadbackFailureIsDurableWithoutModelValue(t *testing.T) {
 	s := openTemp(t)
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "model-readback-missing-attempt"
+	seedWork(t, s, "model-readback-missing")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("model-readback-missing", attemptID, lane, map[string]any{"readback_model": ""})}}); err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: "model-readback-missing-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "model-readback-missing", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureModelReadbackMissing, Detail: "host session export did not provide one model identity"})}
+	event := Event{EventID: "model-readback-missing-failed", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "model-readback-missing", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, FailureKind: WorkerFailureModelReadbackMissing, Detail: "host session export did not provide one model identity"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
 		t.Fatalf("model readback failure: %v", err)
 	}
@@ -311,17 +306,17 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 		t.Fatalf("cannot read test pid start: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, ?, ?, 1);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
 
 	closeEvent := Event{
 		EventID: "abandoned-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
 			Detail: "the host observed that the lane never reported"}),
@@ -339,9 +334,9 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 
 	// Release the recorded occupancy so the abandon path can take the close.
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		DELETE FROM worktree_occupancy WHERE session_ref='session-live';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	closeEvent.EventID = "abandoned-close-empty"
@@ -382,10 +377,10 @@ func TestAbandonedWorkerFailureMissingLeaseSetRefusesALegacyRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, NULL, NULL, 0);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-legacy", "1970-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +390,7 @@ func TestAbandonedWorkerFailureMissingLeaseSetRefusesALegacyRow(t *testing.T) {
 	closeAttempt := func(ctx context.Context, eventID string) error {
 		return ApplyOperation(ctx, s, Operation{Events: []Event{{
 			EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
-			Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+			Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 			Payload: mustJSONValue(closePayload),
 		}}})
 	}
@@ -463,17 +458,17 @@ func TestInvalidReportWorkerFailureClosesUnderLiveOccupancy(t *testing.T) {
 		t.Fatalf("cannot read test pid start: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		VALUES (?, ?, ?, ?, ?, 1);
-		DELETE FROM fold_guard`,
+		DELETE FROM write_guard`,
 		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
 
 	closeEvent := Event{
 		EventID: "invalid-report-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureInvalidReport,
 			Detail: "worker-complete refused: worker report names evidence obligations the dispatching lane does not declare"}),
@@ -492,7 +487,7 @@ func TestInvalidReportWorkerFailureClosesUnderLiveOccupancy(t *testing.T) {
 
 func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
-	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported"})}
+	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +496,7 @@ func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string
 func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides map[string]any) Event {
 	payload := map[string]any{
 		"attempt_id": eventID,
-		"lane_id":    lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id":    lane.ID, "lane_digest": lane.Digest,
 		"capability_class":      lane.CapabilityClass,
 		"readback_model":        preferredModelForLane(lane),
 		"packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
@@ -515,46 +510,47 @@ func workerDispatchEvent(workID, eventID string, lane LaneDefinition, overrides 
 	for key, value := range overrides {
 		payload[key] = value
 	}
-	return Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(payload)}
 }
 
-func workerCompleteEvent(workID, eventID, attemptID, model, directory string) Event {
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "readback_model": model, "report_schema_version": WorkerReportSchemaVersion, "worker_directory": directory})}
+func workerCompleteEvent(workID, eventID, attemptID, model, directory string, lane LaneDefinition) Event {
+	event := workerCompleteEventForLane(workID, eventID, attemptID, lane, time.Unix(2, 0).UTC(), directory)
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		panic(err)
+	}
+	payload.ReadbackModel = model
+	event.Payload = mustJSONValue(payload)
+	return event
 }
 
 // workerCompleteEventForLane builds one worker.completed fixture event for a
-// lane. A lane whose contract requires the typed review block completes only
-// with that block (CD-0197): the fixture records the completion at the
-// current payload version, origin legacy_unavailable, carrying the block and
-// no evidence — the live shape the fold admits beside a reported one. Other
-// lanes complete with the legacy payload they always carried, so both stored
-// shapes stay exercised on the live path.
+// lane, with its declared evidence and any required typed review block.
 func workerCompleteEventForLane(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, directory string) Event {
-	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory}
-	version := 1
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, EvidenceOrigin: WorkerEvidenceReported}
 	if len(lane.RequiredReportBlocks) > 0 {
-		version = 3
-		payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
-		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+		payload.Review = reviewBlockFixture()
+		payload.Review.Disposition = "ready_for_final_proof"
+		payload.Review.Findings = []WorkerReviewFinding{}
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
+	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 func workerProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
+	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var result strings.Builder
 	for rows.Next() {
-		var values [15]string
-		var version int64
-		if err := rows.Scan(&values[0], &values[1], &values[2], &version, &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13], &values[14]); err != nil {
+		var values [14]string
+		if err := rows.Scan(&values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6], &values[7], &values[8], &values[9], &values[10], &values[11], &values[12], &values[13]); err != nil {
 			t.Fatal(err)
 		}
-		result.WriteString(strings.Join([]string{values[0], values[1], values[2], fmt.Sprintf("%d", version), values[4], values[5], values[6], values[7], values[8], values[9], values[10], values[11], values[12], values[13], values[14]}, "|"))
+		result.WriteString(strings.Join(values[:], "|"))
 		result.WriteByte('\n')
 	}
 	if err := rows.Err(); err != nil {
@@ -605,7 +601,7 @@ func TestGenericHostAgentsAreNotDispatchableLanes(t *testing.T) {
 		if _, exists := registered[generic]; exists {
 			t.Fatalf("generic host agent %q is registered as a Concord lane", generic)
 		}
-		if _, err := LookupLane(generic, definitions[0].Version, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
+		if _, err := LookupLane(generic, definitions[0].Digest); !hasFailureKind(err, KindLaneDefinitionNotRegistered) {
 			t.Fatalf("LookupLane(%s) error = %v, want %s", generic, err, KindLaneDefinitionNotRegistered)
 		}
 		event := workerDispatchEvent("worker-generic", "dispatch-generic-"+generic, definitions[0], map[string]any{
@@ -680,12 +676,13 @@ func TestWorkerHostProvenanceValidation(t *testing.T) {
 	}
 }
 
-// CD-0034: a v3 dispatch carries host provenance into durable evidence. The
-// fold accepts a v3 payload without provenance because the CLI boundary is the
+// CD-0034: a dispatch carries host provenance into durable evidence. The
+// fold accepts a payload without provenance because the CLI boundary is the
 // gate that requires it.
-func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
+func TestWorkerDispatchCarriesProvenanceIntoDurableEvidence(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
+	seedWork(t, s, "work-prov")
 	lane := BuiltinLaneDefinitions()[0]
 	provenance := map[string]any{
 		"digest": "sha256:" + strings.Repeat("d", 64),
@@ -695,12 +692,11 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 		},
 	}
 	withProv := workerDispatchEvent("work-prov", "attempt-prov", lane, map[string]any{"host_provenance": provenance})
-	withProv.PayloadVersion = 3
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withProv}}); err != nil {
-		t.Fatalf("v3 dispatch with provenance refused: %v", err)
+		t.Fatalf("dispatch with provenance refused: %v", err)
 	}
 	var storedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id='attempt-prov'`).Scan(&storedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT dispatch_payload FROM worker_attempts WHERE dispatch_event_id='attempt-prov'`).Scan(&storedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(storedPayload, strings.Repeat("d", 16)) {
@@ -708,9 +704,8 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 	}
 
 	noProv := workerDispatchEvent("work-prov", "attempt-noprov", lane, nil)
-	noProv.PayloadVersion = 3
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{noProv}}); err != nil {
-		t.Fatalf("v3 without provenance should be accepted at fold level (CLI gates it): %v", err)
+		t.Fatalf("dispatch without provenance should be accepted at fold level (CLI gates it): %v", err)
 	}
 }
 
@@ -721,12 +716,24 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 // tests; this seed keeps the discharge rules testable in isolation.
 func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptID string, predicateIDs []string) {
 	t.Helper()
+	seedWork(t, s, workID)
 	canonical, err := canonicalWorkerWorktreePath(workerFixtureDirectory(t, s, workID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-start-"+attemptID, WorkflowActionStarted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)}))
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	scope, err := beginWrite(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := Event{EventID: "dispatch-authorization-start-" + attemptID, Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1)})}
+	startSeq, err := appendPreparedEvent(ctx, tx, started)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -740,9 +747,18 @@ func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptI
 	if predicateIDs != nil {
 		payload["worker_packet_predicate_ids"] = predicateIDs
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
+	completed := Event{EventID: "dispatch-authorization-" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	completionSeq, err := appendPreparedEvent(ctx, tx, completed)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload) VALUES(?,?,?,?,?,?,?)`, workID, attemptID, completionSeq, string(completed.Payload), completed.EventID, startSeq, string(started.Payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -755,7 +771,7 @@ func workerCompleteEventWithEvidence(workID, eventID, attemptID, model string, e
 	if directory != "" {
 		payload["worker_directory"] = directory
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 func TestWorkerPacketPredicateIDsExtraction(t *testing.T) {
@@ -860,28 +876,6 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 		}
 	})
 
-	t.Run("replay admits a recorded completion the live fold would refuse", func(t *testing.T) {
-		s := openTemp(t)
-		attemptID := "discharge-replay-attempt"
-		// A dispatch recorded before the predicate list existed, and a report
-		// tie the live fold refuses as undeclared.
-		seedDispatchPredicateAuthorization(t, s, "work-discharge-replay", attemptID, nil)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-replay", attemptID, lane, nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		complete := workerCompleteEventWithEvidence("work-discharge-replay", "discharge-replay-complete", attemptID, model, fullEvidence("predicate:gamma"), "")
-		if err := ApplyOperation(workflowReplayContext(context.Background()), s, Operation{Events: []Event{complete}}); err != nil {
-			t.Fatalf("replayed completion refused: %v", err)
-		}
-		var state string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state != "completed" {
-			t.Fatalf("replayed attempt state = %q, want completed", state)
-		}
-	})
-
 	t.Run("a completed report naming a subset of the declared predicates completes", func(t *testing.T) {
 		s := openTemp(t)
 		attemptID := "discharge-subset-attempt"
@@ -953,7 +947,7 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 			t.Fatalf("empty-list attempt state = %q, want completed", state)
 		}
 		var verdicts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
 			t.Fatal(err)
 		}
 		if verdicts != 0 {

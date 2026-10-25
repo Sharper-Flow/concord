@@ -8,7 +8,7 @@ import { workerDiffTool, publishWorkerDiffDefinition, type WorkerDiffRequest } f
 function fixture() {
   const lane = agentLanes.find(lane => lane.id === "review")!
   const packet: AgentLanePacket = {
-    schema_version: "1.0", work_id: "diff-work", attempt_id: "diff-attempt", step_id: "verify", lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    schema_version: "1.0", work_id: "diff-work", attempt_id: "diff-attempt", step_id: "verify", lane_id: lane.id, lane_digest: lane.digest,
     inputs: { task: "Review the committed delta", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "contract_findings" }, work_context: { source_event_frontier: 1, subject_commit: "b".repeat(40), required_reading: [], findings: [], domain_groups: [] } },
   }
   const worker: WorkerCapabilityContext = { lane, sessionID: "child", parentSessionID: "parent", dispatch: { packet, packetDigest: "sha256:" + "c".repeat(64), workerDirectory: process.cwd(), workerDirectoryIdentity: "sha256:" + "d".repeat(64) } }

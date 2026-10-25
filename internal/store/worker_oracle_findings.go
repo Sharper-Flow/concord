@@ -23,9 +23,8 @@ import (
 // Ranked finding identity is deterministic per terminal event: the event's
 // context_findings keep ordinals 0..n-1 and the ranked review findings
 // follow them at offset n, so the two arrays can never mint one ID and
-// historical context IDs stay stable. The lineage walk below is the one
-// eventwise derivation of the current open set; corrections, convergence,
-// admission, and the context reader all consume it instead of re-deriving.
+// historical context IDs stay stable. Corrections, convergence, admission,
+// and context consume the same maintained lineage.
 
 // Closed classification vocabulary of one typed review finding.
 const (
@@ -494,6 +493,9 @@ type WorkerOpenOracleFinding struct {
 	// Tie is the oracle tie exactly as the minting report carried it,
 	// projected onto the context view beside the identity fields.
 	Tie *WorkerOracleFinding
+	// The minting report's immutable binding is storage provenance, not a
+	// public lineage field. SourceOracle is reconstructed from its owner row.
+	sourceJob *WorkerJobBinding
 }
 
 // blocks reports whether the finding is an open delivery obligation: a
@@ -503,7 +505,7 @@ func (f *WorkerOpenOracleFinding) blocks() bool {
 	return f.Classification != OracleClassificationFollowUp
 }
 
-// workerOracleFindingLineage is the one eventwise derivation of a work
+// workerOracleFindingLineage is the current aggregate of a work
 // item's ranked findings: every minted identity with its closure provenance,
 // the open order, and whether any dispatch ever bound an oracle-bearing job
 // revision — the oracle-capable history flag every correction surface keys
@@ -512,7 +514,6 @@ type workerOracleFindingLineage struct {
 	findings         map[string]*WorkerOpenOracleFinding
 	openOrder        []string
 	oracleCapable    bool
-	oracles          map[WorkerJobBinding]*AcceptanceOracle
 	retainedReceipts []WorkerOracleReceipt
 }
 
@@ -525,16 +526,6 @@ func (l *workerOracleFindingLineage) openFindingIDs() []string {
 		}
 	}
 	return ids
-}
-
-// oracleForBinding resolves one dispatched binding's recorded oracle from
-// the lineage's retained oracle map, nil when the revision predates the
-// oracle.
-func (l *workerOracleFindingLineage) oracleForBinding(binding WorkerJobBinding) *AcceptanceOracle {
-	if l.oracles == nil {
-		return nil
-	}
-	return l.oracles[binding]
 }
 
 // sameOracleTie reports whether a continuation retains the earlier finding's
@@ -575,152 +566,104 @@ func sameStringSet(left, right []string) bool {
 	return true
 }
 
-// readWorkerOracleFindingLineageTx walks the work item's event log once, in
-// log order, and derives the ranked-finding lineage: which dispatched job
-// revisions carried oracles, which ranked findings each terminal report
-// minted or continued, which closure claims ended, and which receipts were
-// retained. The walk trusts the recorded log — the live fold validated each
-// event when it landed — so replay and the live derivation agree by
-// construction. The read uses the queryer already in hand.
-func readWorkerOracleFindingLineageTx(ctx context.Context, q queryer, workID string) (*workerOracleFindingLineage, error) {
-	return readWorkerOracleFindingLineageExcludingTx(ctx, q, workID, 0)
+// reduceOracleFindingEffect is pure per-effect logic shared by migration and
+// the admitted writer. Actors and oracles are descriptors supplied by the caller.
+func reduceOracleFindingEffect(lineage *workerOracleFindingLineage, event Event, oracles map[WorkerJobBinding]*AcceptanceOracle, actors map[string]string) error {
+	switch event.Kind {
+	case string(WorkerDispatched):
+		var dispatch WorkerDispatchedPayload
+		if err := json.Unmarshal(event.Payload, &dispatch); err != nil {
+			return oracleFindingFailure(KindInvariantViolation, "a stored dispatch is malformed", "rebuild the dispatch projection")
+		}
+		actors[dispatch.AttemptID] = dispatch.LaneActorRef
+		if dispatch.WorkerJob == nil || dispatch.WorkerJob.JobID == "" {
+			return nil
+		}
+		if oracle, recorded := oracles[*dispatch.WorkerJob]; recorded && oracle != nil {
+			lineage.oracleCapable = true
+		}
+	case string(WorkflowContractSuperseded):
+		// Explicit contract supersession closes every open finding:
+		// the approved acceptance that minted them is gone.
+		// Receipts leave the successor's active context and closure evidence.
+		lineage.retainedReceipts = nil
+		for _, id := range lineage.openOrder {
+			if finding := lineage.findings[id]; finding != nil && !finding.Closed {
+				finding.Closed = true
+				finding.ClosureKind = oracleClosureSupersession
+			}
+		}
+	case string(WorkerCompleted):
+		var report WorkerCompletedPayload
+		if json.Unmarshal(event.Payload, &report) != nil {
+			return newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+		}
+		for _, entry := range report.Evidence {
+			if entry.OracleReceipt != nil {
+				lineage.retainedReceipts = append(lineage.retainedReceipts, *entry.OracleReceipt)
+			}
+		}
+		if report.Review == nil {
+			return nil
+		}
+		contextCount := len(report.ContextFindings)
+		for index, finding := range report.Review.Findings {
+			if finding.Oracle == nil {
+				continue
+			}
+			id := workerRankedFindingID(event.Seq, contextCount, index)
+			if finding.Oracle.ContinuesFindingID != "" {
+				// A resolvable continuation keeps its canonical identity,
+				// even when closed. An unresolved target keeps the mint path.
+				if _, exists := lineage.findings[finding.Oracle.ContinuesFindingID]; exists {
+					continue
+				}
+			}
+			if _, duplicate := lineage.findings[id]; duplicate {
+				continue
+			}
+			entry := &WorkerOpenOracleFinding{
+				FindingID: id, Severity: finding.Severity, Detail: finding.Detail,
+				Classification: finding.Oracle.Classification, OwnerID: finding.Oracle.OwnerID,
+				FailureFamily: finding.Oracle.FailureFamily, PredicateIDs: finding.Oracle.PredicateIDs,
+				LawIDs: lawIDsOf(finding.Oracle), ControlIDs: finding.Oracle.ControlIDs, CaseIDs: finding.Oracle.CaseIDs,
+				SourceEventID: event.EventID, SourceEventSeq: event.Seq, SourceOrdinal: contextCount + index,
+				SourceActorRef: actors[report.AttemptID],
+				Tie:            finding.Oracle,
+			}
+			setOracleFindingSource(entry, report.WorkerJob, oracles)
+			lineage.findings[id] = entry
+			lineage.openOrder = append(lineage.openOrder, id)
+		}
+		for _, resolution := range report.Review.ResolvedFindings {
+			finding, exists := lineage.findings[resolution.FindingID]
+			if !exists || finding.Closed {
+				continue
+			}
+			finding.Closed = true
+			finding.ClosureKind = oracleClosureResolution
+			if finding.Classification == OracleClassificationOracleDefect {
+				finding.ClosureKind = oracleClosureOracleDefect
+			}
+		}
+	}
+	return nil
 }
 
-// readWorkerOracleFindingLineageExcludingTx is the walk with one sequence
-// excluded: the fold appends its event before folding it, so the live
-// validation of that very event must derive the prior lineage — the event's
-// own mints, continuations, and closures are the claims under validation,
-// not the state they are validated against.
-func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, workID string, excludeSeq int64) (*workerOracleFindingLineage, error) {
-	oracles, err := readWorkerJobOraclesTx(ctx, q, workID)
-	if err != nil {
-		return nil, err
+func setOracleFindingSource(finding *WorkerOpenOracleFinding, binding *WorkerJobBinding, oracles map[WorkerJobBinding]*AcceptanceOracle) {
+	finding.sourceJob = binding
+	finding.SourceOracle = nil
+	finding.DomainID = ""
+	if binding != nil {
+		finding.SourceOracle = oracles[*binding]
 	}
-	lineage := &workerOracleFindingLineage{
-		findings: map[string]*WorkerOpenOracleFinding{},
-		oracles:  oracles,
-	}
-	actors := map[string]string{}
-	query := `SELECT seq,event_id,kind,COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),COALESCE(json_extract(payload,'$.worker_job.digest'),''),payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind IN (?,?,?)`
-	args := []any{string(SubjectWorkItem), workID, WorkerCompleted, WorkerDispatched, WorkflowContractSuperseded}
-	if excludeSeq > 0 {
-		query += ` AND seq<>?`
-		args = append(args, excludeSeq)
-	}
-	query += ` ORDER BY seq`
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot read the ranked-finding lineage", true, "retry once the event log is readable", err)
-	}
-	receipts := make([]WorkerOracleReceipt, 0, 8)
-	for rows.Next() {
-		var seq int64
-		var eventID, kind, jobID, digest, payload string
-		var revision int64
-		if err := rows.Scan(&seq, &eventID, &kind, &jobID, &revision, &digest, &payload); err != nil {
-			rows.Close()
-			return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot scan the ranked-finding lineage", true, "retry once the event log is readable", err)
-		}
-		switch kind {
-		case string(WorkerDispatched):
-			var dispatch WorkerDispatchedPayload
-			if err := json.Unmarshal([]byte(payload), &dispatch); err != nil {
-				rows.Close()
-				return nil, oracleFindingFailure(KindInvariantViolation, "a stored dispatch is malformed", "rebuild the dispatch projection")
-			}
-			actors[dispatch.AttemptID] = dispatch.LaneActorRef
-			if jobID == "" {
-				continue
-			}
-			if oracle, recorded := oracles[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}]; recorded && oracle != nil {
-				lineage.oracleCapable = true
-			}
-		case string(WorkflowContractSuperseded):
-			// Explicit contract supersession closes every open finding:
-			// the approved acceptance that minted them is gone.
-			// Its receipts remain in the immutable log, not in the successor's
-			// active context or closure evidence.
-			receipts = nil
-			for _, id := range lineage.openOrder {
-				if finding := lineage.findings[id]; finding != nil && !finding.Closed {
-					finding.Closed = true
-					finding.ClosureKind = oracleClosureSupersession
-				}
-			}
-		case string(WorkerCompleted):
-			var report WorkerCompletedPayload
-			if json.Unmarshal([]byte(payload), &report) != nil {
-				rows.Close()
-				return nil, newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "rebuild the worker events from the authoritative log")
-			}
-			for _, entry := range report.Evidence {
-				if entry.OracleReceipt != nil {
-					receipts = append(receipts, *entry.OracleReceipt)
-				}
-			}
-			if report.Review == nil {
-				continue
-			}
-			contextCount := len(report.ContextFindings)
-			for index, finding := range report.Review.Findings {
-				if finding.Oracle == nil {
-					continue
-				}
-				id := workerRankedFindingID(seq, contextCount, index)
-				if finding.Oracle.ContinuesFindingID != "" {
-					// Same failure, same canonical open identity: the
-					// continuation maps onto the earlier finding and mints
-					// nothing. An unresolvable target was refused by the
-					// live fold, so the recorded log always resolves.
-					if _, exists := lineage.findings[finding.Oracle.ContinuesFindingID]; exists {
-						continue
-					}
-				}
-				if _, duplicate := lineage.findings[id]; duplicate {
-					continue
-				}
-				entry := &WorkerOpenOracleFinding{
-					FindingID: id, Severity: finding.Severity, Detail: finding.Detail,
-					Classification: finding.Oracle.Classification, OwnerID: finding.Oracle.OwnerID,
-					FailureFamily: finding.Oracle.FailureFamily, PredicateIDs: finding.Oracle.PredicateIDs,
-					LawIDs: lawIDsOf(finding.Oracle), ControlIDs: finding.Oracle.ControlIDs, CaseIDs: finding.Oracle.CaseIDs,
-					SourceEventID: eventID, SourceEventSeq: seq, SourceOrdinal: contextCount + index,
-					SourceActorRef: actors[report.AttemptID],
-					Tie:            finding.Oracle,
-					SourceOracle:   oracles[WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}],
-				}
-				if entry.SourceOracle != nil {
-					for _, owner := range entry.SourceOracle.Owners {
-						if owner.OwnerID == entry.OwnerID {
-							entry.DomainID = owner.DomainID
-						}
-					}
-				}
-				lineage.findings[id] = entry
-				lineage.openOrder = append(lineage.openOrder, id)
-			}
-			for _, resolution := range report.Review.ResolvedFindings {
-				finding, exists := lineage.findings[resolution.FindingID]
-				if !exists || finding.Closed {
-					continue
-				}
-				finding.Closed = true
-				finding.ClosureKind = oracleClosureResolution
-				if finding.Classification == OracleClassificationOracleDefect {
-					finding.ClosureKind = oracleClosureOracleDefect
-				}
+	if finding.SourceOracle != nil {
+		for _, owner := range finding.SourceOracle.Owners {
+			if owner.OwnerID == finding.OwnerID {
+				finding.DomainID = owner.DomainID
 			}
 		}
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot scan the ranked-finding lineage", true, "retry once the event log is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot close the ranked-finding lineage read", true, "retry once the event log is readable", err)
-	}
-	lineage.retainedReceipts = receipts
-	return lineage, nil
 }
 
 // validateWorkerOracleCompletedReportTx is the live fold's join half: every
@@ -858,23 +801,9 @@ func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string
 		return nil, err
 	}
 	if producer == nil {
-		var evidenceRef string
-		status := "healthy"
-		if receipt.Result == OracleReceiptResultFail {
-			status = "failed"
-		}
-		err := q.QueryRowContext(ctx, `SELECT n.evidence_ref FROM workflow_native_runs n JOIN external_observations o ON o.observation_id=n.observation_id AND o.work_id=n.work_id
-			WHERE n.work_id=? AND n.run_id=? AND n.phase='health' AND n.status=? AND n.native_subject_ref=? AND n.verification_state=?
-			AND o.subject_kind='native_run' AND o.subject_ref=n.native_subject_ref AND o.subject_digest=n.subject_digest
-			AND o.verification_state=? AND o.verification_result=?`, workID, receipt.RunRef, status, "commit:"+currentSubject, string(VerificationVerified), string(VerificationVerified), string(VerificationMatched)).Scan(&evidenceRef)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot read the receipt's verified native producer", true, "retry once the projection is readable", err)
-		}
-		if err == nil {
-			producer, err = readOracleControlProducerTx(ctx, q, workID, evidenceRef, receipt.Result)
-			if err != nil {
-				return nil, err
-			}
+		producer, err = readMatchedOracleControlProducerTx(ctx, q, workID, receipt, currentSubject)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if producer == nil {
@@ -1229,13 +1158,14 @@ func oracleReceiptCoversControl(receipt WorkerOracleReceipt, control OracleContr
 
 // Freshness comes from native execution order, not the order in which a model
 // repeats receipts. A later failure of this exact command on the same subject
-// prevents an earlier success from closing a finding, even if re-reported.
+// and retained claim path prevents an earlier success from closing a finding,
+// even if re-reported. Independent member claims never supersede each other.
 func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subject string, control OracleControl, producer *WorktreeVerifyResult) (bool, error) {
 	if producer.Oracle == nil {
 		return false, nil
 	}
 	var lease string
-	err := q.QueryRowContext(ctx, `SELECT lease_id FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND command_json=? AND state='released' AND json_valid(result_json) AND json_extract(result_json,'$.subject_ref')='commit:'||? AND json_extract(result_json,'$.oracle.phase')='execute' AND json_extract(result_json,'$.oracle.bundle_digest')=? AND json_extract(result_json,'$.oracle.logical_cwd')=? AND json_extract(result_json,'$.oracle.build_environment_digest')=? ORDER BY rowid DESC LIMIT 1`, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject, producer.Oracle.BundleDigest, control.Cwd, producer.Oracle.BuildEnvironmentDigest).Scan(&lease)
+	err := q.QueryRowContext(ctx, `SELECT l.lease_id FROM worktree_verify_leases l JOIN worktree_verify_leases p ON p.lease_id=? AND p.work_id=l.work_id AND p.project_id=l.project_id AND p.path=l.path WHERE l.work_id=? AND l.project_id=? AND l.command_json=? AND l.state='released' AND json_valid(l.result_json) AND json_extract(l.result_json,'$.subject_ref')='commit:'||? AND json_extract(l.result_json,'$.oracle.phase')='execute' AND json_extract(l.result_json,'$.oracle.bundle_digest')=? AND json_extract(l.result_json,'$.oracle.logical_cwd')=? AND json_extract(l.result_json,'$.oracle.build_environment_digest')=? ORDER BY l.rowid DESC LIMIT 1`, producer.LeaseID, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject, producer.Oracle.BundleDigest, control.Cwd, producer.Oracle.BuildEnvironmentDigest).Scan(&lease)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -1247,7 +1177,7 @@ func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subjec
 
 func oracleClosureProducerBoundTx(ctx context.Context, q queryer, workID, ref, producer string) (bool, error) {
 	var bound int
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, WorkflowEvidenceBound, ref, producer).Scan(&bound)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_run_ref')=? AND json_extract(payload,'$.evidence_kind') IN ('verification','native_run'))`, workID, ref, producer).Scan(&bound)
 	return bound != 0, err
 }
 
@@ -1256,7 +1186,7 @@ func oracleClosureIndependentProducerTx(ctx context.Context, q queryer, workID s
 		return false, nil
 	}
 	var client, agent, session, principal, worker string
-	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN domain_events d ON d.subject_id=l.work_id AND d.subject_type='work_item' AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=? WHERE l.work_id=? AND l.lease_id=?`, WorkerDispatched, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
+	err := q.QueryRowContext(ctx, `SELECT l.client_ref,l.agent_ref,l.session_ref,l.principal_ref,COALESCE(json_extract(d.dispatch_payload,'$.lane_actor_ref'),'') FROM worktree_verify_leases l JOIN worker_attempts d ON d.work_id=l.work_id AND d.attempt_id=? AND d.dispatch_payload IS NOT NULL WHERE l.work_id=? AND l.lease_id=?`, payload.AttemptID, workID, producer.LeaseID).Scan(&client, &agent, &session, &principal, &worker)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

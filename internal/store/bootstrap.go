@@ -170,15 +170,13 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	if leased {
 		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a verify lease is active", true, "release the origin verify lease and retry")
 	}
-	var dispatched bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched')`, origin.WorkID).Scan(&dispatched); err != nil {
+	// An authorization creates its attempt in_flight before the worker is
+	// dispatched; both states hold the origin.
+	var open bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched'))`, origin.WorkID).Scan(&open); err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempts", true, "retry once the database is readable", err)
 	}
-	openWindow, err := bootstrapOriginHasOpenDispatchWindow(ctx, tx, origin.WorkID)
-	if err != nil {
-		return origin, err
-	}
-	if dispatched || openWindow {
+	if open {
 		return origin, newFailure(KindResourceBusy, "work_bootstrap", "cannot chain from worktree "+origin.WorkID+" while a worker attempt is dispatched or open", true, "complete or close the origin worker attempt and retry")
 	}
 	if err := tx.Commit(); err != nil {
@@ -201,6 +199,14 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	}
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
+	}
+	if err := authorizeMemberWorkScope(ctx, s.db, workID, projectID); err != nil {
+		return entry, err
+	}
+	// Removed execution authorizes Product and Project membership from its
+	// frozen outcome scope before any locator is exposed.
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, workID, productID, projectID, "work_resume"); err != nil {
+		return entry, err
 	}
 	var lifecycle, kind string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle,kind FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &kind); err != nil {
@@ -261,6 +267,9 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	}
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
+		return BootstrapResult{}, err
+	}
+	if err := publishedWorkAbsenceInScopeQ(ctx, s.db, req.WorkID, req.ProductID, req.ProjectID, "work_resume"); err != nil {
 		return BootstrapResult{}, err
 	}
 	identity, found, crossProject, err := s.existingBootstrapIdentity(ctx, req.WorkID, req.ProductID, req.ProjectID)
@@ -451,20 +460,6 @@ func (s *Store) resolveFreshCreationBase(ctx context.Context, runner GitRunner, 
 		return WorktreeLocation{}, locateErr
 	}
 	return location, nil
-}
-
-func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
-	var open bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM domain_events started
-		JOIN domain_events completed ON completed.subject_type=started.subject_type AND completed.subject_id=started.subject_id AND completed.kind=? AND json_extract(completed.payload,'$.action_id')='dispatch_worker' AND completed.seq>started.seq
-		WHERE started.subject_type=? AND started.subject_id=? AND started.kind=? AND json_extract(started.payload,'$.action_id')='dispatch_worker'
-		AND NOT EXISTS (SELECT 1 FROM domain_events dispatched WHERE dispatched.subject_type=started.subject_type AND dispatched.subject_id=started.subject_id AND dispatched.kind=? AND dispatched.seq>completed.seq AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(completed.payload,'$.worker_attempt_id'))
-	)`, WorkerDispatched, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkerDispatched).Scan(&open)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "work_bootstrap", "cannot inspect origin worker attempt windows", true, "retry once the database is readable", err)
-	}
-	return open, nil
 }
 
 func processStartIdentity(pid int64) (string, error) {
@@ -1006,7 +1001,7 @@ func rollbackBootstrapTx(ctx context.Context, transaction *Transaction, operatio
 		if marshalErr != nil {
 			return marshalErr
 		}
-		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: operationID + ":rolled-back", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx), false); err != nil {
+		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: operationID + ":rolled-back", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newWriteScope(tx), false); err != nil {
 			return err
 		}
 	}
@@ -1300,7 +1295,7 @@ func createBootstrapWorkTx(ctx context.Context, transaction *Transaction, req Bo
 		{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 4, Payload: workPayload},
 		{EventID: operationID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 	}
-	if _, err := applyOperationTx(ctx, transaction.tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(transaction.tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, transaction.tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newWriteScope(transaction.tx), false); err != nil {
 		return err
 	}
 	// Session-prepare reads C19 continuity unconditionally, so a
@@ -1669,15 +1664,11 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		hostPIDStart = start
 	}
 	payload := marshalWorktreeCreated(expected, WorktreeSetID(workID), req.ProjectID, operationID, location, facts, req.SessionRef, req.HostPID, hostPIDStart)
-	eventID := operationID + ":worktree-created"
-	var priorCreation bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {
+	eventID, err := bootstrapCreationEventID(ctx, tx.Tx, operationID, expected)
+	if err != nil {
 		return BootstrapResult{}, err
 	}
-	if priorCreation {
-		eventID = fmt.Sprintf("%s:%d", eventID, expected)
-	}
-	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newFoldScope(tx.Tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newWriteScope(tx.Tx), false); err != nil {
 		return BootstrapResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?,updated_at=? WHERE op_id=? AND state=?`, worktreeStateVerified, s.now().Format(time.RFC3339Nano), operationID, worktreeStatePending); err != nil {
@@ -1695,6 +1686,18 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		return BootstrapResult{}, err
 	}
 	return BootstrapResult{OperationID: operationID, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, nil
+}
+
+func bootstrapCreationEventID(ctx context.Context, q queryer, operationID string, expected int64) (string, error) {
+	eventID := operationID + ":worktree-created"
+	var priorCreation bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {
+		return "", err
+	}
+	if priorCreation {
+		eventID = fmt.Sprintf("%s:%d", eventID, expected)
+	}
+	return eventID, nil
 }
 
 func bootstrapJSON(value any) string {

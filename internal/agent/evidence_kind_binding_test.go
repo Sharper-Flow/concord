@@ -59,7 +59,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	workID := captureCompositionWork(t, ctx, s, service, env, "Evidence kind binding "+key, "task", "workflow.implementation", "ekb-capture-"+key)
 	// The canonical head declares approve_contract behind the pre-contract walk.
 	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
-	approved, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
+	approved, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
 		"premise":              "one bind records one evidence kind",
 		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
 		"architecture_binding": workflowArchitectureBindingFixture(),
@@ -71,6 +71,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
+	after := recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
 	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
 	if started.Outcome != OutcomeOK {
 		t.Fatalf("start_execution: %+v", started.Error)
@@ -80,7 +81,7 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 
 func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []string {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, store.WorkflowEvidenceBound)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(b.payload,'$.evidence_kind') FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? ORDER BY b.binding_seq`, workID, store.WorkflowEvidenceBound)
 	if err != nil {
 		t.Fatalf("read evidence_bound events: %v", err)
 	}
@@ -189,7 +190,7 @@ func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 	if after <= version {
 		t.Fatal("per-kind bind did not advance the work version")
 	}
-	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(payload,'$.evidence_kind'), json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq`, workID, store.WorkflowEvidenceBound)
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(b.payload,'$.evidence_kind'), json_extract(b.payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? ORDER BY b.binding_seq`, workID, store.WorkflowEvidenceBound)
 	if err != nil {
 		t.Fatal(err)
 	}

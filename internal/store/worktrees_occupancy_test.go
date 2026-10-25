@@ -57,11 +57,11 @@ func writeProtectingHostLease(t *testing.T, s *Store) {
 func insertWorktreeOccupantWithIdentity(t *testing.T, s *Store, workID, sessionRef string, pid int, pidStart uint64) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, '1970-01-01T00:00:00Z', ?, ?, 1
 		  FROM worktree_entries WHERE set_id=? AND state='active';
-		DELETE FROM fold_guard`, sessionRef, pid, pidStart, WorktreeSetID(workID)); err != nil {
+		DELETE FROM write_guard`, sessionRef, pid, pidStart, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -115,11 +115,16 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 	// process liveness alone and takes the worktree.
 	vacate := func(eventID, sessionRef string) {
 		t.Helper()
-		payload := jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"` + sessionRef + `","source_directory":"` + claimed.Entry.Path + `"}`)
+		payload := jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"` + sessionRef + `","source_directory":"` + claimed.Entry.Path + `","destination_directory":"/data/repo-main"}`)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 			EventID: eventID, Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-			Actor: sessionRef, OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: 1, Payload: payload,
+			Actor: sessionRef, OccurredAt: time.Unix(22, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.session_vacated"), Payload: payload,
 		}}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+			WorkID: "work-w", SessionRef: sessionRef, LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(23, 0).UTC(),
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -137,7 +142,7 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 		t.Fatalf("entry=%+v, want reclaimed", entry)
 	}
 	var released int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND json_extract(payload,'$.session_ref')='ses-ended'`).Scan(&released); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND event_id=?`, occupancyReleasedEventID("work-w", claimed.Entry.ProjectID, claimed.Entry.ClaimOpID, "ses-ended", 0)).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != 1 {
@@ -176,11 +181,16 @@ func TestAuditReclaimRejectsLegacyOccupancyWithoutApproval(t *testing.T) {
 	}
 
 	// session_vacate is the one non-destructive release for a legacy row.
-	vacatePayload := jsonRaw(`{"work_id":"work-legacy","project_id":"project-w","session_ref":"ses-legacy","source_directory":"` + legacyPath + `"}`)
+	vacatePayload := jsonRaw(`{"work_id":"work-legacy","project_id":"project-w","session_ref":"ses-legacy","source_directory":"` + legacyPath + `","destination_directory":"/data/repo-main"}`)
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
 		EventID: "vacate-legacy", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-legacy",
-		Actor: "ses-legacy", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: 1, Payload: vacatePayload,
+		Actor: "ses-legacy", OccurredAt: time.Unix(42, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.session_vacated"), Payload: vacatePayload,
 	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{
+		WorkID: "work-legacy", SessionRef: "ses-legacy", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(43, 0).UTC(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-legacy"), "project-w", "wt-work-legacy") != "" {

@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestOpenAppliesSchemaManifest"
-    }
-  ],
   "id": "PM3",
-  "state": "satisfied"
+  "reason": "internal/store.TestOpenAppliesSchemaManifest remains a schema witness but does not prove the separate retained-research boundary. internal/store.TestResearchRetirementCascadesContent and internal/store.TestTerminalCleanupDefersUnreleasedOwners are candidate retirement and owner-protection witnesses. Publication, archive, terminal cleanup, work removal, foreign-key cascades and consumer-pin release must preserve research until explicit eligible research_retire; integrated coverage remains unmeasured.",
+  "state": "unmeasured"
 }

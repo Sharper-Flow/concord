@@ -26,7 +26,7 @@ func claimsFixture(t *testing.T) (*store.Store, *Service, Authority) {
 	// Two works: the holder and the contender.
 	for _, w := range []struct{ id, title string }{{"work-holder", "Holder"}, {"work-contender", "Contender"}} {
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-			{EventID: w.id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"` + w.title + `","priority":1}`)},
+			{EventID: w.id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + w.title + `","priority":1}`)},
 			{EventID: w.id + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: w.id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, w.id): 0}}); err != nil {
 			t.Fatal(err)
@@ -188,7 +188,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 		t.Fatalf("replayed claim version=%d err=%v", version, versionErr)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.resource_claimed' AND subject_id=?`, "work-holder").Scan(&events); err != nil || events != 1 {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.resource_claimed' AND subject_id=?`, "work-holder").Scan(&events); err != nil || events != 1 {
 		t.Fatalf("claim events=%d err=%v", events, err)
 	}
 

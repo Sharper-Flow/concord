@@ -416,7 +416,7 @@ func isTerminalActiveChangeStatus(status string) bool {
 }
 
 // reconcileDeferredSelection resolves each deferred selection against the
-// durable log. An import that already exists makes the selection an
+// effect receipts. An import that already exists makes the selection an
 // idempotent no-op: the predecessor's terminal state is its own history,
 // recorded in the validated snapshot, and the existing Concord projection is
 // left untouched. A deferred selection with no existing import keeps the
@@ -680,7 +680,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 				SubjectID:      request.Product.ProductID,
 				Actor:          importOperatorActor,
 				OccurredAt:     now,
-				PayloadVersion: 1,
+				PayloadVersion: store.CurrentEventPayloadVersion("product.created"),
 				Payload:        productPayload,
 			},
 			{
@@ -690,7 +690,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 				SubjectID:      primary.ProjectID,
 				Actor:          importOperatorActor,
 				OccurredAt:     now,
-				PayloadVersion: 1,
+				PayloadVersion: store.CurrentEventPayloadVersion("project.created"),
 				Payload:        projectPayload,
 			},
 			{
@@ -700,7 +700,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 				SubjectID:      request.Product.ProductID,
 				Actor:          importOperatorActor,
 				OccurredAt:     now,
-				PayloadVersion: 1,
+				PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"),
 				Payload:        membershipPayload,
 			},
 		},
@@ -771,7 +771,7 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 					SubjectID:      project.ProjectID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 1,
+					PayloadVersion: store.CurrentEventPayloadVersion("project.created"),
 					Payload:        projectPayload,
 				},
 				{
@@ -781,7 +781,7 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 					SubjectID:      request.Product.ProductID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 1,
+					PayloadVersion: store.CurrentEventPayloadVersion("product_project.added"),
 					Payload:        membershipPayload,
 				},
 			},
@@ -855,7 +855,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 					SubjectID:      workID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 2,
+					PayloadVersion: store.CurrentEventPayloadVersion("work.created"),
 					Payload:        workPayload,
 				},
 				{
@@ -865,7 +865,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 					SubjectID:      workID,
 					Actor:          importOperatorActor,
 					OccurredAt:     now,
-					PayloadVersion: 1,
+					PayloadVersion: store.CurrentEventPayloadVersion("work.memberships_replaced"),
 					Payload:        membershipPayload,
 				},
 			},
@@ -956,7 +956,7 @@ func isDuplicateEvent(err error) bool {
 // CLI failures trace back to the import surface. Underlying causes are
 // preserved on Failure.Err.
 func wrapOperatorFailure(detail string, cause error) *store.Failure {
-	failure := &store.Failure{Kind: store.KindUnavailable, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "rebuild the database from its durable log"}
+	failure := &store.Failure{Kind: store.KindUnavailable, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "restore the current rows from a verified snapshot"}
 	failure.Err = cause
 	return failure
 }

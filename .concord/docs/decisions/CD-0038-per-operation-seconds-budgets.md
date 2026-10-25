@@ -2,9 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
-- **Amended:** 2026-10-02. The agent-facing result-size `budget` object
-  (`max_bytes`, `max_items`, and the legacy `max_millis` window) is retired
-  from the tool surface. D8 records the amendment.
 - **Scope:** Agent operation inputs and manifest bounds; TS7 budget refusal; issue #173
 - **Approval:** Operator selected per-operation manifest ceilings on 2026-08-17
 - **Related:** CD-0005, CD-0036 D4, TS1 AJ8, TS4
@@ -12,17 +9,11 @@
   ([`agent-adapter-transport-contract.md`](../agent-adapter-transport-contract.md)),
   TS7 ([`agent-result-envelope.md`](../agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md))
-- **Supersedes:** the undifferentiated `budget.max_millis` operation-time input
-- **Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
-  compatibility and negotiation treatment described in D6/D7; those passages are
-  historical evidence, not current compatibility policy.
 
 ## Context
 
-The current shared budget object limits output bytes and items and accepts one
-global `max_millis` value up to 300,000. The runtime turns that value into a Go
-context deadline. Nothing declares what one operation supports, so a caller
-cannot discover a limit and a refusal cannot say what value would work.
+Callers need each operation's supported time ceiling before starting work.
+A refusal must state a supported value so the caller can adjust the request.
 
 TS1 `AJ8-budget-refused` fixes the missing behaviour: an approved audit asks for
 60 seconds, the operation supports 30, the core refuses before starting, and it
@@ -121,42 +112,19 @@ Omission is not a request for the maximum.
 This applies CD-0036's authority-stop rule: Concord can stop granting authority
 or waiting, but it does not claim to pre-empt a host process.
 
-### D6. Milliseconds have a bounded compatibility window
+### D8. The agent-facing budget object is retired
 
-`budget.max_millis` is deprecated under TS8. During the compatibility window an
-old negotiated client may send it. If both units are present, they must express
-the same exact duration; otherwise the core returns `invalid_input`. No rounding
-or preference rule is allowed.
-
-New clients send seconds only. Removal follows TS8's 30–90 day window and fails
-old bootstrap after the supported old surface retires. The two fields do not
-remain indefinitely.
-
-### D7. Surface evolution is additive within its negotiated major
-
-The input is optional and an old client can omit it. An old representation of
-`budget_refused` without the typed ceiling remains safe, though less actionable,
-so negotiation may omit that field for a supported old client. Relative to the major line that carries it, this change is a TS8 minor amendment. If bundled with CD-0037's major cutover it ships in that major; if
-shipped first, it is a minor on the current line. It never requires a second
-major by itself. The manifest, generated contracts, adapter, compatibility matrix, corpus, and digests move together.
-
-### D8. The agent-facing budget object is retired (2026-10-02 amendment)
-
-The result-size `budget` input object leaves the tool surface. No operation
-input declares `budget`, `max_bytes`, `max_items`, or `max_millis`. The D6
-millisecond compatibility window closes with it: the agent surface never
-carried a negotiated old client that sends milliseconds.
+No operation input declares `budget`, `max_bytes`, `max_items`, or `max_millis`.
 
 Operation time is bounded only by `requested_budget_seconds`. Result size is
 bounded only by the operation's `limit` and `page` pagination inputs. The
 store keeps the canonical envelope cap, and workflow action field
 constraints keep their own `max_items` bound; neither is a caller budget.
 
-The retirement removes the live disagreement between the published schema
-and the core decoder: published inputs no longer name a field the decoder
-refuses. The conformance tests pin both halves. The ceiling refusal shape in
-D3, the typed `supported_budget_seconds`, and the `adjust_budget` recovery
-are unchanged.
+The conformance tests pin the published schema and the core decoder.
+D3 defines the ceiling refusal shape with typed `supported_budget_seconds`
+and `adjust_budget` recovery.
+The manifest, generated contracts, adapter, corpus, and digests move together.
 
 ## Rejected alternatives
 
@@ -188,4 +156,3 @@ false after a commit or an external step may have occurred.
 - Accepted budgets create one propagated deadline; no hop resets the clock.
 - Read, pre-commit, post-commit, and cross-authority expiry paths return the
   effect state they can prove.
-- Equivalent legacy milliseconds and seconds agree; conflicting values refuse.

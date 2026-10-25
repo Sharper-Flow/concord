@@ -150,7 +150,7 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 	// The seed statements inline their literals: a multi-statement Exec
 	// binds parameters to the first statement only on this driver, and the
 	// law_subjects home-pair trigger then reads the wrong values.
-	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(fmt.Sprintf(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('%s','%s','%s'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('%s','%s','%s','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM write_guard`, productID, projectID, "ph-law-locator", projectID, "ph-law-locator", "spec:one")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -164,17 +164,17 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersi
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 5)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
 	if !ok {
 		t.Fatal("workflow.research v5 is not registered")
 	}
 	setup := []Event{
 		workflowEventWithActor("ph-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowEventWithActor("ph-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 1, "resulting_version": workVersion + 2, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+3, "frame", "approve_contract"),
 	}
-	setup[2].PayloadVersion = 3
+	setup[2].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string
 		t.Fatal(err)
 	}
 	successor := map[string]any{
-		"contract_version": int64(2), "premise": "cross-project handoff fixture v2", "outcome_kind": "outcome",
+		"contract_version": int64(2), "premise": "cross-project handoff fixture v2", "decision_domains": []string{}, "outcome_kind": "outcome",
 		"outcome_payload":   map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
@@ -199,7 +199,7 @@ func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string
 	supersede := workflowEventWithActor("ph-contract-2-"+workID, WorkflowContractSuperseded, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "fixture contract replacement", "audit_evidence": []string{"audit:handoff-fixture"}, "successor_contract": successor,
 	})
-	supersede.PayloadVersion = 2
+	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject(t
 		t.Fatalf("err=%v, want the unplaced-session replay refused at the placement boundary", unplaced)
 	}
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -843,17 +843,17 @@ func seedOrphanWorkerAttemptRow(t *testing.T, s *Store, workID, attemptID string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
-		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), "1.0", "1.0", "2026-09-30T00:00:00Z"); err != nil {
+		(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), WorkerPacketSchemaVersion, WorkerReportSchemaVersion, "2026-09-30T00:00:00Z"); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
@@ -908,7 +908,7 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 		t.Fatal(err)
 	}
 	var startedCount int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.action_started' AND subject_id=? AND json_extract(payload,'$.step_id')=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(attempt_epoch),0) FROM workflow_step_epochs WHERE work_id=? AND step_id=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
 		t.Fatal(err)
 	}
 	epoch := startedCount + 1
@@ -917,17 +917,14 @@ func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, se
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	identity := workerFixtureWorktreeIdentity(t, f.store, f.workID)
 	started := workflowEventWithActor("ph-dispatch-start-"+attemptID, WorkflowActionStarted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch:" + attemptID, "actor_ref": actorRef, "execution_model": preferredModelForLane(lane)})
-	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
-	// The dispatch completion carries its worker bindings on payload
-	// version 3, the registered current version.
-	completed.PayloadVersion = 3
+	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": identity, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
 	if err := applyWorkflowTestOperation(ctx, f.store, Operation{Events: []Event{started, completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
 		t.Fatal(err)
 	}
 	// The worker evidence stamps its Actor column with the authenticated
 	// client/principal identity the worker-evidence boundary records, which
 	// is never the dispatching session reference.
-	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
@@ -940,7 +937,7 @@ func completeWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT report_schema_version FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&reportSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
+	completed := Event{EventID: "ph-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1049,7 +1046,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	}
 	// Retirement derives from facts; it never writes.
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
@@ -1057,7 +1054,7 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 		t.Fatal(err)
 	}
 	var after int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, f.workID).Scan(&after); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, f.workID).Scan(&after); err != nil {
 		t.Fatal(err)
 	}
 	if events != after || retirement.State != RetirementReady {
@@ -1615,7 +1612,7 @@ func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 0 {
@@ -1773,7 +1770,7 @@ func TestConsumedSharedBindSurvivesTheOriginalReceiverVacate(t *testing.T) {
 		t.Fatalf("replay=%+v err=%v, want the standing bind resolved as AlreadyConsumed", replay, err)
 	}
 	var events int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -1879,7 +1876,7 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 		t.Fatalf("gate err=%v, want the superseded-claim landing refused", err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 1 {
@@ -1888,18 +1885,12 @@ func TestAdmissionGateRefusesSupersededClaimLanding(t *testing.T) {
 	// The re-claimed worktree's own verified landing names the new claim
 	// generation and reopens admission.
 	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
-	var rawPayload string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? ORDER BY seq DESC LIMIT 1`, f.workID).Scan(&rawPayload); err != nil {
+	var claimOpID string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.sourceSession, f.sourceProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		ClaimOpID string `json:"claim_op_id"`
-	}
-	if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ClaimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("newest landing claim op=%q, want the re-claimed generation %q", payload.ClaimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != reclaimed.Entry.ClaimOpID {
+		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
 	}
 	if err := runHandoffGate(t, f.store, f.workID, f.sourceSession); err != nil {
 		t.Fatalf("post-landing gate refused %v", err)
@@ -1962,24 +1953,18 @@ func TestReclaimedClaimAfterVacateRecordsItsOwnFirstLanding(t *testing.T) {
 		t.Fatalf("second landing=%+v err=%v, want the re-claim's own first landing recorded", second, err)
 	}
 	var landings int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.session_claim_landed' AND subject_id=?`, f.workID).Scan(&landings); err != nil {
 		t.Fatal(err)
 	}
 	if landings != 2 {
 		t.Fatalf("landing event count=%d, want the vacated claim's and the re-claim's own landing", landings)
 	}
-	var rawSecond string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? ORDER BY seq DESC LIMIT 1`, f.workID).Scan(&rawSecond); err != nil {
+	var claimOpID string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT claim_op_id FROM session_claim_landings WHERE work_id=? AND session_ref=? AND project_id=? AND claim_op_id=?`, f.workID, f.targetSession, f.targetProject, reclaimed.Entry.ClaimOpID).Scan(&claimOpID); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		ClaimOpID string `json:"claim_op_id"`
-	}
-	if err := json.Unmarshal([]byte(rawSecond), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ClaimOpID != reclaimed.Entry.ClaimOpID {
-		t.Fatalf("newest landing claim op=%q, want the re-claimed generation %q", payload.ClaimOpID, reclaimed.Entry.ClaimOpID)
+	if claimOpID != reclaimed.Entry.ClaimOpID {
+		t.Fatalf("recorded landing claim op=%q, want the re-claimed generation %q", claimOpID, reclaimed.Entry.ClaimOpID)
 	}
 	// The fresh landing resolves the placement: the addressed handoff binds
 	// to the consuming session, and the admission gate admits it.

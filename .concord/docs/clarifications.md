@@ -9,6 +9,10 @@
 
 ## How to use this
 
+The store keeps current state and finite verified snapshots; no event log,
+fold, or replay exists under
+[CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
+
 Each item carries: the **question**, **why it matters**, **current direction**
 (resolved or lean), and **what it blocks**. Answer the 🔴 blocking ones first —
 they gate any build. **Resolved items are recorded in this document under "Resolved directions"; new
@@ -75,12 +79,8 @@ re-litigate them silently.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0, `feature-inventory.md`
   §3.10, `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
-- **Clarified by C14/CD-0006:** Product-row fields were accepted for the row
-  surfaces, which retired; substantive decisions happen inside the selected
-  Product/workflow.
-- **Decision (amended 2026-10-13):** CD-0219 retired the interactive
-  launcher TUI, and the session entry route it left is removed with it
-  (CD-0108). The host owns operator session start and resume; Concord owns
+- **Decision:** Substantive decisions happen inside the selected Product/workflow.
+  The host owns operator session start and resume; Concord owns
   managed worktree claims, verified landing, and work-start context.
 
 ### R2. Cross-workflow impact propagation / freshness
@@ -93,7 +93,7 @@ re-litigate them silently.
   breaking change blocks. Version stamps are the deterministic fallback.
 - **Constraint:** no polling, timers, automatic downstream rewrites, or heuristic
   blockers. Heuristics may suggest edges but cannot authorize them.
-- **Amended by CD-0222:** Product-changing contracts declare one home Domain,
+- **Architecture boundary under CD-0222:** Product-changing contracts declare one home Domain,
   all affected Domains, exact law revisions, and authorized writes. Intersecting
   affected Domains require an operator-approved resolution pinned to both
   contract versions before both items hold execution authority.
@@ -108,13 +108,13 @@ re-litigate them silently.
 - **Effect:** recorded in `workflows.md` §2.2 and `self-documentation.md` §1.3.
 
 ### R4. Product → Domain primary navigation
-- **Direction, amended by CD-0222:** Durable Product knowledge is navigated
+- **Direction under CD-0222:** Durable Product knowledge is navigated
   **Product → Domain**. Workflows and changes are architecture-bound history from
   the Domain view, not the
   top-level browse path.
 - **Consumer boundary:** CD-0222 keeps repository navigation and exact
   Domain-detail reads. The graph grants no execution authority or behavioral
-  proof. The launcher display subject is vacated under CD-0219.
+  proof.
 - **Why:** enforces locality of behavior (P04) and makes architecture, law, and
   ownership obvious at a glance. Business grouping lives in Linear under CD-0213.
 - **Effect:** recorded in `product-data-model.md` §6, `self-documentation.md` §1.1,
@@ -145,8 +145,7 @@ re-litigate them silently.
 ### R7. episode is removed; lesson owns the knowledge ladder
 
 - **Decision (2026-09-03):** CD-0106 governs. Concord does
-  not integrate, configure, or promote from episode. The tool count falls by
-  one.
+  not integrate, configure, or promote from episode.
 - **Ladder:** an observation (CD-0030) holds an unproven notice. A
   `lesson` (CD-0026) holds a proven Product-scoped learning, published at work
   completion. A `decision` or `spec` holds accepted law. No new kind, store, or
@@ -155,10 +154,8 @@ re-litigate them silently.
 - **External systems:** identity lives in `managed_resources`, declared by the
   operator. Learned usage is a `lesson` tagged `resource:<resource_id>`. A
   record stores a vendor documentation locator, never vendor content.
-- **Evidence:** the episode store held 7 predecessor-import rows, an empty
-  `global` namespace, and no manual or ingested memory.
 - **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md),
-  which now covers lgrep and vision only.
+  which covers lgrep and vision only.
 
 ---
 
@@ -177,15 +174,17 @@ re-litigate them silently.
 
 ### C2. Storage model for Concord-owned state
 - **✅ RESOLVED 2026-08-05 by [`CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3.**
-  SQLite is Concord's sole durable authority: one global local database, one
-  append-only `domain_events` log, and explicit typed Product-memory projections
+  SQLite is Concord's sole durable authority: one global local database keeping
+  current rows and finite snapshots, plus explicit typed Product-memory projections
   updated in one transaction (`synchronous=NORMAL`, WAL, one writer at a time).
+  No event log or replay exists (CD-0242 D2).
   This was the recommended primary option (A) from the D1 research; it structurally
   prevents the Advance failure cluster via six binding invariants (I1–I6). The
   ranked alternatives (DBOS/Postgres, Restate, LMDB, Temporal-collapsed) remain
   documented in CD-0002 §2 as upgrade/fallback paths. PM2 resolves one global
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
-  projections while retaining its generic authoritative event log and D2/D3.
+  projections; CD-0242 D2 keeps current state and finite snapshots with no event
+  log or replay.
 - **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
   resolves repository and deploy packaging. CD-0089 permits Concord development
   coordination without changing the accepted storage authority.
@@ -288,10 +287,8 @@ re-litigate them silently.
   [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 ### C19. Agent context continuity
-- **Question:** What law governs an agent's working context across the point where it
-  exceeds the model's window? Concord has no position. Does Concord specify
-  summarize-in-place, clean restart from a structured handoff, or both with a stated
-  precedence — and what must survive unconditionally?
+- **Contract:** [CD-0016](./decisions/CD-0016-context-continuity.md) governs
+  working context across model-window boundaries.
 - **Why:** every long-running agent session crosses this boundary, and the boundary is
   lossy. Published measurement finds that standing instructions are dropped
   disproportionately relative to hard rules when a session is summarized, that
@@ -304,52 +301,17 @@ re-litigate them silently.
   [`compaction-retention-policy.md`](./compaction-retention-policy.md) and
   [`canonical-git-note-placement.md`](./canonical-git-note-placement.md). This question is
   unrelated to that tier and must be named **context continuity** to avoid collision.
-- **Existing contracts do not cover it.** TS5
-  ([`agent-call-context-contract.md`](./agent-call-context-contract.md)) is the per-call
-  ambient scope envelope, not the model's working window. TS2 §3
-  ([`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md)) bounds tool-schema
-  tokens, not conversation history. CD-0031 and CD-0163 bind the kept session
-  handoff to identity only. A position here needs a new decision record; no
-  existing record can be amended into one.
-- **Why Concord is well placed:** TS5 already states that there is no mutable protocol
-  session and no ambient state held by a daemon. If every call is stateless and all
-  state is durable, the working context is a **derived projection** that can be rebuilt
-  deterministically from the store rather than a conversation that must be compressed.
-  That removes the summarizer from the correctness path entirely. Predecessor harnesses
-  are converging on the same conclusion from the opposite direction, having started with
-  summarization and added restarts afterwards.
-- **Candidate shape (2026-08-10):** three operations at three anchors, not one setting.
-  A small **pinned** set re-emitted from durable state on every call — active obligation
-  level, pending operator decision, and the crucial subset of standing law — which is
-  never carried *through* a summary. A **summarization** step permitted only at a
-  completed unit of work, never mid-derivation, because that is the one moment when the
-  working state has just been made durable and eviction is therefore free. A **clean
-  restart** seeded from the already-approved handoff artifact at a phase boundary, where
-  the prior phase's exploration is genuinely spent. Boundaries crossed are counted and
-  observable, since compounding loss makes that count the best available signal of
-  degraded output.
 - **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
   [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
   [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
   [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
   mechanisms to prevent structurally; they are not work Concord must reproduce.
-- **Long-term gap surfaced by #422 (2026-08-10):** the predecessor's short-term fix bounds the
-  fallback path and adds typed size limits, but the deeper structural gap remains: the
-  predecessor's report persistence is change-keyed (reports are projections stored inside a
-  change's own record), so investigation work not tied to a change has no durable home and
-  takes the fallback every time. A proper solution needs a persistence surface for stateless
-  research output — a project-scoped or session-scoped store that is not a change projection.
-  This is tracked as a separate predecessor follow-up
-  ([Sharper-Flow/Advance](https://github.com/Sharper-Flow/Advance) ADV change
-  `changelessReportPersistence`) and should inform [Concord #43](https://github.com/Sharper-Flow/concord/issues/43):
-  bounding a delegated result is necessary but not sufficient if the result has nowhere
-  durable to land.
-- **Direction:** ✅ accepted under CD-0016 (2026-08-11). Durable checkpoints and
+- **Direction:** Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are
   allowed only after a completed durable unit. Clean typed-agent restart is the
   preferred future path but remains unavailable until issue #120. The canonical
-  read is `concord_work_trace.continuity` on surface 2.3.0.
+  read is `concord_work_trace.continuity`.
 
 ---
 
@@ -474,7 +436,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 | PM6 | Canonical git-note placement | git markdown | completed-work compaction |
 | compaction-retention-policy | Compaction, retention, and historical index | SQLite + git | archive/prune behavior |
 | PM8 | WIP evidence/blob scope | none — producer-owned output | excludes v1 byte store |
-| PM9 | Exhaust salvage and audit receipt | none — existing event/note/locator sequence | excludes v1 receipt |
+| PM9 | Exhaust salvage and audit receipt | none — existing record/note/locator sequence | excludes v1 receipt |
 | PM10 ✅ | Backup, restore, and garbage collection | SQLite + git authorities | recovery policy accepted |
 
 ### PM1–PM10 — decisions at a glance
@@ -492,11 +454,11 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM2–PM5 are accepted and binding.** Membership may not reintroduce duplicate
 > physical authority, application fan-out, copied work state, or a generic
 > materialized spine without explicit supersession.
-| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** one generic authoritative `domain_events` log; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total folds, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
+| **PM3 ✅ Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`product-memory-domain-schema.md`](./product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total current-state writes, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
 
-> **PM3 is accepted and binding.** It keeps one generic authoritative event log,
-> replaces CD-0003 D1's generic materialized spine with explicit typed Product-memory
-> projections, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
+> **PM3 is accepted and binding.** It keeps explicit typed Product-memory
+> projections over current rows and finite snapshots (CD-0242 D2), replaces
+> CD-0003 D1's generic materialized spine, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
 > C15 and TS1–TS9 are now accepted separately.
 > **Amended by CD-0222:** component is not a lasting first-class projection.
 > Follow-up implementation migrates stable component identities one-for-one into
@@ -513,13 +475,13 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > **PM6 is accepted and binding.** It fixes canonical durable-note placement. Accepted
 > compaction-retention-policy supplies the bounded lazy pruning transition; PM8 excludes WIP-byte storage; PM9
 > rejects a separate receipt; PM10 fixes recovery. C15 and TS1–TS9 are now accepted.
-| **compaction-retention-policy ✅ Accepted 2026-10-09** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain authoritative `domain_events`; keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained core events are the growth problem, needed history is absent from git/events, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler replay authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
-> **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, preserves v1
-> event authority, makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
+| **compaction-retention-policy ✅ Accepted 2026-10-09** Compaction, retention, historical index. *Binding:* [`compaction-retention-policy.md`](./compaction-retention-policy.md) amends PM6. | Terminal compaction plus verified git proof makes a work item eligible; only explicit or measured-pressure bounded lazy maintenance may prune its live projections. Retain current rows and finite verified snapshots ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2); keep a git-rebuildable historical index with frozen compaction scope. Pruned IDs never reopen; renewed work has a new ID and typed `archived_work_linked` cross-tier link. | Reopen if retained receipts and snapshots are the growth problem, needed history is absent from git, linked successor work repeatedly fails legitimate jobs, combined live/historical Q2/Q3 misses target, historical front matter becomes a dump, maintenance burdens operators, measured pressure needs another trigger, or PM9/PM10 provides a simpler recovery authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
+> **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, keeps current rows and finite verified
+> snapshots as the state authority (CD-0242 D2), makes the prune transition atomic and foreign key (FK) clean, and fixes immutable
 > pruned identity plus separate cross-tier follow-up links. PM8 excludes WIP-byte storage;
 > PM9 rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are accepted.
 | **PM8 ✅ Accepted 2026-08-06** WIP evidence/blob scope. *Binding:* [`product-memory-evidence-store.md`](./product-memory-evidence-store.md) narrows CD-0002 §2d. | No CAS, hashing, external-byte path references, or generic screenshot requirement. WIP output stays with its producer; Concord retains bounded state, concise notes, and ordinary external refs only. | Reopen only for a measured recurring job with a named reader, exact-byte need after WIP is gone, explicit retention/restore promise, and value sufficient to justify storage complexity. | PM1–PM6, compaction-retention-policy → **CD-0002 §2d amendment**, operator-approved. |
-| **PM9 ✅ Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`product-memory-process-exhaust.md`](./product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal event, approved note, verified PM6 locator, and optional compaction-retention-policy prune event are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing event/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | PM1–PM8 → **CD-0002 amendment**, operator-approved. |
+| **PM9 ✅ Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`product-memory-process-exhaust.md`](./product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal record, approved note, verified PM6 locator, and optional compaction-retention-policy prune record are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing record/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | PM1–PM8 → **CD-0002 amendment**, operator-approved. |
 | **PM10 ✅ Accepted 2026-08-06** Backup, restore, GC. *Binding:* [`product-memory-recovery.md`](./product-memory-recovery.md). | Online SQLite snapshots plus canonical git; clean staging restore, verification, rebuild, then atomic swap. No WIP/CAS/receipt input. | Reopen on unmet measured recovery objectives, omitted authority, required continuous replication, or a deletion job outside this policy. | PM1–PM9 → **recovery amendment**, operator-approved. |
 
 ---
@@ -555,7 +517,7 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ### TS1–TS9 — decisions at a glance
 
-The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent. Merger and supersession require exact operator approval only when a CD-0243 D2 class applies, such as a governing-requirement scope cut. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios distinguish the new policy from retained historical pins.
+The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blocking, and compatibility answers need no operator consent. Merger and supersession require exact operator approval only when a CD-0243 D2 class applies, such as a governing-requirement scope cut. Both endpoint versions and judged contract content remain bound. The table's original approval-consumption account does not impose consent on those routine answers. Workflow approval scenarios bind the one generated current definition ([CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14).
 
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |

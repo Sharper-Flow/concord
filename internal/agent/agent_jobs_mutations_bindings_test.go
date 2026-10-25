@@ -379,6 +379,7 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 	preTransitionCount, _ := readTransitionEvents(t, s, "work-cross")
 
 	idempotencyKey := fmt.Sprintf("complete-missing-evidence-%d", preVersion)
+	preEffects := agentCurrentEffects(t, s)
 	input := []byte(fmt.Sprintf(`{"work_id":"work-cross","expected_version":%d,"target":"completed","reason":"complete without evidence","idempotency_key":"%s"}`, preVersion, idempotencyKey))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil {
@@ -410,6 +411,9 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 	if count != preTransitionCount {
 		t.Fatalf("transition_events.count=%d, want %d (no new event from missing_evidence refusal)", count, preTransitionCount)
 	}
+	if agentCurrentEffects(t, s) != preEffects {
+		t.Fatal("missing_evidence refusal changed current rows, receipts or effect sequence")
+	}
 
 	obs := envelopeToObservation(resp)
 	obs.State = map[string]any{
@@ -436,8 +440,7 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 	// Active probe: the corpus's effects.terminal_transition absent
 	// assertion must be backed by a real query. Confirm (a) lifecycle
 	// is still in_progress, (b) version unchanged from preVersion, and
-	// (c) no domain_events row exists for work-cross whose payload
-	// indicates a terminal transition (completed/cancelled/superseded).
+	// (c) the owning current row records no terminal transition.
 	// Together these three checks prove the missing_evidence refusal
 	// minted zero terminal transition; recording probedAbsent at the
 	// assertion path replaces the previous vacuous nil.
@@ -448,18 +451,18 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 		t.Fatalf("terminal_transition probe: version=%d, want %d", version, preVersion)
 	}
 	var completedCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"completed"%'`).Scan(&completedCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id='work-cross' AND lifecycle='completed'`).Scan(&completedCount); err != nil {
 		t.Fatalf("terminal_transition probe: query completed events: %v", err)
 	}
 	var cancelledCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.transitioned' AND subject_id='work-cross' AND payload LIKE '%"to":"cancelled"%'`).Scan(&cancelledCount); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id='work-cross' AND lifecycle IN ('cancelled','superseded')`).Scan(&cancelledCount); err != nil {
 		t.Fatalf("terminal_transition probe: query cancelled events: %v", err)
 	}
 	if completedCount != 0 || cancelledCount != 0 {
 		t.Fatalf("terminal_transition probe: found completed=%d cancelled=%d terminal transitions for work-cross; missing_evidence must not apply", completedCount, cancelledCount)
 	}
 	obs.Effects["terminal_transition"] = probedAbsent{
-		Evidence: fmt.Sprintf("work-cross lifecycle=in_progress version=%d, no terminal transition events in domain_events; missing_evidence refused pre-application", version),
+		Evidence: fmt.Sprintf("work-cross lifecycle=in_progress version=%d, no terminal current transition or new receipt; missing_evidence refused pre-application", version),
 	}
 	return obs
 }
@@ -571,7 +574,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 		SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,
 		Payload: json.RawMessage(`{"from":"work-1","to":"work-2","kind":"compatible_with","reason":"ordinary relation carries no overlap authority","expected_version":2,"resulting_version":3,"to_expected_version":2,"to_resulting_version":3}`),
 	}
-	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	beforeEvents := agentCurrentEffects(t, s)
 	ordinaryErr := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{ordinary}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2, store.VersionRef(store.SubjectWorkItem, "work-2"): 2}})
 	var failure *store.Failure
 	if !errors.As(ordinaryErr, &failure) || failure.Kind != store.KindRelationContractViolation {
@@ -587,7 +590,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if err != nil || len(overlaps.Pairs) != 1 || overlaps.Pairs[0].ResolutionState != "absent" {
 		t.Fatalf("ordinary relation conferred overlap authority: pairs=%+v err=%v", overlaps.Pairs, err)
 	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents || workVersion(t, s, "work-1") != 2 || workVersion(t, s, "work-2") != 2 {
+	if agentCurrentEffects(t, s) != beforeEvents || workVersion(t, s, "work-1") != 2 || workVersion(t, s, "work-2") != 2 {
 		t.Fatal("ordinary relation refusal changed journal or endpoint versions")
 	}
 
@@ -705,9 +708,10 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("pre-count work_items: %v", err)
 	}
 	preEvents := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&preEvents); err != nil {
-		t.Fatalf("pre-count domain_events: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&preEvents); err != nil {
+		t.Fatalf("pre-effect sequence: %v", err)
 	}
+	preEffects := agentCurrentEffects(t, s)
 
 	// The instruction omits the accepted requirement to make the work smaller,
 	// which on the wire is a capture that declares no governing requirements.
@@ -742,14 +746,17 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("post-count work_items: %v", err)
 	}
 	postEvents := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&postEvents); err != nil {
-		t.Fatalf("post-count domain_events: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&postEvents); err != nil {
+		t.Fatalf("post-effect sequence: %v", err)
 	}
 	if postWork != preWork {
 		t.Fatalf("refused capture created %d work rows (pre=%d, post=%d)", postWork-preWork, preWork, postWork)
 	}
 	if postEvents != preEvents {
 		t.Fatalf("refused capture appended %d events (pre=%d, post=%d)", postEvents-preEvents, preEvents, postEvents)
+	}
+	if agentCurrentEffects(t, s) != preEffects {
+		t.Fatal("refused capture changed current rows or effect receipts")
 	}
 	titled := 0
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE title=?`, "Add passkey login").Scan(&titled); err != nil {
@@ -764,7 +771,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 		"created_work": map[string]any{"count": 0},
 	}
 	obs.Effects["silent_requirement_omission"] = probedAbsent{
-		Evidence: "work_items and domain_events counts unchanged across the refused capture, and no work item exists under the requested title",
+		Evidence: "current work rows, effect receipts and effect sequence unchanged across the refused capture, and no work item exists under the requested title",
 	}
 	// The consequence required operator authority the pending checkpoint withheld.
 	obs.Effects["approval_authority_withheld"] = true
@@ -894,7 +901,7 @@ func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	hash := "sha256:" + strings.Repeat("a", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','.concord/docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','.concord/docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM write_guard`, hash); err != nil {
 		t.Fatalf("seed accepted law: %v", err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
@@ -927,7 +934,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"kind":"task","title":"Run the approved audit","priority":3,"expected_version":0,"resulting_version":1}`)}
+	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Run the approved audit","priority":3}`)}
 	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatalf("seed work: %v", err)

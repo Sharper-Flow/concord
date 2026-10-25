@@ -110,38 +110,33 @@ class CDAllocationTests(RepoFixture):
             checker.check(root=self.root, against="main", no_fetch=True), []
         )
 
-    def test_removed_record_is_reported(self) -> None:
+    def test_removed_record_passes(self) -> None:
         self.write_manifest(["CD-0001", "CD-0002"])
         self.commit("add second baseline record")
         self.write_manifest(["CD-0001"])
 
+        self.assertEqual(checker.check(root=self.root, against="main", no_fetch=True), [])
+
+    def test_reusing_a_deleted_id_is_reported(self) -> None:
+        self.write_manifest(["CD-0001", "CD-0002"])
+        self.commit("add second baseline record")
+        self.write_manifest(["CD-0001"])
+        self.commit("delete the second record")
+        self.write_manifest(["CD-0001", "CD-0002"])
+
         findings = checker.check(root=self.root, against="main", no_fetch=True)
 
         self.assertEqual(len(findings), 1)
-        self.assertIn("removed-records", findings[0])
+        self.assertIn("reused-id", findings[0])
         self.assertIn("CD-0002", findings[0])
-        self.assertIn("explicit superseding record", findings[0])
 
-    def test_superseded_record_with_a_kept_successor_may_be_removed(self) -> None:
-        superseded = {"CD-0002": {"status": "superseded", "successor": "CD-0003"}}
-        self.write_manifest(["CD-0001", "CD-0002", "CD-0003"], fields=superseded)
-        self.commit("supersede the second record")
-        self.write_manifest(["CD-0001", "CD-0003"])
-
-        self.assertEqual(checker.check(root=self.root, against="main", no_fetch=True), [])
-
-    def test_superseded_record_removed_with_its_successor_is_reported(self) -> None:
-        superseded = {"CD-0002": {"status": "superseded", "successor": "CD-0003"}}
-        self.write_manifest(["CD-0001", "CD-0002", "CD-0003"], fields=superseded)
-        self.commit("supersede the second record")
+    def test_next_skips_a_deleted_highest_id(self) -> None:
+        self.write_manifest(["CD-0001", "CD-0002"])
+        self.commit("add second baseline record")
         self.write_manifest(["CD-0001"])
+        self.commit("delete the second record")
 
-        findings = checker.check(root=self.root, against="main", no_fetch=True)
-
-        self.assertEqual([finding.split(" was ")[0] for finding in findings], [
-            "removed-records: comparison manifest: CD id CD-0002",
-            "removed-records: comparison manifest: CD id CD-0003",
-        ])
+        self.assertEqual(checker.next_free(root=self.root, against="main", peer_namespace="refs/heads"), "CD-0003")
 
     def test_missing_ref_in_offline_mode_fails(self) -> None:
         findings = checker.check(root=self.root, against="missing", no_fetch=True)

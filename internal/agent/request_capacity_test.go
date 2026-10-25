@@ -87,57 +87,38 @@ func invokeRequestWireBytes(t *testing.T, defs map[string]any, opt schemawire.Op
 	return request
 }
 
-// derivedPacketFigures walks the worker-packet identities every request
-// derivation pins. The walker bounds each packet's writer-owned members:
+// derivedPacketFigure walks the current packet (CD-0242 D14). The walker bounds its writer-owned members:
 // the acceptance oracle and the checks-repair metadata are writer-bounded
 // members the generated schema leaves unstated, the writer-stamped
 // date-times carry the core writer's RFC3339Nano UTC serialization, and
 // the three context members ride the context aggregate exactly once.
-// packet3 must derive identically to packet2; a divergence fails here.
-// The size-capable packet5 mirrors the checks-repair packet4 shape beside
-// the recorded production-size members, so every dispatch packet identity
-// composes from one inventory.
-func derivedPacketFigures(t *testing.T, defs map[string]any, findingRefMax int) (packet2, packet3, packet4, packet5 int) {
+func derivedPacketFigure(t *testing.T, defs map[string]any, findingRefMax int) int {
 	t.Helper()
-	parts := make(map[string]int, 4)
-	for _, name := range []string{"worker_packet2", "worker_packet3", "worker_packet4", "worker_packet5"} {
-		jobPath := name + "/inputs/worker_job/"
-		jobRef := "worker_packet_worker_job"
-		bounds := map[string]int{
-			name + "/inputs/design_record/workflow_design_record/recorded_at":     32,
-			name + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
-		}
-		switch name {
-		case "worker_packet4":
-			jobRef = "worker_packet_checks_repair_job"
-			bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
-		case "worker_packet5":
-			jobRef = "worker_packet5_worker_job"
-			bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
-			bounds[jobPath+jobRef+"/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
-			bounds[jobPath+jobRef+"/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
-		}
-		bounds[jobPath+jobRef+"/acceptance_oracle"] = store.OracleCombinedMaxBytes
-		opt := schemawire.Options{
-			Defs:       defs,
-			PathBounds: bounds,
-			Excludes: map[string]bool{
-				name + "/inputs/work_context": true,
-				name + "/inputs/checkpoint":   true,
-				name + "/inputs/correction":   true,
-			},
-			FindingRefMax: findingRefMax,
-		}
-		size, err := schemawire.Max(defs[name], name, opt)
-		if err != nil {
-			t.Fatalf("the %s derivation hit an unbudgeted member: %v", name, err)
-		}
-		parts[name] = size
+	const name = "worker_packet"
+	jobPath := name + "/inputs/worker_job/"
+	jobRef := "worker_packet_worker_job"
+	bounds := map[string]int{
+		name + "/inputs/design_record/workflow_design_record/recorded_at":     32,
+		name + "/inputs/proposal_record/workflow_proposal_record/recorded_at": 32,
 	}
-	if parts["worker_packet3"] != parts["worker_packet2"] {
-		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d", parts["worker_packet3"], parts["worker_packet2"])
+	bounds[jobPath+jobRef+"/checks_repair"] = store.WorkerJobChecksRepairMaxBytes
+	bounds[jobPath+jobRef+"/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
+	bounds[jobPath+jobRef+"/acceptance_oracle"] = store.OracleCombinedMaxBytes
+	opt := schemawire.Options{
+		Defs:       defs,
+		PathBounds: bounds,
+		Excludes: map[string]bool{
+			name + "/inputs/work_context": true,
+			name + "/inputs/checkpoint":   true,
+			name + "/inputs/correction":   true,
+		},
+		FindingRefMax: findingRefMax,
 	}
-	return parts["worker_packet2"], parts["worker_packet3"], parts["worker_packet4"], parts["worker_packet5"]
+	size, err := schemawire.Max(defs[name], name, opt)
+	if err != nil {
+		t.Fatalf("the %s derivation hit an unbudgeted member: %v", name, err)
+	}
+	return size
 }
 
 // TestRequestBudgetDerivesFromDeclaredMaxima composes the declared maxima
@@ -154,14 +135,11 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	}
 	// Quotes count: the reference serializes inside quotation marks.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
+	packet := derivedPacketFigure(t, defs, findingRefMax)
 	opt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
-			"worker_packet2": packet2 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet3": packet3 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet4": packet4 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet5": packet5 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet": packet + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: findingRefMax,
 	}

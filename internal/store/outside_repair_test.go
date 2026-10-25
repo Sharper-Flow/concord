@@ -24,7 +24,7 @@ func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
+	event := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
 		t.Fatal(err)
 	}
@@ -144,13 +144,6 @@ func TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence(t *testing.T) {
 	if continuity.OutsideRepairDisposition == nil || len(continuity.StepActions) != 0 || !reflect.DeepEqual(continuity.OutsideRepairRoute, pin.OutsideRepairRoute) {
 		t.Fatalf("held continuity = %+v", continuity)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(pin, after) {
-		t.Fatalf("hold replay drift: before=%+v after=%+v err=%v", pin, after, err)
-	}
 }
 
 func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t *testing.T) {
@@ -172,12 +165,12 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	}
 	for _, action := range definition.Definition.ActionDefinitions {
 		decision := workflowAdmit(definition.Definition, state, action.ID)
-		if decision.Admitted || decision.ApprovalRequired || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
+		if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != KindOutsideRepairActive {
 			t.Fatalf("admission %s = %+v", action.ID, decision)
 		}
-		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID}), KindOutsideRepairActive)
+		assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: action.ID, Actor: stepFixtureActor()}), KindOutsideRepairActive)
 		err := s.Transact(context.Background(), func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: work, ActionID: action.ID, ExpectedVersion: 5})
+			_, err := ApplyWorkflowActionTx(context.Background(), tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: work, ActionID: action.ID, ExpectedVersion: 5, Actor: stepFixtureActor()})
 			return err
 		})
 		assertFailureKind(t, err, KindOutsideRepairActive)
@@ -194,7 +187,7 @@ func TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses(t
 	}
 }
 
-func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
+func TestOutsideRepairReconcileBothLiveLifecycles(t *testing.T) {
 	for _, lifecycle := range []string{"needed", "in_progress"} {
 		t.Run(lifecycle, func(t *testing.T) {
 			s := openTemp(t)
@@ -224,27 +217,19 @@ func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
 				t.Fatalf("instance=%s err=%v", instance, err)
 			}
 			var fabricated int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind IN ('workflow.completed','workflow.verdict_recorded','workflow.premise_confirmed','workflow.evidence_bound','work.transitioned') AND event_id NOT LIKE '%:start'`, work).Scan(&fabricated); err != nil || fabricated != 0 {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind IN ('workflow.completed','workflow.verdict_recorded','workflow.premise_confirmed','workflow.evidence_bound','work.transitioned') AND event_id NOT LIKE '%:start'`, work).Scan(&fabricated); err != nil || fabricated != 0 {
 				t.Fatalf("fabricated=%d err=%v", fabricated, err)
 			}
 			assertFailureKind(t, WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: work, ActionID: "record_proposal"}), KindInvalidOperation)
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			after, err := ReadWorkPin(context.Background(), s, work)
-			if err != nil || !reflect.DeepEqual(pin, after) {
-				t.Fatalf("reconcile replay drift: before=%+v after=%+v err=%v", pin, after, err)
-			}
 		})
 	}
 }
 
-// TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay pins
+// TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence pins
 // CD-0210 D2's receipt obligation on the durable side: the exact native
 // check-run, run and job identities the boundary authenticated must persist
-// in both durable evidence projections and survive a full log rebuild, so a
-// later rerun cannot rewrite what the recorded receipt proves.
-func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay(t *testing.T) {
+// in both durable evidence projections.
+func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistence(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-identity"
 	seedOutsideRepairTestWork(t, s, work)
@@ -288,13 +273,6 @@ func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay(t *test
 	if pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.Evidence == nil || !reflect.DeepEqual(pin.OutsideRepairDisposition.Evidence.PullRequests[0].RequiredChecks, evidence.PullRequests[0].RequiredChecks) {
 		t.Fatalf("pin receipt lost native identities: %+v", pin.OutsideRepairDisposition)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(pin, after) {
-		t.Fatalf("identity replay drift: before=%+v after=%+v err=%v", pin, after, err)
-	}
 }
 
 func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
@@ -320,13 +298,6 @@ func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	}
 	if after.Lifecycle != before.Lifecycle || after.Step != before.Step || len(after.NextValidIntents) != len(before.NextValidIntents) || len(after.OutsideRepairRoute) != 0 || after.OutsideRepairDisposition.State != OutsideRepairStateResumed {
 		t.Fatalf("resume state drift: before=%+v after=%+v", before, after)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	replayed, err := ReadWorkPin(context.Background(), s, work)
-	if err != nil || !reflect.DeepEqual(after, replayed) {
-		t.Fatalf("resume replay drift: %+v %v", replayed, err)
 	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-again"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
@@ -440,7 +411,7 @@ func TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence(t *testing.T) {
 		var fields map[string]any
 		_ = json.Unmarshal(payload, &fields)
 		invalid := workflowTypedEvent(req.EventID, WorkflowOutsideRepairReconciled, work, operator.ref, req.OccurredAt, 6, fields)
-		_, err = applyWorkflowOperationTx(context.Background(), tx.tx, Operation{Events: []Event{actor, invalid}, ExpectedVersions: workVersion(work, 5)}, newFoldScope(tx.tx))
+		_, err = applyWorkflowOperationTx(context.Background(), tx.tx, Operation{Events: []Event{actor, invalid}, ExpectedVersions: workVersion(work, 5)}, newWriteScope(tx.tx))
 		return err
 	})
 	assertFailureKind(t, err, KindInvalidPayload)
@@ -458,14 +429,6 @@ func TestOutsideRepairDoesNotChangeOrdinaryCompletion(t *testing.T) {
 
 func TestWorkflowCompletedRefusesWhileOutsideRepairActive(t *testing.T) {
 	s, completion := seedCompletionGateCase(t, "outside-completion", completionGateCase{requiredEvidence: []string{"verification"}, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-	// The completion fixture leaves execution started. Close that action before
-	// the hold so this case tests completion admission, not execution liveness.
-	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/outside-completion")
-	version := readWorkVersion(t, s, "outside-completion")
-	settled := workflowActionCompletedFixture("outside-completion-execution-settled", "outside-completion", executor, version, "execution", "record_delivery")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{settled}, ExpectedVersions: workVersion("outside-completion", version)}); err != nil {
-		t.Fatal(err)
-	}
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, "outside-completion", "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
 		t.Fatal(err)
 	}
@@ -531,14 +494,14 @@ func dropMigration121Objects(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return err
 	}
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS outside_repair_reconciliations`,
 		`DROP TABLE IF EXISTS outside_repair_dispositions`,
 		`CREATE TABLE workflow_instances_v121_backup AS
-SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+SELECT work_id, definition_ref, 1 AS definition_version, definition_digest, current_step, instance_state,
        execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
   FROM workflow_instances`,
 		`DROP TRIGGER IF EXISTS workflow_instances_guard_insert`,
@@ -579,7 +542,7 @@ SELECT work_id, definition_ref, definition_version, definition_digest, current_s
 			return err
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -589,17 +552,17 @@ SELECT work_id, definition_ref, definition_version, definition_digest, current_s
 // admits, at the store producer and against the published work_pin contract
 // together. A hold and a completed reconciliation grant no managed pin
 // authority, so the pin carries a typed absence of the workflow-definition
-// identity: the three definition keys are omitted outright, never zero-filled
+// identity: the definition keys are omitted outright, never zero-filled
 // and never fabricated, while the raw instance identity (workflow type, step)
 // the disposition preserves stays readable. The never-held and resumed
-// populations run the managed instance read, so the same three keys are
+// populations run the managed instance read, so the same keys are
 // present and the pin still validates against the strict ordinary branch.
 func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-pin-population"
 	seedOutsideRepairTestWork(t, s, work)
 
-	definitionKeys := []string{"workflow_definition_version", "workflow_definition_digest", "obligations"}
+	definitionKeys := []string{"workflow_definition_digest", "obligations"}
 	read := func() map[string]json.RawMessage {
 		pin, err := ReadWorkPin(context.Background(), s, work)
 		if err != nil {
@@ -629,9 +592,9 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 				t.Fatalf("managed pin carries null obligations: %v", object)
 			}
 		}
-		var version json.Number
-		if err := json.Unmarshal(object["workflow_definition_version"], &version); err != nil || version.String() == "0" {
-			t.Fatalf("managed pin definition version = %s", object["workflow_definition_version"])
+		var digest string
+		if err := json.Unmarshal(object["workflow_definition_digest"], &digest); err != nil || digest != mustBuiltinDefinition(t, "workflow.implementation").Digest {
+			t.Fatalf("managed pin definition digest = %s", object["workflow_definition_digest"])
 		}
 	}
 	requireTypedAbsence := func(object map[string]json.RawMessage, state string) {
@@ -649,7 +612,7 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 		}
 	}
 
-	// Population one: never-held. The managed instance read owns the three
+	// Population one: never-held. The managed instance read owns the
 	// definition keys.
 	requireManagedIdentity(read())
 
@@ -674,69 +637,4 @@ func TestOutsideRepairWorkPinPopulation(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireTypedAbsence(read(), "completed")
-}
-
-// TestOutsideRepairHistoryRecordsCorpusWitnesses drives the typed hold,
-// reconcile and resume routes with the modeled approval receipts and records
-// the emitted pv1 rows as corpus witnesses. The shapes are the released
-// forms — unchanged since the introducing release — and admission requires
-// this passing history plus a full replay that keeps the exact stored bytes,
-// including the reconciled row's complete receipt identities. Each history
-// owns its store because the seed's workflow-law event is per-store.
-func TestOutsideRepairHistoryRecordsCorpusWitnesses(t *testing.T) {
-	type repairRow struct {
-		kind    string
-		version int
-		payload string
-	}
-	terminal := func(t *testing.T, s *Store) map[string]repairRow {
-		t.Helper()
-		rows, err := s.DatabaseForTesting().Query(`SELECT event_id, kind, payload_version, CAST(payload AS BLOB) FROM domain_events WHERE kind IN ('workflow.outside_repair_disposition_set','workflow.outside_repair_reconciled','workflow.outside_repair_resumed') ORDER BY event_id`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		out := map[string]repairRow{}
-		for rows.Next() {
-			var eventID string
-			var row repairRow
-			var payload []byte
-			if err := rows.Scan(&eventID, &row.kind, &row.version, &payload); err != nil {
-				t.Fatal(err)
-			}
-			row.payload = string(payload)
-			out[eventID] = row
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		return out
-	}
-	history := func(t *testing.T, work, closingKind string, evidence OutsideRepairEvidence) {
-		t.Helper()
-		s := openTemp(t)
-		seedOutsideRepairTestWork(t, s, work)
-		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
-			t.Fatal(err)
-		}
-		if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "close"), closingKind, evidence); err != nil {
-			t.Fatal(err)
-		}
-		before := terminal(t, s)
-		if len(before) != 2 {
-			t.Fatalf("history for %s holds %d outside-repair rows, want 2", work, len(before))
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild must fold the %s history: %v", work, err)
-		}
-		after := terminal(t, s)
-		if !reflect.DeepEqual(before, after) {
-			t.Fatalf("the rebuild changed the %s row bytes", work)
-		}
-		for eventID, row := range after {
-			recordHistoricalWitness(t, s, eventID, row.kind, row.version, []byte(row.payload))
-		}
-	}
-	history(t, "outside-corpus-reconciled", WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence())
-	history(t, "outside-corpus-resumed", WorkflowOutsideRepairResumed, OutsideRepairEvidence{})
 }

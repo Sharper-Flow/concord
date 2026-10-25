@@ -3,23 +3,24 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 )
 
-// Each position holds one released gate's Ref/version predicate, independent
+// Each position holds one current family's expected gate, independent
 // of the capability owner. Step-local conditions remain in the gate callers.
 func releasedWorkflowGateExpectations(d WorkflowDefinition) [8]bool {
 	implementation := d.Ref == "workflow.implementation"
 	breakFix := d.Ref == "workflow.break_fix"
 	research := d.Ref == "workflow.research"
 	return [8]bool{
-		implementation && d.Version >= 28 || breakFix && d.Version >= 25,
-		implementation && d.Version >= 29 || breakFix && d.Version >= 26 || research && d.Version >= 17,
-		implementation && d.Version >= 31 || breakFix && d.Version >= 28 || research && d.Version >= 18,
-		implementation && d.Version >= 24 || breakFix && d.Version >= 21,
-		implementation && d.Version >= 21 || breakFix && d.Version >= 19,
-		implementation && d.Version >= 18 || breakFix && d.Version >= 16,
+		implementation || breakFix,
+		implementation || breakFix || research,
+		implementation || breakFix || research,
+		implementation || breakFix,
+		implementation || breakFix,
+		implementation || breakFix,
 		implementation || breakFix,
 		research,
 	}
@@ -27,8 +28,8 @@ func releasedWorkflowGateExpectations(d WorkflowDefinition) [8]bool {
 
 func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 	t.Parallel()
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		t.Run(definition.Ref, func(t *testing.T) {
 			want := releasedWorkflowGateExpectations(definition)
 			capabilities := [...]WorkflowCapability{
 				WorkflowCapabilityDerivedStepStart,
@@ -43,11 +44,12 @@ func TestWorkflowCapabilitiesMatchReleasedGates(t *testing.T) {
 			var wantCapabilities workflowCapabilitySet
 			for i, active := range want {
 				if active {
-					wantCapabilities |= workflowCapabilitySet(capabilities[i])
+					wantCapabilities = append(wantCapabilities, capabilities[i])
 				}
 			}
-			if got := workflowCapabilities(definition); got != wantCapabilities {
-				t.Errorf("capabilities = %08b, want %08b", got, wantCapabilities)
+			slices.Sort(wantCapabilities)
+			if got := workflowCapabilities(definition); !slices.Equal(got, wantCapabilities) {
+				t.Errorf("capabilities = %v, want %v", got, wantCapabilities)
 			}
 			got := [4]bool{
 				workflowDerivedStepStartActive(definition),
@@ -88,13 +90,13 @@ func TestWorkflowRootCauseCapabilityMatchesReleasedGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for i, definition := range builtinWorkflowDefinitionsWithHistory() {
-		t.Run(fmt.Sprintf("%s/v%d", definition.Ref, definition.Version), func(t *testing.T) {
+	for i, definition := range BuiltinWorkflowDefinitions() {
+		t.Run(definition.Ref, func(t *testing.T) {
 			cause := fmt.Sprintf("work-rca-%d", i)
 			if err := captureDefectWork(t, s, cause, "research", defectIntakeJSON(shape, []string{"work-bug"}, "")); err != nil {
 				t.Fatal(err)
 			}
-			entry, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+			entry, ok := BuiltinWorkflowRegistry().Current(definition.Ref)
 			if !ok {
 				t.Fatal("definition is not registered")
 			}

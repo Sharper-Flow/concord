@@ -4,9 +4,6 @@
 - **Date:** 2026-10-19
 - **Scope:** Which binaries may open a store whose directory is a data root
   the installer manages
-- **Amends:** [CD-0139](CD-0139-unstamped-build-store-isolation.md) D3, the
-  up-to-date store an unstamped build may operate, and D5, the stamped
-  release behavior it keeps
 - **Preserves:** CD-0139 D1, D2, and D4; the repository-path refusal of the
   database override; [CD-0111](CD-0111-a-release-never-requires-a-session-restart.md)
   D3 migration behavior for the binaries the installer places
@@ -57,8 +54,8 @@ there to work against the same history.
 
 ### D3. CD-0139 applies outside a managed data root
 
-This amends CD-0139 D3: an unstamped build operates an up-to-date existing
-store only when D1 admits it. It amends CD-0139 D5: a stamped build keeps its
+An unstamped build operates an up-to-date existing store only when D1 admits it.
+A stamped build keeps its
 migration behavior for a managed store only when D1 admits it. CD-0139 D1, D2,
 and D4 stand.
 
@@ -79,8 +76,7 @@ and D4 stand.
 A developer who needs the installed history restores a backup of it to a fresh
 path and points the build there. A release binary run from anywhere else, such
 as a downloaded archive or a build in a managed worktree, refuses the installed
-store until the installer places it. The unstamped migration refusal no longer
-names an owning release or the live sessions beside it. The installer places
+store until the installer places it. The installer places
 only stamped release builds, so an unstamped build reaches that refusal only on
 an unmanaged store, which has no owning release.
 

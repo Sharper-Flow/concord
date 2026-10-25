@@ -4,6 +4,11 @@
   "summary": "Authority declarations for vocabulary-like columns in the live storage schema.",
   "entries": [
     {
+      "table": "worktree_claim_native_fences",
+      "column": "resource_kind",
+      "authority": "check"
+    },
+    {
       "table": "active_research_consumers",
       "column": "use_role",
       "authority": "check"
@@ -92,16 +97,6 @@
       "authority": "check"
     },
     {
-      "table": "domain_events",
-      "column": "kind",
-      "authority": "check"
-    },
-    {
-      "table": "domain_events",
-      "column": "subject_type",
-      "authority": "check"
-    },
-    {
       "table": "domain_observations",
       "column": "state",
       "authority": "check"
@@ -139,9 +134,21 @@
     },
     {
       "table": "durable_operations",
-      "column": "workflow_type_version",
+      "column": "workflow_type_digest",
       "authority": "go_registry",
       "symbol": "builtinWorkflowRegistry"
+    },
+    {
+      "table": "effect_receipts",
+      "column": "kind",
+      "authority": "go_registry",
+      "symbol": "eventKindRegistry"
+    },
+    {
+      "table": "effect_receipts",
+      "column": "subject_type",
+      "authority": "go_registry",
+      "symbol": "subjectTypes"
     },
     {
       "table": "external_observations",
@@ -266,6 +273,11 @@
       "authority": "check"
     },
     {
+      "table": "work_context_findings",
+      "column": "finding_class",
+      "authority": "check"
+    },
+    {
       "table": "work_items",
       "column": "kind",
       "authority": "registry_trigger",
@@ -305,6 +317,12 @@
       "validator": "scripts/check-work-sizes.py"
     },
     {
+      "table": "work_size_proof_facts",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores the current review-proof window as JSON, not an enum; its CHECK requires valid JSON."
+    },
+    {
       "table": "worker_attempts",
       "column": "capability_class",
       "authority": "check"
@@ -317,6 +335,16 @@
     {
       "table": "worker_attempts",
       "column": "lifecycle_state",
+      "authority": "check"
+    },
+    {
+      "table": "worker_attempts",
+      "column": "terminal_kind",
+      "authority": "check"
+    },
+    {
+      "table": "workflow_action_obligations",
+      "column": "state",
       "authority": "check"
     },
     {
@@ -364,6 +392,12 @@
       "column": "rigor_class",
       "authority": "registry_trigger",
       "validator": "scripts/check-rigor-class.py"
+    },
+    {
+      "table": "workflow_correction_state",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores correction-state JSON, not an enum; its CHECK requires valid JSON."
     },
     {
       "table": "workflow_external_conditions",
@@ -447,6 +481,17 @@
     {
       "table": "workflow_overlap_resolutions",
       "column": "resolution_kind",
+      "authority": "check"
+    },
+    {
+      "table": "workflow_review_state",
+      "column": "state",
+      "authority": "check",
+      "rationale": "This column stores current candidate, accepted Review and finding state as JSON, not an enum; its CHECK requires valid JSON."
+    },
+    {
+      "table": "workflow_staleness_observations",
+      "column": "severity",
       "authority": "check"
     },
     {

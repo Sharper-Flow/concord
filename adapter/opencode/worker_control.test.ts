@@ -10,7 +10,7 @@ function fixture() {
   const lane = agentLanes.find((entry) => entry.id === "verify")!
   const packet: AgentLanePacket = {
     schema_version: "2.0", attempt_id: "check-attempt", work_id: "check-work", step_id: "verify",
-    lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    lane_id: lane.id, lane_digest: lane.digest,
     inputs: { task: "Run the recorded control", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" },
       worker_job: { job_id: "job:check", revision: 1, digest: "sha256:" + "d".repeat(64), objective: "Check", stopping_condition: "Result recorded", project_scope: "project-check", path_scope: [], predicate_ids: [], checks: ["go test ./..."], prerequisites: [], unresolved_refs: [], reserved_integration: "",
         acceptance_oracle: { owners: [], cases: [], controls: [{ control_id: "control:check", owner_id: "owner:check", predicate_ids: [], case_ids: [], recipe_source: { kind: "repository_file", project_id: "project-check", path: "control.json", commit_oid: "a".repeat(40) }, argv: ["recorded-runner"], cwd: ".", expected_result: "pass", required_evidence_role: "independently_executed", readiness_evidence_refs: ["native/prepared"] }] } },

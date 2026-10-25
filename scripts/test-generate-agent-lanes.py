@@ -204,13 +204,66 @@ class SubagentMethodProjectionTests(unittest.TestCase):
             self.assertIn("proven defects, missing required evidence, and optional suggestions", text)
             self.assertIn("existing finding detail", text)
             self.assertIn("use `review_finding.oracle.classification` and keep the detail consistent with it", text)
-            self.assertIn("Do not turn style preferences into defects or a `no_ship` verdict", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
             self.assertIn("do not broaden the review into an unrelated audit", text)
         self.assertEqual(carrying, {"review"})
 
+    def test_group_review_delivers_recurring_scan_without_a_new_report_contract(self):
+        approved = (
+            "Every code-changing workflow includes a slop scan in its implementation-group reviews. "
+            "The scan covers dead or superseded mechanisms, duplication, unnecessary abstractions, "
+            "contradictory guidance and missing cleanup across the accumulated change and affected dependencies. "
+            "Use applicable deterministic checks plus semantic inspection; scanner warnings alone are not verdicts. "
+            "Resolve in-scope blocking findings before progression. Reuse applicable evidence, but check "
+            "subsequent changes before delivery. Small changes use their existing review; this adds no "
+            "separate review stage or repository-wide cleanup campaign."
+        )
+        retirement = (
+            "Implementation review checks the accumulated solution for superseded mechanisms and their "
+            "dependent tests, coverage, schemas, configuration and instructions. Those are removed together "
+            "under the governing retirement clause. Every retained mechanism must serve a named current "
+            "requirement; its existence or passing tests are not sufficient justification. Completion cannot "
+            "pass with unexplained legacy residue."
+        )
+        manifest, _ = generator.load_manifest()
+        carrying = set()
+        for lane in manifest["lanes"]:
+            text = " ".join(lane_projection(lane).split())
+            if approved not in text and retirement not in text:
+                continue
+            carrying.add(lane["id"])
+            self.assertIn(approved, text)
+            self.assertIn(retirement, text)
+            self.assertIn("existing `findings`, `assessments` and `remaining_obligations`", text)
+            self.assertIn("Bind findings and applicable checks to the corrected `output_candidate`", text)
+            self.assertIn("Do not add a reviewer or install a scanner", text)
+            self.assertIn("Do not turn style preferences into defects or a blocking disposition", text)
+        self.assertEqual(carrying, {"review"})
+        block = REPORT_SCHEMA["$defs"]["review_block"]
+        self.assertNotIn("slop_scan", block["properties"])
+        self.assertEqual(set(block["properties"]["disposition"]["enum"]), {
+            "continue", "correction_required", "revision_required", "ready_for_final_proof",
+        })
 
-class LaneDigestRetentionTests(unittest.TestCase):
-    def test_generation_refuses_a_replaced_digest_without_retention(self):
+    def test_review_teaching_agrees_with_report_schema(self):
+        manifest, _ = generator.load_manifest()
+        review = next(lane for lane in manifest["lanes"] if lane["id"] == "review")
+        text = lane_projection(review)
+        schema = json.loads((generator.ROOT / "contracts/agent-lane-report.schema.json").read_text())
+        block = schema["$defs"]["review_block"]
+        for field in block["required"]:
+            self.assertIn(field, text)
+        for disposition in block["properties"]["disposition"]["enum"]:
+            self.assertIn(f"`{disposition}`", text)
+        self.assertNotIn("`ship`", text)
+        self.assertNotIn("`no_ship`", text)
+        self.assertNotIn("Do not run shell commands", text)
+        self.assertIn("inputs.review_input.input_candidate", text)
+        self.assertIn("inputs.review_input.dependencies", text)
+
+
+class LaneContentIdentityTests(unittest.TestCase):
+    def test_generation_accepts_changed_content_without_a_counter_or_alias(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
         previous = generator.lane_digest(manifest["lanes"][0])
         manifest["lanes"][0]["purpose"] += " Preserve future evidence."
@@ -219,35 +272,25 @@ class LaneDigestRetentionTests(unittest.TestCase):
             path = Path(tmp) / "manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with mock.patch.object(generator, "MANIFEST", path):
-                with self.assertRaisesRegex(ValueError, previous):
-                    generator.load_manifest()
-
-    def test_generation_accepts_a_retained_replaced_digest(self):
-        manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
-        lane = manifest["lanes"][0]
-        previous = generator.lane_digest(lane)
-        lane["purpose"] += " Preserve future evidence."
-        manifest["legacy_lane_digests"][f"{lane['id']}:{lane['version']}"].append(previous)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "manifest.json"
-            path.write_text(json.dumps(manifest), encoding="utf-8")
-            with mock.patch.object(generator, "MANIFEST", path):
                 loaded, _ = generator.load_manifest()
-        self.assertIn(previous, loaded["legacy_lane_digests"]["research:1"])
+        self.assertEqual(loaded["lanes"][0]["digest"], generator.lane_digest(manifest["lanes"][0]))
+        self.assertNotIn("version", loaded["lanes"][0])
+        self.assertNotIn("legacy_lane_digests", loaded)
 
-    def test_generation_refuses_a_removed_legacy_digest(self):
+    def test_generation_refuses_alias_catalogs(self):
         manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
-        removed = manifest["legacy_lane_digests"]["research:1"].pop(0)
+        manifest["legacy_lane_digests"] = {"research:1": ["sha256:" + "b" * 64]}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with mock.patch.object(generator, "MANIFEST", path):
-                with self.assertRaisesRegex(ValueError, removed):
+                with self.assertRaises(ValueError):
                     generator.load_manifest()
 
-    def test_history_reads_ignore_inherited_repository_redirection(self):
+    def test_generation_does_not_read_repository_history(self):
         with mock.patch.dict("os.environ", {"GIT_DIR": "/fixtures/not-a-repository", "GIT_WORK_TREE": "/fixtures/not-a-worktree"}):
-            generator.load_manifest()
+            with mock.patch.object(generator.subprocess, "run", side_effect=AssertionError("unexpected process")):
+                generator.load_manifest()
 
 
 class AgentProjectionTests(unittest.TestCase):
@@ -338,7 +381,7 @@ class AgentProjectionTests(unittest.TestCase):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("verify the first message you received", projection)
         self.assertIn("`agent-lane-packet.v1` packet", projection)
-        for field in ("schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"):
+        for field in ("schema_version", "attempt_id", "lane_id", "lane_digest", "work_id", "step_id", "inputs"):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
 
@@ -464,7 +507,7 @@ class AgentProjectionTests(unittest.TestCase):
             with self.subTest(lane=lane["id"]):
                 projection = lane_projection(lane)
                 carries = "review" in lane.get("required_report_blocks", [])
-                self.assertEqual("- review.verdict:" in projection, carries)
+                self.assertEqual("- review.disposition:" in projection, carries)
                 self.assertEqual("- review_finding.oracle:" in projection, carries)
                 self.assertIn("- evidence_entry.oracle_receipt:", projection)
 
@@ -489,16 +532,18 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Workers gain no general Concord tools", normalized)
         self.assertNotIn("Managed workers gain no Concord tools", normalized)
 
-    def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
+    def test_projection_frames_the_report_with_the_packet_protocol(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
         marker = PACKET_SCHEMA["properties"]["inputs"]["properties"]["report_protocol"]["const"]
         normalized = " ".join(projection.split())
         self.assertIn(
-            f"When `inputs.report_protocol` is present, return exactly one Markdown fence whose info string is `{marker}`.",
+            f"Return exactly one Markdown fence whose info string is `{marker}`.",
             normalized,
         )
         self.assertIn("exactly three backticks and that info string on one line", normalized)
         self.assertIn("Return the entire frame as one final text part", normalized)
+        self.assertIn("Never return multiple report candidates", normalized)
+        self.assertNotIn("historical packet", normalized)
 
     def test_projection_takes_the_frame_marker_from_the_packet_schema(self):
         # The reserved fence info string belongs to the packet schema, not
@@ -509,17 +554,6 @@ class AgentProjectionTests(unittest.TestCase):
         normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed).split())
         self.assertIn("info string is `concord-worker-result-test9`", normalized)
         self.assertNotIn("concord-worker-result-v1", normalized)
-
-    def test_projection_names_the_legacy_plain_object_branch(self):
-        # A historical packet carries no `inputs.report_protocol`; the lane
-        # must be told that branch by name instead of guessing a format.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
-        normalized = " ".join(projection.split())
-        self.assertIn(
-            "For a historical packet without `inputs.report_protocol`, return one plain JSON report object as your final text part.",
-            normalized,
-        )
-        self.assertIn("Never return multiple report candidates", normalized)
 
     def test_projection_requests_worker_content_without_host_or_packet_identity(self):
         projection = lane_projection(self.LANE, REPORT_SCHEMA)
@@ -926,6 +960,13 @@ class CommittedContentRuleTests(unittest.TestCase):
         self.assertIn("`committed-content:`", projection)
         self.assertNotIn(self.owner_paragraph(), projection)
 
+    def test_repairing_review_keeps_both_author_and_diff_duties(self):
+        capabilities = self.REVIEWING + ["edit_scoped_files"]
+        projection = " ".join(lane_projection(self.lane("review", capabilities)).split())
+        self.assertIn(f"Apply {self.owner_reference()} to every comment and document you add or change", projection)
+        self.assertIn(f"Review every added comment and committed document against {self.owner_reference()}", projection)
+        self.assertIn("concord_worker_diff", projection)
+
     def test_other_lanes_carry_no_committed_content_section(self):
         self.assertNotIn("## Committed content", lane_projection(self.lane("verify", self.VERIFYING)))
 
@@ -956,10 +997,9 @@ class CommittedContentRuleTests(unittest.TestCase):
 
 
 class JobSizeProjectionTests(unittest.TestCase):
-    # CD-0225 D2 and CD-0227 D2: the capped job's size accounting, the
-    # coordinator-owned overrun split, and the direct-caller repair boundary
-    # are generated lane instructions, so the tests prove the projected
-    # behavior for every relevant lane, not only the helper.
+    # CD-0227 D2 (as amended by CD-0242 D6): the direct-caller repair
+    # boundary is generated lane instruction, so the tests prove the
+    # projected behavior for every relevant lane, not only the helper.
 
     @staticmethod
     def normalized(lane):
@@ -969,49 +1009,32 @@ class JobSizeProjectionTests(unittest.TestCase):
         manifest, _ = generator.load_manifest()
         return next(lane for lane in manifest["lanes"] if lane["id"] == lane_id)
 
-    def test_capped_size_rule_is_stated_for_every_registered_lane(self):
+    def test_caller_boundary_section_is_stated_for_every_registered_lane(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
-                self.assertIn("## Job size and caller boundary", text)
-                self.assertIn("carries `production_size_max` and `measurement_basis`", text)
-                self.assertIn(
-                    "measured against the recorded `measurement_basis.base_commit` under the recorded path inventory",
-                    text,
-                )
-                self.assertIn("counts as `production`", text)
-                self.assertIn("additions plus deletions of text lines over the whole base..tree delta", text)
-                self.assertIn("a binary path adds no text lines and never establishes available production size", text)
+                self.assertIn("## Caller boundary", text)
+                self.assertIn("Without caller scope, omit the caller-repair fields and never invent them", text)
+                self.assertNotIn("production_size", text)
+                self.assertNotIn("measurement_basis", text)
 
-    def test_only_the_implementation_lane_carries_the_size_report_and_split_boundary(self):
+    def test_only_the_implementation_lane_carries_the_caller_repair_boundary(self):
         manifest, _ = generator.load_manifest()
         carrying = set()
         for lane in manifest["lanes"]:
             text = self.normalized(lane)
-            if "completed report carries `production_size`" not in text:
+            if "A changed path outside the job's recorded scope is admitted only" not in text:
                 continue
             carrying.add(lane["id"])
             self.assertIn(
-                "`base` is the packet's `measurement_basis.base_commit`, `tree` is the raw delivered commit OID, "
-                "and `count` is that whole base..tree text count",
+                "as an evidenced direct-caller repair under the packet's `direct_caller_allowance` "
+                "and outside its `caller_exclusions`, never as a widening of `path_scope`",
                 text,
             )
-            self.assertIn(
-                "Never pre-apply a proposed supplemental classification and never subtract another job's accepted paths",
-                text,
-            )
-            self.assertIn(
-                "the coordinator alone applies final classifications and foreign subtraction, "
-                "records the accepted size, and holds it to the fixed cap",
-                text,
-            )
-            self.assertIn("an overrun stays reported", text)
-            self.assertIn(
-                "Never raise the cap, hide the delta, rebase the correction, invent an acceptance, "
-                "author a split, or reset the cumulative base",
-                text,
-            )
+            self.assertIn("Make only the minimum source and test change that preserves an existing direct caller's request behavior", text)
+            self.assertIn("a generated output is never hand-edited", text)
+            self.assertIn("Missing authority or evidence stops the repair", text)
         self.assertEqual(carrying, {"implement"})
 
     def test_direct_caller_boundary_is_implementation_lane_text(self):
@@ -1052,37 +1075,28 @@ class JobSizeProjectionTests(unittest.TestCase):
                     text,
                 )
 
-    def test_other_lanes_invent_no_size_fields_and_gain_no_capability(self):
+    def test_other_lanes_invent_no_repair_fields_and_gain_no_capability(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             if lane["id"] == "implement":
                 continue
             with self.subTest(lane=lane["id"]):
                 text = self.normalized(lane)
-                self.assertIn("A capped packet expands no capability", text)
-                self.assertIn("reports no `production_size` and no `direct_caller_repairs`", text)
-                self.assertIn("never invents either field", text)
+                self.assertIn("A caller-capable packet expands no capability", text)
+                self.assertIn("reports no `direct_caller_repairs` and never invents the field", text)
 
     def test_review_distinguishes_missing_evidence_from_a_proven_defect(self):
         text = self.normalized(self.manifest_lane("review"))
-        self.assertIn("Examine the size and caller-repair evidence a completed report carries", text)
+        self.assertIn("Examine the caller-repair evidence a completed report carries", text)
         self.assertIn("distinguish missing evidence from a proven defect", text)
 
-    def test_design_is_not_mislabelled_read_only_by_the_size_block(self):
+    def test_design_is_not_mislabelled_read_only_by_the_caller_block(self):
         # The design lane edits its scoped files; it is not the implementation
-        # capability class, and the size block must not call it read-only.
+        # capability class, and the caller block must not call it read-only.
         projection = lane_projection(self.manifest_lane("design"))
-        section = projection.split("## Job size and caller boundary", 1)[1]
+        section = projection.split("## Caller boundary", 1)[1]
         self.assertNotIn("read-only", section)
         self.assertIn("expands no capability", section)
-
-    def test_uncapped_and_historical_packets_gain_no_fields(self):
-        manifest, _ = generator.load_manifest()
-        for lane in manifest["lanes"]:
-            with self.subTest(lane=lane["id"]):
-                text = self.normalized(lane)
-                self.assertIn("A packet without these members is historical or uncapped", text)
-                self.assertIn("report without the absent fields and never invent them", text)
 
     def test_repairs_ceiling_tracks_the_report_schema(self):
         # The entries ceiling in the direct-caller paragraph is a parameter
@@ -1093,9 +1107,9 @@ class JobSizeProjectionTests(unittest.TestCase):
         self.assertIn("at most 3 `direct_caller_repairs` entries", text)
         self.assertNotIn("at most 8 `direct_caller_repairs` entries", text)
 
-    def test_implementation_projects_closed_size_and_repair_report_shapes(self):
-        fields = ("production_size", "direct_caller_repairs")
-        definitions = ("production_size", "direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
+    def test_implementation_projects_closed_repair_report_shapes(self):
+        fields = ("direct_caller_repairs",)
+        definitions = ("direct_caller_repair", "caller_mechanism", "caller_repair_checks", "caller_repair_check")
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
             lines = generator.report_projection_constraints(REPORT_SCHEMA, lane)
@@ -1135,22 +1149,6 @@ class AgentDirectoryInventoryTests(unittest.TestCase):
         self.assertIn("unprojected agent definition: concord-retired.md", stderr)
 
 
-class EvalPacketProjectionTests(unittest.TestCase):
-    def test_projection_replaces_lane_digest_without_manual_edit(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text(json.dumps({"lane_id": "review", "lane_digest": "old"}, indent=2) + "\n", encoding="utf-8")
-            projected = generator.eval_packet_projection(path, {"review": "sha256:" + "a" * 64})
-            self.assertIn('"lane_digest": "sha256:' + "a" * 64 + '"', projected)
-
-    def test_projection_rejects_unknown_lane(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "packet.json"
-            path.write_text('{"lane_id":"missing"}\n', encoding="utf-8")
-            with self.assertRaises(ValueError):
-                generator.eval_packet_projection(path, {})
-
-
 class WorkerScopeProjectionTests(unittest.TestCase):
     # Each fixture carries only the fields the surface under test reads, so
     # the tests state the resolution and projection rules rather than the
@@ -1162,13 +1160,9 @@ class WorkerScopeProjectionTests(unittest.TestCase):
             {"id": "implement", "evidence_obligations": ["files_touched"]},
         ]
     }
-    LEGACY = {
-        "research:1": ["sha256:" + "b" * 64],
-        "implement:1": ["sha256:" + "c" * 64],
-    }
     FULL_LANES = [
         {
-            "id": "research", "version": 1, "digest": "sha256:" + "a" * 64,
+            "id": "research", "digest": "sha256:" + "a" * 64,
             "purpose": "p", "capability_class": "read_only", "capabilities": ["product_read"],
             "packet_schema_ref": "contracts/agent-lane-packet.schema.json",
             "report_schema_ref": "contracts/agent-lane-report.schema.json",
@@ -1211,7 +1205,7 @@ class WorkerScopeProjectionTests(unittest.TestCase):
 
     def test_ts_projection_emits_the_assigned_result_surface(self):
         projection = generator.ts_projection(
-            {"lanes": self.MANIFEST["lanes"], "utilities": [], "legacy_lane_digests": self.LEGACY},
+            {"lanes": self.MANIFEST["lanes"], "utilities": []},
             "sha256:" + "0" * 64,
             {},
             {},
@@ -1226,26 +1220,23 @@ class WorkerScopeProjectionTests(unittest.TestCase):
         # same worker-scope contract the adapter reads, so both generated
         # layers must project it.
         projection = generator.go_projection(
-            {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY},
+            {"lanes": self.FULL_LANES, "utilities": []},
             "sha256:" + "0" * 64,
             {"research": "bounded_findings"},
         )
         self.assertIn("var generatedWorkerScopeAssignments = map[string]string{\n\t\"research\": \"bounded_findings\",\n}", projection)
 
-    def test_projections_carry_the_legacy_lane_digest_set(self):
-        # The legacy digest set (CD-0197 D5) is registry contract: both
-        # generated layers must project it, so a persisted packet pinned to a
-        # pre-policy digest resolves in the store and the adapter alike.
-        manifest = {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY}
+    def test_projections_carry_only_current_content_identity(self):
+        manifest = {"lanes": self.FULL_LANES, "utilities": []}
         digest = "sha256:" + "0" * 64
         scope = {"research": "bounded_findings", "implement": "files_touched"}
         go = generator.go_projection(manifest, digest, scope)
         ts = generator.ts_projection(manifest, digest, {}, {}, scope)
         for projection in (go, ts):
-            self.assertIn('"research:1"', projection)
-            self.assertIn('"sha256:' + "b" * 64 + '"', projection)
-            self.assertIn('"implement:1"', projection)
-            self.assertIn('"sha256:' + "c" * 64 + '"', projection)
+            self.assertIn('"sha256:' + "a" * 64 + '"', projection)
+            self.assertNotIn("Legacy", projection)
+            self.assertNotIn("Version", projection)
+            self.assertNotIn('"version"', projection)
 
 
 class PrimaryProfileProjectionTests(unittest.TestCase):
@@ -1333,16 +1324,20 @@ class PrimaryProfileProjectionTests(unittest.TestCase):
             source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
             self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
 
-    def test_concord_retry_guidance_states_the_three_attempt_wall(self):
+    def test_concord_retry_guidance_states_the_unbudgeted_fresh_attempt(self):
+        # CD-0242 D6: each launch carries its own authority; no attempt count
+        # or escalation wall exists.
         text = " ".join(self.projection("Concord").split())
         sentence = (
-            "At the three-attempt limit, `dispatch_worker` needs a store-derived basis: "
-            "shrinking `open_finding_ids` or an approved `supersede_contract` that changes "
-            "the approach. An approval cannot open the wall."
+            "A failed worker attempt is terminal; never resume its session. Request a fresh "
+            "attempt through `dispatch_worker` under the approved assignment. A failure alone "
+            "does not require operator consent."
         )
-        self.assertTrue(sentence in text, "generated Concord prompt must state the exact retry-wall exception")
+        self.assertTrue(sentence in text, "generated Concord prompt must state the fresh-attempt rule")
         for agent_id in ("Concord", "Concord-RTE"):
-            self.assertNotIn("To retry it, call `dispatch_worker` with the unchanged approved contract", " ".join(self.projection(agent_id).split()))
+            projection = " ".join(self.projection(agent_id).split())
+            self.assertNotIn("three-attempt", projection)
+            self.assertNotIn("To retry it, call `dispatch_worker` with the unchanged approved contract", projection)
 
     def test_retired_primary_profiles_and_role_sources_are_gone(self):
         # Zero tolerance: the retired profiles and their role sources survive

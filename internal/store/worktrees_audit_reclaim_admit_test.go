@@ -64,7 +64,7 @@ func TestWorktreeAuditReclaimDeclinedRowRollsBack(t *testing.T) {
 			t.Fatalf("declined %s lost its branch", drift.WorkID)
 		}
 		var reclaims int
-		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_reclaimed' AND subject_id=?`, drift.WorkID).Scan(&reclaims); err != nil {
+		if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id=?`, drift.WorkID).Scan(&reclaims); err != nil {
 			t.Fatal(err)
 		}
 		if reclaims != 0 {

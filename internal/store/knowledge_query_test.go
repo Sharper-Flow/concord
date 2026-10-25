@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -274,101 +273,6 @@ func TestQueryQ9FindsLawByBodyOnlyText(t *testing.T) {
 	}
 }
 
-// seedSupersededLawHome writes a knowledge home whose manifest carries one
-// superseded decision with a declared successor and one accepted decision.
-func seedSupersededLawHome(t *testing.T) KnowledgeHome {
-	t.Helper()
-	repo := initKnowledgeRepo(t)
-	retiredBody, currentBody := "retired storage rule\n", "current storage rule\n"
-	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0001.md", retiredBody)
-	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0002.md", currentBody)
-	retiredSum, currentSum := sha256.Sum256([]byte(retiredBody)), sha256.Sum256([]byte(currentBody))
-	manifest := KnowledgeManifest{
-		SchemaVersion:  "1.2",
-		SupportedKinds: []string{"decision"},
-		IndexedKinds:   []string{"decision"},
-		DomainRegistry: KnowledgeDomainRegistry{
-			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
-			Domains: []KnowledgeDomain{
-				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-				{DomainID: "storage", Name: "Storage", Purpose: "Storage law", Status: "current", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
-			},
-		},
-		Records: []KnowledgeRecord{
-			{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "superseded", Successor: "CD-0002",
-				Date: "2026-09-20T00:00:00Z", Title: "Retired storage rule", Summary: "A retired storage rule", Tags: []string{},
-				Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				Scopes:    homeScope(), HomeDomainID: "storage", SHA256: "sha256:" + hex.EncodeToString(retiredSum[:])},
-			{ID: "CD-0002", Kind: "decision", Path: ".concord/docs/decisions/CD-0002.md", Status: "accepted",
-				Date: "2026-09-20T00:00:00Z", Title: "Current storage rule", Summary: "A current storage rule", Tags: []string{},
-				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
-				LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0001"}},
-				Scopes:       homeScope(), HomeDomainID: "storage", SHA256: "sha256:" + hex.EncodeToString(currentSum[:])},
-		},
-	}
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeKnowledgeFile(t, repo, knowledgeManifestPath, string(manifestBytes)+"\n")
-	commitKnowledgeRepo(t, repo, "superseded storage law")
-	return KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
-}
-
-// QueryQ9 and QueryQ10 return an indexed superseded law's status and its
-// successor end to end: the fields the agent projection reads come from the
-// index, not from hand-built test results.
-func TestQueryQ9AndQ10ReturnIndexedSupersededLawStatusAndSuccessor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	home := seedSupersededLawHome(t)
-	s := openTemp(t)
-	authorizeKnowledgeProductHome(t, s, "concord", home)
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Fatal(err)
-	}
-
-	q9, err := s.QueryQ9(ctx, Q9Request{Kinds: []string{"decision"}, Home: home})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var retired, current *KnowledgeItem
-	for i := range q9.Items {
-		switch q9.Items[i].ID {
-		case "CD-0001":
-			retired = &q9.Items[i]
-		case "CD-0002":
-			current = &q9.Items[i]
-		}
-	}
-	if retired == nil || current == nil {
-		t.Fatalf("Q9 decisions = %#v", q9.Items)
-	}
-	if retired.OutcomeTag != "superseded" || retired.SuccessorID != "CD-0002" {
-		t.Fatalf("Q9 superseded item = %#v", retired)
-	}
-	if got := KnowledgeLawStatus(retired.Kind, retired.OutcomeTag); got != "superseded" {
-		t.Fatalf("Q9 superseded law status = %q, want superseded", got)
-	}
-	if current.SuccessorID != "" {
-		t.Fatalf("Q9 accepted item carries successor %q", current.SuccessorID)
-	}
-	if got := KnowledgeLawStatus(current.Kind, current.OutcomeTag); got != "accepted" {
-		t.Fatalf("Q9 accepted law status = %q, want accepted", got)
-	}
-
-	q10, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "CD-0001", Home: home})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if q10.Status != "canonical" || q10.Result == nil {
-		t.Fatalf("Q10 = %#v", q10)
-	}
-	if q10.Result.LawStatus != "superseded" || q10.Result.SuccessorID != "CD-0002" {
-		t.Fatalf("Q10 payload = %#v", q10.Result)
-	}
-}
-
 // A work lookup reads the historical corpus, not the current registered
 // source set (CD-0200): an archived work note is frozen evidence whose
 // recorded home is part of its identity, so a later home designation
@@ -385,7 +289,7 @@ func TestQ10WorkNoteSurvivesHomeDesignationChange(t *testing.T) {
 	home := KnowledgeHome{HomeProjectID: "review-old-home", HomeLocatorID: "review-old-loc", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "review-history-product", home, home.HomeProjectID)
 	hash := sha256.Sum256([]byte(content))
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -397,7 +301,7 @@ func TestQ10WorkNoteSurvivesHomeDesignationChange(t *testing.T) {
 		home.HomeProjectID, home.HomeLocatorID, "review-historical-work", "review-history-product"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	before, err := s.QueryQ10(ctx, Q10Request{Work: "review-historical-work", Product: "review-history-product"})

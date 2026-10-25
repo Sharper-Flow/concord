@@ -2,23 +2,18 @@ package agent
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"os/exec"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Agent admission of the CD-0166 delivery-gate recovery: a pinned, nonterminal
-// instance parked on a released closed-gate delivery step with an outstanding
-// post-rejection review reads the evidence-bearing corrective return through
-// concord_work_transition, refuses the unreviewed delivery exit, and refuses
-// the unauthenticated return. record_delivery stays the only forward exit, and
-// the recovery asserts no delivery.
+// A changed criterion invalidates the accepted Review without replacing its
+// candidate. The authenticated coordinator returns the parked gate to its
+// producer through the evidence-bearing correction route.
 
 // deliveryRecoveryLane returns the builtin lane for one capability class.
 func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefinition {
@@ -34,8 +29,9 @@ func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefini
 
 // deliveryRecoveryPacket builds the worker packet for one dispatch on the
 // given lane, consuming the pin's correction when one is durable.
-func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemptID, capabilityClass string) map[string]any {
+func deliveryRecoveryPacket(t *testing.T, s *store.Store, stepID, attemptID, capabilityClass string) map[string]any {
 	t.Helper()
+	const workID = "work-1"
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	inputs := map[string]any{"task": "advance the approved gate objective", "constraints": []string{"preserve the approved contract"}}
 	pin, err := store.ReadWorkPin(context.Background(), s, workID)
@@ -59,7 +55,7 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 		}
 		inputs["worker_job"] = json.RawMessage(selected)
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 // deliveryRecoveryCompletion records the lane dispatch and the completed
@@ -71,7 +67,7 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	job := authorizedWorkerJob(t, s, attemptID)
-	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
@@ -88,7 +84,15 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	// their oracle classification (CD-0198).
 	if len(lane.RequiredReportBlocks) > 0 {
 		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+		pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
+		if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
+			t.Fatalf("gate Review dependencies: %v", err)
+		}
+		path := agentWorkerDirectory(t, s, "work-1")
+		candidate := store.WorkerReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, path, "rev-parse", "HEAD"), Tree: gitRun(t, path, "rev-parse", "HEAD^{tree}")}
+		payload.Review = &store.WorkerReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
+			Assessments: []store.WorkerReviewAssessment{}, RemainingObligations: []store.WorkerReviewObligation{},
+			Findings: []store.WorkerReviewFinding{{FindingID: "finding:gate-result", Status: "open", Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract", EvidenceRefs: []string{"evidence:gate-review"}, ClosureRefs: []string{}}}}
 		if job != nil {
 			if oracle := recordedAgentOracle(t, s, job); oracle != nil {
 				owner := oracle.Owners[0]
@@ -102,49 +106,37 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	agentWorkerCompletedThroughSeam(t, s, attemptID, "delivery-recovery-completed-"+attemptID, payload)
 }
 
-func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+func TestDeliveryGateRecoveryReturnsStaleReviewThroughAgent(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	ctx := context.Background()
-	seedCurrentWorkflowDomainFixture(t, s)
+	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
 
 	worktree := t.TempDir()
 	grant.Worktree = worktree
 
-	// The journey runs on the canonical head: the live union authors the
-	// derived checkpoint_refine entry alone, so the public gate-return
-	// admission is authorable there and on no released pin (CD-0218 D2/D4).
-	// The released closed-gate v15 keeps its recorded behavior readable at
-	// its frozen pin.
-	// The operator-approved gate return is a legacy approval-policy flow;
-	// consequence_v1 takes no operator substitution for it.
-	pinned := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation")
-	var err error
-	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	grantActorRef, err := store.WorkflowActorRef(grantActor)
+	currentDefinition, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
+	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: pinned, Actor: grantActor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: currentDefinition, Actor: grantActor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved gate return objective','internal_sqlite','["review"]','[]','now',?,'[]','[]',0,'prototype_internal')`, grantActorRef); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:gate-recovery","immutable_subject_ref":"commit:gate-recovery","expected_result":"pass"}')`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?)`, store.WorktreeSetID("work-1"), "project-1", "claim:gate-recovery", "gate-recovery", strings.Repeat("a", 40), worktree, "repo:gate-recovery", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,6 +145,8 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	fixture := oAgentFixture(t, s, service, env, "work-1")
+	oAgentControlRepository(t, fixture)
 	invoke := func(input map[string]any) Envelope {
 		t.Helper()
 		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
@@ -172,7 +166,7 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	epochOf := func(actionID string) int64 {
 		t.Helper()
 		var epoch int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted, actionID).Scan(&epoch); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' AND json_extract(latest_start_payload,'$.action_id')=? ORDER BY latest_start_seq DESC LIMIT 1`, actionID).Scan(&epoch); err != nil {
 			t.Fatal(err)
 		}
 		return epoch
@@ -183,7 +177,10 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		// Each dispatch binds its own recorded ready revision: an accepted
 		// job is satisfied and never redispatches (CD-0205).
 		recordReadyRetryJob(t, s, service, env, "job:"+attemptID)
-		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
+		if stepID == "refine" && capabilityClass == "implementation" {
+			oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "continue", false)
+		}
+		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
 		}
@@ -193,13 +190,27 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		deliveryRecoveryCompletion(t, s, grant, attemptID, capabilityClass)
 	}
 
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "gate-recovery")
+	contractFields := workflowContractFieldsFixture()
+	contractFields["premise"] = "approved gate return objective"
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "pass"}}}
+	contractFields["required_evidence"] = []string{"review"}
+	contractFields["rigor_class"] = "prototype_internal"
+	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "approve_contract", "fields": contractFields, "idempotency_key": "gate-recovery-contract"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery approve_contract: %+v", response.Error)
+	}
+
 	// The execution pass, its bound review evidence, and the refinement pass.
+	recordApprovedWorkDesign(t, s, service, env, "work-1", "gate-recovery-design")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_execution", "idempotency_key": "gate-execution-start"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery start_execution: %+v", response.Error)
 	}
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:gate-review"}, "idempotency_key": "gate-evidence-bind"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery bind_evidence: %+v", response.Error)
 	}
+	recordReadyRetryJob(t, s, service, env, "job:gate-architecture-review")
+	oAgentReview(t, fixture, "continue", false)
 	dispatch("execution", "attempt:work-1:gate-execution", "implementation")
 	executionEpoch := epochOf("dispatch_worker")
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-execution", "attempt_epoch": executionEpoch}, "idempotency_key": "gate-execution-accept"}); response.Outcome != OutcomeOK {
@@ -208,10 +219,12 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	// The job-bound accept is local acceptance and holds execution; the step
 	// exits through its delivery assertion, which requires qualifying
 	// core-owned worktree verification covering the job's Project (CD-0205 D3).
-	integrationRef := agentSeedIntegrationVerifyRun(t, s, "work-1", "gate-execution-integration")
+	integrationRef := oAgentVerify(t, fixture, []string{"go", "vet", "./..."})
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
+	recordReadyRetryJob(t, s, service, env, "job:gate-final-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery execution delivery: %+v", response.Error)
 	}
@@ -223,64 +236,73 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
-	refineEpoch := epochOf("dispatch_worker")
 
-	// A rejected review, then an accepted implement repair: the refinement
-	// history carries the post-rejection review debt.
+	// A rejected review, then an accepted implement repair that changes the
+	// candidate the earlier Review covered.
 	dispatch("refine", "attempt:work-1:gate-review", "review")
+	refineEpoch := attemptEpoch(t, s, "attempt:work-1:gate-review")
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/gate-reviewer", SessionRef: "session/work-1-gate-reviewer", ActorClass: store.ActorAgent}
 	runVerificationStoreAction(t, s, "reject_worker_result", map[string]any{
 		"attempt_id": "attempt:work-1:gate-review", "attempt_epoch": refineEpoch,
 		"diagnosis": "the review rejects the refined result", "strategy": "implement the review findings and resubmit",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
-	}, reviewer, nil, "gate-reject")
+	}, reviewer, "gate-reject")
 	dispatch("refine", "attempt:work-1:gate-repair", "implementation")
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-repair", "attempt_epoch": attemptEpoch(t, s, "attempt:work-1:gate-repair")}, "idempotency_key": "gate-repair-accept"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery repair accept: %+v", response.Error)
+	}
 
-	// The historical parked position of a pre-gate database: the instance
-	// sits on the delivery gate with the review debt outstanding.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	// Main's repair acceptance changed the integrated candidate. The earlier
+	// continue Review cannot authorize delivery of this different candidate.
+	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
+	if deliveryRefusal.Outcome != OutcomeError || deliveryRefusal.Error == nil || deliveryRefusal.Error.Kind != "missing_evidence" || deliveryRefusal.Error.EffectState != "none" || !strings.Contains(deliveryRefusal.Error.Message, "accepted Review on the current candidate and depended-on revisions") {
+		t.Fatalf("repair delivery exit = %+v, want a zero-effect current-candidate Review refusal", deliveryRefusal.Error)
+	}
+	recordReadyRetryJob(t, s, service, env, "job:gate-return-review")
+	oAgentReview(t, oAgentFixture(t, s, service, env, "work-1"), "ready_for_final_proof", false)
+	reviewed, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || reviewed.Review == nil || reviewed.Review.Accepted == nil || reviewed.Review.Candidate == nil || reviewed.Review.Dependencies == nil || !reviewed.Review.DependenciesCurrent || reviewed.Review.Accepted.Report.Disposition != "ready_for_final_proof" || reviewed.Review.Accepted.Report.OutputCandidate != *reviewed.Review.Candidate {
+		t.Fatalf("ready Review does not cover the current candidate: %+v (%v)", reviewed.Review, err)
+	}
+
+	// Seed the contract-correction checkpoint for the successor's store-owned
+	// setup, then park its unchanged candidate at the delivery gate below.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
+		DELETE FROM write_guard`); err != nil {
+		t.Fatalf("seed contract-correction checkpoint: %v", err)
+	}
+	runVerificationStoreAction(t, s, "supersede_contract", map[string]any{
+		"contract_version": 2, "premise": "approved gate return objective",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:gate-recovery", "immutable_subject_ref": "commit:gate-recovery", "expected_result": "fail"}}},
+		"required_evidence":  []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
+		"supersede_reason":     "the expected criterion result changed", "audit_evidence": []string{"evidence:gate-review"},
+	}, grantActor, "gate-recovery-successor")
+	stale, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil || stale.Review == nil || stale.Review.Accepted == nil || stale.Review.Candidate == nil || stale.Review.Dependencies == nil || stale.Review.DependenciesCurrent || *stale.Review.Candidate != *reviewed.Review.Candidate || stale.Review.Accepted.ReportRef != reviewed.Review.Accepted.ReportRef {
+		t.Fatalf("successor did not stale the standing Review on the unchanged candidate: %+v (%v)", stale.Review, err)
+	}
+	if len(reviewed.Review.Dependencies.Criteria) != 1 || len(stale.Review.Dependencies.Criteria) != 1 || stale.Review.Dependencies.Criteria[0].PredicateID != "predicate:primary" || stale.Review.Dependencies.Criteria[0].ContentDigest == reviewed.Review.Dependencies.Criteria[0].ContentDigest {
+		t.Fatal("successor did not change the depended-on criterion digest")
+	}
+
+	// Park the unchanged candidate with its now-inapplicable accepted Review.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='delivery' WHERE work_id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed the parked gate position: %v", err)
 	}
 
-	// The unreviewed delivery exit refuses on the pinned shape.
-	deliveryRefusal := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-recovery", "delivery_state": "asserted"}, "idempotency_key": "gate-recovery-delivery"})
-	if deliveryRefusal.Outcome != OutcomeError || deliveryRefusal.Error == nil || !strings.Contains(deliveryRefusal.Error.Message, "fresh accepted review") {
-		t.Fatalf("parked gate delivery exit = %+v, want a fresh-review refusal", deliveryRefusal.Error)
-	}
-
-	// The corrective return is admitted up to the approval wall: an
-	// unauthenticated request mints the operator challenge and refuses.
+	// Correction binds the current criterion and durable evidence. Routine
+	// recovery needs the authenticated coordinator, not an operator signature.
 	correctionInput := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "request_correction", "idempotency_key": "gate-recovery-return", "fields": map[string]any{
-		"diagnosis": "the repaired result has no fresh accepted review", "strategy": "return to the execution step and dispatch a fresh review",
+		"diagnosis": "the accepted Review judged the previous criterion revision", "strategy": "return to the execution step and reassess the candidate against the current criterion",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},
 	}}
-	challenge := invoke(correctionInput)
-	if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("unauthenticated gate return = %+v, want approval_required", challenge.Error)
-	}
-	details := challenge.Error.Details
-	challengeRef, _ := details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("gate return challenge carries no approval reference: %+v", details)
-	}
-	if got, _ := details["action_id"].(string); got != "request_correction" {
-		t.Fatalf("gate return challenge action_id = %v", details["action_id"])
-	}
-
-	// One operator approval admits the evidence-bearing return.
-	approvedInput := cloneWithApproval(t, correctionInput, challengeRef)
-	approvedRaw, err := json.Marshal(approvedInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version(), "contract": int64(1)}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	returned := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	returned := invoke(correctionInput)
 	if returned.Outcome != OutcomeOK {
-		t.Fatalf("approved gate return = %+v", returned.Error)
+		t.Fatalf("authenticated evidence-bearing gate return = %+v", returned.Error)
 	}
 	if got := stepOf(); got != "execution" {
 		t.Fatalf("step after gate return = %q, want execution", got)
@@ -290,19 +312,18 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	// delivery assertion is the only one, and the parked change never
 	// claimed one of its own.
 	var deliveries int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r JOIN workflow_delivery_state d ON d.assertion_id=r.event_id WHERE r.subject_id='work-1' AND r.kind=? AND json_extract(d.payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
 		t.Fatal(err)
 	}
 	if deliveries != 1 {
 		t.Fatalf("gate recovery recorded %d delivery assertions, want the one execution-pass assertion", deliveries)
 	}
-	var pinnedVersion int64
-	var pinnedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedVersion, &pinnedDigest); err != nil {
+	var definitionDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionDigest); err != nil {
 		t.Fatal(err)
 	}
-	if pinnedVersion != pinned.Definition.Version || pinnedDigest != pinned.Digest {
-		t.Fatalf("pin after recovery = v%d %s, want the released v15 %s", pinnedVersion, pinnedDigest, pinned.Digest)
+	if definitionDigest != currentDefinition.Digest {
+		t.Fatalf("definition after recovery = %s, want the current definition %s", definitionDigest, currentDefinition.Digest)
 	}
 }
 
@@ -326,10 +347,7 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	if payload.EvidenceOrigin == store.WorkerEvidenceReported && len(payload.Evidence) == 0 {
 		payload.Evidence = agentEvidenceForLane(t, s, workID, attemptID)
 	}
-	if payload.ProductionSize == nil {
-		payload.ProductionSize = agentReportedProductionSize(t, s, workID, attemptID, payload.WorkerDirectory)
-	}
-	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
+	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
 	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: eventID})
 	if err != nil {
 		t.Fatalf("terminal delivery preparation for %s: %v", attemptID, err)
@@ -341,67 +359,6 @@ func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, attemptID, ev
 	}); err != nil {
 		t.Fatalf("completed report through the seam for %s: %v", attemptID, err)
 	}
-}
-
-// agentReportedProductionSize is the production_size a compliant worker
-// reports for a capped implementation job: the recorded base its packet
-// carries, its delivered HEAD, and the independently counted text delta.
-// Any other attempt reports none.
-func agentReportedProductionSize(t *testing.T, s *store.Store, workID, attemptID, directory string) *store.WorkerProductionSize {
-	t.Helper()
-	var base, rawBasis string
-	err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(r.payload,'$.measurement_basis.base_commit'), json_extract(r.payload,'$.measurement_basis') FROM domain_events d JOIN domain_events r ON r.subject_id=d.subject_id AND r.kind=? AND json_extract(r.payload,'$.job_id')=json_extract(d.payload,'$.worker_job.job_id') AND json_extract(r.payload,'$.revision')=json_extract(d.payload,'$.worker_job.revision') WHERE d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND json_extract(d.payload,'$.worker_capability_class')='implementation' AND json_extract(r.payload,'$.measurement_basis.base_commit') IS NOT NULL ORDER BY d.seq DESC LIMIT 1`, store.WorkerJobRecorded, workID, store.WorkflowActionCompleted, attemptID).Scan(&base, &rawBasis)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	head, err := exec.Command("git", "-C", directory, "rev-parse", "HEAD").Output()
-	if err != nil {
-		t.Fatalf("read the delivered HEAD of %s: %v", directory, err)
-	}
-	tree := strings.TrimSpace(string(head))
-	var basis store.WorkerJobMeasurementBasis
-	if err := json.Unmarshal([]byte(rawBasis), &basis); err != nil {
-		t.Fatal(err)
-	}
-	return &store.WorkerProductionSize{Base: base, Tree: tree, Count: fixtureReportedProductionCount(t, directory, base, tree, basis)}
-}
-
-// Fixture reports count Git's text delta independently of the sealed observation.
-// Inventory classes apply before the production default; binaries cannot prove zero.
-func fixtureReportedProductionCount(t *testing.T, directory, base, tree string, basis store.WorkerJobMeasurementBasis) int64 {
-	t.Helper()
-	classes := map[string]string{}
-	for _, measured := range basis.Paths {
-		classes[measured.Path] = measured.Class
-	}
-	raw := runFixtureGit(t, directory, "--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic", "--numstat", "-z", base, tree)
-	var count int64
-	for _, record := range strings.Split(strings.TrimSuffix(raw, "\x00"), "\x00") {
-		if record == "" {
-			continue
-		}
-		parts := strings.SplitN(record, "\t", 3)
-		if len(parts) != 3 {
-			t.Fatalf("fixture numstat record %q lacks two counts and a path", record)
-		}
-		path, added, deleted := parts[2], parts[0], parts[1]
-		if class, classified := classes[path]; classified && class != "production" {
-			continue
-		}
-		if added == "-" || deleted == "-" {
-			t.Fatalf("fixture numstat records production path %s binary; the fixture writes text only", path)
-		}
-		addedLines, addedErr := strconv.ParseInt(added, 10, 64)
-		deletedLines, deletedErr := strconv.ParseInt(deleted, 10, 64)
-		if addedErr != nil || deletedErr != nil || addedLines < 0 || deletedLines < 0 {
-			t.Fatalf("fixture numstat record %q does not carry two nonnegative integers", record)
-		}
-		count += addedLines + deletedLines
-	}
-	return count
 }
 
 func agentWorkerDirectory(t *testing.T, s *store.Store, workID string) string {

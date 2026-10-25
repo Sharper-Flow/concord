@@ -170,8 +170,8 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(strings.Repeat("f", 40) + "\n"), nil
 	case strings.HasSuffix(join, "^{tree}") && strings.HasPrefix(join, "rev-parse "):
-		ref := strings.TrimSuffix(strings.TrimPrefix(join, "rev-parse "), "^{tree}")
-		if g.resolveRef(ref) == ref {
+		ref := strings.TrimSuffix(args[len(args)-1], "^{tree}")
+		if _, known := g.branches[g.revisionBranch(ref)]; !known {
 			return nil, fmt.Errorf("unknown ref")
 		}
 		return []byte(g.treeOf(ref) + "\n"), nil
@@ -412,9 +412,9 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte(sha + "\n"), nil
 		}
 		return nil, fmt.Errorf("unknown ref")
-	case slices.Contains(args, "--numstat"):
-		// The terminal measured-delta probe over the fake's clean fixture
-		// tree: an empty numstat is the clean zero-delta observation.
+	case slices.Contains(args, "--name-only"):
+		// The terminal changed-path probe over the fake's clean fixture
+		// tree: no names is the clean zero-delta observation.
 		return nil, nil
 	}
 	return nil, fmt.Errorf("unexpected git invocation: %s", join)
@@ -524,7 +524,7 @@ func worktreeFixture(t *testing.T) (*Store, *fakeWorktreeGit, string) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
+		{EventID: "work-w-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Worktree Work","priority":1}`)},
 		{EventID: "work-w-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 0}}); err != nil {
 		t.Fatal(err)
@@ -558,9 +558,9 @@ func claimPath(s *Store) string {
 // a pre-retirement capture folded. Live initiative capture remains forbidden.
 func modelHistoricalInitiative(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -578,7 +578,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 					}
 				}
 				modelHistoricalInitiative(t, s, req.WorkID)
-				before := planningEventCount(t, s.db)
+				before := countRows(t, s, "effect_receipts")
 				git.calls = nil
 				var err error
 				switch entry {
@@ -615,7 +615,7 @@ func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
 						t.Error("retired entry left a native branch")
 					}
 				}
-				if after := planningEventCount(t, s.db); after != before {
+				if after := countRows(t, s, "effect_receipts"); after != before {
 					t.Errorf("retired entry appended events: before=%d after=%d", before, after)
 				}
 				assertRetiredPlanningRefusal(t, err)
@@ -630,7 +630,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	auditWork(t, s, git, "retired-audit", false)
 	auditWork(t, s, git, "actionable-audit", false)
 	modelHistoricalInitiative(t, s, "retired-audit")
-	before := planningEventCount(t, s.db)
+	before := countRows(t, s, "effect_receipts")
 	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
 		t.Fatal(err)
@@ -650,7 +650,7 @@ func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
 	if !actionableFound || !historicalClaimFound {
 		t.Fatalf("audit lost actionable work or historical claim visibility: %+v", audit.Drift)
 	}
-	if after := planningEventCount(t, s.db); after != before {
+	if after := countRows(t, s, "effect_receipts"); after != before {
 		t.Fatalf("audit appended events: before=%d after=%d", before, after)
 	}
 }
@@ -1014,7 +1014,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	if _, err := s.ReclaimWorktree(context.Background(), secondReclaim); err != nil {
 		t.Fatalf("second generation reclaim failed: %v", err)
 	}
-	rows, err := s.db.Query(`SELECT event_id FROM domain_events WHERE kind='work.worktree_reclaimed' ORDER BY seq`)
+	rows, err := s.db.Query(`SELECT event_id FROM effect_receipts WHERE kind='work.worktree_reclaimed' ORDER BY effect_seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,28 +1032,6 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	}
 	if len(eventIDs) != 2 || eventIDs[0] == eventIDs[1] || !strings.Contains(eventIDs[0], "wt-op-1") || !strings.Contains(eventIDs[1], "wt-op-3") {
 		t.Fatalf("reclaim events=%v, want one event per claim generation", eventIDs)
-	}
-}
-
-func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	event := Event{
-		EventID: "legacy-worktree-reclaim",
-		Kind:    "work.worktree_reclaimed", SubjectType: SubjectWorkItem, SubjectID: "work-w",
-		Actor: "principal-1", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
-		Payload: jsonRaw(`{"expected_version":3,"resulting_version":4,"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","git_facts":{}}`),
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 3}}); err != nil {
-		t.Fatalf("version-one reclaim replay failed: %v", err)
-	}
-	entries, err := s.WorktreeEntries(context.Background(), "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryReclaimed {
-		t.Fatalf("entries after version-one replay=%+v err=%v", entries, err)
 	}
 }
 
@@ -1417,22 +1395,6 @@ func TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch(t *testing.T) {
 	}
 }
 
-func TestWorktreeEntriesRebuildFromLog(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := s.WorktreeEntries(context.Background(), "work-w")
-	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive || entries[0].ClaimOpID != "wt-op-1" {
-		t.Fatalf("entries after rebuild=%+v err=%v", entries, err)
-	}
-}
-
 // insertPendingClaim writes the durable claim row without running git, the
 // state an interrupted operation leaves behind. repoRoot is the Project's
 // canonical-path locator value, the repository identity the claim pins.
@@ -1450,7 +1412,7 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 	t.Helper()
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Audit ` + workID + `","priority":1}`)},
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Audit ` + workID + `","priority":1}`)},
 		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 		t.Fatal(err)
@@ -1478,14 +1440,14 @@ func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
 	// The helper inserts a legacy worktree_occupancy row (no process
 	// identity) recorded now, so a live host lease that predates the row
 	// keeps it in place (CD-0179) and the reclaim/destroy path refuses
-	// without operator approval. The fold-only guard requires fold_guard=1
+	// without operator approval. The write-seam-only guard requires write_guard=1
 	// around any direct INSERT, even in tests.
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, ?, NULL, NULL, 0
 		  FROM worktree_entries WHERE set_id=? AND state='active';
-		DELETE FROM fold_guard`, sessionRef, time.Now().UTC().Format(time.RFC3339Nano), WorktreeSetID(workID)); err != nil {
+		DELETE FROM write_guard`, sessionRef, time.Now().UTC().Format(time.RFC3339Nano), WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1650,7 +1612,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1665,7 +1627,7 @@ func TestWorktreeAuditChangesNoDurableState(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_entries`).Scan(&entriesAfter); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if claimsAfter != claimsBefore || entriesAfter != entriesBefore || eventsAfter != eventsBefore {
@@ -1868,13 +1830,14 @@ func assertCleanupRefRetained(t *testing.T, repo, branch, tip, reason string, ru
 func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
 	for _, createdBranch := range []bool{true, false} {
 		t.Run(strconv.FormatBool(createdBranch), func(t *testing.T) {
+			s, _, _ := worktreeFixture(t)
 			repo := initBootstrapStoreRepo(t)
 			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
 			const branch = "concord/cleanup-claim"
 			runTestGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
 			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
-			err := CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
+			err := s.CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "compensation-test", RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
 			if err != cause || cause.EffectPossible {
 				t.Fatalf("cleanup error=%v effectPossible=%v, want unchanged no-effect cause", err, cause.EffectPossible)
 			}
@@ -1892,6 +1855,7 @@ func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
 func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 	for _, reason := range cleanupRefRefusalCases() {
 		t.Run(reason, func(t *testing.T) {
+			s, _, _ := worktreeFixture(t)
 			repo := initBootstrapStoreRepo(t)
 			base := runTestGit(t, repo, "rev-parse", "HEAD")
 			path := filepath.Join(t.TempDir(), "claim")
@@ -1902,7 +1866,7 @@ func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 				tip, _ = mutateCleanupRef(t, repo, branch, base, reason)
 			}}
 			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
-			err := CompensateWorktreeClaimCreation(context.Background(), runner, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: true}, cause)
+			err := s.CompensateWorktreeClaimCreation(context.Background(), runner, WorktreeClaimCreation{WorkID: "work-w", ProjectID: "project-w", ClaimOpID: "compensation-test", RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: true}, cause)
 			assertCleanupRefRetained(t, repo, branch, tip, reason, runner)
 			if err != cause || !cause.EffectPossible {
 				t.Errorf("cleanup error=%v effectPossible=%v, want original failure with possible effect", err, cause.EffectPossible)
@@ -2017,7 +1981,7 @@ func TestClaimWorktreeRawTxReportsCreatedNativeState(t *testing.T) {
 	}
 	_ = native
 	cause := errors.New("cannot commit claim")
-	if compErr := CompensateWorktreeClaimCreation(ctx, git, *created, cause); compErr != cause {
+	if compErr := s.CompensateWorktreeClaimCreation(ctx, git, *created, cause); compErr != cause {
 		var failure *Failure
 		if errors.As(compErr, &failure) && failure.EffectPossible {
 			t.Fatalf("compensation could not prove removal: %v", compErr)

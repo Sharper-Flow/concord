@@ -97,19 +97,19 @@ func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testin
 	seedWork(t, s, workID)
 	db := s.DatabaseForTesting()
 	actorRef := DeriveWorkflowActorRef("principal/guard", "client/guard", "agent/guard", "session/guard")
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/guard", "client/guard", "agent/guard", "session/guard", "agent", "now"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?, 'workflow.test', 1, ?, 'verify', 'running', ?)`, workID, testManifestDigest, actorRef); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?, 'workflow.test', ?, 'verify', 'running', ?)`, workID, testManifestDigest, actorRef); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'guard mandate','internal_sqlite','[]','[]','now',?,'["law:required"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	definition := WorkflowDefinition{StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
@@ -146,19 +146,19 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 			seedWork(t, s, workID)
 			db := s.DatabaseForTesting()
 			actorRef := DeriveWorkflowActorRef("principal/walk", "client/walk", "agent/walk", "session/walk")
-			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, "principal/walk", "client/walk", "agent/walk", "session/walk", "agent", "now"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,?,'running',?)`, workID, definition.Ref, definition.Version, testManifestDigest, bindingStep, actorRef); err != nil {
+			if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,'running',?)`, workID, definition.Ref, testManifestDigest, bindingStep, actorRef); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'walk mandate','internal_sqlite','[]','[]','now',?,?,'[]',1,'prototype_internal')`, workID, actorRef, `["`+lawID+`"]`); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+			if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 
@@ -197,7 +197,7 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				}
 			}
 
-			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`, "walk-bound-"+workID, WorkflowEvidenceBound, string(SubjectWorkItem), workID, actorRef, "now", `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,?,?,?); DELETE FROM write_guard`, workID, "walk-bound-"+workID, actorRef, `{"immutable_subject_ref":"`+lawID+`"}`); err != nil {
 				t.Fatal(err)
 			}
 			for _, actionID := range gated {

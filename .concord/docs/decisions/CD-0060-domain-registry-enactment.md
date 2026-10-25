@@ -11,7 +11,6 @@
   issue #337
 - **Preserves:** CD-0222 D3's one-home invariant; Git as the sole writer of
   Domain identity; the derived-projection role of SQLite
-- **Supersedes:** nothing
 
 ## Context
 
@@ -41,7 +40,7 @@ Domains that owned nothing.
 The registry declares seven child Domains under `product-root:concord`:
 
 ```text
-durable-authority        SQLite authority, event log, projections, migrations
+durable-authority        SQLite authority, current rows, snapshots, migrations
 workflow-engine          workflow contracts, actions, verdicts, terminal law
 agent-surface            typed tool surface, lanes, transport, result envelope
 product-memory           knowledge index, law records, coverage, retention
@@ -49,6 +48,8 @@ work-coordination        work-item semantics, relations, claims, observations
 operator-surface         terminal launcher, CLI verbs, installation
 repository-verification  the authority a repository check may hold
 ```
+
+The durable-authority scope names current rows and snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 `work-coordination` owns the work item as an entity. It owns what a work item
 means and how work items refer to one another. It does not own how work
@@ -70,20 +71,11 @@ others in `applies_to_domain_ids`. Twenty-one records do this. Per
 [CD-0222 D3](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 applicability creates no second owner.
 
-Where a record amends another record's contract, it homes with that contract.
-PM3 narrowly supersedes CD-0003 D1 and homes to `durable-authority`. CD-0036
-amends CD-0015's law-boundary contract and homes to `product-memory`. This rule
-resolves the straddling cases that clause reading leaves balanced.
 
 ### D4. A declared Domain owns law at enactment
 
 No Domain enters the registry empty. A boundary that owns nothing is a label,
 and it cannot be checked against anything.
-
-This retires `predecessor-migration` from the enacted set. That Domain would
-cover the snapshot contract, import verbs, and cutover. No accepted law governs
-those yet. It is declared in the same change that writes its first law, never
-before.
 
 ### D5. Architecture relations name the law that governs them
 

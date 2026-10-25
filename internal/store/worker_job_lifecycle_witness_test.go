@@ -2,26 +2,26 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Deterministic witnesses of the approved worker-job obligations (CD-0205),
 // each derived from an independent review probe: one bounded objective per
 // dispatch, one disposition per local acceptance, and an unresolved failed
-// job whose window, count, and exact retry approval survive unrelated
+// job whose correction source and failed-attempt identity survive unrelated
 // success. They stay as repository tests so the obligations they prove
 // cannot regress silently.
 
 // A rejected completed result leaves its dispatched job unresolved exactly as
-// a recorded failure does (CD-0205 refining CD-0164 D1): the rejection joins
-// the all-dispatch window, and a later acceptance of an unrelated job neither
-// closes it nor restores the failed job's budget.
+// a recorded failure does (CD-0205): a later unrelated acceptance cannot
+// discharge the failed job's obligation.
 func TestReviewRejectedJobWindow(t *testing.T) {
 	const id = "review-rejected-job"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
+	f := oSeedReviewRoute(t, id, "workflow.break_fix", "repair")
 	s := f.store
 	defer s.Close()
 	lane := BuiltinLaneDefinitions()[0]
@@ -43,10 +43,10 @@ func TestReviewRejectedJobWindow(t *testing.T) {
 	unrelated := &WorkerJobBinding{JobID: "job:unrelated-success", Revision: 1}
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, epoch+1)
 	pin = issue1013Pin(t, s, id)
-	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-reject-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", lane, acceptor)
-	if count := jobWindowCorrectionCount(t, s, id); count != 2 {
-		t.Fatalf("unrelated acceptance reset rejected job window: count=%d want 2", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, id); boundary != 0 {
+		t.Fatalf("unrelated acceptance closed rejected job obligation at %d", boundary)
 	}
 }
 
@@ -80,10 +80,8 @@ func TestReviewUnsatisfiedJobPhaseExit(t *testing.T) {
 	}
 }
 
-// A recorded revision keeps the parent contract authority it was recorded
-// under (CD-0205 D1): after the operator supersedes the contract, the stale
-// revision is no longer ready and the core refuses to authorize its dispatch
-// until a new revision is recorded under the active contract.
+// CD-0242 D7 preserves applicable proof when its dependencies do not change.
+// Superseding a contract counter alone cannot revoke an unchanged job.
 func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	const id = "review-stale-job-authority"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
@@ -92,31 +90,29 @@ func TestReviewJobAuthoritySurvivesSupersession(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:old-authority", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, id, f.owner, job)
 	rescanned := driftStaleRegistryFixture(t, s)
-	if err := runIssue933OperatorAction(t, s, id, "supersede_contract", registryRepinSuccessorPayload(2, rescanned, id, 1, "root"), f.owner, f.operator); err != nil {
+	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), id, "supersede_contract", f.owner, nil, "", "", string(registryRepinSuccessorPayload(2, rescanned, id, 1))); err != nil {
 		t.Fatal(err)
 	}
 	ready, err := readyWorkerJobRevisions(context.Background(), s.db, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ready) != 0 {
-		t.Fatalf("superseded-authority revisions stayed ready: %+v", ready[0].Binding)
+	if len(ready) != 1 || ready[0].Binding != *job {
+		t.Fatalf("unchanged job lost authority after counter-only supersession: %+v", ready)
 	}
-	// The dispatch boundary refuses the stale revision even when a caller
-	// builds the packet from the recorded revision directly.
+	// Dispatch consumes that same recorded binding without relabelling its
+	// native preparations or recording a replacement revision.
 	packet := dispatchWorkerPacket(t, s, id, "repair", "attempt:"+id+":stale")
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, id, *job, "implement")
-	if err := dispatchJobPacketForTest(t, s, id, "attempt:"+id+":stale", f.owner, "review-stale-dispatch", packet); err == nil {
-		t.Fatalf("core authorized an old-contract job after contract supersession")
-	} else {
-		t.Logf("old job dispatch refused: %v", err)
+	if err := dispatchJobPacketForTest(t, s, id, "attempt:"+id+":stale", f.owner, "review-stale-dispatch", packet); err != nil {
+		t.Fatalf("unchanged job dispatch refused after contract supersession: %v", err)
 	}
 }
 
 // An acceptance discharges a failed job's corrective obligation only when the
 // accepted revision carries the same recorded obligation (CD-0205 D4): a
 // rewritten revision under the same job identity with an unrelated objective
-// cannot close the original corrective window or reset its budget.
+// cannot close the original corrective window.
 func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 	const id = "review-rewritten-correction"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
@@ -148,49 +144,39 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 	pin = issue1013Pin(t, s, id)
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "review-rewritten-2", &replacement)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], acceptor)
-	if count := jobWindowCorrectionCount(t, s, id); count != 2 {
-		t.Fatalf("acceptance of unrelated revised objective erased failed corrective job budget: count=%d want 2", count)
+	if boundary := jobWindowAcceptanceBoundary(t, s, id); boundary != 0 {
+		t.Fatalf("acceptance of unrelated objective closed failed corrective obligation at %d", boundary)
 	}
 }
 
-// A held local acceptance of an unrelated job resets no same-step wall
-// (CD-0205 D4 refining CD-0164 D2): the failed job's obligation stays
-// unresolved, so the wall the failed dispatch opened keeps its count and its
-// exact retry approval.
-func TestWitnessUnrelatedLocalAcceptHoldsSameStepWall(t *testing.T) {
+// A held local acceptance of an unrelated job leaves the failed obligation unresolved.
+func TestWitnessUnrelatedLocalAcceptKeepsObligation(t *testing.T) {
 	const id = "witness-unrelated-local-accept-wall"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
+	f := oSeedReviewRoute(t, id, "workflow.break_fix", "repair")
 	s := f.store
 	defer s.Close()
 	job := &WorkerJobBinding{JobID: "job:witness-failed", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-wall-1", job)
 	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "fallback blocked")
-	before, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), id, "witness", BuiltinWorkflowRegistry())
-	if err != nil || before != 1 {
-		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
+	before := jobWindowAcceptanceBoundary(t, s, id)
+	if before != 0 {
+		t.Fatalf("failed obligation boundary = %d, want unresolved", before)
 	}
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
 	pin = issue1013Pin(t, s, id)
 	unrelated := &WorkerJobBinding{JobID: "job:witness-unrelated", Revision: 1}
-	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
+	oDispatchJobBoundAttempt(t, s, id, "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], reviewGateAcceptor(id))
-	after, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), id, "witness", BuiltinWorkflowRegistry())
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := jobWindowAcceptanceBoundary(t, s, id)
 	if after != before {
-		t.Fatalf("unrelated local accept reset the same-step failed count: before=%d after=%d", before, after)
+		t.Fatalf("unrelated local accept changed the obligation cutoff: before=%d after=%d", before, after)
 	}
 }
 
-// A held local acceptance that discharges the last unresolved corrective
-// obligation resets the same-step wall (CD-0164 D2 through CD-0205 D4): the
-// correction window and the wall the failed dispatch opened share one reset
-// derivation, so the satisfying acceptance that closes the window also frees
-// the step's dispatch budget. The wall no longer counts the failed dispatch
-// the satisfied job owes.
-func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
+// A held local acceptance closes the correction only when it discharges the
+// last unresolved recorded obligation (CD-0205 D4).
+func TestWitnessSatisfyingLocalAcceptClosesObligation(t *testing.T) {
 	const id = "witness-satisfying-local-accept-wall"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
 	s := f.store
@@ -198,9 +184,9 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:witness-satisfying", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-satisfy-1", job)
 	s2WorkerFailedAttributedLive(t, s, id, "attempt:"+id+":1", "fallback blocked")
-	before, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), id, "witness", BuiltinWorkflowRegistry())
-	if err != nil || before != 1 {
-		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
+	before := jobWindowAcceptanceBoundary(t, s, id)
+	if before != 0 {
+		t.Fatalf("failed obligation boundary = %d, want unresolved", before)
 	}
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
@@ -213,20 +199,17 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 	if pin := issue1013Pin(t, s, id); pin.Correction != nil {
 		t.Fatalf("satisfying acceptance left the correction window open: %#v", pin.Correction)
 	}
-	after, err := workflowNonProgressAttemptCountForRegistry(context.Background(), s.DatabaseForTesting(), id, "witness", BuiltinWorkflowRegistry())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != 0 {
-		t.Fatalf("satisfying local accept kept the same-step failed count: before=%d after=%d, want 0", before, after)
+	after := jobWindowAcceptanceBoundary(t, s, id)
+	if after <= before {
+		t.Fatalf("satisfying local accept did not advance the obligation cutoff: before=%d after=%d", before, after)
 	}
 }
 
 // A rewritten revision of a failed job's identity consumes no correction
 // authority (CD-0205 D4): the acceptance of an unrelated obligation leaves
 // the window open and the correction record bound to the exact failed
-// attempt, so the retry approval stays exact and readable.
-func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
+// attempt.
+func TestWitnessRewrittenJobKeepsFailedAttemptIdentity(t *testing.T) {
 	const id = "witness-rewritten-job-binding"
 	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "repair")
 	s := f.store
@@ -253,8 +236,8 @@ func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
 	pin = issue1013Pin(t, s, id)
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-binding-2", &replacement)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], reviewGateAcceptor(id))
-	if n := jobWindowCorrectionCount(t, s, id); n != 2 {
-		t.Fatalf("window count %d, want both dispatches preserved", n)
+	if boundary := jobWindowAcceptanceBoundary(t, s, id); boundary != 0 {
+		t.Fatalf("rewritten job closed the original obligation at %d", boundary)
 	}
 	correction, err := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), id, "repair", "")
 	if err != nil {
@@ -265,43 +248,221 @@ func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
 	}
 }
 
-// The combined final acceptance may not exit refine on integration evidence
-// acquired before the final pending job completed (CD-0205 D3): the verify
-// run must have observed the whole integrated result population, so a run
-// acquired before the final job's completion refuses the assertion.
-func TestWitnessCombinedAcceptRejectsPreResultIntegration(t *testing.T) {
-	const id = "witness-pre-result-integration"
-	f := seedWorkflowReturnRouteFixture(t, id, "workflow.break_fix", "refine")
-	s := f.store
-	defer s.Close()
-	reviewGateStartStep(t, s, id, "refine", "start_refine", f.owner)
-	job := &WorkerJobBinding{JobID: "job:witness-final", Revision: 1}
-	dispatchJobBoundAttempt(t, s, id, "refine", "attempt:"+id+":1", nil, f.owner, 0, "witness-integration", job)
-	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, id, WorkflowActionStarted).Scan(&occurred); err != nil {
+// Applicable producer proof follows the candidate an earlier Review integrates.
+func TestWitnessCombinedAcceptAfterEarlierReview(t *testing.T) {
+	for _, changed := range []bool{true, false} {
+		name := "unchanged-candidate"
+		if changed {
+			name = "changed-candidate"
+		}
+		t.Run(name, func(t *testing.T) {
+			const id = "witness-candidate-integration"
+			c := acceptDeliveryCandidateAt(t, id, "workflow.break_fix", "refine", false)
+			s := c.f.store
+			defer s.Close()
+			c.j.bindVerification(t, c.early)
+			proofSubject := c.early.SubjectRef
+			if changed {
+				workerDiffCommit(t, c.j, "final-result", "the final job changes the candidate\n")
+				c.early = c.j.observeRun(t, "integrated-final-result")
+				qAcceptCriterionReview(t, c.f, c.j.repo, c.early.OperationRef)
+			}
+			candidate := "commit:" + refineProofCandidate(t, s, id)
+			if (candidate != proofSubject) != changed {
+				t.Fatalf("integrated candidate = %s, earlier proof subject = %s, want changed=%t", candidate, proofSubject, changed)
+			}
+			c.attempt = "attempt:" + id + ":final"
+			c.epoch = acceptDeliveryCompleteReview(t, c, c.attempt, "ready_for_final_proof")
+			err := runDeliveryAdmissionAction(t, s, id, "accept_worker_result", acceptDeliveryCombinedPayload(c, "artifact:witness-final"),
+				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+			if err != nil {
+				t.Fatalf("combined acceptance refused producer proof on the integrated candidate: %v", err)
+			}
+			var accepted int
+			if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, id, c.attempt).Scan(&accepted); err != nil || accepted != 1 {
+				t.Fatalf("combined acceptance count = %d, %v; want exactly one", accepted, err)
+			}
+			reviewGateRequireStep(t, s, id, "delivery")
+			if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq == 0 {
+				t.Fatalf("combined acceptance delivery assertion = %d, %v; want the asserted delivery", seq, err)
+			}
+		})
+	}
+}
+
+func witnessUnprovedCorrectiveReview(t *testing.T, j *candidateJourney, attempt string, job WorkerJobBinding, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(j.repo, path)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	at, err := time.Parse(time.RFC3339Nano, occurred)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(j.repo, path), []byte("corrective output awaiting verification\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	views, err := readWorkerJobRevisions(context.Background(), s.db, id)
-	if err != nil {
-		t.Fatal(err)
+	output := j.commit(t, "reviewer@example.invalid", "unproved corrective output")
+	report := currentReviewBlockForTest(t, j.s, j.workID, attempt, "ready_for_final_proof")
+	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: output, Tree: reviewObservedTree(t, j.repo, output)}
+	j.reviewReceipts = nil
+	j.completeReview(t, attempt, job, report)
+	return output
+}
+
+// Integration proof follows the candidate the final pending result produces
+// (CD-0205 D3), not the integrated candidate before its acceptance.
+func TestWitnessCombinedAcceptBindsIntegrationToTheIntegratedCandidate(t *testing.T) {
+	for _, changed := range []bool{true, false} {
+		name := "unchanged-candidate"
+		if changed {
+			name = "changed-candidate"
+		}
+		t.Run(name, func(t *testing.T) {
+			const id = "witness-candidate-integration"
+			j := journeyToRefineA(t, id)
+			s := j.s
+			proof := j.observeRun(t, "before-final-result")
+			j.bindVerification(t, proof)
+			attempt := "attempt:" + id + ":final"
+			job := workerDiffJob(t, j.candidateJourney, "witness-final")
+			if err := descendantDispatch(t, j.candidateJourney, "review", attempt, job, nil); err != nil {
+				t.Fatal(err)
+			}
+			j.laneDispatch(t, attempt, "review", &job)
+			output := j.head(t)
+			if changed {
+				output = witnessUnprovedCorrectiveReview(t, j.candidateJourney, attempt, job, "internal/store/final.txt")
+			} else {
+				j.completeReview(t, attempt, job, currentReviewBlockForTest(t, s, id, attempt, "ready_for_final_proof"))
+			}
+			if ("commit:"+output != proof.SubjectRef) != changed {
+				t.Fatalf("final job output = %s, earlier proof subject = %s, want changed=%t", output, proof.SubjectRef, changed)
+			}
+			before := j.effects(t)
+			integratedBefore := refineProofCandidate(t, s, id)
+			// The journey delivered repair before entering refine. Refusing the
+			// pending acceptance must leave that assertion untouched, not add one.
+			deliveryBefore, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": j.dispatchEpoch(t, attempt), "delivery_artifact": "artifact:witness-final", "delivery_state": "asserted"})
+			err = runDeliveryAdmissionAction(t, s, id, "accept_worker_result", payload,
+				refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+			if changed {
+				t.Logf("proof=%s pending_output=commit:%s integrated_before=commit:%s integrated_after=commit:%s acceptance_error=%v before=%s after=%s", proof.SubjectRef, output, integratedBefore, refineProofCandidate(t, s, id), err, before, j.effects(t))
+				var failure *Failure
+				if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verification does not cover the current integrated candidate") {
+					t.Fatalf("combined acceptance refusal = %v, want missing_evidence naming the changed integrated candidate", err)
+				}
+				if after := j.effects(t); after != before {
+					t.Fatalf("refused combined acceptance changed durable state: before=%s after=%s", before, after)
+				}
+				if after := refineProofCandidate(t, s, id); after != integratedBefore {
+					t.Fatalf("refused combined acceptance integrated candidate = %s, want %s", after, integratedBefore)
+				}
+				definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+				for _, pending := range []string{"", attempt} {
+					admission, _, _, err := loadWorkflowDeliveryAdmission(t.Context(), s.db, id, definition, "refine", pending)
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantCovered := pending == ""
+					if admission.ProofReady != wantCovered || admission.JobsIntegrated != wantCovered {
+						t.Fatalf("accepting %q: refine proof ready=%t, jobs integrated=%t, want both %t", pending, admission.ProofReady, admission.JobsIntegrated, wantCovered)
+					}
+				}
+				reviewGateRequireStep(t, s, id, "refine")
+				if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq != deliveryBefore {
+					t.Fatalf("refused combined acceptance delivery assertion = %d, %v; want unchanged %d", seq, err, deliveryBefore)
+				}
+				// The same pending result admits once its output is actually proven.
+				j.bindVerification(t, j.observeRun(t, "final-result"))
+				err = runDeliveryAdmissionAction(t, s, id, "accept_worker_result", payload,
+					refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: "git rev-parse --verify HEAD^{commit}"}), reviewGateAcceptor(id))
+			}
+			if err != nil {
+				t.Fatalf("combined acceptance refused proof on its output candidate: %v", err)
+			}
+			if candidate := refineProofCandidate(t, s, id); candidate != output {
+				t.Fatalf("combined acceptance integrated candidate = %s, want output %s", candidate, output)
+			}
+			var accepted int
+			if err := s.db.QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='accept_worker_result' AND attempt_id=?`, id, attempt).Scan(&accepted); err != nil || accepted != 1 {
+				t.Fatalf("combined acceptance count = %d, %v; want exactly one", accepted, err)
+			}
+			reviewGateRequireStep(t, s, id, "delivery")
+			if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), s, id); err != nil || seq <= deliveryBefore {
+				t.Fatalf("combined acceptance delivery assertion = %d, %v; want the asserted delivery", seq, err)
+			}
+		})
 	}
-	ref := refineProofSeedVerifyRunForProject(t, s, id, strings.Repeat("a", 64), []string{"go", "vet", "./..."}, at.Add(time.Second), views[0].ProjectScope)
-	refineProofBindVerification(t, s, id, ref, ref)
-	if err := completeJobBoundAttemptForTest(s, id, "attempt:"+id+":1", BuiltinLaneDefinitions()[0], job); err != nil {
-		t.Fatal(err)
-	}
-	err = runVerdictActionAs(t, s, id, "accept_worker_result", mustJSONValue(map[string]any{
-		"attempt_id": "attempt:" + id + ":1", "attempt_epoch": latestStepStartEpoch(t, s, id, "refine"),
-		"delivery_artifact": "artifact:witness-final", "delivery_state": "asserted",
-	}), 0, reviewGateAcceptor(id))
-	if err == nil {
-		t.Fatal("combined acceptance admitted integration evidence acquired and bound before the final job completed")
-	}
-	if !strings.Contains(err.Error(), "verification evidence") {
-		t.Fatalf("combined acceptance refusal = %v, want the integration remedy", err)
+}
+
+// Tool declarations qualify the pending output's producer commands, not the
+// cached commands that proved the candidate before combined acceptance.
+func TestWitnessCombinedAcceptChecksPendingCandidateTooling(t *testing.T) {
+	for _, pendingDeclared := range []bool{false, true} {
+		name := "only-pre-acceptance-command-declared"
+		if pendingDeclared {
+			name = "only-pending-output-command-declared"
+		}
+		t.Run(name, func(t *testing.T) {
+			const id = "witness-pending-tooling"
+			j := journeyToRefineA(t, id)
+			proofA := j.observeRun(t, "tooling-a")
+			j.bindVerification(t, proofA)
+			attempt := "attempt:" + id + ":final"
+			job := workerDiffJob(t, j.candidateJourney, "tooling-final")
+			if err := descendantDispatch(t, j.candidateJourney, "review", attempt, job, nil); err != nil {
+				t.Fatal(err)
+			}
+			j.laneDispatch(t, attempt, "review", &job)
+			output := witnessUnprovedCorrectiveReview(t, j.candidateJourney, attempt, job, "internal/store/tooling.txt")
+			request := j.request("tooling-b", nil)
+			request.Command = []string{"git", "rev-parse", "HEAD"}
+			proofB, err := j.s.VerifyWorktree(t.Context(), request)
+			if err != nil || proofB.SubjectRef != "commit:"+output || proofB.SubjectRef == proofA.SubjectRef {
+				t.Fatalf("pending producer proof = %+v, %v; want changed output %s", proofB, err, output)
+			}
+			j.bindVerification(t, proofB)
+			invocation := "git rev-parse --verify HEAD^{commit}"
+			if pendingDeclared {
+				invocation = "git rev-parse HEAD"
+			}
+			tooling := refineProofTooling(ProjectDeclaredTool{ID: "head", Invocation: invocation})
+			before := j.effects(t)
+			candidateBefore := refineProofCandidate(t, j.s, id)
+			deliveryBefore, err := workflowLatestDeliveryAssertionSeq(t.Context(), j.s, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": j.dispatchEpoch(t, attempt), "delivery_artifact": "artifact:pending-tooling", "delivery_state": "asserted"})
+			err = runDeliveryAdmissionAction(t, j.s, id, "accept_worker_result", payload, tooling, reviewGateAcceptor(id))
+			if !pendingDeclared {
+				var failure *Failure
+				if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "declared checks: head ("+invocation+")") {
+					t.Fatalf("combined acceptance with only A's command declared = %v; want missing_evidence for B's undeclared command", err)
+				}
+				if after := j.effects(t); after != before {
+					t.Fatalf("undeclared pending command changed durable state: before=%s after=%s", before, after)
+				}
+				if candidate := refineProofCandidate(t, j.s, id); candidate != candidateBefore {
+					t.Fatalf("undeclared pending command integrated %s, want unchanged %s", candidate, candidateBefore)
+				}
+				reviewGateRequireStep(t, j.s, id, "refine")
+				if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), j.s, id); err != nil || seq != deliveryBefore {
+					t.Fatalf("undeclared pending command delivery assertion = %d, %v; want unchanged %d", seq, err, deliveryBefore)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("combined acceptance with only B's command declared: %v", err)
+			}
+			if candidate := refineProofCandidate(t, j.s, id); candidate != output {
+				t.Fatalf("combined acceptance integrated %s, want pending output %s", candidate, output)
+			}
+			reviewGateRequireStep(t, j.s, id, "delivery")
+			if seq, err := workflowLatestDeliveryAssertionSeq(t.Context(), j.s, id); err != nil || seq <= deliveryBefore {
+				t.Fatalf("combined acceptance delivery assertion = %d, %v; want a new assertion", seq, err)
+			}
+		})
 	}
 }

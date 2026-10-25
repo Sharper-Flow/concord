@@ -117,9 +117,7 @@ type WorkSizeRerunRequest struct {
 	Now     time.Time
 }
 
-// RerunWorkSizeTx records a new model decision. A first sizing, or one that
-// keeps the effective size, keeps the item and its pin; any other change
-// resizes it.
+// RerunWorkSizeTx records a new model decision on the same work item.
 func RerunWorkSizeTx(ctx context.Context, transaction *Transaction, request WorkSizeRerunRequest) (WorkSizeRevisionResult, error) {
 	tx, err := transactionSQL(transaction, "work_size")
 	if err != nil {
@@ -132,19 +130,25 @@ func RerunWorkSizeTx(ctx context.Context, transaction *Transaction, request Work
 	if request.Now.IsZero() {
 		request.Now = transaction.now()
 	}
-	before, sized, err := readEffectiveWorkSize(ctx, tx, request.WorkID)
-	if err != nil {
-		return WorkSizeRevisionResult{}, err
-	}
 	ids, err := RecordWorkSizeTx(ctx, transaction, request.Plan, request.WorkID, request.EventID, actorRef, request.Now)
 	if err != nil {
 		return WorkSizeRevisionResult{}, err
 	}
-	successor, err := settleWorkSizeRevisionTx(ctx, transaction, before, sized, workResizeRequest{WorkID: request.WorkID, EventID: request.EventID, Actor: request.Actor, Now: request.Now})
-	if err != nil {
-		return WorkSizeRevisionResult{}, err
+	return workSizeRevisionResultTx(ctx, tx, request.WorkID, ids)
+}
+
+// WorkSizeRevisionResult reports the events and version of an in-place revision.
+type WorkSizeRevisionResult struct {
+	EventIDs    []string
+	WorkVersion int64
+}
+
+func workSizeRevisionResultTx(ctx context.Context, q queryer, workID string, ids []string) (WorkSizeRevisionResult, error) {
+	result := WorkSizeRevisionResult{EventIDs: ids}
+	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&result.WorkVersion); err != nil {
+		return WorkSizeRevisionResult{}, wrapFailure(KindUnavailable, "work_size", "cannot read the revised work item's version", true, "retry once the database is readable", err)
 	}
-	return workSizeRevisionResultTx(ctx, tx, request.WorkID, successor, ids)
+	return result, nil
 }
 
 func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, workID string) (workSizedPayload, error) {
@@ -170,7 +174,7 @@ func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, work
 	} else if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_size", "cannot read the sized work item's stage", true, "retry once the database is readable", err)
 	}
-	basis, err := workSizeReviewBasisTx(ctx, q, workID, 0)
+	basis, err := workSizeReviewBasisTx(ctx, q, workID)
 	if err != nil {
 		return out, err
 	}

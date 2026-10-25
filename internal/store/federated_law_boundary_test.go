@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"testing"
 )
 
@@ -31,7 +29,7 @@ func TestDerivedSourceLawResolvesForLawModifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedKnowledgeWork(t, s, "derived-modify-work", "Derived source work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='derived-modify-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='derived-modify-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	for _, reference := range []string{"SRC-LAW", source.HomeProjectID + "/SRC-LAW"} {
@@ -41,31 +39,6 @@ func TestDerivedSourceLawResolvesForLawModifies(t *testing.T) {
 		if err := validateDerivedLawModification(ctx, s.db, "derived-modify-work", []string{reference}); err != nil {
 			t.Errorf("accepted derived source law %s refused by contract product guard: %v", reference, err)
 		}
-	}
-}
-
-// Cross-source supersedes is refused fail closed (CD-0200): whatever the
-// target law's own state, the declaring rebuild refuses the edge, so no
-// agreement check ever admits a supersession between sources.
-func TestCrossSourceSupersedesRefusesFailClosed(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, home, source := seedCrossSourceBoundaryProduct(t, "cross-supersedes")
-	shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
-	writeManifestShards(t, home.RepoPath, manifest)
-	commitKnowledgeRepo(t, home.RepoPath, "inconsistent supersession")
-	err = s.RebuildKnowledgeIndex(ctx, home)
-	var failure *Failure
-	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
-		t.Fatalf("cross-source supersedes rebuild error = %v, want the fail-closed refusal", err)
 	}
 }
 
@@ -120,7 +93,7 @@ func TestSourceSetProofSeparatesVerifiedHeadFromScannedRevision(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "proof-code-only")
 	seedKnowledgeWork(t, s, "proof-code-only-work", "Code-only work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-code-only-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-code-only-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	writeKnowledgeFile(t, source.RepoPath, "main.go", "package main\n")

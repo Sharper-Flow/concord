@@ -227,7 +227,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 		return false, err
 	}
 	pin, ok := pins[version]
-	if !ok || pin.definitionRef == "" || pin.definitionVersion <= 0 || !validDigest(pin.definitionDigest) {
+	if !ok || pin.definitionRef == "" || !validDigest(pin.definitionDigest) {
 		return false, heldNegative("declares no approved contract at the exact version")
 	}
 	var approvedAt, approvedBy, lawModifies string
@@ -241,7 +241,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if approvedAt == "" || approvedBy == "" {
 		return false, heldNegative("the exact contract row carries no recorded approval")
 	}
-	registered, err := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.definitionRef, Version: pin.definitionVersion, Digest: pin.definitionDigest})
+	registered, err := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.definitionRef, Digest: pin.definitionDigest})
 	if err != nil {
 		return false, err
 	}
@@ -265,7 +265,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if !admitted && (record.Kind == "decision" || record.Kind == "constitution") {
 		var modifies []string
 		if json.Unmarshal([]byte(lawModifies), &modifies) != nil {
-			return false, newFailure(KindInvariantViolation, "knowledge_authority", "the declared contract's law_modifies projection is malformed", false, "rebuild projections from the event log")
+			return false, newFailure(KindInvariantViolation, "knowledge_authority", "the declared contract's law_modifies projection is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if slices.Contains(modifies, record.ID) {
 			admitted = true

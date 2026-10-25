@@ -1,5 +1,5 @@
-// Package store holds Concord's sole durable local authority: a SQLite event
-// log, its transactional projections, and the workflow state they serve.
+// Package store holds Concord's sole durable local authority: SQLite current
+// rows, effect receipts, and the workflow state they serve.
 //
 // Connection discipline (the invariant every reader of this package needs):
 //
@@ -24,7 +24,8 @@
 // Seams, each owned by its file and its adjacent tests:
 //
 //   - store.go, transaction.go: pool, pragmas, and the write transaction.
-//   - events.go: the append-only event log with its fold and replay.
+//   - events.go, operation.go, fold.go: effect receipts, registered current-row
+//     writers, and transaction-owned write scopes.
 //   - work_context.go, worker_packet_binding.go,
 //     worker_context_findings.go: declared immutable readings, findings,
 //     dispatch packets, and typed bounds.

@@ -1,97 +1,97 @@
 package store
 
 import (
-	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-// CD-0031: out-of-band operator direction binds through contract supersession.
-// The structural tooth: premise confirmation binds to the current contract
-// version, so superseding after a redirect forces the operator to confirm the
-// NEW premise — and failing to supersede leaves the original premise named at
-// confirmation, where the operator confronts it.
-
+// Confirmation binds to the current contract version. A changed premise needs
+// a new confirmation even when the criterion content and its proof are intact.
 func TestSupersessionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "cd31-work")
-	seedWorkflowLaw(t, s)
-	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/cd31")
-	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/cd31-r")
-	digest := workflowFixtureDigest(t)
-	events := []Event{
-		workflowEvent("cd31-executor", WorkflowActorRecorded, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": 2, "resulting_version": 3, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/cd31", "actor_class": "agent"}),
-		workflowEvent("cd31-operator", WorkflowActorRecorded, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": 3, "resulting_version": 4, "actor_ref": operator, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/cd31-r", "actor_class": "operator"}),
-		workflowEvent("cd31-definition", WorkflowDefinitionSelected, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": 4, "resulting_version": 5, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
-		workflowEventWithActor("cd31-contract-v1", WorkflowContractApproved, "cd31-work", executor, map[string]any{"work_id": "cd31-work", "expected_version": 5, "resulting_version": 6, "contract_version": 1, "premise": "align one provider service", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:cd31", "immutable_subject_ref": "commit:cd31", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("cd31-start", WorkflowActionStarted, "cd31-work", executor, map[string]any{"work_id": "cd31-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "cd31-operation", "actor_ref": executor}),
-		workflowEvent("cd31-impact", WorkflowImpactDeclared, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": 7, "resulting_version": 8, "edge_id": "edge:cd31", "edge_kind": "modifies", "edge_class": "none", "target_work_id": "cd31-work", "target_kind": "work_item", "severity": "breaking"}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cd31-work"): 2}}); err != nil {
+	const workID = "cd31-work"
+	f := qCurrentAcceptance(t, workID)
+	s := f.store
+	actor, err := WorkflowActorRef(f.owner)
+	if err != nil {
 		t.Fatal(err)
 	}
-	setupVersion := readWorkVersion(t, s, "cd31-work")
-	seedWorkflowAuthority(t, s, "cd31-verification", "cd31-work", "principal/verify", "request/verify", []string{"evidence:verification", "evidence:verification-v2"})
-	seedWorkflowAuthority(t, s, "cd31-review", "cd31-work", "principal/review", "request/review", []string{"evidence:review"})
-	evidence := []Event{
-		workflowEvent("cd31-evidence-verification", WorkflowEvidenceBound, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": setupVersion, "resulting_version": setupVersion + 1, "evidence_kind": "verification", "immutable_subject_ref": "evidence:verification", "producer_id": "principal/verify", "producer_run_ref": "cd31-verification", "producer_watermark": "request/verify", "observed_at": "2026-08-09T00:00:00Z"}),
-		workflowEventWithActor("cd31-verdict", WorkflowVerdictRecorded, "cd31-work", operator, map[string]any{"work_id": "cd31-work", "expected_version": setupVersion + 1, "resulting_version": setupVersion + 2, "contract_version": 1, "predicate_id": "predicate:cd31", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:verification"}, "incomparable_with_approved": false}),
-		workflowEventWithActor("cd31-confirm-v1", WorkflowPremiseConfirmed, "cd31-work", operator, map[string]any{"work_id": "cd31-work", "expected_version": setupVersion + 2, "resulting_version": setupVersion + 3, "contract_version": 1, "confirming_actor_ref": operator}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: evidence, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cd31-work"): setupVersion}}); err != nil {
+	if err := f.run(t.Context(), "confirm_premise", "confirm-first", f.version(t.Context(), t), nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	evidenceVersion := readWorkVersion(t, s, "cd31-work")
-
-	// Baseline: with v1 confirmed, completion passes clause 5 (it may fail
-	// elsewhere, but not on the premise). Instead of completing, assert the
-	// direct precondition: a confirmation row exists for the current version.
 	var confirmed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id='cd31-work' AND contract_version=1`).Scan(&confirmed); err != nil || confirmed != 1 {
-		t.Fatalf("v1 confirmation missing: %d err=%v", confirmed, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&confirmed); err != nil || confirmed != 1 {
+		t.Fatalf("first confirmation count = %d, want 1: %v", confirmed, err)
 	}
-
-	// Redirect: the operator widens scope mid-run. The contract is superseded.
-	supersession := []Event{workflowEventWithActor("cd31-supersede-v1", WorkflowContractSuperseded, "cd31-work", executor, map[string]any{"work_id": "cd31-work", "expected_version": evidenceVersion, "resulting_version": evidenceVersion + 1, "previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "operator redirect widens scope to five siblings", "audit_evidence": []string{"operator-direction"}, "successor_contract": map[string]any{"contract_version": 2, "premise": "align the five sibling provider services", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:cd31", "immutable_subject_ref": "commit:cd31", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}})}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: supersession, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cd31-work"): evidenceVersion}}); err != nil {
+	var outcome string
+	if err := s.db.QueryRow(`SELECT outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1`, workID).Scan(&outcome); err != nil {
 		t.Fatal(err)
 	}
-
-	// Re-bind evidence and verdict under v2 so the completion attempt fails
-	// on nothing except the premise.
-	supersessionVersion := readWorkVersion(t, s, "cd31-work")
-	rebind := []Event{
-		workflowEvent("cd31-evidence-v2", WorkflowEvidenceBound, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": supersessionVersion, "resulting_version": supersessionVersion + 1, "evidence_kind": "verification", "immutable_subject_ref": "evidence:verification-v2", "producer_id": "principal/verify", "producer_run_ref": "cd31-verification", "producer_watermark": "request/verify", "observed_at": "2026-08-09T00:00:00Z"}),
-		workflowEvent("cd31-evidence-review", WorkflowEvidenceBound, "cd31-work", map[string]any{"work_id": "cd31-work", "expected_version": supersessionVersion + 1, "resulting_version": supersessionVersion + 2, "evidence_kind": "review", "immutable_subject_ref": "evidence:review", "producer_id": "principal/review", "producer_run_ref": "cd31-review", "producer_watermark": "request/review", "observed_at": "2026-08-09T00:00:00Z"}),
-		workflowEventWithActor("cd31-verdict-v2", WorkflowVerdictRecorded, "cd31-work", operator, map[string]any{"work_id": "cd31-work", "expected_version": supersessionVersion + 2, "resulting_version": supersessionVersion + 3, "contract_version": 2, "predicate_id": "predicate:cd31", "verdict_kind": "ok", "verdict_actor_ref": operator, "evaluation_evidence": []string{"evidence:verification-v2", "evidence:review"}, "incomparable_with_approved": false}),
+	fields := map[string]any{
+		"contract_version": 2, "premise": "Align the five sibling provider services.", "decision_domains": []string{},
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check", "outcome_payload": json.RawMessage(outcome)}},
+		"required_evidence":  []string{"verification"}, "route_conventions": []string{workflowCompleteStepCorrectionRoute}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		"architecture_binding": WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: rebind, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cd31-work"): supersessionVersion}}); err != nil {
+	fields["law_revisions"] = []WorkflowLawRevision{}
+	fields["law_boundary_version"] = 1
+	fields["consequence_class"] = "internal_sqlite"
+	recordCompleteStepContradictionObservation(t, s, workID, f.owner)
+	version := f.version(t.Context(), t)
+	supersession := workflowEventWithActor("cd31-supersede", WorkflowContractSuperseded, workID, actor, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"previous_contract_version": 1, "new_contract_version": 2,
+		"supersede_reason": "The direction widens the premise to five siblings.", "audit_evidence": []string{"operator-direction"}, "successor_contract": fields,
+	})
+	supersession.PayloadVersion = workflowContractSupersededLawChangePayloadVersion
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{supersession}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatal(err)
 	}
-
-	// The structural tooth (CD-0031): clause 5 binds to the CURRENT contract
-	// version. The v1 confirmation no longer counts — the operator must
-	// confirm the redirected premise, or completion refuses.
-	var current int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_premise_confirmations c WHERE c.work_id='cd31-work' AND c.contract_version=(SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id='cd31-work' AND superseded_by IS NULL)`).Scan(&current); err != nil || current != 0 {
-		t.Fatalf("superseded contract still premise-satisfied: %d err=%v", current, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations c WHERE c.work_id=? AND c.contract_version=(SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID).Scan(&confirmed); err != nil || confirmed != 0 {
+		t.Fatalf("successor borrowed the old confirmation: %d, %v", confirmed, err)
 	}
-
-	// The refusal at the gate: a completion attempt for the redirected work
-	// cannot pass clause 5 on the strength of the v1 confirmation.
-	var refusals int
-	_ = refusals
-	err := func() error {
-		finalVersion := readWorkVersion(t, s, "cd31-work")
-		completion := workflowEventWithActor("cd31-terminal", WorkflowCompleted, "cd31-work", operator, map[string]any{"work_id": "cd31-work", "expected_version": finalVersion, "resulting_version": finalVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator, "premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
-		completion.PayloadVersion = 2
-		return CompleteWorkflow(context.Background(), s, completion)
-	}()
-	if err == nil {
-		t.Fatal("completion must refuse after supersession without a fresh premise confirmation")
+	for _, kind := range []string{"verification", "review", "artifact"} {
+		version = f.version(t.Context(), t)
+		binding := workflowEventWithActor("successor-contract-evidence-"+kind, WorkflowEvidenceBound, workID, actor, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": kind,
+			"immutable_subject_ref": "evidence:return-route-" + kind, "producer_id": "principal/return-route-" + kind,
+			"producer_run_ref": "return-authority-" + kind + "-" + workID, "producer_watermark": "request/return-route-" + kind, "observed_at": "2026-09-12T00:00:00Z",
+		})
+		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{binding}, ExpectedVersions: workVersion(workID, version)}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !strings.Contains(err.Error(), "premise") {
-		t.Fatalf("refusal should be the premise clause, got: %v", err)
+	j := &candidateJourney{fixture: workContextFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}, s: s, workID: workID, repo: f.repo, acceptor: f.owner}
+	run := j.observeRun(t, "successor-proof")
+	j.bindVerification(t, run)
+	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
+	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	run = j.observeRun(t, "successor-refine")
+	j.bindVerification(t, run)
+	qAcceptCriterionReview(t, j.fixture, f.repo, run.OperationRef)
+	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "delivery:successor", "delivery_state": "asserted"}, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(run.OperationRef, "predicate:return-route"), 0, f.owner); err != nil {
+		var step string
+		_ = s.db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step)
+		t.Fatalf("successor criterion association at %s: %v", step, err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", actor); err != nil {
+		t.Fatal(err)
+	}
+	bindCompletionClosure(t, s, workID, f.owner)
+	version = f.version(t.Context(), t)
+	completion := workflowCompletedFixtureEvent("cd31-terminal", workID, actor, actor, version)
+	err = CompleteWorkflow(t.Context(), s, completion)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || failure.Clause != 5 || !strings.Contains(failure.Detail, "premise") {
+		t.Fatalf("completion after supersession = %v, want the premise refusal at clause 5", err)
 	}
 }

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +37,7 @@ func TestTransactionalLawBoundaryRequiresSourceSetProof(t *testing.T) {
 	// Positive control: a fresh source set with an established proof passes
 	// the transaction-scoped check.
 	seedKnowledgeWork(t, s, "proof-stale-work", "Proof stale work")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-stale-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-stale-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verifiedCtx, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-stale-work")
@@ -153,48 +152,6 @@ func TestSourceRebuildRequiresDomainHomeAndApplicability(t *testing.T) {
 	}
 }
 
-// A source-qualified mandate resolves its supersession through the parsed
-// bare target ID — relation rows store bare IDs — and the recovery payload
-// names the accepted successor with its source qualification.
-func TestQualifiedSupersessionResolvesBareTargetAndQualifiesSuccessor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, home, source := seedCrossSourceBoundaryProduct(t, "successor")
-	shards, err := readKnowledgeShardsWorkingTree(source.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := composeKnowledgeManifest(shards, manifestRegisteredSourceRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	next := manifest.Records[0]
-	next.ID = "SRC-NEXT"
-	next.Path = ".concord/docs/decisions/CD-0903-next.md"
-	next.Title = "Next source law"
-	next.LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW"}}
-	writeKnowledgeFile(t, source.RepoPath, next.Path, "durable SRC-LAW blob\n")
-	manifest.Records[0].Status = "superseded"
-	manifest.Records[0].Successor = "SRC-NEXT"
-	manifest.Records = append(manifest.Records, next)
-	writeSourceManifest(t, source.RepoPath, manifest)
-	commitKnowledgeRepo(t, source.RepoPath, "supersede source law")
-	if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
-		t.Fatal(err)
-	}
-	bare, err := findStaleWorkflowLawRevision(ctx, s.db, home.HomeProjectID, home.HomeLocatorID, "successor-work", 1, []string{"SRC-LAW"})
-	if err != nil || bare == nil {
-		t.Fatalf("setup: bare successor = %+v, %v", bare, err)
-	}
-	qualified, err := findStaleWorkflowLawRevision(ctx, s.db, home.HomeProjectID, home.HomeLocatorID, "successor-work", 1, []string{source.HomeProjectID + "/SRC-LAW"})
-	if err != nil || qualified == nil {
-		t.Fatalf("qualified successor lookup failed: result=%+v err=%v", qualified, err)
-	}
-	if qualified.AcceptedSuccessorLawID != source.HomeProjectID+"/SRC-NEXT" {
-		t.Fatalf("successor lost source qualification: %+v", qualified)
-	}
-}
-
 // A bare-ID Q10 answer asserts uniqueness over the registered source set, so
 // the set verifies first: a registered source that has never indexed holds an
 // invisible duplicate, Q9 refuses, and Q10 refuses with it instead of
@@ -246,13 +203,6 @@ func TestRebuildKeepsOtherSourceScopeRows(t *testing.T) {
 	authorizeSourceLocator(t, s, source)
 	if _, err := s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "scope-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Reason: "scope fixture", ExpectedVersion: 1}); err != nil {
 		t.Fatal(err)
-	}
-	// archived_work is the compaction archive: a work note projects only
-	// when a compaction link names its ID, so both fixtures link theirs.
-	for _, eventID := range []string{"scope-link-home", "scope-link-source"} {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,'compaction_link.published','work_item','scope-shared-work','operator','2026-09-21T00:00:00Z',1,'{}')`, eventID); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
@@ -348,7 +298,7 @@ func TestVerifiedSourceSetProofRefusesLaterConflict(t *testing.T) {
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "proof-conflict")
 	seedKnowledgeWork(t, s, "proof-conflict-work", "Proof conflict")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-conflict-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-conflict-work' AND role='primary'; DELETE FROM write_guard`, home.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-conflict-work")
@@ -447,34 +397,5 @@ func TestQualifiedRelationBetweenDistinctSourcesWithSameBareIDRebuilds(t *testin
 	commitKnowledgeRepo(t, home.RepoPath, "valid qualified relation between distinct nodes")
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatalf("distinct source-qualified endpoints incorrectly refused as self edge: %v", err)
-	}
-}
-
-// The single-source control: the qualified successor form refuses at parse
-// with no registered source set at all — the refusal is the manifest shape,
-// not a federation artifact.
-func TestQualifiedSuccessorRefusesWithoutFederation(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, home, _ := seedCrossSourceBoundaryProduct(t, "single")
-	if _, err := s.RemoveProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "single-product", ProjectID: "single-src", LocatorID: "single-src-loc", ExpectedVersion: 2, Reason: "single source control"}); err != nil {
-		t.Fatal(err)
-	}
-	shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Records[0].Status = "superseded"
-	manifest.Records[0].Successor = "missing-project/MISSING-LAW"
-	writeManifestShards(t, home.RepoPath, manifest)
-	commitKnowledgeRepo(t, home.RepoPath, "invalid single-source successor")
-	err = s.RebuildKnowledgeIndex(ctx, home)
-	var failure *Failure
-	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
-		t.Fatalf("single-source qualified successor rebuild error = %v, want the fail-closed refusal", err)
 	}
 }

@@ -54,7 +54,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // laneForId looks up a registered lane by id only. The full packet schema
-// also pins lane_version and lane_digest, but at the dispatch boundary we
+// also pins lane_digest, but at the dispatch boundary we
 // accept any lane the registry has admitted by id; buildAgentLanePacket
 // re-validates the full triple against the packet it produces and refuses
 // unregistered lanes up front.
@@ -182,10 +182,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", `concord_work_trace.continuity pinned workflow_step is not a string for ${input.work_id}`, "reconcile_operation")
   }
 
-  const pinnedWork = isRecord(pinned.work_pin) ? pinned.work_pin : null
-  const correction = pinnedWork && isRecord(pinnedWork.correction) ? pinnedWork.correction : null
-  const retrySuffix = correction && typeof correction.attempt_count === "number" ? `-retry-${correction.attempt_count}` : ""
-  const attempt = `${dispatchAttemptID(input)}${retrySuffix}`
+  const attempt = dispatchAttemptID(input)
   // The packet builder performs the additional scope + trace reads it needs
   // and returns either a packet or a typed refusal; we forward refusals
   // verbatim after the kind → outcome mapping in CD-0067 D5.

@@ -74,7 +74,7 @@ func latestExecutionStart(t *testing.T, s *store.Store) (int64, string) {
 	t.Helper()
 	var epoch int64
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch'),json_extract(payload,'$.actor_ref') FROM domain_events WHERE kind=? AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch, &actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_start_payload,'$.attempt_epoch'),json_extract(latest_start_payload,'$.actor_ref') FROM workflow_step_epochs WHERE step_id='execution' ORDER BY latest_start_seq DESC LIMIT 1`).Scan(&epoch, &actor); err != nil {
 		t.Fatal(err)
 	}
 	return epoch, actor
@@ -238,7 +238,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +260,7 @@ func TestStartExecutionOverLiveLaneRequiresApprovalUntilLaneRelinquishes(t *test
 		t.Fatalf("dispatch_worker: %+v", dispatched.Error)
 	}
 	lane := retryLane(t)
-	laneDispatch := store.Event{EventID: "live-lane-dispatched", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: authorizedWorkerJob(t, s, attemptID)})}
+	laneDispatch := store.Event{EventID: "live-lane-dispatched", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: authorizedWorkerJob(t, s, attemptID)})}
 	var laneActor string
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)

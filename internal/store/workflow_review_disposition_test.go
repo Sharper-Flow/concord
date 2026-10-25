@@ -1,402 +1,133 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
 	"testing"
-	"time"
 )
 
-// jobBoundReviewCompletion reads the worker-job binding the dispatch
-// authorization recorded for the attempt and rewrites the completion event's
-// payload to carry it. The fold's end-to-end check refuses a worker.completed
-// whose worker_job does not match the dispatch's binding, so a refine review
-// attempt dispatched under a recorded worker job must complete against the
-// same revision. Legacy dispatches return no binding, so the helper is a
-// no-op when the dispatch predated the worker-job lifecycle.
-func jobBoundReviewCompletion(t *testing.T, event *Event, attemptID string, s *Store) {
-	t.Helper()
-	binding, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, attemptID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if binding == nil {
-		return
-	}
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	var laneID, laneDigest string
-	var laneVersion int64
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, event.SubjectID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
-		t.Fatal(err)
-	}
-	lane, err := LookupLane(laneID, laneVersion, laneDigest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload.WorkerJob = binding
-	payload.ReportSchemaVersion = WorkerReportSchemaVersion
-	payload.EvidenceOrigin = WorkerEvidenceReported
-	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
-	event.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerCompleted)
-	event.Payload = mustJSONValue(payload)
-}
-
-func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
-	for _, ref := range []string{"workflow.break_fix", "workflow.implementation"} {
-		t.Run(ref, func(t *testing.T) {
-			workID := "review-disposition-" + ref
-			// The correction answers to the verified operator: the gate a
-			// legacy approval-policy pin keeps. consequence_v1 corrects
-			// routinely under the coordinator.
-			definition := legacyApprovalPolicyDefinitionForRef(t, ref)
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
-			s := fixture.store
-			var productVersion int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := s.DesignateProductKnowledgeHome(context.Background(), ProductKnowledgeHomeDesignation{
-				ProductID: "product", ProjectID: "project", LocatorID: "workflow-law-locator",
-				Reason: "synthetic successor contract law home", ExpectedVersion: productVersion,
-			}); err != nil {
-				t.Fatal(err)
-			}
-			ownerRef, err := WorkflowActorRef(fixture.owner)
+func TestBlockingReviewDispositionAcceptsWithoutAdvancing(t *testing.T) {
+	for _, disposition := range []string{"correction_required", "revision_required"} {
+		t.Run(disposition, func(t *testing.T) {
+			j, _ := descendantReviewFixture(t, "review-hold-"+disposition)
+			step := currentStep(t, j.s, j.workID)
+			attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, disposition)
+			pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			at := int64(100)
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-			attemptID := "attempt:" + workID + ":review"
-			verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, "ship", at)
-			acceptor := reviewGateAcceptor(workID)
-			payload := json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attemptID, verdictEpoch))
-			pin, err := ReadWorkPin(context.Background(), s, workID)
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
+				t.Fatalf("report intake and delivery permission were conflated: %+v", pin.NextValidIntents)
+			}
+			before := j.effects(t)
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": "attempt:unrelated", "attempt_epoch": epoch}, j.fixture.owner); err == nil {
+				t.Fatal("an unrelated attempt acquired the completed Review's acceptance")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("unrelated acceptance changed durable state")
+			}
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch + 1}, j.fixture.owner); err == nil {
+				t.Fatal("a stale attempt epoch accepted the report")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("refused acceptance changed durable state")
+			}
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch, "delivery_artifact": "artifact:blocked-review", "delivery_state": "asserted"}, j.fixture.owner); err == nil {
+				t.Fatal("acceptance of a blocking report carried a delivery assertion")
+			}
+			if after := j.effects(t); after != before {
+				t.Fatal("refused delivery-bearing acceptance changed durable state")
+			}
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err != nil {
+				t.Fatalf("Main could not accept a blocking disposition: %v", err)
+			}
+			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") || workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-				t.Fatalf("pending review has wrong disposition/correction intents: %#v", pin.NextValidIntents)
+			if currentStep(t, j.s, j.workID) != step || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != disposition {
+				t.Fatalf("acceptance lost the disposition or advanced execution: %+v", pin.Review)
 			}
-
-			if err := WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID),
-				ActionID: "accept_worker_evidence", Payload: payload, Actor: acceptor,
-			}); err != nil {
-				t.Fatalf("preflight of review disposition without delivery = %v, want admitted non-advancing disposition", err)
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") || !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+				t.Fatalf("accepted report lost its hold, once-only intake, or recovery route: %+v", pin.NextValidIntents)
 			}
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err != nil {
-				t.Fatalf("accept completed review without delivery = %v, want accepted evidence without advance", err)
+			before = j.effects(t)
+			if err := j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner); err == nil {
+				t.Fatal("the same result acquired another disposition")
 			}
-			reviewGateRequireStep(t, s, workID, "refine")
-
-			var deliveries int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' AND json_extract(payload,'$.delivery_state')='asserted'`, workID, WorkflowActionCompleted).Scan(&deliveries); err != nil {
+			if after := j.effects(t); after != before {
+				t.Fatal("duplicate acceptance changed durable state")
+			}
+			acceptCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+			verification := j.observeRun(t, "review-ready-delivery")
+			if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": verification.OperationRef}, j.fixture.owner); err != nil {
 				t.Fatal(err)
 			}
-			if deliveries != 0 {
-				t.Fatalf("review disposition asserted %d refinement deliveries", deliveries)
-			}
-
-			pin, err = ReadWorkPin(context.Background(), s, workID)
+			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-				t.Fatalf("accepted review leaves operator contract correction hidden: %#v", pin.NextValidIntents)
+			if err := workflowAdmitReview(*pin.Review, ""); err != nil {
+				t.Fatalf("accepted readiness did not satisfy the Review boundary: %v", err)
 			}
-			if workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") {
-				t.Fatal("a dispositioned review remains offered for evidence acceptance")
-			}
-			version := readWorkVersion(t, s, workID)
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
-				t.Fatal("the same review was dispositioned twice through distinct operations")
-			}
-			if readWorkVersion(t, s, workID) != version {
-				t.Fatal("refused repeated disposition changed the work")
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("replay accepted review evidence: %v", err)
-			}
-			reviewGateRequireStep(t, s, workID, "refine")
-			pin, err = ReadWorkPin(context.Background(), s, workID)
-			if err != nil || !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-				t.Fatalf("replay lost contract correction: pin=%#v err=%v", pin, err)
-			}
-			var originalContract []byte
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&originalContract); err != nil {
-				t.Fatal(err)
-			}
-			var originalFields, successorFields map[string]json.RawMessage
-			if err := json.Unmarshal(originalContract, &originalFields); err != nil {
-				t.Fatal(err)
-			}
-			if err := json.Unmarshal(issue1013SuccessorContract(), &successorFields); err != nil {
-				t.Fatal(err)
-			}
-			successorFields["architecture_binding"] = originalFields["architecture_binding"]
-			successor := mustJSONValue(successorFields)
-			if err := runVerdictActionAs(t, s, workID, "supersede_contract", successor, 0, acceptor); err == nil {
-				t.Fatal("evidence disposition supplied operator approval for contract correction")
-			}
-			if err := issue1013Preflight(t, s, workID, "supersede_contract", successor, fixture.owner); err != nil {
-				t.Fatalf("operator correction preflight after review disposition: %v", err)
-			}
-			if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
-				t.Fatalf("approved correction after review disposition: %v", err)
-			}
-			contract, err := s.ActiveWorkflowContract(context.Background(), workID)
-			if err != nil || contract.Version != 2 {
-				t.Fatalf("successor contract=(%#v,%v)", contract, err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("replay evidence disposition and approved successor: %v", err)
-			}
-			pin, err = ReadWorkPin(context.Background(), s, workID)
-			if err != nil || !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-				t.Fatalf("successor pass hides contract/design recovery: pin=%#v err=%v", pin, err)
-			}
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
-				t.Fatal("old review was accepted as a successor-contract report")
-			}
-			// The approved successor owns fresh refinement work, not an epoch
-			// reset used to escape an undispositioned report.
-			previousEpoch := epoch
-			epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", acceptor)
-			if epoch <= previousEpoch {
-				t.Fatalf("successor contract reused refinement epoch %d, want after %d", epoch, previousEpoch)
-			}
-			version = readWorkVersion(t, s, workID)
-
-			// An authorization closes correction before native dispatch exists.
-			authorization := workflowEventWithActor("new-review-authorization-"+workID, WorkflowActionCompleted, workID, ownerRef, map[string]any{
-				"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-				"step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch,
-				"worker_attempt_id": "attempt:" + workID + ":new", "actor_ref": ownerRef,
-			})
-			authorization.OccurredAt = time.Unix(200, 0).UTC()
-			authorization.PayloadVersion = 2
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{authorization}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-				t.Fatal(err)
-			}
-			pin, err = ReadWorkPin(context.Background(), s, workID)
-			if err != nil || workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
-				t.Fatalf("new unused authorization did not close correction: pin=%#v err=%v", pin, err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("later successor epoch changed old review disposition replay: %v", err)
+			// This fixture also holds a separate, unfinished assignment. Review
+			// readiness cannot settle it; the full delivery spine covers the exit
+			// after all assignments and the other prerequisites are satisfied.
+			before = j.effects(t)
+			deliveryErr := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:review-ready", "delivery_state": "asserted"}, j.fixture.owner)
+			if !hasFailureKind(deliveryErr, KindMissingEvidence) || !strings.Contains(deliveryErr.Error(), "every recorded worker job satisfied") || j.effects(t) != before {
+				t.Fatalf("readiness bypassed the unfinished assignment or changed state: %v", deliveryErr)
 			}
 		})
 	}
 }
 
-func TestRefineReviewEvidenceDispositionRefusesInvalidAttempts(t *testing.T) {
-	for _, scenario := range []string{"wrong-attempt", "wrong-epoch", "delivery-fields", "implementation", "verification", "uncompleted", "self-acceptance"} {
-		t.Run(scenario, func(t *testing.T) {
-			workID := "review-disposition-negative-" + scenario
-			definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-			if err != nil {
-				t.Fatal(err)
-			}
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
-			s := fixture.store
-			ownerRef, err := WorkflowActorRef(fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-			attemptID := "attempt:" + workID + ":report"
-			capability := "review"
-			if scenario == "implementation" || scenario == "verification" {
-				capability = scenario
-			}
-			verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, capability), ownerRef, "ship", 100)
-			if scenario == "uncompleted" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE worker_attempts SET lifecycle_state='dispatched',completed_at=NULL WHERE attempt_id=?; DELETE FROM fold_guard`, attemptID); err != nil {
-					t.Fatal(err)
-				}
-			}
-			acceptor := reviewGateAcceptor(workID)
-			if scenario == "self-acceptance" {
-				acceptor = fixture.owner
-			}
-			fields := map[string]any{"attempt_id": attemptID, "attempt_epoch": verdictEpoch}
-			if scenario == "wrong-attempt" {
-				fields["attempt_id"] = "attempt:another-work"
-			}
-			if scenario == "wrong-epoch" {
-				fields["attempt_epoch"] = verdictEpoch + 1
-			}
-			if scenario == "delivery-fields" {
-				fields["delivery_artifact"] = "artifact:unapproved"
-				fields["delivery_state"] = "asserted"
-			}
-			payload := mustJSONValue(fields)
-			version := readWorkVersion(t, s, workID)
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
-				t.Fatalf("%s evidence acceptance was admitted", scenario)
-			}
-			if readWorkVersion(t, s, workID) != version {
-				t.Fatal("refused evidence acceptance changed the work")
-			}
-			reviewGateRequireStep(t, s, workID, "refine")
-		})
+func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
+	j, _ := descendantReviewFixture(t, "review-disposition-preflight")
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "correction_required")
+	before := j.effects(t)
+	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:review-preflight","delivery_state":"asserted"}`)
+	preflightErr := WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: j.fixture.owner})
+	var failure *Failure
+	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "ready_for_final_proof") || failure.RecoveryAction == "" {
+		t.Fatalf("preflight lost the readiness requirement or recovery: %v", preflightErr)
 	}
-}
-
-func TestRefineReviewEvidenceAcceptancePreservesVerdictDebt(t *testing.T) {
-	const workID = "review-evidence-debt"
-	ctx := context.Background()
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	deliveryErr := j.action(t, "record_delivery", deliveryPayload, j.fixture.owner)
+	var deliveryFailure *Failure
+	if deliveryErr == nil || !failureAs(deliveryErr, &deliveryFailure) || deliveryFailure.Kind != failure.Kind || deliveryFailure.Detail != failure.Detail || deliveryFailure.RecoveryAction != failure.RecoveryAction {
+		t.Fatalf("preflight and execution disagree: preflight=%v execution=%v", preflightErr, deliveryErr)
+	}
+	pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || j.effects(t) != before {
+		t.Fatal("refused delivery was advertised or changed durable state")
+	}
+}
+
+// A ready Review cannot bypass an unresolved Domain overlap on Main acceptance.
+func TestReadyReviewAcceptCannotRideAnUnrelatedRefusal(t *testing.T) {
+	const workID = "ready-review-overlap"
+	const peerID = "ready-review-overlap-peer"
+	j, _ := descendantReviewFixture(t, workID)
+	s := j.s
+	attempt, epoch := completeCurrentReviewForTest(t, j.fixture, j.repo, "ready_for_final_proof")
+	ownerRef, err := WorkflowActorRef(j.fixture.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	for i, verdict := range []string{"no_ship", "ship"} {
-		attemptID := "attempt:" + workID + ":" + verdict
-		verdictEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, attemptID, reviewGateLane(t, "review"), ownerRef, verdict, int64(100+i*10))
-		payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": verdictEpoch})
-		if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, reviewGateAcceptor(workID)); err != nil {
-			t.Fatal(err)
-		}
-		outstanding, err := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "review_evidence_test")
-		if err != nil || outstanding != (verdict == "no_ship") {
-			t.Fatalf("%s evidence acceptance debt=(%v,%v)", verdict, outstanding, err)
-		}
-		reviewGateRequireStep(t, s, workID, "refine")
-		if err := reviewGateRecordDelivery(t, s, workID, reviewGateAcceptor(workID)); err == nil {
-			t.Fatal("review evidence acceptance bypassed the delivery verification proof")
-		}
+	// Both executing items modify root under the same current registry.
+	execStaleRegistryInFold(t, s, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
+	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
+	before := j.effects(t)
+	err = j.action(t, "accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}, j.fixture.owner)
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindDomainOverlap {
+		t.Fatalf("ready Review acceptance beside an unresolved overlap = %v, want the overlap refusal", err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("replay sequential review evidence dispositions: %v", err)
+	if after := j.effects(t); after != before {
+		t.Fatal("refused acceptance changed durable state")
 	}
-	outstanding, err := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "review_evidence_test")
-	if err != nil || outstanding {
-		t.Fatalf("replay did not preserve settled review debt: (%v,%v)", outstanding, err)
-	}
-}
-
-func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *testing.T) {
-	for _, recordedFailure := range []bool{false, true} {
-		t.Run(fmt.Sprintf("recorded-failure-%v", recordedFailure), func(t *testing.T) {
-			workID := fmt.Sprintf("review-evidence-unsettled-%v", recordedFailure)
-			// The retained review-evidence correction baseline records an
-			// un-attributed failed review, so the seed pins the latest head
-			// that predates the attribution requirement.
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "refine", []string{"review"}, []string{"review"})
-			s := fixture.store
-			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
-			ownerRef, err := WorkflowActorRef(fixture.owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-			if recordedFailure {
-				failedID := "attempt:" + workID + ":failed"
-				failedEpoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", failedID)
-				epoch = failedEpoch
-				failCheckpointReviewAttempt(t, s, workID, failedID)
-				if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": failedID, "attempt_epoch": failedEpoch}), 0, fixture.owner); err != nil {
-					t.Fatal(err)
-				}
-			}
-			reviewID := "attempt:" + workID + ":accepted"
-			reviewEpoch := reviewGateRunAttemptWithVerdict(t, s, workID, reviewID, reviewGateLane(t, "review"), ownerRef, "ship", 100)
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", mustJSONValue(map[string]any{"attempt_id": reviewID, "attempt_epoch": reviewEpoch}), 0, reviewGateAcceptor(workID)); err != nil {
-				t.Fatal(err)
-			}
-			pin := issue1013Pin(t, s, workID)
-			if !issue1013HasIntent(pin, "supersede_contract") {
-				t.Fatal("settled review did not open correction")
-			}
-			version := readWorkVersion(t, s, workID)
-			opening := workflowEventWithActor("review-evidence-unsettled-opening-"+workID, WorkflowActionCompleted, workID, ownerRef, map[string]any{
-				"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-				"step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch,
-				"worker_attempt_id": "attempt:" + workID + ":pending", "actor_ref": ownerRef,
-			})
-			opening.PayloadVersion = 2
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{opening}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-				t.Fatal(err)
-			}
-			pin = issue1013Pin(t, s, workID)
-			if issue1013HasIntent(pin, "supersede_contract") {
-				t.Fatal("undispositioned same-pass authorization left contract correction open")
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
-				t.Fatal("replay reopened correction over an undispositioned authorization")
-			}
-		})
-	}
-}
-
-func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
-	for _, ref := range []string{"workflow.break_fix", "workflow.implementation"} {
-		t.Run(ref, func(t *testing.T) {
-			workID := "review-evidence-fenced-" + ref
-			definition, err := BuiltinWorkflowDefinitionForRef(ref)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
-			s := fixture.store
-			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
-			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-			reviewID := "attempt:" + workID + ":review"
-			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
-			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC(), workerFixtureDirectory(t, s, workID))
-			var payload WorkerCompletedPayload
-			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
-				t.Fatal(err)
-			}
-			if payload.Review == nil || len(payload.Review.Findings) != 1 {
-				t.Fatal("the ship review fixture must contain exactly one advisory finding")
-			}
-			// The ship review's only finding is advisory, never a blocker.
-			payload.Review.Findings[0].Oracle = &WorkerOracleFinding{Classification: OracleClassificationFollowUp}
-			completion.Payload = mustJSONValue(payload)
-			jobBoundReviewCompletion(t, &completion, reviewID, s)
-			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
-				t.Fatal(err)
-			}
-			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", mustJSONValue(map[string]any{"attempt_id": reviewID, "attempt_epoch": epoch}), 0, reviewGateAcceptor(workID)); err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			if !issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
-				t.Fatal("fenced review acceptance did not open correction")
-			}
-			laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-			packet := joinPacketFor(t, s, workID, "refine", "attempt:"+workID+":pending", "review", laneVersion, laneDigest)
-			attachReadyWorkerJobIfJobCapable(t, s, workID, "refine", fixture.owner, packet)
-			if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, readWorkVersion(t, s, workID), fixture.owner, packet); err != nil {
-				t.Fatal(err)
-			}
-			if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
-				t.Fatal("fenced authorization did not close correction")
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatal(err)
-			}
-			if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
-				t.Fatal("replay reopened correction after a fenced authorization")
-			}
-		})
-	}
+	reviewGateRequireStep(t, s, workID, "repair")
 }

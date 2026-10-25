@@ -43,7 +43,7 @@ func TestBeginReadTxPinsSnapshotOnHeldConnection(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	var pinned int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&pinned); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&pinned); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,13 +55,21 @@ func TestBeginReadTxPinsSnapshotOnHeldConnection(t *testing.T) {
 	}
 	writer.SetMaxOpenConns(1)
 	defer func() { _ = writer.Close() }()
-	if _, err := writer.ExecContext(ctx, `INSERT INTO domain_events
-		(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES ('begin-read-probe', 'test.event', 'product', 'product-1', 'test', '2026-01-01T00:00:00Z', 1, '{}')`); err != nil {
+	writeTx, err := writer.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writeTx.Rollback()
+	probe := testEvent()
+	probe.EventID = "begin-read-probe"
+	if _, err := AppendEvent(ctx, writeTx, probe); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTx.Commit(); err != nil {
 		t.Fatalf("writer commit under a pinned read snapshot: %v", err)
 	}
 	var still int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&still); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&still); err != nil {
 		t.Fatal(err)
 	}
 	if still != pinned {
@@ -71,7 +79,7 @@ func TestBeginReadTxPinsSnapshotOnHeldConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	var released int
-	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&released); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&released); err != nil {
 		t.Fatal(err)
 	}
 	if released != pinned+1 {
@@ -264,7 +272,7 @@ func TestSourceReaderProbeDetectsPinnedReader(t *testing.T) {
 	// the deferred connection close cannot outlive an open transaction.
 	defer func() { _ = tx.Rollback() }()
 	var events int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if !sourceReaderBlocksCheckpoint(t, source) {
@@ -421,7 +429,7 @@ func TestInterruptedBackupAfterInitReleasesSourceSnapshot(t *testing.T) {
 	}
 	// The store still serves reads on its pool.
 	var events int
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT count(*) FROM effect_receipts`).Scan(&events); err != nil {
 		t.Fatalf("store read after interrupted backup: %v", err)
 	}
 }

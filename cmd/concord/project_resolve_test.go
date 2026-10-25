@@ -139,32 +139,25 @@ func TestProjectResolveVersionedRemoteAndPathOnlyOrigins(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for _, rebuild := range []bool{false, true} {
-				if rebuild {
-					if err := store.RebuildFromLog(context.Background(), s); err != nil {
-						t.Fatal(err)
-					}
-				}
-				var out, errOut bytes.Buffer
-				request, _ := json.Marshal(map[string]string{"directory": repo})
-				if code := runProjectResolve(request, s, &out, &errOut); code != 0 {
-					t.Fatalf("exit=%d stderr=%s", code, errOut.String())
-				}
-				var got struct {
-					ProjectID  string `json:"project_id"`
-					Repository struct {
-						GitRemote string `json:"git_remote"`
-					} `json:"repository"`
-					Locators []struct {
-						Kind string `json:"kind"`
-					} `json:"locators"`
-				}
-				if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-					t.Fatal(err)
-				}
-				if got.ProjectID != "project-wl" || got.Repository.GitRemote != wantRemote || len(got.Locators) != 1 || got.Locators[0].Kind != wantKind {
-					t.Fatalf("resolution=%+v", got)
-				}
+			var out, errOut bytes.Buffer
+			request, _ := json.Marshal(map[string]string{"directory": repo})
+			if code := runProjectResolve(request, s, &out, &errOut); code != 0 {
+				t.Fatalf("exit=%d stderr=%s", code, errOut.String())
+			}
+			var got struct {
+				ProjectID  string `json:"project_id"`
+				Repository struct {
+					GitRemote string `json:"git_remote"`
+				} `json:"repository"`
+				Locators []struct {
+					Kind string `json:"kind"`
+				} `json:"locators"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.ProjectID != "project-wl" || got.Repository.GitRemote != wantRemote || len(got.Locators) != 1 || got.Locators[0].Kind != wantKind {
+				t.Fatalf("resolution=%+v", got)
 			}
 		})
 	}

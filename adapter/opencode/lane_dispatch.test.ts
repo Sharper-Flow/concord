@@ -40,7 +40,7 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 const { agentLanes, agentUtilities } = await import("./generated-agent-lanes")
 const { validateAgentLanePacket } = await import("./dispatch")
 import { DispatchWindows, TASK_TOOL_ID, laneTaskArguments, serializeLanePacket } from "./dispatch-window"
-import type { AgentLanePacket, DispatchRunner } from "./dispatch"
+import type { AgentLanePacket, AgentLanePacketCorrection, DispatchRunner } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { fakeTool } from "./plugin-tool.fixture"
 const { dispatchAttemptID, dispatchLaneWorker } = await import("./lane_dispatch")
@@ -115,7 +115,7 @@ const READBACK_MODEL = "openai/gpt-5.6-luna"
 // fixture can identify the packet without a clock.
 const expectedAttemptId = "attempt-9dfc7234904d484b85fa07dbbc26db6fab196964c5bcfa6e071dd26be21d469f"
 const reportEvent = () => JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify({
-  schema_version: "1.0", attempt_id: expectedAttemptId, lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+  schema_version: "1.0", attempt_id: expectedAttemptId, lane_id: lane.id, lane_digest: lane.digest,
   readback_model: READBACK_MODEL, status: "completed",
   evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
 }) } })
@@ -944,12 +944,9 @@ test("approval challenge and approved resubmission preserve the exact packet ide
   expect(packets[0].worker_packet).toEqual(packets[1].worker_packet)
 })
 
-// The core mints the standard approval challenge when a dispatch faces the
-// escalated correction wall (CD-0148). The lane refusal keeps the challenge
-// metadata and typed summary in its error details, so the orchestrator can
-// obtain one operator approval and re-invoke with its approval_ref. No spawn happens until the
-// approved resubmission returns ok.
-test("an escalated correction challenge forwards the failed attempt bindings for operator approval", async () => {
+// The adapter transports a core approval refusal without inferring its cause
+// from correction history. Only core admission can authorize the resubmission.
+test("a core approval refusal forwards its exact consequence bindings", async () => {
   const challengeDetails = {
     approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
     work_id: WORK_ID, action_id: "dispatch_worker", contract_version: "1", selected_choice: "", premise_summary: "approved retry objective",
@@ -957,8 +954,8 @@ test("an escalated correction challenge forwards the failed attempt bindings for
   const consequenceSummary = {
     tool: "concord_work_transition", operation: "workflow_action", consequence: "workflow",
     operation_digest: challengeDetails.operation_digest,
-    scope: ["failed_attempt_id:attempt:work-dispatch:3", "product_id:product-dispatch", "work_ids:work-dispatch"],
-    versions: ["contract:1", "failed_attempt_epoch:3", "work:3"], expires_at: "2026-10-01T00:00:00Z",
+    scope: ["product_id:product-dispatch", "work_ids:work-dispatch"],
+    versions: ["contract:1", "work:3"], expires_at: "2026-10-01T00:00:00Z",
   }
   let spawned = 0
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
@@ -975,7 +972,7 @@ test("an escalated correction challenge forwards the failed attempt bindings for
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
   const windows = new DispatchWindows()
-  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "escalated-approval", lane_id: lane.id }
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "core-approval", lane_id: lane.id }
   const first = await dispatchLaneWorker(request, { context: contextFor(), invoke: invoke as any, runner, windows })
   expect(first.outcome).toBe("error")
   expect(first.error?.kind).toBe("approval_required")
@@ -1488,7 +1485,7 @@ test("TestDispatchRequiredReadingResolutionBeforeTask: a core-admitted dispatch 
 
 // An oversized projection travels as lossless projection pages of one
 // canonical JSON document (CD-0016 as amended). The dispatch anchors —
-// product identity, step, instance absence, correction attempt count — are
+// product identity, step, instance absence, correction source — are
 // authority-bearing, so the shared reconstruction helper joins every page
 // before any of them is read. The fixtures mirror the Go agent's page
 // emission: whole-code-point UTF-8 byte pages of the inline result's
@@ -1498,11 +1495,8 @@ const pagedDocumentOf = (result: Record<string, unknown>) => JSON.stringify(resu
 const pagedDigestOf = (document: string) => `sha256:${createHash("sha256").update(pagedUtf8.encode(document)).digest("hex")}`
 
 const PAGED_PREMISE = `境content across page boundaries 🎯 ${"p".repeat(1600)}`
-const PAGED_CORRECTION = {
+const PAGED_CORRECTION: AgentLanePacketCorrection = {
   disposition: "failed",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the paged attempt failed",
   strategy: "retry the paged dispatch with a fresh fenced attempt",
   predicate_ids: [],
@@ -1629,7 +1623,7 @@ const pagedScript = (chain: unknown[], workflowInput: { value?: Record<string, u
   return Object.assign(invoke, { seen: () => seen })
 }
 
-test("dispatch from a paged oversized item reaches the packet builder with the inline identity, step, and retry suffix", async () => {
+test("dispatch from a paged oversized item uses request identity without a retry count", async () => {
   const result = pagedResult()
   const input = { work_id: WORK_ID, expected_version: 3, idempotency_key: "paged-dispatch", lane_id: lane.id }
   // The canonical document is a genuinely oversized projection: its UTF-8
@@ -1642,11 +1636,10 @@ test("dispatch from a paged oversized item reaches the packet builder with the i
   const outcome = await dispatchLaneWorker(input, { context: contextFor(), invoke: pagedScript(envelopes, workflowInput) as any, credentials: testCredentials, windows })
   expect(outcome.outcome, JSON.stringify(outcome)).toBe("ok")
   const packet = (workflowInput.value!.fields as Record<string, unknown>).worker_packet as AgentLanePacket
-  // The paged anchors equal the inline ones: the ambient Product matched the
-  // joined product identity, the step is the pinned one, and the attempt
-  // keeps the correction's retry suffix.
+  // Transport and correction history cannot change request identity.
   expect(packet.step_id).toBe(WORKFLOW_STEP)
-  expect(packet.attempt_id).toBe(`${dispatchAttemptID(input)}-retry-2`)
+  expect(packet.attempt_id).toBe(dispatchAttemptID(input))
+  expect(packet.inputs.correction).toEqual(PAGED_CORRECTION)
   // The joined packet is byte-identical to the same dispatch served the
   // inline result: reconstruction changes transport, never packet content.
   const inlineWorkflow: { value?: Record<string, unknown> } = {}
@@ -1663,6 +1656,30 @@ test("dispatch from a paged oversized item reaches the packet builder with the i
   expect(JSON.stringify(packet)).toBe(JSON.stringify(inlinePacket))
   expect(validateAgentLanePacket(packet)).toBe(true)
   expect(windows.has("session-1")).toBe(true)
+})
+
+test("new request identity does not depend on correction history", async () => {
+  const attempts: string[] = []
+  const request = { work_id: WORK_ID, expected_version: 3, idempotency_key: "identity-first", lane_id: lane.id }
+  for (const [sourceSeq, key] of [[1, "identity-first"], [2, "identity-first"], [2, "identity-next"]] as const) {
+    const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }) => {
+      if (toolName === "concord_work_trace") return continuityEnvelope({ pinned: { work_pin: { correction: { ...PAGED_CORRECTION, source_event_id: `failure:${sourceSeq}`, source_event_seq: sourceSeq } } } })
+      if (toolName === "concord_work_browse") return scopeEnvelope()
+      if (toolName === "concord_work_transition") {
+        attempts.push((args.input!.fields as Record<string, unknown>).attempt_id as string)
+        return coreErrorEnvelope("operation_conflict", "reconcile the unresolved launch outcome")
+      }
+      throw new Error(`unscripted ${toolName}.${args.operation}`)
+    }
+    const outcome = await dispatchLaneWorker({ ...request, idempotency_key: key }, { context: contextFor(), invoke: invoke as any })
+    expect(outcome.error?.details?.core_error).toEqual({ kind: "operation_conflict", retry_safe: false, recovery_action: { kind: "reconcile_operation" }, effect_state: "none", message: "reconcile the unresolved launch outcome" })
+    expect(outcome.error?.retry_safe).toBe(false)
+    expect(outcome.error?.recovery_action).toBe("reconcile_operation")
+  }
+  expect(attempts).toHaveLength(3)
+  expect(attempts[0]).toBe(dispatchAttemptID(request))
+  expect(attempts[1]).toBe(attempts[0])
+  expect(attempts[2]).not.toBe(attempts[0])
 })
 
 test("a broken page sequence refuses dispatch without authorizing an attempt", async () => {

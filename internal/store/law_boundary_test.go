@@ -13,7 +13,7 @@ func lawSubjectRow(t *testing.T, s *Store, lawID, tier string) {
 	t.Helper()
 	const contentHash = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	if _, err := s.DatabaseForTesting().Exec(
-		`INSERT INTO fold_guard(active) VALUES(1);`); err != nil {
+		`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(
@@ -22,7 +22,7 @@ func lawSubjectRow(t *testing.T, s *Store, lawID, tier string) {
 		lawID, ".concord/docs/decisions/CD-0001-"+lawID+".md", strings.ToUpper(lawID), contentHash, tier); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -33,7 +33,7 @@ func lawSubjectRow(t *testing.T, s *Store, lawID, tier string) {
 // without one.
 func lawConflictRow(t *testing.T, s *Store, declarer any) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(
@@ -41,7 +41,7 @@ func lawConflictRow(t *testing.T, s *Store, declarer any) {
 		 VALUES('p','l','a','conflicts_with','b','commit',?)`, declarer); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -274,7 +274,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 	anchorHomePair(t, s, "p", "l")
 
 	// Insert without naming the tier, exactly as a pre-migration writer did.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
 		t.Fatal(err)
 	}
 	const contentHash = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -283,7 +283,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 		 VALUES('p','l','legacy','decision','accepted','.concord/docs/decisions/CD-0001-legacy.md','Legacy',?,'commit')`, contentHash); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,7 +297,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 	}
 
 	// The column refuses a tier outside the closed pair.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.DatabaseForTesting().Exec(
@@ -306,7 +306,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 	if err == nil {
 		t.Fatal("law_subjects accepted a tier outside the closed pair")
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

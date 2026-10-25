@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -65,6 +66,12 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 		"verification_obligations":     []any{},
 	}
 	payload := supersedeRecoveryPayload(t, f.workID, 3, binding, 1, 2)
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["decision_domains"] = []string{}
+	payload = mustJSONValue(fields)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/duplicate-recovery", ActorClass: ActorAgent}
 
 	pin, err := ReadWorkPin(ctx, f.store, f.workID)
@@ -79,7 +86,7 @@ func TestWorkflowSupersedeDuplicateRecoveryAdmissionAgreesAcrossPinPreflightAndF
 	}); err != nil {
 		t.Fatalf("preflight refused the duplicate recovery: %v", err)
 	}
-	if err := runSupersedeDuplicateRecoveryFold(t, f.store, f.workID, payload, actor); err != nil {
+	if err := runApprovalActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract", actor, nil, "", "", string(payload)); err != nil {
 		t.Fatalf("dispatch fold refused the duplicate recovery: %v", err)
 	}
 	var active int
@@ -147,13 +154,13 @@ func TestActiveWorkflowContractVersionRefusesAnAmbiguousProjection(t *testing.T)
 func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store, workID string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json)
 		SELECT work_id,contract_version+1,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json
 		FROM workflow_contracts
 		WHERE work_id=? AND superseded_by IS NULL
 		ORDER BY contract_version DESC LIMIT 1;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatalf("duplicate active contract: %v", err)
 	}
 }
@@ -172,7 +179,7 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	seedIssue31DomainRegistry(t, s)
 	seedWithheldQuestionWorkflow(t, s, workID)
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherID})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)

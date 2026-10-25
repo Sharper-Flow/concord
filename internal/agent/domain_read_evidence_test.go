@@ -17,7 +17,7 @@ const singleDomainRootID = pm1fixture.SingleDomainRootID
 
 // domainEvidenceFixture seeds a store carrying the real single-Domain registry
 // shape: one root Domain projected from a committed knowledge manifest, one
-// accepted decision and one superseded decision homed to it, two nonterminal
+// accepted decision homed to it, two nonterminal
 // contracts bound to it, and typed local attachments. The registry, Domains and
 // law rows come from the live knowledge projection rather than direct inserts,
 // so the reads under test observe the same rows a real index rebuild produces.
@@ -116,7 +116,7 @@ func TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage(t *testin
 }
 
 // Elements 2, 5 and 6: current law, its Git evidence, and decision records.
-// Superseded law is absent, so "current" is a real filter rather than a label.
+// Only law present in the current accepted projection is returned.
 func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T) {
 	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
@@ -134,7 +134,7 @@ func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T)
 		t.Fatalf("detail identity is not the seeded home Domain: %#v", payload.Domain)
 	}
 	if len(payload.CurrentLaw) != 1 {
-		t.Fatalf("current law = %d records, want the one accepted decision (superseded law must be absent): %#v", len(payload.CurrentLaw), payload.CurrentLaw)
+		t.Fatalf("current law = %d records, want the one accepted decision: %#v", len(payload.CurrentLaw), payload.CurrentLaw)
 	}
 	law := payload.CurrentLaw[0]
 	if law.LawID != "CD-0041" {
@@ -304,13 +304,13 @@ func TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, digest); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, digest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

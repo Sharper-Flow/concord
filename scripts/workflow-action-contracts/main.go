@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -52,8 +52,7 @@ type workflowOutcomeContract struct {
 // document, so a later public authoring change cannot break historical
 // payload validation.
 type schemaRefProjection struct {
-	Current    []string `json:"current"`
-	Historical []string `json:"historical"`
+	Current []string `json:"current"`
 }
 
 type contractProjection struct {
@@ -222,11 +221,9 @@ func sortedRefNames(refs map[string]bool) []string {
 
 // collectSchemaRefs splits the registry's declared payload schema refs by
 // decoding owner: current definitions and the engine recovery list declare
-// current refs; retained registry versions (every registered version below
-// its family's current head) declare historical refs.
-func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition, history []store.WorkflowDefinition) schemaRefProjection {
+// the refs the public payload document must resolve.
+func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition) schemaRefProjection {
 	currentRefs := map[string]bool{}
-	historicalRefs := map[string]bool{}
 	for _, definition := range current {
 		for _, action := range definition.ActionDefinitions {
 			for _, ref := range payloadSchemaRefs(action.Payload) {
@@ -239,71 +236,38 @@ func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.Work
 			currentRefs[ref] = true
 		}
 	}
-	currentPins := map[string]bool{}
-	for _, definition := range current {
-		currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] = true
-	}
-	for _, definition := range history {
-		if currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] {
-			continue
-		}
-		for _, action := range definition.ActionDefinitions {
-			for _, ref := range payloadSchemaRefs(action.Payload) {
-				historicalRefs[ref] = true
-			}
-		}
-	}
-	return schemaRefProjection{Current: sortedRefNames(currentRefs), Historical: sortedRefNames(historicalRefs)}
-}
-
-// nativeStatusProjection is the read-only historical native-run status
-// metadata the status closure check consumes: the sorted union of the
-// status enums the compiled registry's native-run action declarations
-// carry. Retired public actions stay out of the authoring surface, so this
-// projection adds no action; it only names what the compiled declarations
-// still admit on the replay side.
-type nativeStatusProjection struct {
-	Statuses []string `json:"statuses"`
-}
-
-// collectNativeRunStatuses folds the status enums of every registered
-// definition — current heads and every retained version — into one sorted
-// union. A "status" string enum field is declared only by the native-run
-// payload builder, so the union needs no action list, and dropping one
-// enum value from a declaration drops that value from the union.
-func collectNativeRunStatuses(definitions []store.WorkflowDefinition) []string {
-	statuses := map[string]bool{}
-	for _, definition := range definitions {
-		for _, action := range definition.ActionDefinitions {
-			for _, field := range action.Payload.Fields {
-				if field.Name != "status" || field.ValueType != store.PayloadString || len(field.Enum) == 0 {
-					continue
-				}
-				for _, value := range field.Enum {
-					statuses[value] = true
-				}
-			}
-		}
-	}
-	return sortedRefNames(statuses)
+	return schemaRefProjection{Current: sortedRefNames(currentRefs)}
 }
 
 func main() {
-	nativeStatuses := flag.Bool("native-statuses", false, "print the native-run status union the compiled registry declares instead of the action contract projection")
-	flag.Parse()
-	if *nativeStatuses {
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetEscapeHTML(false)
-		projection := nativeStatusProjection{Statuses: collectNativeRunStatuses(store.BuiltinWorkflowDefinitionsWithHistory())}
-		if err := encoder.Encode(projection); err != nil {
+	if len(os.Args) == 2 && os.Args[1] == "--canonical-definition" {
+		var definition store.WorkflowDefinition
+		decoder := json.NewDecoder(os.Stdin)
+		if err := decoder.Decode(&definition); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			fmt.Fprintln(os.Stderr, "canonical definition requires one JSON object")
+			os.Exit(1)
+		}
+		canonical, err := store.CanonicalWorkflowDefinition(definition)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		digest, err := store.WorkflowDefinitionDigest(definition)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		// Keep the canonical manifest order; the digest is not hashed.
+		fmt.Printf("%s,\"digest\":%q}\n", canonical[:len(canonical)-1], digest)
 		return
 	}
 	definitions := store.BuiltinWorkflowDefinitions()
 	recovery := append(store.BuiltinWorkflowCanonicalRecoveryActionDefinitions(), store.BuiltinWorkflowDecisionFactActionDefinitions()...)
-	history := store.BuiltinWorkflowDefinitionsWithHistory()
 	contracts, err := collectActionContracts(definitions, recovery)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -343,7 +307,7 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery, history)}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery)}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

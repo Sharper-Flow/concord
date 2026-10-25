@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -94,7 +93,7 @@ func TestWorkPinOutstandingEvidenceKindsRequireProducerAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireWorkPinOutstandingKinds(t, &before, []string{})
-	result, err := f.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=(SELECT json_extract(payload,'$.producer_run_ref') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='commit' AND json_extract(payload,'$.immutable_subject_ref')=?)`, f.workID, WorkflowEvidenceBound, wf04RecoveryRef)
+	result, err := f.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=(SELECT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='commit' AND json_extract(payload,'$.immutable_subject_ref')=?)`, f.workID, wf04RecoveryRef)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +125,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireWorkPinOutstandingKinds(t, &pin, []string{"review", "verification"})
+	requireWorkPinOutstandingKinds(t, &pin, []string{"artifact", "review", "verification"})
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +133,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	if snapshot.WorkPin == nil || snapshot.WorkPin.Version != pin.Version || snapshot.WorkPin.Step != pin.Step {
 		t.Fatalf("continuity pin = %+v, direct pin = %+v", snapshot.WorkPin, pin)
 	}
-	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"review", "verification"})
+	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"artifact", "review", "verification"})
 }
 
 func TestWorkPinOutstandingEvidenceKindsIncludeRecoveryCheck(t *testing.T) {
@@ -173,13 +172,13 @@ func TestWorkPinOutstandingEvidenceKindsUseCallerTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET required_evidence='["commit"]' WHERE work_id=? AND superseded_by IS NULL`, f.workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	uncommitted, err := ReadWorkPinTx(ctx, tx, f.workID)
@@ -247,14 +246,11 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, version := range []int64{current.Definition.Version, current.Definition.Version - 1} {
-			name := ref + "@" + strconv.FormatInt(version, 10)
+		{
+			name := ref
 			t.Run(name, func(t *testing.T) {
-				registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-				if !ok {
-					t.Fatalf("definition %s is not registered", name)
-				}
-				workID := "workpin-debt-" + ref + "-" + strconv.FormatInt(version, 10)
+				registered := current
+				workID := "workpin-debt-" + ref
 				var completionStep string
 				for _, step := range registered.Definition.StepGraph.Steps {
 					if slices.Contains(step.Actions, "complete") {

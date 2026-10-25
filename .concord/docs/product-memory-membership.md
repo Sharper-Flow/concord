@@ -140,8 +140,10 @@ attributes of a Project; they are not membership keys.
 
 ## 5. Atomic membership operations
 
-Every operation appends accepted `domain_events` and updates all affected typed
-projections in one SQLite transaction.
+Every operation writes current rows and all affected membership edges in one
+SQLite transaction, checked by an expected version and recorded by its
+idempotency key
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Create Product
 
@@ -171,7 +173,7 @@ The operation may produce a cross-Product scope set; its result must surface tha
 
 A Product-membership edit is one atomic operation over the complete resulting set.
 It may change `Products(W)` for every work item attached to that Project; the result
-must return a bounded impact summary/count and a durable event reference. No copied
+must return a bounded impact summary/count and a reference to the recorded operation. No copied
 work rows or reconciliation job is created.
 
 Removing the Project from its last Product is rejected. Removing it from one Product
@@ -233,8 +235,9 @@ fixture has no work item attached to a Project shared by multiple Products.
 5. **Stable endpoints:** memberships use Product/Project/work IDs, never locators.
 6. **Derived Product scope:** `Products(W)` is the distinct join result and has no
    independently mutable mirror.
-7. **Atomic scope change:** event append, edge changes, invariant checks, and impact
-   result commit together.
+7. **Atomic scope change:** current-row writes, edge changes, invariant checks, and
+   impact result commit together
+   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 8. **No silent cascade:** referenced Projects cannot disappear from membership.
 9. **Duplicate-free reads:** Product query populations deduplicate by canonical
    `work_id` before counts, pagination, and ordering.
@@ -287,7 +290,7 @@ Reopen PM5 if:
 3. most work requires stored Product ownership despite allowed cross-Product scope;
 4. optional primary repeatedly prevents canonical note resolution after PM6;
 5. Project membership moves make derived visibility operationally unsafe despite
-   atomic events and impact reporting;
+   atomic writes and impact reporting;
 6. a repeated accepted PM1 job needs `required`, merge order, or another membership
    attribute that cannot be represented by work/relations/workflows;
 7. cross-Product work requires independent per-Product status, which would reopen

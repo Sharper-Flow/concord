@@ -2,10 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-15
-- **Scope:** Work-item events; agent tool surface; continuity snapshot
+- **Scope:** Work-item observations; agent tool surface; continuity snapshot
 - **Related:** CD-0012 (D6), CD-0016 (continuity), CD-0018 (capture,
   `raised_from`), CD-0216 (surface pattern), issue #99, R8
-- **Supersedes:** nothing
 
 ## Context
 
@@ -21,7 +20,7 @@ and having no cheap channel to say it.
 
 **D1. Observations are a first-class, non-authoritative record on the work item.**
 
-`work.observation_recorded` persists a bounded statement (1–512 Unicode code points), optional refs (≤16 entries, each 1–256 Unicode code points), and optional tags (≤8 entries, each 1–32 Unicode code points), any time the item is nonterminal, through `concord_work_define.observation_record`. Observations
+The observation record persists a bounded statement (1–512 Unicode code points), optional refs (≤16 entries, each 1–256 Unicode code points), and optional tags (≤8 entries, each 1–32 Unicode code points), any time the item is nonterminal, through `concord_work_define.observation_record`. The record is a current-row write ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Observations
 satisfy nothing: no evidence kind, no gate, no workflow action reads them as
 authority. They are the durable form of "I noticed something."
 
@@ -36,8 +35,8 @@ remains the deliberate CD-0018 path: capture with a `raised_from` edge to the
 observing work, or any warranted relation. Observations are the substrate;
 promotion is a later decision by anyone.
 
-**D4. Terminal items stop recording but keep their observations.** The fold
-refuses observation events on terminal work (the discovery channel belongs to
+**D4. Terminal items stop recording but keep their observations.** The write
+refuses observations on terminal work (the discovery channel belongs to
 active work), while existing rows persist for audit and promotion.
 
 ## Rejected alternatives
@@ -49,7 +48,7 @@ no mechanism.
 
 ## Verification
 
-- `internal/store/work_observations_test.go`: record + rebuild determinism,
+- `internal/store/work_observations_test.go`: record determinism,
   terminal refusal, bounds, idempotent replay.
 - `internal/agent/observation_dispatch_test.go`: the surface op through real
   dispatch, continuity carries un-promoted observations, and the

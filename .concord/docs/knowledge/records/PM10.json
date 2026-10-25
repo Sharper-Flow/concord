@@ -17,7 +17,7 @@
     },
     {
       "criterion": 4,
-      "exemption": "Replay qualification and rollback ordering are operation properties. TestBackupRefusesUnreplayableLogAndDiscardsSnapshot (internal/store/backup_test.go), TestHistoricalPayloadUpgradeSnapshotQualification and TestHistoricalPayloadRepairSnapshotQualification (cmd/concord/historical_backup_cli_test.go) prove refusal before manifest promotion or guarded mutation."
+      "exemption": "Operation-only checks: TestRestoreStageRejectsCurrentStateTampering (internal/store/backup_current_state_test.go); TestBackupRestoreDoesNotInterpretHistoryPayloads and TestInterruptedBackupVerificationDiscardsSnapshotAndStaging (internal/store/backup_test.go); TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence (cmd/concord/upgrade_snapshot_cli_test.go); TestRepairSnapshotRefusesInvalidSourceBeforeInstaller (cmd/concord/repair_test.go)."
     },
     {
       "criterion": 5,
@@ -31,8 +31,11 @@
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
     "internal/store/backup_test.go",
+    "internal/store/backup_current_state_test.go",
     "internal/store/fence_test.go",
-    "cmd/concord/main_test.go"
+    "cmd/concord/main_test.go",
+    "cmd/concord/upgrade_snapshot_cli_test.go",
+    "cmd/concord/repair_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "PM10",
@@ -45,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:648d476530d60e3a31332a6e6b9cba74dfaa089cc6524a7651b14ebd7d60a200",
+  "sha256": "sha256:b93c883dadae16cc26e04f6de3cbd1153a5ce481aa11cbeab4d4b61e6b67e6cc",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

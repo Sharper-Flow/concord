@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,27 +16,17 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// seedDerivedFailureWorkerForCombinedReject seeds the retained
-// failure-attribution head: implementation v29, whose pinned definition
-// dispatches through the worker_packet2 closure.
-func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string) {
-	return seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 29)
-}
-
-// seedDerivedFailureWorkerForCombinedRejectVersion seeds work-1 on one
-// pinned implementation version at its execution step with one dispatched,
+// seedDerivedFailureWorkerForCombinedReject seeds work-1 on the current
+// implementation definition at its execution step with one dispatched,
 // completed, undispositioned worker attempt, the contract and predicates the
 // packet derivation reads, and the claimed worktree a retry authorization
-// rests on. The caller decides whether a work context rides the view. The
-// retained head (29) and the research-context head (32) carry the same
-// derivation route, so the parameter isolates the packet generation the
-// pinned definition dispatches.
-func seedDerivedFailureWorkerForCombinedRejectVersion(t *testing.T, s *store.Store, service *Service, grant Authority, definitionVersion int64) (int64, string) {
+// rests on. The caller decides whether a work context rides the view.
+func seedDerivedFailureWorkerForCombinedReject(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string) {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	definition, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", definitionVersion)
-	if !ok {
-		t.Fatalf("implementation v%d is not registered", definitionVersion)
+	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
@@ -43,28 +34,38 @@ func seedDerivedFailureWorkerForCombinedRejectVersion(t *testing.T, s *store.Sto
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ownerRef, err := store.WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The recorded narrative rides the packet's work_record member verbatim,
 	// so the fixture seeds it directly the way capture records it.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET narrative=? WHERE id='work-1';
-		DELETE FROM fold_guard`, strings.Repeat("n", 16384)); err != nil {
+		DELETE FROM write_guard`, strings.Repeat("n", 16384)); err != nil {
 		t.Fatalf("seed the recorded narrative: %v", err)
 	}
+	approvalStep := ""
+	for _, step := range definition.Definition.StepGraph.Steps {
+		if slices.Contains(step.Actions, "approve_contract") {
+			approvalStep = step.ID
+			break
+		}
+	}
+	if approvalStep == "" {
+		t.Fatal("combined-reject fixture definition has no contract approval step")
+	}
 	path := t.TempDir()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
-		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:verification","expected_result":"pass"}');
-		DELETE FROM fold_guard`, ownerRef); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE workflow_instances SET current_step=? WHERE work_id='work-1';
+		DELETE FROM write_guard`, approvalStep); err != nil {
 		t.Fatalf("seed combined-reject projections: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	fields := workflowContractFieldsFixture()
+	fields["premise"] = "approved retry objective"
+	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verification", "expected_result": "pass"}}}
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	runVerificationStoreAction(t, s, "approve_contract", fields, owner, "combined-reject-fixture")
+	runVerificationStoreAction(t, s, "record_design", workflowDesignFieldsFixture("combined-reject-fixture"), owner, "combined-reject-fixture-design")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
-		DELETE FROM fold_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:combined-reject", "combined-reject", strings.Repeat("a", 40), path, "repo:combined-reject", fixedTime().Format(time.RFC3339Nano)); err != nil {
+		DELETE FROM write_guard`, store.WorktreeSetID("work-1"), "project-1", "claim:combined-reject", "combined-reject", strings.Repeat("a", 40), path, "repo:combined-reject", fixedTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("seed combined-reject worktree: %v", err)
 	}
 	grant.Worktree = path
@@ -78,27 +79,18 @@ func seedDerivedFailureWorkerForCombinedRejectVersion(t *testing.T, s *store.Sto
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed combined-reject start: %+v", start.Error)
 	}
-	recordReadyRetryJob(t, s, service, env, "job:combined-reject")
-	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixture := oAgentFixture(t, s, service, env, "work-1")
+	oAgentNativeJob(t, fixture)
+	recordReadyRetryJob(t, s, service, env, "job:combined-reject-architecture-review")
+	oAgentReviewJob(t, fixture, "job:combined-reject-architecture-review", "continue", false)
 	attemptID := "attempt:work-1:combined-reject-1"
-	version = workVersion(t, s, "work-1")
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "combined-reject-dispatch-1", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, pin.Correction)},
+	lane, job, _ := fixture.startWorker(t, "implement", attemptID)
+	if job.JobID != "job:o-agent-native" {
+		t.Fatalf("combined-reject implementation job=%s, want job:o-agent-native", job.JobID)
 	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	env.RequestID = "request:combined-reject-dispatch-1"
-	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if dispatch.Outcome != OutcomeOK {
-		t.Fatalf("seed combined-reject dispatch: %+v", dispatch.Error)
-	}
-	applyVerificationWorkerDispatchAndCompletion(t, s, grant, attemptID, "combined-reject")
+	// A rejected result need not edit the candidate. Keeping it unchanged
+	// lets the retry consume the same qualified native preparation.
+	fixture.finishWorker(t, lane, attemptID, job, nil)
 	return workVersion(t, s, "work-1"), path
 }
 
@@ -169,7 +161,7 @@ func combinedRejectInput(version, epoch int64, diagnosis, strategy string) json.
 func latestDispatchEpoch(t *testing.T, s *store.Store) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow("SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1", store.WorkflowActionStarted).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch
@@ -179,7 +171,7 @@ func latestDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // the fixture's own seed dispatch does not account for.
 func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
-	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='`+string(store.WorkflowActionCompleted)+`' AND json_extract(payload,'$.action_id') IN ('reject_worker_result','dispatch_worker')`)
+	return countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id='work-1' AND r.kind='workflow.action_completed' AND (EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.event_id=r.event_id) OR EXISTS(SELECT 1 FROM worker_attempt_dispositions d WHERE d.event_id=r.event_id AND d.action_id='reject_worker_result'))`)
 }
 
 // TestCombinedRejectOversizedResultRefusesZeroWrite proves a legal oversized
@@ -192,7 +184,7 @@ func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 // identical fixture commits the same combined call.
 func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	recordOversizedWorkContext(t, s, service, grant)
@@ -250,7 +242,7 @@ func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 // rejection, one retry attempt, the ok envelope with the derived dispatch.
 func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
 	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
@@ -397,16 +389,16 @@ func assertCombinedRejectRetryTransport(t *testing.T, s *store.Store, committed 
 }
 
 // TestCombinedRejectResearchHeadTransportsAdmittedPacket3 proves the
-// response transport invariant on the research-context head: the pinned
-// dispatch admits a worker_packet3 whose work-context view carries the
-// selected research, and the combined rejection's response returns exactly
+// response transport invariant: the current dispatch admits a
+// worker_packet whose work-context view carries the selected research, and
+// the combined rejection's response returns exactly
 // those admitted bytes — canonical packet identity with the digest the
 // fresh dispatch window opened for — with no second dispatch
 // authorization.
 func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	_, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-rc")
 	recordSelectedResearchContextForCombinedReject(t, s, service, grant, "combined-reject-research-1", "pack-combined-reject-rc")
@@ -450,14 +442,13 @@ func TestCombinedRejectResearchHeadTransportsAdmittedPacket3(t *testing.T) {
 	}
 }
 
-// TestCombinedRejectResearchHeadPlainPacketCommits is the overlap control on
-// the same head: a derived packet whose view carries no research validates
-// under both packet generations, so the combined rejection must still commit
-// with the plain transport.
+// TestCombinedRejectResearchHeadPlainPacketCommits is the control: a derived
+// packet whose view carries no research commits with the plain transport and
+// invents no research member.
 func TestCombinedRejectResearchHeadPlainPacketCommits(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, worktree := seedDerivedFailureWorkerForCombinedRejectVersion(t, s, service, grant, 32)
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_transition", "worker_dispatch"})
+	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
@@ -474,51 +465,5 @@ func TestCombinedRejectResearchHeadPlainPacketCommits(t *testing.T) {
 	}
 	if strings.Contains(string(result["retry_worker_packet"]), `"research_findings"`) {
 		t.Fatalf("the plain-head retry packet invented a research member: %s", result["retry_worker_packet"])
-	}
-}
-
-// TestCombinedRejectRetainedHeadRefusesResearchDeclaration proves the
-// retained head keeps its closed declaration: record_work_context without
-// the selection member refuses the research input outright, before any
-// effect, so a retained pin can never author a selection its packet2
-// dispatch closure cannot carry.
-func TestCombinedRejectRetainedHeadRefusesResearchDeclaration(t *testing.T) {
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
-	grant.Worktree = worktree
-	seedCombinedRejectResearchPack(t, s, "pack-combined-reject-retained")
-	version := workVersion(t, s, "work-1")
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	env.RequestID = "request:combined-reject-retained-research-1"
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "record_work_context",
-		"idempotency_key":   "combined-reject-retained-research-1",
-		"research_bindings": []map[string]any{{"pack_id": "pack-combined-reject-retained", "revision": int64(1), "use_role": "context", "required": true}},
-		"fields": map[string]any{
-			"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
-			"research_finding_refs": []map[string]any{{
-				"pack_id": "pack-combined-reject-retained", "revision": int64(1), "finding_id": "f-pack-combined-reject-retained",
-				"domain_id":              pm1fixture.FixtureRootDomainID,
-				"product_wide_rationale": "the selection governs every Domain of the fixture Product",
-			}},
-		},
-	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := combinedRejectRefusalEvents(t, s)
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	researchScopeAssertRefused(t, refused, "invalid_input")
-	if after := workVersion(t, s, "work-1"); after != version {
-		t.Fatalf("the refused declaration moved the work version %d -> %d", version, after)
-	}
-	if after := combinedRejectRefusalEvents(t, s); after != before {
-		t.Fatalf("the refused declaration changed rejection or dispatch completions %d -> %d", before, after)
 	}
 }

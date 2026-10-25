@@ -52,9 +52,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b642820452aa2c39729d428dd9271206ed73d85f9c94a3f1ece43d33c240d9f1",
+  "sha256": "sha256:b1da7499d6e73d4a89f710dfa7546dae40ac31057b86603e1713296d70d9a135",
   "status": "accepted",
-  "summary": "Worker results receive one immutable disposition and fresh attempts consume bounded correction context. At non-checkpoint worker-dispatch steps, attempts with recorded dispatch authorization retain exact-target rejection across later same-step dispatches until a non-dispatch fenced start, step transition, corrective return, or contract supersession closes the interval. Legacy attempts gain no cross-epoch eligibility. An unconsumed unbound rejection blocks advancing acceptance without changing acceptance fences, checkpoint timing, or job-bound discharge. Oracle-capable rejections and correction requests bind the exact derived ranked-finding set, absent only when empty, and supported closures name canonical IDs and qualifying evidence. Omission or relabeling closes nothing. Shared context retains open blockers and earlier receipts as baselines, not current-subject proof. Historical pins and the existing retry wall remain intact.",
+  "summary": "Each terminal worker result is accepted or rejected once, and authorization, actual start, terminal result, and result acceptance stay distinct recorded facts. Under CD-0242 D6 each launch is one admitted request with its own scope and subject bindings, and no attempt count, correction count, or escalation wall exists.",
   "tags": [
     "workflow",
     "worker",

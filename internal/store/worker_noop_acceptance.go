@@ -5,56 +5,42 @@ import (
 	"encoding/json"
 )
 
-// A clean first result at its dispatch commit must prove the job's declared
-// outcome already holds; editing capability alone does not require an edit.
-// Later attempts may deliver a retained draft from an earlier failed attempt;
-// without a recorded job base, commit equality cannot judge those corrections.
+// A delivery unchanged from the job's base must prove its declared outcome.
+// Review dispositions use their own acceptance rules instead of claiming delivery.
 func guardAcceptWorkerResultChanges(g *workflowActionGuardContext, fields map[string]json.RawMessage) error {
 	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 	var raw []byte
-	err := g.tx.QueryRowContext(g.ctx, `SELECT e.payload FROM domain_events e
-		JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.attempt_id')
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind=? AND a.attempt_id=?
-		AND a.capability_class='implementation' AND a.lifecycle_state='completed'
-		ORDER BY e.seq DESC LIMIT 1`, string(SubjectWorkItem), g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
+	err := g.tx.QueryRowContext(g.ctx, `SELECT terminal_payload FROM worker_attempts
+		WHERE work_id=? AND terminal_kind=? AND attempt_id=?
+		AND lifecycle_state='completed'`, g.request.WorkID, WorkerCompleted, attemptID).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
-		return workflowProjectionError(err, "cannot read the completed editing result")
+		return workflowProjectionError(err, "cannot read the completed worker result")
 	}
 	var completed WorkerCompletedPayload
 	if err := json.Unmarshal(raw, &completed); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "the completed editing result is malformed", false, "rebuild workflow projections from the event log")
+		return newFailure(KindInvariantViolation, "workflow_action", "the completed worker result is malformed", false, "reconcile the invalid retained worker terminal fact before retrying")
 	}
-	if completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
+	if completed.Review != nil || completed.WorkerJob == nil || completed.ObservedDelivery == nil || completed.ObservedDelivery.State != "clean" {
 		return nil
 	}
-	window, err := findAuthorizedDispatchWindowCore(g.ctx, g.tx, g.request.WorkID, attemptID)
+	var base string
+	err = g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(payload,'$.worker_subject_commit'),'')
+		FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_job.job_id')=?
+		ORDER BY seq LIMIT 1`, g.request.WorkID, completed.WorkerJob.JobID).Scan(&base)
+	if err != nil {
+		return workflowProjectionError(err, "cannot read the job's base subject")
+	}
+	if base == "" || base != completed.ObservedDelivery.Commit {
+		return nil
+	}
+	oracles, err := readWorkerJobOraclesTx(g.ctx, g.tx, g.request.WorkID)
 	if err != nil {
 		return err
 	}
-	if window.SubjectCommit == "" || window.SubjectCommit != completed.ObservedDelivery.Commit {
-		return nil
-	}
-	var firstAttempt string
-	err = g.tx.QueryRowContext(g.ctx, `SELECT a.attempt_id FROM domain_events e
-		JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id')
-		WHERE e.subject_type=? AND e.subject_id=? AND e.kind=?
-		AND json_extract(e.payload,'$.action_id')='dispatch_worker'
-		AND json_extract(e.payload,'$.worker_job.job_id')=? AND a.capability_class='implementation'
-		ORDER BY e.seq LIMIT 1`, string(SubjectWorkItem), g.request.WorkID, WorkflowActionCompleted, completed.WorkerJob.JobID).Scan(&firstAttempt)
-	if err != nil {
-		return workflowProjectionError(err, "cannot read the editing job's first authorization")
-	}
-	if firstAttempt != attemptID {
-		return nil
-	}
-	lineage, err := readWorkerOracleFindingLineageTx(g.ctx, g.tx, g.request.WorkID)
-	if err != nil {
-		return err
-	}
-	oracle := lineage.oracleForBinding(*completed.WorkerJob)
+	oracle := oracles[*completed.WorkerJob]
 	if proven, err := unchangedJobOutcomeProven(g, &completed, oracle); err != nil {
 		return err
 	} else if proven {
@@ -69,7 +55,7 @@ func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerC
 		return false, nil
 	}
 	var worker string
-	if err := g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, string(SubjectWorkItem), g.request.WorkID, WorkerDispatched, completed.AttemptID).Scan(&worker); err != nil {
+	if err := g.tx.QueryRowContext(g.ctx, `SELECT COALESCE(json_extract(dispatch_payload,'$.lane_actor_ref'),'') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, g.request.WorkID, completed.AttemptID).Scan(&worker); err != nil {
 		return false, workflowProjectionError(err, "cannot read the result's producing actor")
 	}
 	controls := oracleControlIndex(oracle)

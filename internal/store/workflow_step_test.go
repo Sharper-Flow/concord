@@ -28,7 +28,7 @@ func seedStepWork(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Step work","priority":1}`)},
+		{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"Step work","priority":1}`)},
 		{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-s","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}})
 	if err != nil {
@@ -160,10 +160,10 @@ func startStepFixtureAction(t *testing.T, s *Store, workID, actionID string) {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = leaveFold(ctx, tx) }()
+		defer func() { _ = leaveWrite(ctx, tx) }()
 		_, err = applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{
 			{EventID: workID + "-started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: time.Unix(10, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)},
-		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newFoldScope(tx))
+		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newWriteScope(tx))
 		return err
 	}); err != nil {
 		t.Fatal(err)

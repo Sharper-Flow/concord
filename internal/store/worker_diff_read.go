@@ -40,6 +40,7 @@ type workerDiffSnapshot struct {
 	contractVersion int64
 	job             WorkerJobBinding
 	paths           []string
+	repairing       bool
 }
 
 func workerDiffRefusal(detail string) error {
@@ -47,88 +48,52 @@ func workerDiffRefusal(detail string) error {
 }
 
 // firstWorkerEditingSubject never skips an editing authorization with a
-// missing subject. Later successes cannot repair the first attempt's
-// historical gap. The window starts at the newest contract boundary — an
-// approval or a supersession — that owns editing history: a supersession
-// starts a new editing history exactly when new editing work was dispatched
-// under it, and a correction supersession with no editing of its own falls
-// back to the predecessor boundary that holds the delivery the review reads.
-// Without the fallback, the correction machinery's own supersessions (which
-// it deliberately forces between an accepted implement delivery and its
-// review) would orphan every editing authorization and leave the review's
-// committed diff permanently unreadable.
+// missing subject. The newest contract with an eligible editing authorization
+// owns the foundation. A correction-only contract and a repairing Review do
+// not reset the accumulated solution's base. Each earlier authorization is
+// classified by the capability class its attempt recorded at dispatch, not by
+// current lane content, and an unclassifiable row refuses.
 func firstWorkerEditingSubject(ctx context.Context, q queryer, workID, identity string, reviewSeq int64) (string, error) {
-	boundaryRows, err := q.QueryContext(ctx, `SELECT seq FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND (kind=? OR kind=?) AND seq<? ORDER BY seq DESC`, workID, WorkflowContractApproved, WorkflowContractSuperseded, reviewSeq)
-	if err != nil {
-		return "", err
-	}
-	defer boundaryRows.Close()
-	boundaries := make([]int64, 0, 8)
-	for boundaryRows.Next() {
-		var seq int64
-		if err := boundaryRows.Scan(&seq); err != nil {
-			return "", err
-		}
-		boundaries = append(boundaries, seq)
-	}
-	if err := boundaryRows.Err(); err != nil {
-		return "", err
-	}
-	if len(boundaries) == 0 {
-		return "", workerDiffRefusal("review contract has no recorded approval history")
-	}
-	// Editing authorizations once, ascending; each boundary is then matched to
-	// the newest one with an editing dispatch after it.
-	rows, err := q.QueryContext(ctx, `SELECT e.seq,COALESCE(json_extract(e.payload,'$.worker_lane_id'),a.lane_id),COALESCE(json_extract(e.payload,'$.worker_lane_version'),a.lane_version),COALESCE(json_extract(e.payload,'$.worker_lane_digest'),a.lane_digest),COALESCE(json_extract(e.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(e.payload,'$.worker_worktree_identity'),'') FROM domain_events e LEFT JOIN worker_attempts a ON a.work_id=e.subject_id AND a.attempt_id=json_extract(e.payload,'$.worker_attempt_id') WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND json_extract(e.payload,'$.action_id')='dispatch_worker' AND e.seq>0 AND e.seq<? ORDER BY e.seq`, workID, WorkflowActionCompleted, reviewSeq)
+	rows, err := q.QueryContext(ctx, `SELECT r.contract_version,a.attempt_id IS NOT NULL,COALESCE(a.capability_class,''),COALESCE(json_extract(r.payload,'$.worker_subject_commit'),''),COALESCE(json_extract(r.payload,'$.worker_worktree_identity'),'') FROM worker_authorizations r LEFT JOIN worker_attempts a ON a.work_id=r.work_id AND a.attempt_id=r.attempt_id WHERE r.work_id=? AND r.seq>0 AND r.seq<? ORDER BY r.seq`, workID, reviewSeq)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
 	type editingDispatch struct {
-		seq           int64
-		id, digest    string
-		version       int64
+		contract      int64
 		subject, tree string
 		editing       bool
 	}
 	editors := make([]editingDispatch, 0, 8)
+	var newestContract int64
 	for rows.Next() {
 		var d editingDispatch
-		if err := rows.Scan(&d.seq, &d.id, &d.version, &d.digest, &d.subject, &d.tree); err != nil {
+		var attempted bool
+		var class string
+		if err := rows.Scan(&d.contract, &attempted, &class, &d.subject, &d.tree); err != nil {
 			return "", err
 		}
-		lane, err := LookupLane(d.id, d.version, d.digest)
-		if err != nil {
-			return "", err
+		if !attempted {
+			return "", workerDiffRefusal("earlier authorization has no recorded worker attempt")
 		}
-		d.editing = slices.Contains(lane.Capabilities, "edit_scoped_files")
+		editing, known := laneFoundationClasses[class]
+		if !known {
+			return "", workerDiffRefusal("earlier worker attempt records no known capability class")
+		}
+		d.editing = editing
+		if d.editing {
+			if d.contract < 1 {
+				return "", workerDiffRefusal("review contract has no recorded approval history")
+			}
+			newestContract = max(newestContract, d.contract)
+		}
 		editors = append(editors, d)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	// Boundaries descend; the first boundary with an EDITING dispatch after
-	// it is the window start. A boundary with no editing history of its own
-	// cannot reset the base, and non-editing dispatches — a failed review
-	// retry between two correction supersessions — never count as editing
-	// history, or the retry itself would re-orphan the window the fallback
-	// just repaired.
-	var start int64
-	for _, boundary := range boundaries {
-		hasEditor := false
-		for _, d := range editors {
-			if d.editing && d.seq > boundary {
-				hasEditor = true
-				break
-			}
-		}
-		if hasEditor {
-			start = boundary
-			break
-		}
-	}
 	for _, d := range editors {
-		if d.seq <= start || !d.editing {
+		if d.contract != newestContract || !d.editing {
 			continue
 		}
 		if d.tree == "" {
@@ -168,8 +133,11 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 		}
 		return err
 	}
-	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneVersion, dispatch.WorkerLaneDigest)
-	if err != nil || !slices.Contains(lane.Capabilities, "inspect_diff") || dispatch.WorkerJob == nil {
+	lane, err := LookupLane(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(lane.Capabilities, "inspect_diff") || dispatch.WorkerJob == nil {
 		return workerDiffRefusal("diff requires a live inspect_diff attempt with its pinned job")
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, req.WorkID, "worker_diff")
@@ -190,16 +158,10 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if json.Unmarshal(req.Packet, &packet) != nil || packet.Inputs.Binding.ContractVersion != version || packet.Inputs.WorkContext == nil || packet.Inputs.WorkContext.SubjectCommit != window.SubjectCommit {
 		return workerDiffRefusal("review packet does not bind the active contract and held subject")
 	}
-	var raw []byte
-	event := Event{SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Kind: WorkerJobRecorded}
 	jobBinding := *dispatch.WorkerJob
-	err = q.QueryRowContext(ctx, `SELECT event_id,payload_version,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, req.WorkID, WorkerJobRecorded, auth.Seq, jobBinding.JobID, jobBinding.Revision, jobBinding.Digest).Scan(&event.EventID, &event.PayloadVersion, &raw)
-	if err != nil && err != sql.ErrNoRows {
+	job, err := readWorkerDiffJobTx(ctx, q, req.WorkID, jobBinding, version, auth.Seq)
+	if err != nil {
 		return err
-	}
-	var job WorkerJobRecordedPayload
-	if err != nil || json.Unmarshal(raw, &job) != nil || job.ContractVersion != version || DeriveWorkerJobDigest(job) != jobBinding.Digest || len(job.PathScope) == 0 || validateWorkerJobRecordedPayload(event, job) != nil {
-		return workerDiffRefusal("review has no exact recorded job with a nonempty contained path scope")
 	}
 	entry, err := activeWorktreeEntryForProject(ctx, q, "worker_diff", req.WorkID, job.ProjectScope)
 	if err != nil {
@@ -212,8 +174,22 @@ func sampleWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, sna
 	if err != nil {
 		return err
 	}
-	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope}
+	*snapshot = workerDiffSnapshot{window: window, base: base, repo: entry.Path, contractVersion: version, job: jobBinding, paths: job.PathScope, repairing: workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest)}
 	return nil
+}
+
+func readWorkerDiffJobTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding, contractVersion, authorizationSeq int64) (WorkerJobRecordedPayload, error) {
+	var job WorkerJobRecordedPayload
+	var raw []byte
+	event := Event{SubjectType: SubjectWorkItem, SubjectID: workID, Kind: WorkerJobRecorded}
+	err := q.QueryRowContext(ctx, `SELECT recorded_event_id,1,recorded_payload FROM worker_job_revisions WHERE work_id=? AND recorded_seq<? AND job_id=? AND revision=? AND digest=?`, workID, authorizationSeq, binding.JobID, binding.Revision, binding.Digest).Scan(&event.EventID, &event.PayloadVersion, &raw)
+	if err != nil && err != sql.ErrNoRows {
+		return job, err
+	}
+	if err != nil || json.Unmarshal(raw, &job) != nil || job.ContractVersion != contractVersion || DeriveWorkerJobDigest(job) != binding.Digest || len(job.PathScope) == 0 || validateWorkerJobRecordedPayload(event, job) != nil {
+		return WorkerJobRecordedPayload{}, workerDiffRefusal("review has no exact recorded job with a nonempty contained path scope")
+	}
+	return job, nil
 }
 
 func revalidateWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest, before workerDiffSnapshot) error {
@@ -221,7 +197,7 @@ func revalidateWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest,
 	if err := sampleWorkerDiff(ctx, q, req, &after); err != nil {
 		return err
 	}
-	if before.window != after.window || before.base != after.base || before.repo != after.repo || before.contractVersion != after.contractVersion || before.job != after.job || !slices.Equal(before.paths, after.paths) {
+	if before.window != after.window || before.base != after.base || before.repo != after.repo || before.contractVersion != after.contractVersion || before.job != after.job || before.repairing != after.repairing || !slices.Equal(before.paths, after.paths) {
 		return workerDiffRefusal("review authority changed while reading the committed diff")
 	}
 	return nil
@@ -229,6 +205,18 @@ func revalidateWorkerDiff(ctx context.Context, q queryer, req WorkerDiffRequest,
 
 func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before workerDiffSnapshot) error {
 	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false"}
+	if before.repairing {
+		// A repairing pass can edit the checkout while reading its immutable
+		// input B. This reader never substitutes mutable HEAD or output C.
+		commit, err := runner.Run(ctx, before.repo, append(args, "rev-parse", "--verify", before.window.SubjectCommit+"^{commit}")...)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(commit)) != before.window.SubjectCommit {
+			return workerDiffRefusal("review input commit is unavailable")
+		}
+		return nil
+	}
 	head, err := runner.Run(ctx, before.repo, append(args, "rev-parse", "--verify", "HEAD^{commit}")...)
 	if err != nil {
 		return err
@@ -244,12 +232,12 @@ func checkWorkerDiffSubject(ctx context.Context, runner GitRunner, before worker
 }
 
 // workerDiffSharedDiffArgs is the one owner of the diff argument list both
-// editing-surface readers share (CD-0225 D2): the global flags, the diff
+// editing-surface readers share: the global flags, the diff
 // subcommand, and the closed flag set that disables rename detection,
 // external diffs, and text conversion under the Myers algorithm. The review
-// diff read appends its patch-shaping flags; the terminal size observation
-// appends --numstat -z and the two commits. No second reader copies these
-// flags.
+// diff read appends its patch-shaping flags; the terminal delivery
+// observation appends --name-only -z and the two commits. No second reader
+// copies these flags.
 func workerDiffSharedDiffArgs() []string {
 	return []string{"--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--diff-algorithm=myers", "--no-indent-heuristic"}
 }

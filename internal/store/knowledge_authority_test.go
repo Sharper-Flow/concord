@@ -207,12 +207,12 @@ func authorityBlobHash(t *testing.T, repo, path string) string {
 func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.Exec(`INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture work', 'completed', 1, 1, 'now', 'now')`, workID); err != nil {
@@ -223,15 +223,15 @@ func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 // seedAuthorityContract inserts one historical contract row with its
 // predicate, the exact projection the resolver reads. This is synthetic
 // fixture evidence about the rule, never a claim of real approval.
-func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, ref string, definitionVersion int64, digest string, lawModifies []string, existsSubjects []string) {
+func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, ref, digest string, lawModifies []string, existsSubjects []string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := db.Exec(`INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','now')`, authorityActorRef, "principal:authority-fixture", "client:authority-fixture", "agent:authority-fixture", "session:authority-fixture"); err != nil {
@@ -244,8 +244,8 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", ref, definitionVersion, digest); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", ref, digest); err != nil {
 		t.Fatal(err)
 	}
 	outcomeKind, payload := "check", map[string]any{"kind": "check", "check_ref": "check:authority-fixture", "immutable_subject_ref": "commit:authority-fixture", "expected_result": "pass"}
@@ -264,27 +264,22 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 // authorityRegisteredDefinition returns a registered definition of the
 // requested Product-truth class from the built-in registry, so the fixtures
 // track the registry instead of hardcoding a version.
-func authorityRegisteredDefinition(t *testing.T, changesProductTruth bool) (string, int64, string) {
+func authorityRegisteredDefinition(t *testing.T, changesProductTruth bool) (string, string) {
 	t.Helper()
 	registry := BuiltinWorkflowRegistry()
-	refs := make([]string, 0, len(builtinWorkflowCurrentVersions))
-	for ref := range builtinWorkflowCurrentVersions {
-		refs = append(refs, ref)
+	refs := make([]string, 0, len(BuiltinWorkflowDefinitions()))
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		refs = append(refs, definition.Ref)
 	}
 	sort.Strings(refs)
 	for _, ref := range refs {
-		for version := int64(1); version <= builtinWorkflowCurrentVersions[ref]; version++ {
-			registered, ok := registry.Lookup(ref, version)
-			if !ok {
-				continue
-			}
-			if (registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth) == changesProductTruth {
-				return ref, version, registered.Digest
-			}
+		registered, ok := registry.Current(ref)
+		if ok && (registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth) == changesProductTruth {
+			return ref, registered.Digest
 		}
 	}
 	t.Fatalf("no registered workflow definition with changes_product_truth=%v", changesProductTruth)
-	return "", 0, ""
+	return "", ""
 }
 
 // authorityScenario opens a store with one product home over the fixture repo.
@@ -313,8 +308,8 @@ func TestRebuildRefusesUnapprovedExactVersion(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 2})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, version, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -324,8 +319,8 @@ func TestRebuildRefusesNonProductChangingContract(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, false)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, false)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -335,8 +330,8 @@ func TestRebuildRefusesContractWithoutAdmittedReference(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, nil, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -349,8 +344,8 @@ func TestRebuildRefusesRecordAnotherWorkAdmits(t *testing.T) {
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
 	seedAuthorityWork(t, s, authoritySecondSyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySecondSyntheticWork, 1, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySecondSyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -360,8 +355,8 @@ func TestRebuildAcceptsProductChangingContractAdmittingTheLaw(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatalf("an approved Product-changing contract naming the law admits it: %v", err)
 	}
@@ -379,11 +374,11 @@ func TestRebuildAcceptsExactSubjectAdmissionForNonDecisionKind(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "SPEC-8751", Kind: "spec", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
+	ref, digest := authorityRegisteredDefinition(t, true)
 	// A spec is not a decision or constitution, so only the exact
 	// exists-subject field admits it; its contract carries an empty
 	// law_modifies to prove the field split.
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, nil, []string{"SPEC-8751"})
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, nil, []string{"SPEC-8751"})
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatalf("an admitted exists subject admits a non-decision record: %v", err)
 	}
@@ -394,8 +389,8 @@ func TestRebuildRefusesNonDecisionLawModifiesAdmission(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "SPEC-8751", Kind: "spec", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, []string{"SPEC-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"SPEC-8751"}, nil)
 	err := s.RebuildKnowledgeIndex(context.Background(), home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
@@ -463,8 +458,8 @@ func TestFreshAdmissionRefusesHeldNegativeWithoutGitChange(t *testing.T) {
 	err := s.EnsureKnowledgeIndexFresh(ctx, home)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	// The positive history clears the refusal on the same unchanged tree.
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatalf("an approved exact contract clears the fresh-cache refusal: %v", err)
 	}
@@ -494,8 +489,8 @@ func TestQ10ReportsUnverifiedAuthorityForAbsentWork(t *testing.T) {
 	}
 	// The approved exact contract clears the warning on the next read.
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, digest := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, digest, []string{"CD-8751"}, nil)
+	ref, digest := authorityRegisteredDefinition(t, true)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, digest, []string{"CD-8751"}, nil)
 	cleared, err := s.QueryQ10(ctx, Q10Request{KnowledgeID: "CD-8751", Product: "authority-product", Home: home})
 	if err != nil || cleared.Status != "canonical" {
 		t.Fatalf("Q10 after approval = %#v, err %v", cleared, err)
@@ -527,20 +522,20 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	productRef, productVersion, productDigest := authorityRegisteredDefinition(t, true)
-	retiredRef, retiredVersion, retiredDigest := authorityRegisteredDefinition(t, false)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, productRef, productVersion, productDigest, []string{"CD-8751"}, nil)
+	productRef, productDigest := authorityRegisteredDefinition(t, true)
+	retiredRef, retiredDigest := authorityRegisteredDefinition(t, false)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 1, productRef, productDigest, []string{"CD-8751"}, nil)
 	// The superseding contract is not Product-changing and names nothing. A
 	// resolver that read the current instance or the latest family pin would
 	// refuse; the exact historical pin classifies instead.
-	seedAuthorityContract(t, s, authoritySyntheticWork, 2, retiredRef, retiredVersion, retiredDigest, nil, nil)
+	seedAuthorityContract(t, s, authoritySyntheticWork, 2, retiredRef, retiredDigest, nil, nil)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	_, updateErr := db.Exec(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, authoritySyntheticWork)
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Errorf("remove fold guard: %v", err)
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Errorf("remove write guard: %v", err)
 	}
 	if updateErr != nil {
 		t.Fatal(updateErr)
@@ -552,20 +547,20 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 
 func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 	t.Parallel()
-	for _, family := range []string{"workflow.implementation", "workflow.static_analysis"} {
+	for _, family := range []string{"workflow.implementation", "workflow.research"} {
 		t.Run(family, func(t *testing.T) {
 			s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
 			defer s.Close()
 			seedAuthorityWork(t, s, authoritySyntheticWork)
-			version, digest, changesProductTruth := authorityFamilyDefinition(t, family)
-			seedAuthorityContract(t, s, authoritySyntheticWork, 1, family, version, digest, []string{"CD-8751"}, nil)
+			digest, changesProductTruth := authorityFamilyDefinition(t, family)
+			seedAuthorityContract(t, s, authoritySyntheticWork, 1, family, digest, []string{"CD-8751"}, nil)
 			db := s.DatabaseForTesting()
-			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
 			_, updateErr := db.Exec(`UPDATE work_items SET lifecycle='cancelled' WHERE id=?`, authoritySyntheticWork)
-			if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-				t.Errorf("remove fold guard: %v", err)
+			if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+				t.Errorf("remove write guard: %v", err)
 			}
 			if updateErr != nil {
 				t.Fatal(updateErr)
@@ -584,17 +579,6 @@ func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCorruptDefinitionPinRefusesStrictly(t *testing.T) {
-	t.Parallel()
-	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
-	defer s.Close()
-	seedAuthorityWork(t, s, authoritySyntheticWork)
-	ref, version, _ := authorityRegisteredDefinition(t, true)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 1, ref, version, "sha256:"+strings.Repeat("f", 64), []string{"CD-8751"}, nil)
-	err := s.RebuildKnowledgeIndex(context.Background(), home)
-	assertFailureKind(t, err, KindDefinitionDigestMismatch)
 }
 
 func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T) {
@@ -627,7 +611,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	}
 	legislatedInRange := map[string]bool{
 		"CD-0190": true, "CD-0191": true, "CD-0193": true, "CD-0194": true, "CD-0200": true,
-		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0206": true, "CD-0208": true,
+		"CD-0201": true, "CD-0202": true, "CD-0205": true, "CD-0208": true,
 	}
 	byID := make(map[string]KnowledgeRecord, len(manifest.Records))
 	for _, record := range manifest.Records {
@@ -677,7 +661,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 	// pair, admitting every record it names through the exact exists subject —
 	// a field every kind admits. law_modifies stays empty: its 32-entry bound
 	// cannot carry a whole work's corpus in one row.
-	ref, definitionVersion, digest := authorityRegisteredDefinition(t, true)
+	ref, digest := authorityRegisteredDefinition(t, true)
 	for key, ids := range declared {
 		parts := strings.SplitN(key, ":", 2)
 		workID := parts[0]
@@ -686,7 +670,7 @@ func TestKnowledgeAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T)
 			t.Fatal(err)
 		}
 		seedAuthorityWork(t, s, workID)
-		seedAuthorityContract(t, s, workID, version, ref, definitionVersion, digest, nil, ids)
+		seedAuthorityContract(t, s, workID, version, ref, digest, nil, ids)
 	}
 	if err := s.RebuildKnowledgeIndex(context.Background(), home); err != nil {
 		t.Fatalf("every work-backed legislated record in the committed corpus must classify through a synthetic Product-changing contract: %v", err)

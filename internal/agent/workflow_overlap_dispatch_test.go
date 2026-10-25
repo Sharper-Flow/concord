@@ -23,7 +23,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, capabilities)
 	events := []store.Event{
-		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1}`)},
+		{EventID: "overlap-agent-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Other work","priority":1}`)},
 		{EventID: "overlap-agent-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -41,7 +41,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 		query string
 		args  []any
 	}{
-		{"fold guard", `INSERT INTO fold_guard(active) VALUES(1)`, nil},
+		{"write guard", `INSERT INTO write_guard(active) VALUES(1)`, nil},
 		{"locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('overlap-locator','project-1','canonical_path',?,?,'now','now')`, []any{repo, repo}},
 		{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-1','project-1','overlap-locator')`, nil},
 		{"registry", `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','overlap-locator','product-1','root','1.0',?,'test')`, []any{hash}},
@@ -55,12 +55,12 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 		// instance carries the execution-start fact, so the fixture gives both
 		// sides a started instance. Without this the pair claims nothing and
 		// derives no overlap to resolve.
-		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
+		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
 		// Only a write intersection blocks, so the pair must modify the same
 		// Domain. A shared affected Domain alone derives no overlap.
 		{"shared Domain writes", `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
-		{"leave fold", `DELETE FROM fold_guard`, nil},
+		{"leave write", `DELETE FROM write_guard`, nil},
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement.query, statement.args...); err != nil {
@@ -136,7 +136,7 @@ func TestResolveOverlapRoutineDispatchRecordsUnsignedAndRefusesASuppliedApproval
 	}
 	var eventKind, eventToID, eventApprovalRef string
 	var resulting, toResulting int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.resolution_kind'),json_extract(payload,'$.to_work_id'),json_extract(payload,'$.approval_ref'),json_extract(payload,'$.resulting_version'),json_extract(payload,'$.to_resulting_version') FROM domain_events WHERE kind='workflow.overlap_resolved'`).Scan(&eventKind, &eventToID, &eventApprovalRef, &resulting, &toResulting); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT o.resolution_kind,o.to_work_id,o.approval_ref,f.version,t.version FROM workflow_overlap_resolutions o JOIN effect_receipts r ON r.event_id=o.resolution_id AND r.effect_seq=o.event_seq JOIN work_items f ON f.id=o.from_work_id JOIN work_items t ON t.id=o.to_work_id WHERE r.kind='workflow.overlap_resolved'`).Scan(&eventKind, &eventToID, &eventApprovalRef, &resulting, &toResulting); err != nil {
 		t.Fatal(err)
 	}
 	if eventKind != "compatible_with" || eventToID != "work-2" || eventApprovalRef != "" || resulting != 3 || toResulting != 3 {
@@ -161,7 +161,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	ctx := context.Background()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
 	// The peer has an execution-start claim but awaits its next work step.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-2'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-2'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	for _, column := range tableColumns(t, s.DatabaseForTesting()) {
@@ -193,9 +193,9 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	if len(after.Items) != 0 || !deriveWorkBlocked(t, s, "work-2") {
 		t.Fatalf("resolution did not remove the blocked peer from ready: %+v", after.Items)
 	}
-	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	beforeEvents := agentCurrentEffects(t, s)
 	replay := dispatchMutation(t, s, service, request, env)
-	if replay.Outcome != OutcomeOK || !replay.Replayed || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+	if replay.Outcome != OutcomeOK || !replay.Replayed || agentCurrentEffects(t, s) != beforeEvents {
 		t.Fatalf("blocks resolution replay=%+v", replay)
 	}
 }
@@ -204,7 +204,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 // fixture's synthetic instance pins, so pin reads verify the fixture.
 func breakFixFixtureDigest(t *testing.T) string {
 	t.Helper()
-	registered, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	registered, ok := store.BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}

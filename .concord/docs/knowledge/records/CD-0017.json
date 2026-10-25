@@ -8,8 +8,7 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     "contracts/agent-lanes.v1.json",
-    "internal/store/worker_authority_boundary_test.go",
-    "adapter/opencode/evals/promptfooconfig.yaml"
+    "internal/store/worker_authority_boundary_test.go"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0017",
@@ -22,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4863d4b67204f545e34bbeac2d3512f320c5a1a5f782728a19b7f22d431a95a9",
+  "sha256": "sha256:c9139aefba8c5f07374c51e590f01a50132e6ed05dd50e9ad8f9171e412f3142",
   "status": "accepted",
-  "summary": "Defines the Concord-owned model-neutral lane registry, host-owned model selection, actual executing-model readback, typed missing or ambiguous readback failures, workflow-declared model distinctness, and the worker authority boundary.",
+  "summary": "Defines the Concord-owned model-neutral lane registry, host-owned model selection, actual executing-model readback, typed missing or ambiguous readback failures, and the worker authority boundary; under CD-0242 D5 and D6 no model distinctness, attempt count, or chained retry approval applies.",
   "tags": [
     "typed-workers",
     "readback",

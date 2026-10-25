@@ -130,12 +130,6 @@
     },
     {
       "domain_ids": [
-        "workflow-engine"
-      ],
-      "path": "internal/workflowcorpus"
-    },
-    {
-      "domain_ids": [
         "agent-surface",
         "operator-surface",
         "product-memory",
@@ -150,14 +144,6 @@
         "repository-verification"
       ],
       "path": "scripts/go-test-assertions"
-    },
-    {
-      "domain_ids": [
-        "durable-authority",
-        "operator-surface",
-        "repository-verification"
-      ],
-      "path": "scripts/release-restore-inventory"
     },
     {
       "domain_ids": [

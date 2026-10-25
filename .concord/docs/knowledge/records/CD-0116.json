@@ -10,9 +10,9 @@
     "internal/store/workflow_dispatch.go",
     "internal/agent/mutations.go",
     "internal/store/operator_verdict_test.go",
-    "internal/agent/operator_verdict_test.go",
+    "internal/agent/spine_criterion_authority_test.go",
     "adapter/opencode/dispatch_route_end_to_end.test.ts",
-    "internal/agent/verdict_after_acceptance_test.go",
+    "internal/store/review_receipt_test.go",
     "internal/store/workflow_evaluation.go",
     "internal/store/workflow_evaluation_test.go"
   ],
@@ -33,9 +33,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fb85002e43b9996c47bfb62853bca6bf80aab395e9d360b2d201fd359ef276bc",
+  "sha256": "sha256:5ed15bb6a807ac01737f4058beff48dc170d7db7b95a6d3ef4e1afbc18a6f37c",
   "status": "accepted",
-  "summary": "Verified operator identity permits verdicts and completion after a pinned workflow's advancing exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition membership, evidence, predicate, premise, version, and independent-evaluator gates remain in force.",
+  "summary": "Verified operator identity permits verdicts and completion after an advancing recorded exit, including delivery, accepted-worker, research-report, and architecture-decision routes. Definition-source membership, evidence, predicate, premise, and version gates remain in force.",
   "tags": [
     "workflow",
     "evidence",

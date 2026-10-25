@@ -4,31 +4,25 @@
 - **Date:** 2026-10-08
 - **Scope:** Public defect capture, its Product-scoped sibling classification,
   the research prerequisite for recurrence, and the exploration utility body
-- **Amends:** CD-0149 D2 at its exploration return prose: the generated explore
-  body returns a facts-only packet, per D5 below
-- **Preserves:** CD-0122 D2, CD-0115 released pins, CD-0156 D5 relation authority,
+- **Preserves:** CD-0122 D2, CD-0156 D5 relation authority,
   CD-0198 D2 diagnosis consolidation, operator approval, independent verdicts,
-  evidence provenance, and historical event replay
+  and evidence provenance; recorded rows read back unchanged ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Planning record:** Concord (CON) issue [CON-797](https://linear.app/sharper-flow/issue/CON-797/defect-intake-skips-root-cause-analysis-so-a-systemic-workflow-fault),
   `work-b0b08d6e28a8db2bad386ee6`
 - **Approval:** The operator approved this record's obligations on 2026-10-08,
   relayed by the Snowball coordinator under operator delegation. The approval
   records the executable contract of `work-b0b08d6e28a8db2bad386ee6` at
   contract version 1. It invents no earlier workflow history.
-- **Provenance:** The Decision section below is the verbatim D1 through D6 text
-  of proposal CD-0210 at [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
+- **Approval source:** [PR 1589](https://github.com/Sharper-Flow/concord/pull/1589)
   commit `521af7ea0c03146a23e72365bb294d692795985b` (Git blob
-  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`). Only the registration identity
-  CD-0211 and this accepted approval and provenance metadata changed.
+  `5f5e364661e1b8b91bd18eed99221056ec4b22f5`).
 
 ## Context
 
 ### Registration and provenance
 
-This record is accepted Product law under `.concord/docs/decisions/`. The
-outside-repair draft that proposed it stayed outside the accepted knowledge
-roots until this registration. CD allocation ran again at registration, and
-the accepted record takes CD-0211.
+This record is accepted Product law under `.concord/docs/decisions/` with
+identity CD-0211.
 
 The knowledge record, coverage record, and accepted CD-0149 amendment pointer
 for this law are registered with authority `legislated`, legislated by
@@ -109,8 +103,8 @@ not the merged contract.
 | Direct shared correction mechanism | CON-704, CON-757 | `workflowAcceptedWorkerDelivery`, `workflowCheckpointFailedReviewCorrection`, and `workflowUnhealthyVerdictRouteTarget`; `TestVerdictCorrectionAdmitsReviewEvidenceAccept`, `TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair` |
 | Failed-review return only, not failed-review disposition or unspawned-window hold | CON-708 | `TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold` retains its separate owner |
 | Generic evaluator return and whitelist removal, not consume-before-spawn semantics | CON-748 | `TestCorrectionRoutesDeriveFromNoWorkKind`, `TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable` |
-| Supersession staleness and declared artifact return, not design-revision admission | CON-721, CON-794 | `TestSupersessionStalesArtifactUntilReproduced`; design admission remains in `internal/store/workflow_design.go` |
-| Delivery-gate return target, not accepted no-ship disposition | CON-796 | `workflowDeliveryGateCorrectionTarget`; `internal/store/workflow_accepted_no_ship_recovery_test.go` retains the separate disposition owner |
+| Dependency-bound supersession staleness (CD-0242 D7), not design-revision admission | CON-721, CON-794 | `TestArtifactSupersessionUsesRecordedProofDependencies`; design admission remains in `internal/store/workflow_design.go` |
+| Delivery-gate return target, not accepted no-ship disposition | CON-796 | `internal/store/workflow_review.go` owns accepted dispositions; `internal/agent/spine_correction_admission_test.go` checks correction inside execution |
 | Not owned by the two-trigger recovery contract | CON-705, CON-711, CON-714, CON-728, CON-731, CON-764, CON-770, CON-788, CON-791, CON-795 | Registry overlap, law allocation, historical delivery exits, execution contract correction, retry-wall approval, design revision, removal, abandonment, and packet capacity retain separate owners |
 
 These are mechanism boundaries, not claims that uncovered reports remain
@@ -153,7 +147,7 @@ the capturing item. A classified explicit sibling must carry the same shape.
 The core persists its complete, sorted sibling snapshot beside the capture
 record in the intent projection. It does not create a semantic relation.
 
-The two public routes use the same membership fold inside the capture
+The two public routes use the same membership computation inside the capture
 transaction. A refusal rolls back the operation before a work item, journal,
 claim, or native worktree effect becomes durable. Concurrent captures cannot
 both claim to be the first stored bug of the same shape in that scope.
@@ -204,7 +198,8 @@ Converting research into a bug would bypass recurrence admission. Converting
 a bug into another kind would hide it from the sibling population.
 
 A live revision cannot convert an unclassified non-bug into a bug.
-Historical accepted kind changes still replay. Full-detail work lists and
+Historical accepted kind changes read back as recorded (CD-0242 D2). Full-detail
+work lists and
 scope reads expose the classification and sibling snapshot through the
 existing recorded-intent decoder. Bounded summaries retain their current
 summary policy.
@@ -216,21 +211,16 @@ with source `path:line`, relevant counts with their populations, historical
 commit identifiers, and explicit unknowns. It prohibits inferred root causes,
 diagnoses, and repair recommendations. The parent coordinator owns diagnosis.
 
-This amends CD-0149 D2's return prose on approval. It creates no report schema,
+It creates no report schema,
 lane evidence, new tool permission, or workflow authority. Generator tests
 prove the body contract; they do not prove that a model obeys prose.
 
 ### D6. Historical records and workflow law remain intact
 
-New public captures append `work.created` payload version 3. Versions 1 and 2
-upcast without a retroactive classification obligation. No existing bug is
-automatically reclassified, no prior contract is changed, and no released
-workflow digest or graph changes. Rebuild derives the same classification
-snapshot from the event prefix.
+Recorded captures read back as recorded, and no existing bug is reclassified retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-CD-0198 D2 remains authoritative for future diagnosis consolidation. This
-capture prerequisite does not add another break-fix diagnosis action or
-restore the separate steps that CD-0198 merges. A periodic review service,
+Capture classification precedes readiness; diagnosis uses `record_diagnosis`
+under CD-0198 D2. This capture prerequisite adds no diagnosis action. A periodic review service,
 lookup utility narrowing, and recovery admission changes remain out of scope.
 
 ## Alternatives considered
@@ -245,7 +235,7 @@ lookup utility narrowing, and recovery admission changes remain out of scope.
 - **Automatically turn a bug into research.** Rejected because that changes
   the caller's intent and creates a second shaping authority.
 - **Add another root-cause step to break-fix.** Rejected because it repeats
-  the outstanding CD-0198 consolidation and runs after ordinary capture.
+  CD-0198 D2's diagnosis action and runs after ordinary capture.
 - **Register the draft as accepted law before approval.** Rejected because the
   operator had not approved the proposed obligations at proposal time.
 

@@ -3,10 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // AJ4 — read the contract a correction replaced.
@@ -15,9 +12,8 @@ import (
 // with v2 through the operator-approved correction route, then reads
 // concord_work_trace.history with contract_version 1. It proves the
 // workflow summary answers v1 (not the active v2) with its successor and its
-// own verified definition pin, that the approval and supersession events
-// name the versions they made, that a version the work never had refuses
-// unknown_scope, and that the reads append nothing to the log.
+// own verified definition pin, that a version the work never had refuses
+// unknown_scope, and that the reads leave the store revision unchanged.
 func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "product_read"})
@@ -27,14 +23,15 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "aj4-history-"+actionID)
 		version = workOneVersion(t, s)
 	}
-	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "aj4-history-approve")
+	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, workflowContractFieldsFixture(), "aj4-history-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
+	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "aj4-history-design")
 	superseded, _ := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
@@ -64,7 +61,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	history := func(contractVersion int) Envelope {
 		raw, err := json.Marshal(map[string]any{
 			"work_id":          "work-1",
-			"event_kinds":      []string{store.WorkflowContractApproved, store.WorkflowContractSuperseded},
+			"record_kinds":     []string{"lifecycle"},
 			"contract_version": contractVersion,
 		})
 		if err != nil {
@@ -72,17 +69,18 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		}
 		return dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, env)
 	}
-	eventsBefore := domainEventCountForTest(t, s)
+	revisionBefore, err := s.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	resp := history(1)
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("history contract_version 1 = %+v", resp.Error)
 	}
 	var page struct {
-		Events []struct {
-			Kind                    string `json:"kind"`
-			ContractVersion         *int   `json:"contract_version"`
-			PreviousContractVersion *int   `json:"previous_contract_version"`
-		} `json:"events"`
+		Entries []struct {
+			Kind string `json:"entry_kind"`
+		} `json:"entries"`
 		Workflow struct {
 			Contract struct {
 				Version       int  `json:"version"`
@@ -98,20 +96,13 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	}
 
 	obs := envelopeToObservation(resp)
-	events := []any{}
-	for _, event := range page.Events {
-		entry := event.Kind
-		if event.ContractVersion != nil {
-			entry += ":" + strconv.Itoa(*event.ContractVersion)
-		}
-		if event.PreviousContractVersion != nil {
-			entry += "<-" + strconv.Itoa(*event.PreviousContractVersion)
-		}
-		events = append(events, entry)
+	kinds := []any{}
+	for _, entry := range page.Entries {
+		kinds = append(kinds, entry.Kind)
 	}
 	contract := page.Workflow.Contract
 	obs.Result = map[string]any{
-		"contract_events":           events,
+		"entry_kinds":               kinds,
 		"selected_contract_version": contract.Version,
 		"definition_pin_verified":   contract.DefinitionPin != nil && contract.DefinitionPin.Verified,
 	}
@@ -127,8 +118,12 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		obs.Communication["unknown_version_error_kind"] = refused.Error.Kind
 	}
 	obs.Effects = map[string]any{"history_mutation": probedAbsent{}}
-	if after := domainEventCountForTest(t, s); after != eventsBefore {
-		obs.Effects["history_mutation"] = after - eventsBefore
+	after, err := s.Revision(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != revisionBefore {
+		obs.Effects["history_mutation"] = after - revisionBefore
 	}
 	return obs
 }

@@ -19,7 +19,7 @@ func staleScopeEnvelope(authority Authority) CallEnvelope {
 func domainEventCount(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

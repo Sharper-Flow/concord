@@ -14,6 +14,10 @@ func operationEvent(id, kind string, subjectType SubjectType, subjectID string, 
 	if err != nil {
 		panic(err)
 	}
+	version := 1
+	if registration, ok := eventKindRegistry[kind]; ok {
+		version = registration.CurrentVersion
+	}
 	return Event{
 		EventID:        id,
 		Kind:           kind,
@@ -21,7 +25,7 @@ func operationEvent(id, kind string, subjectType SubjectType, subjectID string, 
 		SubjectID:      subjectID,
 		Actor:          "operator",
 		OccurredAt:     time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
-		PayloadVersion: 1,
+		PayloadVersion: version,
 		Payload:        encoded,
 	}
 }
@@ -100,38 +104,6 @@ func projectionSnapshot(t *testing.T, s *Store) string {
 	return snapshot
 }
 
-func TestRebuildFromLogPreservesCompleteProjectionContent(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-
-	operations := []Operation{
-		{Events: []Event{
-			productCreatedEvent("product-1", "event-1"), projectCreatedEvent("project-1", "event-2"),
-			operationEvent("event-3", "product_project.added", SubjectProduct, "product-1", map[string]any{
-				"product_id": "product-1", "project_id": "project-1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-			}),
-		}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0, VersionRef(SubjectProject, "project-1"): 0}},
-		{Events: []Event{operationEvent("event-4", "product.renamed", SubjectProduct, "product-1", map[string]string{"display_name": "Concord Core"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 2}},
-		{Events: []Event{operationEvent("event-5", "product.stage_changed", SubjectProduct, "product-1", map[string]string{"stage_maturity": "alpha", "stage_audience_commitment": "limited"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 3}},
-		{Events: []Event{operationEvent("event-6", "project.renamed", SubjectProject, "project-1", map[string]string{"display_name": "Core Runtime"})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-1"): 1}},
-	}
-	for _, operation := range operations {
-		if err := ApplyOperation(ctx, s, operation); err != nil {
-			t.Fatalf("ApplyOperation() error = %v", err)
-		}
-	}
-
-	want := projectionSnapshot(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	if got := projectionSnapshot(t, s); got != want {
-		t.Errorf("projection snapshot after rebuild =\n%s\nwant\n%s", got, want)
-	}
-	assertFoldGuardEmpty(t, s)
-}
-
 func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -155,10 +127,10 @@ func TestProjectionTablesRejectIndependentWrites(t *testing.T) {
 		{"project update", "projects", `UPDATE projects SET display_name = 'changed' WHERE id = 'project-1'`},
 		{"project delete", "projects", `DELETE FROM projects`},
 		// UPDATE and DELETE triggers fire per matching row, so seed one under
-		// the fold guard before attempting the guarded write.
+		// the write guard before attempting the guarded write.
 		{"product knowledge home insert", "product_knowledge_homes", `INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l')`},
-		{"product knowledge home update", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; UPDATE product_knowledge_homes SET locator_id = 'other'`},
-		{"product knowledge home delete", "product_knowledge_homes", `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM fold_guard; DELETE FROM product_knowledge_homes`},
+		{"product knowledge home update", "product_knowledge_homes", `INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM write_guard; UPDATE product_knowledge_homes SET locator_id = 'other'`},
+		{"product knowledge home delete", "product_knowledge_homes", `INSERT INTO write_guard(active) VALUES(1); INSERT INTO product_knowledge_homes (product_id, project_id, locator_id) VALUES ('p', 'j', 'l'); DELETE FROM write_guard; DELETE FROM product_knowledge_homes`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := s.DatabaseForTesting().ExecContext(ctx, tc.stmt); err == nil {
@@ -177,10 +149,6 @@ func TestFoldGuardIsEmptyAfterSuccessfulFolds(t *testing.T) {
 		t.Fatalf("ApplyOperation() error = %v", err)
 	}
 	assertFoldGuardEmpty(t, s)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("RebuildFromLog() error = %v", err)
-	}
-	assertFoldGuardEmpty(t, s)
 }
 
 func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
@@ -194,7 +162,7 @@ func TestFailedOperationRollsBackLogProjectionAndGuard(t *testing.T) {
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 	assertTableCount(t, s, "products", 0)
 }
 
@@ -211,7 +179,7 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-1"): 0}})
 	assertFailureKind(t, err, KindVersionConflict)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 3)
+	assertTableCount(t, s, "effect_receipts", 3)
 	assertTableCount(t, s, "products", 1)
 	var name string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT display_name FROM products WHERE id = 'product-1'`).Scan(&name); err != nil {
@@ -220,34 +188,6 @@ func TestStaleExpectedVersionRollsBackWithoutMutation(t *testing.T) {
 	if name != "Concord" {
 		t.Errorf("display_name = %q, want Concord", name)
 	}
-}
-
-func TestRebuildRejectsUnknownEventKind(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	e := operationEvent("event-1", "future.created", SubjectProduct, "product-1", map[string]string{"display_name": "future"})
-	insertRawEvent(t, s, e)
-	err := RebuildFromLog(context.Background(), s)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindUnknownEventKind || failure.Stage != StageFold {
-		t.Fatalf("failure = %+v, want unknown event at fold stage", failure)
-	}
-	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "products", 0)
-}
-
-func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	e := operationEvent("event-1", "product.created", SubjectProduct, "product-1", map[string]int{"display_name": 7})
-	insertRawEvent(t, s, e)
-	err := RebuildFromLog(context.Background(), s)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Stage != StageDecode {
-		t.Fatalf("failure = %+v, want invalid payload at decode stage", failure)
-	}
-	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "products", 0)
 }
 
 func TestMultiEventOperationRollsBackWhenSecondEventFails(t *testing.T) {
@@ -261,7 +201,7 @@ func TestMultiEventOperationRollsBackWhenSecondEventFails(t *testing.T) {
 	err := ApplyOperation(context.Background(), s, operation)
 	assertFailureKind(t, err, KindInvalidPayload)
 	assertFoldGuardEmpty(t, s)
-	assertTableCount(t, s, "domain_events", 0)
+	assertTableCount(t, s, "effect_receipts", 0)
 	assertTableCount(t, s, "products", 0)
 }
 
@@ -281,7 +221,7 @@ func assertFailureKind(t *testing.T, err error, want FailureKind) {
 
 func assertFoldGuardEmpty(t *testing.T, s *Store) {
 	t.Helper()
-	assertTableCount(t, s, "fold_guard", 0)
+	assertTableCount(t, s, "write_guard", 0)
 }
 
 func assertTableCount(t *testing.T, s *Store, table string, want int) {
@@ -379,8 +319,7 @@ func stampedWorkEvent(t *testing.T, id, kind, subjectID string, payload map[stri
 
 // TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite proves
 // updated_at keeps its versioned-write meaning: a work_item-subject event
-// that performs no versioned write — an observation record, or a removal
-// event an older fold generation appended straight to the log (CD-0111) —
+// that performs no versioned write — an observation record —
 // leaves updated_at on the created write.
 func TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite(t *testing.T) {
 	t.Parallel()
@@ -440,10 +379,4 @@ func TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite(t *testing.T) {
 		t.Fatalf("updated_at = %q, want the unchanged versioned write", got)
 	}
 
-	// A removal event an older fold generation appended to the log moves no
-	// stored column: the log records the moment, the projection write stays.
-	insertRawEvent(t, s, Event{EventID: "la-remove", Kind: WorkRemoved, SubjectType: SubjectWorkItem, SubjectID: "work-la", Actor: "operator", OccurredAt: observationAt.Add(time.Hour), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
-	if got := updatedAt(); got != createdStamp[:19]+"Z" {
-		t.Fatalf("updated_at = %q, want the raw log append to move no column", got)
-	}
 }

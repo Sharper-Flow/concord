@@ -36,7 +36,7 @@ func removeNewestManifestRow(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := rewindMigrationTail(db, 0, false); err != nil {
+	if err := removeMigrationManifestTail(db, 0); err != nil {
 		t.Fatalf("cannot remove the newest manifest row: %v", err)
 	}
 }
@@ -115,13 +115,8 @@ func TestReleaseManagedStoreRefusesABinaryTheInstallerDidNotPlace(t *testing.T) 
 		}},
 		{"repair snapshot", func(t *testing.T, root, _ string) (int, string) {
 			var out, errOut bytes.Buffer
-			return backupBeforeRepair(&out, &errOut, root, "v-test"), errOut.String()
-		}},
-		{"recover-fold-guard explicit path", func(t *testing.T, _, path string) (int, string) {
-			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "elsewhere.db"))
-			var out, errOut bytes.Buffer
-			input := fmt.Sprintf(`{"path":%q}`, path)
-			return runWithInput([]string{"recover-fold-guard"}, strings.NewReader(input), &out, &errOut), errOut.String()
+			_, code := backupBeforeRepair(&out, &errOut, root, "v-test")
+			return code, errOut.String()
 		}},
 	}
 	for _, stamp := range []string{version.Development, "v9.9.9"} {

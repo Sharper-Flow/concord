@@ -13,18 +13,20 @@ import (
 
 func seedResearchWork(t *testing.T, s *Store, ids ...string) {
 	t.Helper()
-	events := []Event{
-		{EventID: "research-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "research-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: "research-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product","project_id":"project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
+	if _, err := s.CreateProductWithProject(context.Background(), ProductCreation{
+		ProductID: "product", DisplayName: "Product", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "project", ProjectDisplayName: "Project", Role: "primary", Reason: "test",
+	}); err != nil {
+		t.Fatal(err)
 	}
+	var events []Event
 	for i, id := range ids {
 		events = append(events,
-			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
+			Event{EventID: "research-work-" + id, Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(2, int64(i)).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "research", "title": id, "priority": 1})},
 			Event{EventID: "research-work-project-" + id, Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: id, Actor: "test", OccurredAt: time.Unix(3, int64(i)).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": id, "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
 		)
 	}
-	expected := map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0}
+	expected := make(map[SubjectRef]int64, len(ids))
 	for _, id := range ids {
 		expected[VersionRef(SubjectWorkItem, id)] = 0
 	}
@@ -52,7 +54,7 @@ func TestActiveResearchRevisionBoundary(t *testing.T) {
 	} else {
 		assertFailureKind(t, err, KindVersionConflict)
 	}
-	beforeEvents := countRows(t, s, "domain_events")
+	beforeEvents := currentEffectRows(t, s)
 	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 2, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Example", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +65,8 @@ func TestActiveResearchRevisionBoundary(t *testing.T) {
 	if err != nil || len(complete.Revisions) != 2 || len(complete.Revisions[1].Sources) != 1 || len(complete.Revisions[1].Findings) != 1 || len(complete.Revisions[1].Findings[0].SourceIDs) != 1 {
 		t.Fatalf("complete research pack = %+v, %v", complete, err)
 	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	retained, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(retained.Revisions) != 2 {
-		t.Fatalf("research pack was not preserved across projection rebuild: %+v, %v", retained, err)
-	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
-		t.Fatalf("research content entered domain_events: %d -> %d", beforeEvents, got)
+	if got := currentEffectRows(t, s); !reflect.DeepEqual(got, beforeEvents) {
+		t.Fatalf("research content changed effect receipts: %v -> %v", beforeEvents, got)
 	}
 	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 2, UseRole: UseContext, Required: true})
 	pinned, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
@@ -234,7 +229,7 @@ func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
 func linkArchivedResearchOwner(t *testing.T, s *Store, id string) {
 	t.Helper()
 	anchorHomePair(t, s, "home", "locator")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM fold_guard`, id, id); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?, 'work_note', ?, '2026-08-07T00:00:00Z', 'completed', '[]', 'completed', 1, 'durable summary', 'home', 'locator', 'notes/`+id+`.md', 'commit', 'hash'); DELETE FROM write_guard`, id, id); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -475,23 +470,6 @@ func TestWorkRemovalReleasesOptionalConsumerPin(t *testing.T) {
 	}
 }
 
-func TestRetainedPackSurvivesProjectionRebuild(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner", "consumer")
-	pack := createSimplePack(t, s, "rebuild-retained", "owner")
-	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
-	terminalizeResearchOwner(t, s, "owner")
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(got.Revisions) != 1 || len(got.Consumers) != 1 {
-		t.Fatalf("rebuilt retained pack=%+v err=%v", got, err)
-	}
-}
-
 func TestRetainedPackSurvivesCloseAndReopen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -615,7 +593,7 @@ func TestRetirementDeleteGuardRefusesMissingOwner(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
 		t.Fatal("guard admitted a delete whose owner work is non-terminal")
 	}
-	synthExecPath(t, path, `DELETE FROM work_items WHERE id='owner'`)
+	synthExecPath(t, path, "fold_guard", `DELETE FROM work_items WHERE id='owner'`)
 	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
 		t.Fatal("guard admitted a delete whose owner work row is missing")
 	}
@@ -717,7 +695,7 @@ func TestPublishCompactionLinkRetainsResearchWithRequiredConsumer(t *testing.T) 
 		t.Fatal("compaction did not record the archive")
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -739,11 +717,11 @@ func TestCompactionFoldAcceptsRequiredConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(compactionLinkPayloadV1{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "direct fold test", ExpectedVersion: 3, ResultingVersion: 4})
+	payload, err := json.Marshal(compactionLinkPayload{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "direct fold test", ExpectedVersion: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: "direct-retained-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+	event := Event{EventID: "direct-retained-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: eventKindRegistry["compaction_link.published"].CurrentVersion, Payload: payload}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner"): 3}}); err != nil {
 		t.Fatalf("compaction fold refused a required active consumer: %v", err)
 	}
@@ -782,7 +760,8 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	}
 	terminalizeResearchOwner(t, s, "owner")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "owner-repo", RepoPath: repo, HeadRef: "HEAD"}
-	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "retained-proof-compaction")); err != nil {
+	request := compactionRequest(home, commit, path, "retained-proof-compaction")
+	if err := PublishCompactionLink(ctx, s, request); err != nil {
 		t.Fatal(err)
 	}
 	// Publication is proof-backed archive, not destruction: the pack body
@@ -795,19 +774,36 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || len(got.Revisions) != 2 {
 		t.Fatalf("retained pack after publication=%+v err=%v", got, err)
 	}
-	var bodyEvents, bodySummary int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE payload LIKE ?`, "%"+secret+"%").Scan(&bodyEvents); err != nil {
-		t.Fatal(err)
-	}
+	var bodySummary int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work WHERE summary LIKE ?`, "%"+secret+"%").Scan(&bodySummary); err != nil {
 		t.Fatal(err)
 	}
-	if bodyEvents != 0 || bodySummary != 0 {
-		t.Fatalf("retained pack body leaked to events/summary=%d/%d", bodyEvents, bodySummary)
+	if bodySummary != 0 {
+		t.Fatalf("retained pack body leaked to %d archive summaries", bodySummary)
 	}
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
 	if err != nil || strings.Contains(string(note.Content), secret) {
 		t.Fatalf("Git authority contains retained pack body: err=%v", err)
+	}
+	expected := compactionLinkPayload{
+		ID: note.ID, Type: note.Kind, Title: note.Title, CompletedAt: note.CompletedAt,
+		OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState,
+		Priority: note.Priority, Summary: note.Summary, SuccessorID: note.SuccessorID,
+		ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: []string{"auth"}, TagIDs: note.TagIDs,
+		HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID,
+		NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash,
+		Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+	}
+	wantDigest, err := effectPayloadDigest(mustJSONValue(expected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var digest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='compaction_link.published' AND subject_type='work_item' AND subject_id=?`, request.EventID, request.WorkID).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest != wantDigest {
+		t.Fatalf("publication digest=%q, want the exact bounded note/request with no research body: %q", digest, wantDigest)
 	}
 }
 
@@ -819,11 +815,11 @@ func TestCompactionRetryAfterCrashWindowRetainsResearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(compactionLinkPayloadV1{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, ComponentIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "proof-backed archive", ExpectedVersion: 3, ResultingVersion: 4})
+	payload, err := json.Marshal(compactionLinkPayload{ID: "owner", Type: "work_note", Title: note.Title, CompletedAt: note.CompletedAt, OutcomeTag: note.OutcomeTag, LessonTags: note.LessonTags, TerminalState: note.TerminalState, Priority: note.Priority, Summary: note.Summary, ProductIDs: note.ProductIDs, ProjectIDs: note.ProjectIDs, DomainIDs: note.DomainIDs, TagIDs: note.TagIDs, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, NotePath: note.NotePath, CommitOID: note.CommitOID, ContentHash: note.ContentHash, Reason: "proof-backed archive", ExpectedVersion: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: "crash-window-link", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+	event := Event{EventID: "crash-window-link", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: eventKindRegistry["compaction_link.published"].CurrentVersion, Payload: payload}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner"): 3}}); err != nil {
 		t.Fatal(err)
 	}
@@ -834,7 +830,7 @@ func TestCompactionRetryAfterCrashWindowRetainsResearch(t *testing.T) {
 		t.Fatalf("idempotent compaction retry refused: %v", err)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -891,46 +887,6 @@ func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
 	}
 }
 
-func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	events := []Event{
-		{EventID: "architecture-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "architecture-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: "architecture-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "architecture-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: "architecture-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "spike", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": "spike", "project_id": "project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0, VersionRef(SubjectWorkItem, "spike"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	initializeCompositionWorkflow(t, s, "spike", "workflow.architecture_spike", WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent})
-	// CD-0183 D4: a live instance refuses the lifecycle completion outright,
-	// so the fail-closed decision-record case runs against a cancelled
-	// instance, where the workflow gate never ran and the lifecycle-side
-	// decision gate stays in force.
-	seedTerminalInstanceForTesting(t, s, "spike", "cancelled")
-	pack := createSimplePack(t, s, "spike-research", "spike")
-	if _, err := recordResearchFinding(ctx, s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingConclusion, Statement: "research alone is not accepted decision proof", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
-		t.Fatal(err)
-	}
-	beforeEvents := countRows(t, s, "domain_events")
-	event := operationEventForResearch("spike-complete", "work.transitioned", "spike", map[string]any{"from": "needed", "to": "completed", "reason": "research complete", "evidence_refs": []string{"research:f1"}, "expected_version": 4, "resulting_version": 5})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "spike"): 4}}); err == nil {
-		t.Fatal("architecture_spike completed without accepted decision proof")
-	} else {
-		assertFailureKind(t, err, KindDecisionRecordRequired)
-	}
-	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='spike'`).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "needed" || countRows(t, s, "domain_events") != beforeEvents {
-		t.Fatalf("fail-closed spike completion changed lifecycle/events=%s/%d", lifecycle, countRows(t, s, "domain_events"))
-	}
-}
-
 func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -955,7 +911,7 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {
 		t.Fatal("obsolete Epic work kind was accepted by the store")
 	}

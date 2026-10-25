@@ -59,7 +59,7 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 	if actionID == "record_proposal" && len(fields) == 0 {
 		payload = json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
 	}
-	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 	if actionErr != nil {
 		_ = tx.Rollback()
 		return 0, actionErr
@@ -193,13 +193,6 @@ func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 	if snapshot.RestartAvailable || snapshot.RestartUnavailableReason == "" {
 		t.Fatalf("restart availability=%+v", snapshot)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("continuity rebuild: %v", err)
-	}
-	rebuilt, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-work", Limit: 20})
-	if err != nil || rebuilt.BoundaryCount != 1 || rebuilt.LatestCheckpoint == nil {
-		t.Fatalf("rebuilt continuity=%+v err=%v", rebuilt, err)
-	}
 }
 
 func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T) {
@@ -238,7 +231,7 @@ func TestContextContinuityRejectsRestartAndPendingDecisionBoundary(t *testing.T)
 		t.Fatalf("restart error=%v", err)
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "continuity-reject", WorkflowContextBoundaryCrossed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -356,7 +349,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 		t.Fatal("context checkpoint update bypassed immutability guard")
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM workflow_context_checkpoints WHERE work_id='continuity-v22-guards'`); err == nil {
-		t.Fatal("context checkpoint delete bypassed fold guard")
+		t.Fatal("context checkpoint delete bypassed write guard")
 	}
 	actorRef, err := WorkflowActorRef(actor)
 	if err != nil {
@@ -366,7 +359,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',1,?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
-		t.Fatal("context boundary insert bypassed fold guard")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
+		t.Fatal("context boundary insert bypassed write guard")
 	}
 }

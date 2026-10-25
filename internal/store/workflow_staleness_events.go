@@ -32,9 +32,9 @@ func appendWorkflowStalenessObservationTx(ctx context.Context, transaction *Tran
 	if err != nil {
 		return err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	recorded, err := workflowStalenessObservationRecordedTx(ctx, tx, event)
 	if err != nil {
@@ -82,9 +82,9 @@ func workflowStalenessObservationEvent(eventID, workID, actor, acceptedInputsDig
 }
 
 func workflowStalenessObservationRecordedTx(ctx context.Context, tx *sql.Tx, event Event) (bool, error) {
-	var kind, subjectType, subjectID, actor, payload string
+	var kind, subjectType, subjectID, actor string
 	var payloadVersion int
-	err := tx.QueryRowContext(ctx, `SELECT kind,subject_type,subject_id,actor,payload_version,payload FROM domain_events WHERE event_id=?`, event.EventID).Scan(&kind, &subjectType, &subjectID, &actor, &payloadVersion, &payload)
+	err := tx.QueryRowContext(ctx, `SELECT kind,subject_type,subject_id,actor,payload_version FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&kind, &subjectType, &subjectID, &actor, &payloadVersion)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -95,8 +95,8 @@ func workflowStalenessObservationRecordedTx(ctx context.Context, tx *sql.Tx, eve
 		return false, newFailure(KindOperationConflict, "workflow_staleness", "staleness observation event identity is already in use", false, "retry with a new operation identity")
 	}
 	var recorded, requested workflowStalenessObservedPayload
-	if err := json.Unmarshal([]byte(payload), &recorded); err != nil {
-		return false, newFailure(KindInvariantViolation, "workflow_staleness", "recorded staleness observation event is malformed", false, "rebuild projections from the event log")
+	if err := tx.QueryRowContext(ctx, `SELECT rule_id,severity,drifted,accepted_inputs_digest FROM workflow_staleness_observations WHERE event_id=? AND work_id=?`, event.EventID, event.SubjectID).Scan(&recorded.RuleID, &recorded.Severity, &recorded.Drifted, &recorded.AcceptedInputsDigest); err != nil {
+		return false, newFailure(KindInvariantViolation, "workflow_staleness", "recorded staleness observation event is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if err := json.Unmarshal(event.Payload, &requested); err != nil {
 		return false, newFailure(KindInvalidPayload, "workflow_staleness", "staleness observation event is malformed", false, "supply the typed staleness observation")

@@ -311,6 +311,44 @@ when the release-matched installer itself is defective. The report names the
 selected release, the installer's release, the backup path, the repaired
 files, and the verification result.
 
+### Managed snapshot retention
+
+After a successful upgrade or repair that made a verified snapshot, Concord
+keeps at most eight verified managed snapshots no older than 30 days. It ranks
+them by verified manifest creation time, newest first, with descending filename
+as the stable tie-break. The newest verified snapshot and the snapshot the
+finishing operation just made count toward eight but are never deleted, even
+when older than 30 days or outranked by a clock-skewed creation time.
+
+Cleanup owns only regular snapshot/manifest pairs in the data root's `backups`
+directory with the reserved `pre-upgrade-<release>-<timestamp>` or
+`pre-repair-<release>-<timestamp>` name. Each manifest must pass backup verification.
+Foreign names, invalid or incomplete pairs, symlinks, and snapshots with pending
+SQLite sidecar data remain untouched. Operator-selected exports outside this
+managed namespace are not subject to cleanup.
+
+The maintenance lock serializes cleanup with upgrade and installer operations.
+Restore from a managed snapshot holds its source data root's maintenance lock
+even when its destination is elsewhere; it never starts cleanup.
+Any maintenance fence (`maintenance.json`), prepared activation
+(`prepared-release.json`), entry in `.concord-transactions`, or
+`.concord-restore-*` staging in the data root or its backups directory excludes
+the entire snapshot set from cleanup. Malformed records also exclude cleanup;
+their age never proves recovery finished. No new recovery record or per-snapshot
+pin is created. A breaking upgrade that retains its activation fence therefore
+reports deferred cleanup rather than pruning.
+
+Upgrade reports `snapshot_retention` in its JSON result; repair prints the
+deleted count, protected excess, and any exclusion reason. Protected excess
+counts verified snapshots outside the ordinary count or age limit that safety
+rules kept. Recovery can therefore keep more than eight snapshots indefinitely.
+Failed snapshot creation or a failed upgrade or repair never prunes. Restore
+never prunes. A cleanup failure reports that the operation finished but cleanup
+failed, in the upgrade's `snapshot_retention.error` or repair's diagnostic,
+and keeps the operation's success exit status. An interrupted pair removal can
+leave an orphan manifest, which is not treated as a verified snapshot on a
+later pass.
+
 Offline repair uses locally published assets:
 
 ```sh
@@ -333,22 +371,9 @@ it matches neither the installed manifest nor the release. The refusal names
 the offending artifact or path. The work database, worktrees, credentials, and
 unrelated configuration are outside the managed paths and are never touched.
 
-## Fold-guard recovery
+## Recovery
 
-When the core refuses to open the authority database because a committed
-`fold_guard` row stranded without its owning fold scope, recover offline from
-an ordinary shell:
-
-```sh
-concord recover-fold-guard
-```
-
-The verb runs without the network. It clears the stranded guard row and
-rebuilds every projection from the append-only event log in one transaction,
-so projection rows the log does not restore are discarded and the log itself
-is preserved. A failed recovery rolls back, which restores the stranded row
-and keeps the database refused; pass `{"path": "..."}` on JSON stdin to
-recover a database outside the default location.
+Recovery restores a verified snapshot and reconciles current rows, and a refusal to open the authority database states the recovery action the caller may take ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D12](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d12-every-refusal-states-an-action-the-caller-may-take)); the store keeps no append-only event log to rebuild from.
 
 ## Uninstall
 

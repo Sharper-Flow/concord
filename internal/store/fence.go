@@ -43,10 +43,13 @@ const (
 // RequestID is transport-attempt identity; IdempotencyKey is logical retry
 // identity and must be reused by callers retrying the same intent.
 type ClaimRequest struct {
-	OpID                  string    `json:"op_id"`
-	WorkID                string    `json:"work_id"`
-	WorkflowTypeRef       string    `json:"workflow_type_ref"`
-	WorkflowTypeVersion   int       `json:"workflow_type_version"`
+	OpID            string `json:"op_id"`
+	WorkID          string `json:"work_id"`
+	WorkflowTypeRef string `json:"workflow_type_ref"`
+	// WorkflowTypeDigest binds a claim on a workflow.* step to the exact
+	// definition content it was claimed under; an auxiliary claim (any
+	// other ref) carries none.
+	WorkflowTypeDigest    string    `json:"workflow_type_digest,omitempty"`
 	StepID                string    `json:"step_id"`
 	StepKind              StepKind  `json:"step_kind"`
 	AcceptedInputsDigest  string    `json:"accepted_inputs_digest"`
@@ -110,7 +113,7 @@ func Step(ctx context.Context, s *Store, opID string) (FenceResult, error) {
 	if err := preflightWorkflowOperation(ctx, s, opID); err != nil {
 		return FenceResult{}, err
 	}
-	return readStep(ctx, s.db, opID, false)
+	return readStep(ctx, s.db, opID)
 }
 
 // StepTx reads the newest durable attempt in the caller's transaction.
@@ -122,7 +125,7 @@ func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceRe
 	if opID == "" {
 		return FenceResult{}, newFailure(KindInvalidOperation, "step", "operation ID is empty", false, "supply a durable operation ID")
 	}
-	return readStep(ctx, tx, opID, true)
+	return readStep(ctx, tx, opID)
 }
 
 // ClaimStepAuthorized starts the next fenced attempt. The connection's
@@ -192,16 +195,19 @@ func claimStepObservedAuthorizedWithRegistry(ctx context.Context, s *Store, req 
 			return FenceResult{}, err
 		}
 	}
+	if err := refusePublishedWorkTx(ctx, tx.Tx, req.WorkID, "claim_step"); err != nil {
+		return FenceResult{}, err
+	}
 	var epoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch), 0) + 1 FROM durable_operations WHERE op_id = ?`, req.OpID).Scan(&epoch); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot allocate attempt epoch", true, "retry once the database is readable", err)
 	}
 	observed := req.ObservedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
-		 (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 (op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
-		req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest,
+		req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest,
 		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractDigest); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err)
 	}
@@ -326,8 +332,8 @@ func validateClaim(req ClaimRequest) error {
 			return newFailure(KindInvalidOperation, "claim_step", name+" is empty", false, "supply all durable identity fields")
 		}
 	}
-	if req.WorkflowTypeVersion <= 0 {
-		return newFailure(KindInvalidOperation, "claim_step", "workflow_type_version must be positive", false, "supply a supported workflow version")
+	if validWorkflowRef(req.WorkflowTypeRef) != validDigest(req.WorkflowTypeDigest) || (!validWorkflowRef(req.WorkflowTypeRef) && req.WorkflowTypeDigest != "") {
+		return newFailure(KindInvalidOperation, "claim_step", "workflow_type_digest must be the definition digest exactly when workflow_type_ref names a workflow", false, "supply the pinned definition digest for a workflow step claim and none otherwise")
 	}
 	if !validStepKind(req.StepKind) {
 		return newFailure(KindInvalidOperation, "claim_step", "step_kind is not recognized", false, "use an accepted D4 step kind")
@@ -399,12 +405,11 @@ func validateStringRefs(refs []string, field string) error {
 
 func claimDigest(req ClaimRequest) string {
 	return digestJSON(struct {
-		OpID, WorkID, WorkflowTypeRef                                                                string
-		WorkflowTypeVersion                                                                          int
+		OpID, WorkID, WorkflowTypeRef, WorkflowTypeDigest                                            string
 		StepID                                                                                       string
 		StepKind                                                                                     StepKind
 		AcceptedInputsDigest, AcceptedScopeSnapshot, PrincipalRef, Tool, IdempotencyKey, ApprovalRef string
-	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey, req.ApprovalRef})
+	}{req.OpID, req.WorkID, req.WorkflowTypeRef, req.WorkflowTypeDigest, req.StepID, req.StepKind, req.AcceptedInputsDigest, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey, req.ApprovalRef})
 }
 func completeDigest(req CompleteRequest) string {
 	return digestJSON(struct {
@@ -459,11 +464,11 @@ func touchIdempotency(ctx context.Context, tx *sql.Tx, row idempotencyRow, obser
 func readCurrentOperation(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string) (FenceResult, error) {
-	return readStep(ctx, q, opID, true)
+	return readStep(ctx, q, opID)
 }
 func readStep(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, opID string, txRead bool) (FenceResult, error) {
+}, opID string) (FenceResult, error) {
 	var result FenceResult
 	var kind, payload, evidence, changed, cursor, scope, contractDigest sql.NullString
 	err := q.QueryRowContext(ctx, `SELECT op_id,work_id,attempt_epoch,step_id,COALESCE(result_kind,''),COALESCE(result_payload,''),evidence_refs,changed_refs,COALESCE(resume_cursor,''),accepted_scope_snapshot,contract_digest FROM durable_operations WHERE op_id=? ORDER BY attempt_epoch DESC LIMIT 1`, opID).Scan(&result.OpID, &result.WorkID, &result.AttemptEpoch, &result.StepID, &kind, &payload, &evidence, &changed, &cursor, &scope, &contractDigest)
@@ -492,14 +497,13 @@ func readStep(ctx context.Context, q interface {
 			result.ApprovalRef = approval
 		}
 	}
-	_ = txRead
 	return result, nil
 }
 
 func durableResult(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, opID string, eventIDs []string) (FenceResult, error) {
-	result, err := readStep(ctx, q, opID, true)
+	result, err := readStep(ctx, q, opID)
 	if err != nil {
 		return result, err
 	}

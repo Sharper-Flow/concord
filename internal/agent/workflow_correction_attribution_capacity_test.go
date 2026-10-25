@@ -51,19 +51,15 @@ func TestRequestBudgetHoldsCorrectionAttributionVariant(t *testing.T) {
 	// shape the shared ceilings' rounding derives from; this structural
 	// check keeps the correction attribution input inside the dispatch
 	// composition that the per-shape request proof carries. Every packet
-	// identity the closed dispatch union admits — packet2, packet3, the
-	// checks-repair packet4, and the size-capable packet5 — derives from
-	// the same writer-bound inventory; the checks-repair metadata is
+	// member of the current packet derives from the same writer-bound
+	// inventory (CD-0242 D14); the checks-repair metadata is
 	// writer-bounded by WorkerJobChecksRepairMaxBytes exactly as the
 	// acceptance oracle is.
-	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
+	packet := derivedPacketFigure(t, defs, findingRefMax)
 	dispatchOpt := schemawire.Options{
 		Defs: defs,
 		RefBounds: map[string]int{
-			"worker_packet2": packet2 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet3": packet3 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet4": packet4 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet5": packet5 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet": packet + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		FindingRefMax: findingRefMax,
 	}

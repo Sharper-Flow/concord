@@ -41,10 +41,10 @@ func (s SubjectType) valid() bool {
 	return ok
 }
 
-// Event is one row of the append-only log.
+// Event describes one mutation applied to current rows in its transaction.
 type Event struct {
-	// Seq is populated when an event is read from the log. It is not caller
-	// supplied and is never persisted as part of the event payload.
+	// Seq is allocated by the write seam or read from an effect receipt. It is
+	// not caller supplied and is never part of the event payload.
 	Seq Sequence
 	// EventID is the caller-supplied stable identity. Repeating an append with
 	// the same identity is reported as a duplicate rather than creating a
@@ -59,20 +59,13 @@ type Event struct {
 	Actor string
 	// OccurredAt is normalized to Coordinated Universal Time on write.
 	OccurredAt time.Time
-	// PayloadVersion selects the payload shape, and later selects the upcasters
-	// a rebuild runs.
+	// PayloadVersion must match the kind's current payload schema.
 	PayloadVersion int
-	// replaySourcePayloadVersion records the stored version when an upcaster
-	// changes the in-memory event. Folds use it only for versioned replay rules.
-	replaySourcePayloadVersion int
-	recordedPayloadShape       recordedPayloadShape
-	legacyVerdictPredicate     bool
 	// Payload is a JSON object.
 	Payload []byte
 }
 
-// Sequence is the log's stable total order. It is assigned by the database on
-// append.
+// Sequence is the stable effect order allocated inside the write transaction.
 type Sequence = int64
 
 // AppendEvent writes one event inside the caller's transaction and returns its
@@ -85,7 +78,8 @@ func AppendEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	return appendEvent(ctx, tx, e, false)
 }
 
-// EventByIDTx reads one durable event through the caller's transaction.
+// EventByIDTx reads a worker evidence receipt and its original current payload
+// through the caller's transaction. OccurredAt is not receipt identity.
 func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) (Event, bool, error) {
 	tx, err := transactionSQL(transaction, "event_by_id")
 	if err != nil {
@@ -94,40 +88,26 @@ func EventByIDTx(ctx context.Context, transaction *Transaction, eventID string) 
 	return eventByID(ctx, tx, eventID)
 }
 
-// EventByID reads one durable event through the store's deferred read snapshot;
-// append-only receipt-linked event reads need no write-transaction join.
-func EventByID(ctx context.Context, s *Store, eventID string) (Event, bool, error) {
-	var event Event
-	var found bool
-	err := s.readSnapshot(ctx, func(q queryer) error {
-		return eventByIDInto(ctx, q, eventID, &event, &found)
-	})
-	return event, found, err
-}
-
-// eventByIDInto assigns the shared core's result so the snapshot closure stays
-// one store call.
-func eventByIDInto(ctx context.Context, q queryer, eventID string, event *Event, found *bool) error {
-	var err error
-	*event, *found, err = eventByID(ctx, q, eventID)
-	return err
-}
-
-// eventByID is the shared raw-event core; q is the caller's read handle.
+// eventByID reconstructs worker evidence without interpreting its payload.
 func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, error) {
-	var event Event
-	var occurredAt string
-	err := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE event_id=?`, eventID).
-		Scan(&event.Seq, &event.EventID, &event.Kind, &event.SubjectType, &event.SubjectID, &event.Actor, &occurredAt, &event.PayloadVersion, &event.Payload)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Event{}, false, nil
-		}
-		return Event{}, false, err
+	receipt, found, err := readEffectReceipt(ctx, q, eventID)
+	if err != nil || !found {
+		return Event{}, found, err
 	}
-	event.OccurredAt, err = time.Parse(time.RFC3339Nano, occurredAt)
+	event := receipt.event
+	switch event.Kind {
+	case WorkerDispatched:
+		err = q.QueryRowContext(ctx, `SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND dispatch_event_id=?`, event.SubjectID, eventID).Scan(&event.Payload)
+	case WorkerCompleted, WorkerFailed:
+		err = q.QueryRowContext(ctx, `SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND terminal_event_id=? AND terminal_kind=?`, event.SubjectID, eventID, event.Kind).Scan(&event.Payload)
+	default:
+		return Event{}, false, newFailure(KindIdempotencyConflict, "event_by_id", "worker evidence event identity conflicts with an existing effect", false, "choose a new event_id")
+	}
 	if err != nil {
-		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot parse the stored event time", false, "repair the stored event", err)
+		return Event{}, false, wrapFailure(KindUnavailable, "event_by_id", "cannot read the stored worker evidence payload", false, "restore the current worker evidence from a verified backup", err)
+	}
+	if len(receipt.identityDifferences(event)) != 0 {
+		return Event{}, false, newFailure(KindInvariantViolation, "event_by_id", "stored worker evidence differs from its effect receipt", false, "restore the current worker evidence from a verified backup")
 	}
 	return event, true, nil
 }
@@ -143,44 +123,61 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err != nil {
 		return 0, err
 	}
-	switch prepared.registration.Authority {
-	case EventAppendAuthorityRetired:
-		return 0, retiredEventAppendRefused(e.Kind)
-	case EventAppendAuthorityWorkflow:
-		if !allowCompletion {
-			return 0, workflowDispatcherRequired(e.Kind)
-		}
+	if prepared.registration.Authority == EventAppendAuthorityWorkflow && !allowCompletion {
+		return 0, workflowDispatcherRequired(e.Kind)
 	}
+	return appendPreparedEvent(ctx, tx, e)
+}
+
+// appendPreparedEvent owns the single effect writer. Registered writers that
+// derive a typed effect use it without recursively resolving the registry
+// that binds those writers during package initialization.
+func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
 	// The retirement can also be a property of the payload or the subject
-	// rather than of the event kind: a generic work.created whose upcast
+	// rather than of the event kind: a generic work.created whose
 	// payload classifies as initiative, or any new event on an existing
-	// initiative work item, refuses here before the log row exists (CD-0213
+	// initiative work item, refuses here before the receipt exists (CD-0213
 	// D4).
-	if err := refuseRetiredPlanningAppend(ctx, tx, e, prepared); err != nil {
+	if err := refuseRetiredPlanningAppend(ctx, tx, e); err != nil {
 		return 0, err
 	}
 	if err := validateLiveProjectLocator(e); err != nil {
 		return 0, err
 	}
+	if _, exists, err := readEffectReceipt(ctx, tx, e.EventID); err != nil {
+		return 0, wrapFailure(KindUnavailable, "append_event", "cannot read the effect identity", true, "retry once the database is readable", err)
+	} else if exists {
+		return 0, classifyEventIDConflict(ctx, tx, e, nil)
+	}
 
-	res, err := tx.ExecContext(ctx, `
-		INSERT INTO domain_events
-			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.EventID, e.Kind, string(e.SubjectType), e.SubjectID, e.Actor,
-		e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
+	seq, err := allocateStoreSequence(ctx, tx, "effect")
 	if err != nil {
+		return 0, err
+	}
+	counted, err := effectCreatesRelationPosition(e)
+	if err != nil {
+		return 0, err
+	}
+	var relationSeq any
+	if counted {
+		relationSeq, err = allocateStoreSequence(ctx, tx, "relation")
+		if err != nil {
+			return 0, err
+		}
+	}
+	digest, err := effectPayloadDigest(e.Payload)
+	if err != nil {
+		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
+	}
+	_, asserted, err := workflowEventDeliveryAssertion(e)
+	if err != nil {
+		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq) VALUES(?,?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, asserted, relationSeq); err != nil {
 		if isUniqueViolation(err) {
 			return 0, classifyEventIDConflict(ctx, tx, e, err)
 		}
-		return 0, wrapFailure(KindUnavailable, "append_event", "cannot append the event", true,
-			"retry once the database is writable", err)
-	}
-
-	seq, err := res.LastInsertId()
-	if err != nil {
-		return 0, wrapFailure(KindUnavailable, "append_event", "cannot read the assigned sequence", true,
-			"retry the operation", err)
+		return 0, wrapFailure(KindUnavailable, "append_event", "cannot record the effect receipt", true, "retry once the database is writable", err)
 	}
 	return seq, nil
 }
@@ -294,33 +291,28 @@ func isConstraintViolation(err error) bool {
 // retry carries a fresh clock reading and must not be misclassified as
 // divergent. A future reader must not "fix" that omission.
 func classifyEventIDConflict(ctx context.Context, tx *sql.Tx, attempted Event, insertErr error) error {
-	var existing Event
-	if err := tx.QueryRowContext(ctx,
-		`SELECT seq, kind, subject_type, subject_id, actor, payload_version, payload FROM domain_events WHERE event_id = ?`,
-		attempted.EventID,
-	).Scan(&existing.Seq, &existing.Kind, &existing.SubjectType, &existing.SubjectID, &existing.Actor, &existing.PayloadVersion, &existing.Payload); err != nil {
+	receipt, found, err := readEffectReceipt(ctx, tx, attempted.EventID)
+	if err == nil && !found {
+		err = sql.ErrNoRows
+	}
+	if err != nil {
 		return wrapFailure(KindUnavailable, "append_event",
 			"cannot read the conflicting event_id "+attempted.EventID, true,
 			"retry once the database is readable", err)
 	}
-	if diffs := eventIdentityDifferences(attempted, existing); len(diffs) > 0 {
+	if diffs := receipt.identityDifferences(attempted); len(diffs) > 0 {
 		return newFailure(KindIdempotencyConflict, "append_event",
 			fmt.Sprintf("event_id %q is already recorded with a different %s", attempted.EventID, strings.Join(diffs, ", ")),
 			false,
 			"choose a new event_id; the recorded event is a different operation")
 	}
 	return wrapFailure(KindDuplicateEvent, "append_event",
-		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, existing.Seq),
+		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, receipt.event.Seq),
 		true,
 		"treat the existing event as the durable effect", insertErr)
 }
 
-// eventIdentityDifferences returns the names of semantic-identity fields that
-// differ between attempted and existing, in a stable order. occurred_at is
-// deliberately omitted: a legitimate retry carries a fresh clock reading and
-// must not be misclassified as divergent. The canonical payload comparison
-// rules live on canonicalJSON.
-func eventIdentityDifferences(attempted, existing Event) []string {
+func eventHeaderDifferences(attempted, existing Event) []string {
 	var diffs []string
 	if attempted.Kind != existing.Kind {
 		diffs = append(diffs, "kind")
@@ -337,23 +329,5 @@ func eventIdentityDifferences(attempted, existing Event) []string {
 	if attempted.PayloadVersion != existing.PayloadVersion {
 		diffs = append(diffs, "payload_version")
 	}
-	if !payloadsCanonicallyEqual(attempted.Payload, existing.Payload) {
-		diffs = append(diffs, "payload")
-	}
 	return diffs
-}
-
-// payloadsCanonicallyEqual reports whether two JSON payloads are semantically
-// equal under canonicalJSON. A canonicalization failure on either side is
-// treated as divergent so a malformed payload never silently masks a conflict.
-func payloadsCanonicallyEqual(a, b []byte) bool {
-	aCanonical, errA := canonicalJSON(a)
-	if errA != nil {
-		return false
-	}
-	bCanonical, errB := canonicalJSON(b)
-	if errB != nil {
-		return false
-	}
-	return string(aCanonical) == string(bCanonical)
 }

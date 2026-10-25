@@ -228,7 +228,7 @@ type researchReadInput struct {
 type historyInput struct {
 	WorkID          string    `json:"work_id"`
 	Direction       string    `json:"direction"`
-	EventKinds      []string  `json:"event_kinds"`
+	RecordKinds     []string  `json:"record_kinds"`
 	ContractVersion int64     `json:"contract_version,omitempty"`
 	Page            pageInput `json:"page"`
 	Limit           int       `json:"limit,omitempty"`
@@ -349,12 +349,24 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if actorErr != nil {
 			return failureEnvelope(base, actorErr), nil
 		}
+		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(actor), memberOperationScope(request.Input, env, op)); err != nil {
+			return failureEnvelope(base, err), nil
+		}
 		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
 		if availabilityErr != nil {
 			return failureEnvelope(base, availabilityErr), nil
 		}
 		if !available {
-			return coreError(base, "invalid_transition", "workflow action registry is unavailable", "reread_entities", false), nil
+			// The refusal names the unverifiable pin's cause and migration
+			// route (CD-0242 D13).
+			message := "workflow action registry is unavailable"
+			if _, verifyErr := store.VerifyWorkflowInstanceDefinition(ctx, s, registry, strictAction.WorkID); verifyErr != nil {
+				var failure *store.Failure
+				if errors.As(verifyErr, &failure) && failure.Detail != "" {
+					message += ": " + failure.Detail
+				}
+			}
+			return coreError(base, "invalid_transition", message, "reread_entities", false), nil
 		}
 		if strictAction.ActionID == "dispatch_worker" {
 			ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
@@ -396,6 +408,9 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		if identityErr != nil {
 			return failureEnvelope(base, identityErr), nil
 		}
+		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(identityGrant), memberOperationScope(request.Input, env, op)); err != nil {
+			return failureEnvelope(base, err), nil
+		}
 		r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: identityGrant}
 		if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, request.Input, identityGrant, op); replayErr != nil || handled {
 			if replayErr != nil {
@@ -411,6 +426,10 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
+	if err := s.CheckMemberOperation(ctx, memberWorkflowActor(grant), memberOperationScope(request.Input, env, op)); err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	ctx = store.WithSessionWorktreeOwner(ctx, store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef})
 	if resolvedProject, ok := grant.ScopeSnapshot["project_id"].(string); ok && resolvedProject != env.AmbientProjectID {
 		return coreError(base, "stale_context", "ambient Project no longer matches the signed worktree", "refresh_context", false), nil
 	}
@@ -895,7 +914,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 		}
 		if sf.StaleLawRevision != nil {
-			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, AcceptedSuccessorLawID: sf.StaleLawRevision.AcceptedSuccessorLawID, AcceptedSuccessorContentHash: sf.StaleLawRevision.AcceptedSuccessorContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
 		}
 		if sf.DomainOverlap != nil {
 			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
@@ -913,18 +932,6 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		}
 		if sf.ExternalRefConflict != nil {
 			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
-		}
-		if overrun := sf.SizeOverrun; overrun != nil {
-			out.Error.SizeOverrun = &SizeOverrun{JobID: overrun.JobID, Revision: overrun.Revision, Cap: overrun.Cap, Observed: overrun.Observed, Subject: overrun.Subject}
-		}
-		if len(sf.AdmittedEventKinds) > 0 {
-			// Add, not replace: the authored remedy prose above may already
-			// occupy the details map, and one store refusal can carry both
-			// diagnostics.
-			if out.Error.Details == nil {
-				out.Error.Details = map[string]any{}
-			}
-			out.Error.Details["admitted_event_kinds"] = sf.AdmittedEventKinds
 		}
 		return out
 	}
@@ -1052,7 +1059,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unauthorized"
 	case store.KindOutcomeMismatch:
 		return "outcome_mismatch"
-	case store.KindInvalidDefinition, store.KindDefinitionVersionConflict, store.KindDefinitionVersionNotMonotonic, store.KindDefinitionDigestMismatch, store.KindDefinitionActionOrStepUnknown:
+	case store.KindInvalidDefinition, store.KindDefinitionDigestMismatch, store.KindDefinitionActionOrStepUnknown:
 		return "invariant_violation"
 	case store.KindInvariantViolation, store.KindSchemaUnsupported:
 		return "invariant_violation"
@@ -1393,7 +1400,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
 	if r.Tool != "concord_knowledge" {
-		watermark, err := r.Store.DomainEventWatermark(ctx)
+		watermark, err := r.Store.Revision(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -1513,8 +1520,7 @@ type workSummary struct {
 	// declares it on work_summary, so every summary carries the band.
 	// DefectIntake rides the same authoritative reads: the immutable defect
 	// classification and the core's sibling snapshot, so a coordinator can
-	// retrieve the canonical cluster keys without reading storage. Size, the
-	// current size record, rides the same reads.
+	// retrieve the canonical cluster keys without reading storage.
 	Task            string                      `json:"task,omitempty"`
 	ValueStatement  string                      `json:"value_statement,omitempty"`
 	Tags            []string                    `json:"tags,omitzero"`
@@ -1669,39 +1675,11 @@ func (r runtime) verdictFor(workID string) (*store.WorkflowReadVerdict, bool, er
 }
 
 func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
-	events := make([]map[string]any, 0, len(q.Events))
-	for _, e := range q.Events {
-		evidence := make([]map[string]any, 0, len(e.EvidenceRefs))
-		for _, ref := range e.EvidenceRefs {
-			evidence = append(evidence, map[string]any{"kind": "artifact", "authority": "product_memory", "locator_kind": "reference", "locator": ref})
-		}
-		// `reason` and `actor` are optional in work_event_page and carry a
-		// minimum length: an ordinary lifecycle event has neither, so the
-		// keys are omitted rather than emitted empty. A present-but-empty
-		// optional field fails the generated schema and refuses the whole
-		// page (issue #383).
-		event := map[string]any{"event_id": e.EventID, "kind": e.Kind, "version": e.Seq, "occurred_at": e.OccurredAt, "evidence": evidence}
-		if e.AttemptID != "" {
-			event["attempt_id"] = e.AttemptID
-		}
-		if e.Actor != "" {
-			event["actor"] = e.Actor
-		}
-		if e.Reason != "" {
-			event["reason"] = e.Reason
-		}
-		if e.ContractVersion != nil {
-			event["contract_version"] = *e.ContractVersion
-		}
-		if e.PreviousContractVersion != nil {
-			event["previous_contract_version"] = *e.PreviousContractVersion
-		}
-		if e.ConflictApplication != nil {
-			event["conflict_application"] = e.ConflictApplication
-		}
-		events = append(events, event)
+	entries := q.Entries
+	if entries == nil {
+		entries = []store.HistoryEntry{}
 	}
-	payload := map[string]any{"events": events}
+	payload := map[string]any{"entries": entries}
 	if q.Workflow != nil {
 		workflow, err := publishedWorkflowRead(q.Workflow)
 		if err != nil {
@@ -1782,6 +1760,9 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	pinned := map[string]any{"product_identity": snapshot.ProductIdentity, "workflow_step": snapshot.WorkflowStep, "step_actions": stepActions, "contract": snapshot.Contract, "spec_mandate": snapshot.SpecMandate, "pending_operator_decision": snapshot.PendingOperatorDecision, "withheld_operator_decision": snapshot.WithheldOperatorDecision, "latest_checkpoint": snapshot.LatestCheckpoint, "design_record": snapshot.DesignRecord, "unresolved_failure": snapshot.UnresolvedFailure}
 	if snapshot.WorkPin != nil {
 		pinned["work_pin"] = snapshot.WorkPin
+	}
+	if snapshot.ReviewInput != nil {
+		pinned["review_input"] = snapshot.ReviewInput
 	}
 	// Empty peer signals stay out of the prompt. This keeps the unchanged
 	// projection's bytes stable while non-empty signals remain visible.
@@ -1971,11 +1952,19 @@ func continuityResultMeta(snapshot store.ContinuitySnapshot, next *string) store
 // instant per candidate would move the measured size by a few bytes and
 // strand the emit at one byte over the cap.
 func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *string, observedAt string) store.ResultMeta {
-	watermark := int64(0)
-	if strings.HasPrefix(snapshot.Watermark, "seq:") {
-		watermark, _ = strconv.ParseInt(strings.TrimPrefix(snapshot.Watermark, "seq:"), 10, 64)
+	watermark := snapshot.SourceVersionWatermark
+	warnings := []string{}
+	if snapshot.ReviewInputWarning != nil {
+		kind := store.KindUnavailable
+		var failure *store.Failure
+		if errors.As(snapshot.ReviewInputWarning, &failure) {
+			kind = failure.Kind
+		}
+		// Stable notice: review_input_candidate_tree:<typed failure kind>.
+		// Raw paths and Git output stay on the non-JSON snapshot error only.
+		warnings = append(warnings, "review_input_candidate_tree:"+string(kind))
 	}
-	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: []string{}}
+	return store.ResultMeta{QueryID: "C19.Continuity", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: snapshot.WorkID, ProductIDs: snapshot.ProductIdentity}, SourceVersionWatermark: watermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: observedAt}, OrderingKeys: []string{"boundary_sequence"}, NextCursor: next, Omissions: []string{}, Warnings: warnings}
 }
 
 // continuityProjectionHeader is the small closed identity header every page
@@ -2242,8 +2231,8 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 		locator = &v
 	}
 	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
-	// Law status and successor ride beside, and never replace, the PM1 Q10
-	// locator state: state stays canonical/not_compacted/missing/ambiguous.
+	// Law status or a work-note successor never replaces the PM1 Q10 locator
+	// state: canonical/not_compacted/missing/ambiguous.
 	if lawStatus != "" {
 		payload["status"] = lawStatus
 	}

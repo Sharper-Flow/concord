@@ -2,8 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-06
-- **Scope:** Exact existing-event acknowledgment and retained completed-Task recovery
-- **Amends:** CD-0044 D2 and D4; the consumed-window boundary in CD-0059 and CD-0067
+- **Scope:** Exact existing-record acknowledgment and retained completed-Task recovery
 - **Preserves:** Current caller authentication, nonce protection, immutable worker
   outcomes, single-use dispatch authorization, original packet and provenance,
   original model identities, CD-0207 consequential commits, and CD-0038 caller budgets
@@ -37,20 +36,21 @@ worker, overwrite a result, or fabricate evidence.
 
 ### D1. An exact acknowledgment is not new evidence
 
-An authorized caller can request acknowledgment of an existing worker event by
-its original event identifier. The following fields must equal the stored event:
+An authorized caller can request acknowledgment of an existing worker evidence
+record by its original identifier. The following fields must equal the stored
+record:
 
-- Event kind.
+- Record kind.
 - Subject type and identifier.
 - Verified actor.
 - Payload version.
 - Complete payload.
 
 Occurrence time is not payload identity. A later observation time changes
-neither the original event nor its recorded time.
+neither the original record nor its recorded time.
 
-A mismatch refuses. A match returns the original identifier and appends no
-second worker event. It changes no outcome, workflow step, verdict, or acceptance.
+A mismatch refuses. A match returns the original identifier and adds no
+second evidence record. It changes no outcome, workflow step, verdict, or acceptance.
 
 ### D2. Current authentication binds every acknowledgment
 
@@ -62,11 +62,13 @@ A reused or stale assertion refuses. A revoked client or key, missing
 capability, or changed principal also refuses. Key rotation grants no exception.
 
 The consequential transaction consumes the fresh nonce together with the exact
-match. It appends no evidence event. This is the bounded exception to CD-0044
+match. It records no new evidence
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+This is the bounded exception to CD-0044
 D2's append requirement.
 
-An ordinary refusal rolls back nonce consumption. The acknowledgment is not
-a new historical evidence event or a separate review record. Nonce retention
+An ordinary refusal rolls back nonce consumption. The acknowledgment adds
+neither a new evidence record nor a separate review record. Nonce retention
 uses the existing replay window.
 
 ### D3. A consumed window grants no authority to run again
@@ -111,7 +113,7 @@ Missing or conflicting proof refuses.
 The recorded dispatch model and original terminal model can differ. Each
 original record remains unchanged. Recovery adds no model-routing rule.
 
-Amended 2026-10-09 for CON-891: the recovered report is parsed by the same
+The recovered report is parsed by the same
 shared report-protocol owner as an ordinary completion, including the
 historical grammar an unpinned packet still carries. Retained recovery adds
 no second parser and no looser rules: a recovered result cannot parse by
@@ -129,7 +131,7 @@ complete invocation without a renewed phase allowance.
 
 ### D7. An original identifier bounds this permission
 
-The permission in D1 requires the original event identifier and exact proof.
+The permission in D1 requires the original record identifier and exact proof.
 It does not promise automatic recovery for every adapter write path. It grants
 no authority to replace an unknown identifier.
 

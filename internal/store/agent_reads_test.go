@@ -40,11 +40,12 @@ func TestAgentReadWatermarksAreScoped(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	ctx := context.Background()
-	if got, err := s.DomainEventWatermark(ctx); err != nil || got != 0 {
-		t.Fatalf("empty domain-event watermark=%d err=%v", got, err)
+	want := revisionValue(t, s.db)
+	if got, err := s.Revision(ctx); err != nil || got != want || got <= 0 {
+		t.Fatalf("store revision=%d err=%v, want %d", got, err, want)
 	}
 
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1);
 		INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES('home','home',1,'t','t'),('other','other',1,'t','t');
 		INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('anchor-home','anchor-home','prototype','operator_only',1,'t','t'),('anchor-other','anchor-other','prototype','operator_only',1,'t','t');
 		INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES('anchor-home','home','secondary'),('anchor-other','other','secondary');
@@ -52,7 +53,7 @@ func TestAgentReadWatermarksAreScoped(t *testing.T) {
 			('locator-a','home','canonical_path','/test/locator-a','/test/locator-a','t','t'),
 			('locator-b','home','canonical_path','/test/locator-b','/test/locator-b','t','t'),
 			('locator-a-other','other','canonical_path','/test/locator-a-other','/test/locator-a-other','t','t');
-		INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1),(?,?,?,?,?,1),(?,?,?,?,?,1); DELETE FROM fold_guard`,
+		INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES (?,?,?,?,?,1),(?,?,?,?,?,1),(?,?,?,?,?,1); DELETE FROM write_guard`,
 		"home", "locator-a", "HEAD", "commit-a", "now",
 		"home", "locator-b", "HEAD", "commit-b", "now",
 		"other", "locator-a-other", "HEAD", "commit-z", "now"); err != nil {

@@ -117,10 +117,9 @@ func ProjectToolingDeclaredText(tooling *ProjectToolingManifest) string {
 // manifest, so the caller must resolve it before the action's transaction
 // opens (CD-0192). record_delivery runs the guard wherever it is gated, and
 // accept_worker_result runs the same admission at the delivery-admitting
-// refinement step of workflow.implementation v21+ and workflow.break_fix
-// v19+ (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
+// refinement step (CD-0198 D4). bind_evidence resolves the manifest on a size-capable
 // pin that holds a recorded split, so the automatic integration discharge
-// (CD-0225 D3) can keep only runs of declared tools. Every other action
+// can keep only runs of declared tools. Every other action
 // resolves nothing.
 func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID string) (bool, error) {
 	if s == nil || s.db == nil {
@@ -140,14 +139,9 @@ func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID
 	case "accept_worker_result":
 		return workflowAcceptDeliveryAdmissionActive(entry.Definition, currentStep), nil
 	case "bind_evidence":
-		if !workflowJobSizeActive(entry.Definition) {
-			return false, nil
-		}
-		var splits int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobSplit).Scan(&splits); err != nil {
-			return false, wrapFailure(KindUnavailable, "project_tooling", "cannot read the work's recorded job splits", true, "retry once the event log is readable", err)
-		}
-		return splits > 0, nil
+		// The split-integration proof obligation is retired with the split
+		// system (CD-0242 D6); bind_evidence carries no derived obligation.
+		return false, nil
 	default:
 		return false, nil
 	}

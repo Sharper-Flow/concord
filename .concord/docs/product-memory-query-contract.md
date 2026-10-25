@@ -6,9 +6,7 @@
 > **Scenario corpus:** [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
-> **Amended by CD-0222 and CD-0042:** Domain replaces component as the canonical
-> architecture/filter identity. Issue #197 changes the pre-go-live primary path
-> directly; component inputs are not a supported compatibility surface.
+> **Architecture/filter identity:** Domain is canonical; component inputs are not supported.
 
 ## Context
 
@@ -251,18 +249,9 @@ The JSON corpus is executable through a candidate adapter implementing
 
 ### Q7. Explain work history
 
-- **Intent:** "Why is this work in its current state?"
-- **Input:** work reference; direction; cursor/limit; optional event kinds.
-- **Output:** atomic ordered events with sequence/version, from/to lifecycle,
-  actor, timestamp, reason, and evidence references.
-- **Order:** newest-first by default; event sequence is monotonic and contiguous
-  within the returned range.
-- **Oracle:** no observer can see a partially terminal event; current lifecycle is
-  the fold of authoritative events.
-- **PM4 semantics:** lifecycle/relation events follow the accepted PM4 contract.
-- **Retention semantics:** retained `domain_events` remain the authoritative complete
-  history after projection pruning; the prune marker only changes live projection
-  membership.
+The store answers this from current state: current lifecycle and relation rows
+plus the recorded stage exits and evidence receipts that justify them; no event log, fold, or replay exists to query
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Q8. Dependencies and supersession
 
@@ -275,8 +264,7 @@ The JSON corpus is executable through a candidate adapter implementing
   successor without duplicate authority.
 - **PM4 semantics:** relation kinds, inverse reads, acyclicity, and supersession
   uniqueness follow the accepted PM4 contract.
-- **Retention semantics:** live relation rows remain foreign key (FK) clean. A follow-up to pruned work
-  is a separate typed `archived_work_linked` result, not a PM4 live relation.
+- **Retention semantics:** live relation rows remain foreign key (FK) clean.
 
 ### Q9. Search durable Product knowledge
 
@@ -303,7 +291,7 @@ The JSON corpus is executable through a candidate adapter implementing
   proves completeness against the projected content at every applicable canonical
   git authority head; otherwise it is `degraded`. Accepted PM6 supplies canonical
   home/locator semantics.
-- **Federated scope (amended 2026-10-01 by CD-0200 D3):** over a Product with a
+- **Federated scope:** over a Product with a
   registered source set, Q9 iterates every registered source, verifies each
   source's watermark, merges items under the ordering above, returns per-source
   watermarks, and binds the cursor to a source-set digest. A source that is
@@ -325,7 +313,7 @@ The JSON corpus is executable through a candidate adapter implementing
 - **PM6 semantics:** locator identity is stable Project/knowledge-locator ID plus
   path, commit OID, and content hash. Outcomes remain locator, `not_compacted`,
   `missing`, or `ambiguous`; authority remains `authoritative|degraded|unreachable`.
-- **Source-qualified identity (amended 2026-10-01 by CD-0200 D4):** a knowledge
+- **Source-qualified identity:** a knowledge
   reference may take the qualified form `<project_id>/<law_id>` and resolves only
   through that Project's canonical knowledge locator. A bare ID resolves across
   the Product's registered source set and refuses as `ambiguous` when more than
@@ -373,11 +361,7 @@ PM1 is falsified or must be amended when:
 - a canonical query cannot remain bounded under the operating envelope,
 - degraded/empty/unreachable cannot be distinguished structurally.
 
-The pre-acceptance evidence gaps included authoritative mapping of real ADV histories
-into the lifecycle candidate, ready-work ranking semantics, Domain identity,
-cross-Project membership, and canonical note placement. PM2–PM5 and CD-0008 now supply
-the accepted storage, membership, evidence-binding, and unreadable-record semantics;
-these historical gaps do not invalidate the query jobs.
+PM2–PM5 and CD-0008 govern storage, membership, evidence binding, and unreadable-record semantics.
 
 ## Acceptance criteria
 

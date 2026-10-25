@@ -11,7 +11,7 @@ import (
 
 // synthExecPath creates corruption through a foreign connection without
 // foreign keys, while retaining the canonical projection write guards.
-func synthExecPath(t *testing.T, path string, queries ...string) {
+func synthExecPath(t *testing.T, path, guard string, queries ...string) {
 	t.Helper()
 	db, err := sql.Open(driverName, SQLiteFileURI(path)+"?_pragma=foreign_keys(0)")
 	if err != nil {
@@ -20,10 +20,10 @@ func synthExecPath(t *testing.T, path string, queries ...string) {
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO `+guard+`(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _, _ = db.ExecContext(ctx, `DELETE FROM fold_guard`) }()
+	defer func() { _, _ = db.ExecContext(ctx, `DELETE FROM `+guard) }()
 	for _, q := range queries {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			t.Fatalf("path synthetic query: %v\n%s", err, q)
@@ -45,7 +45,7 @@ func TestFixtureDSNsKeepSubtestStoresSeparate(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = s.Close() })
-			synthExecPath(t, s.Path(), `CREATE TABLE fixture_path_probe (id INTEGER PRIMARY KEY)`)
+			synthExecPath(t, s.Path(), "write_guard", `CREATE TABLE fixture_path_probe (id INTEGER PRIMARY KEY)`)
 			var count int
 			if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='fixture_path_probe'`).Scan(&count); err != nil {
 				t.Fatal(err)
@@ -239,14 +239,17 @@ func TestResearchRetirementWrongScopePrecedesEveryDeletion(t *testing.T) {
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner")
 	otherOwner := operationEvent("retirement-other-owner", "work.created", SubjectWorkItem, "other-owner", map[string]any{"work_kind": "research", "title": "Other owner", "priority": 1})
-	otherOwner.PayloadVersion = 2
+	otherOwner.PayloadVersion = CurrentEventPayloadVersion("work.created")
+	if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+		ProductID: "other-product", DisplayName: "Other", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "other-project", ProjectDisplayName: "Other", Role: "primary", Reason: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		operationEvent("retirement-other-product", "product.created", SubjectProduct, "other-product", map[string]any{"display_name": "Other", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only"}),
-		operationEvent("retirement-other-project", "project.created", SubjectProject, "other-project", map[string]any{"display_name": "Other"}),
-		operationEvent("retirement-other-product-project", "product_project.added", SubjectProduct, "other-product", map[string]any{"product_id": "other-product", "project_id": "other-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
 		otherOwner,
 		operationEvent("retirement-other-owner-project", "work_project.added", SubjectWorkItem, "other-owner", map[string]any{"work_id": "other-owner", "project_id": "other-project", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "other-product"): 0, VersionRef(SubjectProject, "other-project"): 0, VersionRef(SubjectWorkItem, "other-owner"): 0}}); err != nil {
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "other-owner"): 0}}); err != nil {
 		t.Fatal(err)
 	}
 	local := createSimplePack(t, s, "retirement-local", "owner")

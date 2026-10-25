@@ -39,13 +39,6 @@ type WorkSizeFootprint struct {
 // does not fit refuses whole; it is never truncated.
 const workSizedPayloadMaxBytes = 256 * 1024
 
-// upcastWorkSizedV1 reads a first-release record unchanged: it carries no
-// complete law and check set, and ChecksComplete stays false.
-func upcastWorkSizedV1(event Event) (Event, error) {
-	event.PayloadVersion = 2
-	return event, nil
-}
-
 type workSizedPayload struct {
 	ModelVersion int               `json:"model_version"`
 	Size         WorkSize          `json:"size"`
@@ -90,12 +83,12 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if p.ModelVersion >= 2 {
-		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID, event.Seq)
+		basis, err := workSizeReviewBasisTx(ctx, tx, event.SubjectID)
 		if err != nil {
 			return err
 		}
 		if !slices.Equal(basis, sliceOrEmpty(p.ReviewBasis)) {
-			return newFailure(KindInvariantViolation, "fold_event", "the review basis is not every proof derived now and recorded earlier on the lineage", false, "record the review basis the store derives")
+			return newFailure(KindInvariantViolation, "fold_event", "the review basis is not every proof derived now and recorded earlier on the work item", false, "record the review basis the store derives")
 		}
 	}
 	var kind, lifecycle string
@@ -118,12 +111,12 @@ func foldWorkSized(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode the footprint snapshot", false, "repair the event payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at)
-		VALUES(?,?,(SELECT coalesce(max(sequence),0)+1 FROM work_size_assessments WHERE work_id=?),?,?,?,?,?)`,
-		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at,effect_seq,review_basis)
+		VALUES(?,?,(SELECT coalesce(max(sequence),0)+1 FROM work_size_assessments WHERE work_id=?),?,?,?,?,?,?,?)`,
+		event.EventID, event.SubjectID, event.SubjectID, p.ModelVersion, string(p.Size), string(inputs), string(footprint), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Seq, workflowJSON(sliceOrEmpty(p.ReviewBasis))); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot write the size record", true, "retry once the database is writable", err)
 	}
-	return nil
+	return resetWorkSizeProofFactsTx(ctx, tx, event.SubjectID)
 }
 
 // checkWorkSizeFootprint holds the derived counts to the snapshot they were
@@ -231,10 +224,10 @@ func readWorkSize(ctx context.Context, q queryer, workID string) (WorkSizeRecord
 	}
 	record.Size = WorkSize(size)
 	if err := json.Unmarshal([]byte(inputs), &record.Inputs); err != nil {
-		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored size inputs are not readable", false, "repair the live projection from its event log", err)
+		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored size inputs are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	if err := json.Unmarshal([]byte(footprint), &record.Footprint); err != nil {
-		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored footprint snapshot is not readable", false, "repair the live projection from its event log", err)
+		return WorkSizeRecord{}, false, wrapFailure(KindInvariantViolation, "work_size", "stored footprint snapshot is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	return record, true, nil
 }

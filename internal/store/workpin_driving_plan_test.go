@@ -10,7 +10,7 @@ import (
 // index seeks on workflow_actors. Every session boot and continuity render
 // runs this read inside a read transaction, and workflow_actors grows with
 // every session and lane. A full scan with a per-actor correlated probe of the
-// work's events holds the WAL read mark for seconds on a production-sized
+// work's facts holds the WAL read mark for seconds on a production-sized
 // store and starves checkpoints.
 func TestWorkPinDrivingSessionsPlanSeeksActors(t *testing.T) {
 	s := openTemp(t)

@@ -13,7 +13,7 @@ import (
 // evidence exactly as the adapter would after parsing agent-lane-report.v1.
 func workerCompleteEventV2(workID, eventID, attemptID, model string, origin string, evidence []WorkerReportEvidence, directory string) Event {
 	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: model, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory, Evidence: evidence, EvidenceOrigin: origin}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(payload)}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
 }
 
 // laneCoveringEvidence discharges every obligation the lane declares, once.
@@ -58,7 +58,7 @@ func TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence(t *testi
 		t.Fatalf("lifecycle_state = %q, want completed", state)
 	}
 	var stored []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "evidence-covered-complete").Scan(&stored); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_event_id=? AND terminal_kind=?`, "evidence-covered", attemptID, complete.EventID, WorkerCompleted).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	var durable WorkerCompletedPayload
@@ -84,7 +84,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	missing := lane.EvidenceObligations[len(lane.EvidenceObligations)-1]
 	partial := laneCoveringEvidence(lane)[:len(lane.EvidenceObligations)-1]
 	before := workerProjectionSnapshot(t, s)
-	beforeEvents := countRows(t, s, "domain_events")
+	beforeEvents := countRows(t, s, "effect_receipts")
 	complete := workerCompleteEventV2("evidence-undischarged", "evidence-undischarged-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, partial, workerFixtureDirectory(t, s, "evidence-undischarged"))
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{complete}})
 	if !hasFailureKind(err, KindInvalidPayload) {
@@ -96,7 +96,7 @@ func TestWorkerCompletionLeavingObligationUndischargedIsRefusedAndProjectionUnch
 	if after := workerProjectionSnapshot(t, s); after != before {
 		t.Fatalf("refused completion changed the worker projection:\n%s\nwant\n%s", after, before)
 	}
-	if got := countRows(t, s, "domain_events"); got != beforeEvents {
+	if got := countRows(t, s, "effect_receipts"); got != beforeEvents {
 		t.Fatalf("refused completion event count = %d, want %d", got, beforeEvents)
 	}
 	var state string
@@ -163,6 +163,7 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
 			attemptID := "evidence-shape-attempt"
+			seedWork(t, s, "evidence-shape")
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-shape", attemptID, lane, nil)}}); err != nil {
 				t.Fatal(err)
 			}
@@ -184,70 +185,18 @@ func TestWorkerCompletionEvidenceShapeIsClosedInBothDirections(t *testing.T) {
 	}
 }
 
-// CD-0056 D6: a stored v1 completion carries no evidence and none can be
-// invented, so it upcasts to a visibly legacy v2 payload, skips coverage, and
-// replays to the same projection.
-func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	lane := BuiltinLaneDefinitions()[0]
-	attemptID := "evidence-legacy-attempt"
-	authorizeWorkerFixtureDispatch(t, s, "evidence-legacy", attemptID)
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-legacy", attemptID, lane, nil)}}); err != nil {
-		t.Fatal(err)
-	}
-	legacy := workerCompleteEvent("evidence-legacy", "evidence-legacy-complete", attemptID, preferredModelForLane(lane), workerFixtureDirectory(t, s, "evidence-legacy"))
-	if legacy.PayloadVersion != 1 {
-		t.Fatalf("fixture payload version = %d, want 1", legacy.PayloadVersion)
-	}
-	upcast, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("upcastWorkerCompletedV1 error = %v", err)
-	}
-	if upcast.PayloadVersion != 2 {
-		t.Fatalf("upcast payload version = %d, want 2", upcast.PayloadVersion)
-	}
-	var upcastPayload WorkerCompletedPayload
-	if err := json.Unmarshal(upcast.Payload, &upcastPayload); err != nil {
-		t.Fatal(err)
-	}
-	if upcastPayload.EvidenceOrigin != WorkerEvidenceLegacyUnavailable || len(upcastPayload.Evidence) != 0 {
-		t.Fatalf("upcast evidence = %s/%d entries, want %s/0", upcastPayload.EvidenceOrigin, len(upcastPayload.Evidence), WorkerEvidenceLegacyUnavailable)
-	}
-	again, err := upcastWorkerCompletedV1(legacy)
-	if err != nil {
-		t.Fatalf("second upcast error = %v", err)
-	}
-	if string(again.Payload) != string(upcast.Payload) {
-		t.Fatalf("upcast is not deterministic:\n%s\n%s", again.Payload, upcast.Payload)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacy}}); err != nil {
-		t.Fatalf("legacy completion was refused: %v", err)
-	}
-	before := workerProjectionSnapshot(t, s)
-	if !strings.Contains(before, "|completed|") {
-		t.Fatalf("legacy completion projection = %q, want a completed attempt", before)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	if after := workerProjectionSnapshot(t, s); after != before {
-		t.Fatalf("replay changed the worker projection:\n%s\nwant\n%s", after, before)
-	}
-}
-
 // CD-0056 D2 and D8: every built-in lane declares obligations drawn from the
 // closed vocabulary, and the generated digests stay pinned: a manifest change
-// moves them only through regeneration, and the pre-change digests stay
-// accepted as legacy dispatch identities.
+// moves them only through regeneration. CD-0242 D14 admits only current
+// content identities, not historical digest aliases.
 func TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests(t *testing.T) {
 	t.Parallel()
 	wantDigests := map[string]string{
-		"research":  "sha256:4091e91c9c095b96be54aba40d9704d97ab025238663409768fcf205c171102f",
-		"implement": "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
-		"design":    "sha256:1178f4074a4212eb0e8a95a61aa74a52161b9a275f8a1ef52b5edf4f584c79ef",
-		"review":    "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
-		"verify":    "sha256:807c155cf9e41729c4f7446c60b965ecb5519082d0611b67454b4db707e3bfd6",
+		"research":  "sha256:7a5f8b9ca70df1dd58855d4584de6cb12f0a662dea8097a746fd9375bc2b7ea3",
+		"implement": "sha256:ff4bca834c3bf4f2fffdf5501ca5e83d866707c0039e62e49c36390763ef9b06",
+		"design":    "sha256:a6736729ec64977a3c013306ad44cf3a00f6070801ec73d5adc17bb2668f8aee",
+		"review":    "sha256:0da2486ab33fd6d845d0b7f2ad68dfa2cfd54483acc7973d621d005fbc871fed",
+		"verify":    "sha256:fa59a8e0c232d6f6cccbff0117278314add4d7d1c34015d7e872756bdc14f150",
 	}
 	definitions := BuiltinLaneDefinitions()
 	if len(definitions) != len(wantDigests) {

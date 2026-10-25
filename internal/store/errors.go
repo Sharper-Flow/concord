@@ -10,11 +10,10 @@ import (
 // changes.
 type FailureKind string
 
-// FailureStage is the closed phase where replay rejected an event.
+// FailureStage is the closed phase where applying an event failed.
 type FailureStage string
 
 const (
-	StageUpcast FailureStage = "upcast"
 	StageDecode FailureStage = "decode"
 	StageFold   FailureStage = "fold"
 )
@@ -191,8 +190,6 @@ const (
 	// distinct from workflow action refusals so callers cannot mistake a binary
 	// definition drift for a retryable action failure.
 	KindInvalidDefinition             FailureKind = "invalid_definition"
-	KindDefinitionVersionConflict     FailureKind = "definition_version_conflict"
-	KindDefinitionVersionNotMonotonic FailureKind = "definition_version_not_monotonic"
 	KindDefinitionDigestMismatch      FailureKind = "definition_digest_mismatch"
 	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
 	// Lane failures are closed registry errors. They fail before a worker can
@@ -228,10 +225,9 @@ type Failure struct {
 	// RecoveryRefs carries the ordered workflow actions of a declared-route
 	// remedy. It pairs with RecoveryUseDeclaredRoute and stays empty for
 	// every other RecoveryAction value.
-	RecoveryRefs       []string `json:"recovery_refs,omitempty"`
-	CandidateIDs       []string `json:"candidate_ids,omitempty"`
-	UnavailableKinds   []string `json:"unavailable_kinds,omitempty"`
-	AdmittedEventKinds []string `json:"-"`
+	RecoveryRefs     []string `json:"recovery_refs,omitempty"`
+	CandidateIDs     []string `json:"candidate_ids,omitempty"`
+	UnavailableKinds []string `json:"unavailable_kinds,omitempty"`
 	// CurrentVersions carries the typed current version for each subject whose
 	// version conflict produced this failure. Higher layers surface this
 	// structurally so callers do not have to regex the human detail string.
@@ -250,7 +246,7 @@ type Failure struct {
 	// failures that refuse a relation because of a structural violation
 	// (cycle, supersession target already taken, etc.).
 	Violations []string `json:"violations,omitempty"`
-	// StaleLawRevision carries the old and accepted successor law proofs without
+	// StaleLawRevision carries the deleted law ID and its pinned digest without
 	// requiring callers to parse Detail.
 	StaleLawRevision *StaleLawRevision `json:"stale_law_revision,omitempty"`
 	// DomainOverlap carries both active contract identities and every derived
@@ -266,13 +262,10 @@ type Failure struct {
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
-	// SizeOverrun carries the typed details of an acceptance a worker job's
-	// observed production size refused (CD-0225 D2).
-	SizeOverrun *SizeOverrun `json:"size_overrun,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
-	// Event attribution is populated for replay/reconstruction failures. It is
+	// Event attribution is populated for mutation failures. It is
 	// deliberately bounded to the event header and fold stage; payload bytes do
 	// not belong in a durable diagnostic envelope.
 	EventID        string       `json:"event_id,omitempty"`
@@ -301,17 +294,6 @@ type SubjectCurrentVersion struct {
 	SubjectType SubjectType `json:"subject_type"`
 	SubjectID   string      `json:"subject_id"`
 	Version     int64       `json:"version"`
-}
-
-// SizeOverrun names the job revision whose observed production size exceeds
-// its recorded cap, the cap, the observed count, and the delivered subject
-// commit the count was observed at. The recovery is the recorded split.
-type SizeOverrun struct {
-	JobID    string `json:"job_id"`
-	Revision int64  `json:"revision"`
-	Cap      int64  `json:"cap"`
-	Observed int64  `json:"observed"`
-	Subject  string `json:"subject"`
 }
 
 // ExternalRefConflict identifies the live work item that already owns an

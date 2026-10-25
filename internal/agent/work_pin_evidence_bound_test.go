@@ -28,7 +28,7 @@ func TestWorkPinEvidenceAdmitsTheDeclaredLocatorBound(t *testing.T) {
 	if len(long) > 2048 {
 		t.Fatalf("fixture locator is %d bytes, past the bind-side bound this defect is about", len(long))
 	}
-	payload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","work_pins":[{"work_id":"work-1","title":"t","linear_issue_key":"CON-1240","project_id":"concord","project_display_name":"Concord","version":3,"lifecycle":"in_progress","cancelled_instance_closes":0,"workflow_type":"workflow.break_fix","step":"refine","attempt":null,"pending_operator_decision":null,"driving_sessions":[],"watermark":"seq:1","next_valid_intents":[],"verdict_evidence":[{"evidence_kind":"verification","immutable_subject_ref":"` + long + `"}],"workflow_definition_version":2,"workflow_definition_digest":"sha256:` + strings.Repeat("0", 64) + `","obligations":["verification"]}]}`
+	payload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","work_pins":[{"work_id":"work-1","title":"t","linear_issue_key":"CON-1240","project_id":"concord","project_display_name":"Concord","version":3,"lifecycle":"in_progress","cancelled_instance_closes":0,"workflow_type":"workflow.break_fix","step":"refine","attempt":null,"pending_operator_decision":null,"driving_sessions":[],"watermark":"seq:1","next_valid_intents":[],"verdict_evidence":[{"evidence_kind":"verification","immutable_subject_ref":"` + long + `"}],"workflow_definition_digest":"sha256:` + strings.Repeat("0", 64) + `","obligations":["verification"]}]}`
 	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(payload), true); err != nil {
 		t.Fatalf("work pin echoing a 2048-bound locator refused: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}
 	var boundEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, store.WorkflowEvidenceBound, long).Scan(&boundEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? AND json_extract(b.payload,'$.immutable_subject_ref')=?`, workID, store.WorkflowEvidenceBound, long).Scan(&boundEvents); err != nil {
 		t.Fatal(err)
 	}
 	if boundEvents != 0 {

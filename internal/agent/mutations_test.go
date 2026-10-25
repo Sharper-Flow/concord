@@ -17,9 +17,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 			version := seedAgentWorkflow(t, s, grant)
 			// Model the historical kind in the temporary projection. Capture of
 			// a new initiative is independently refused at the append boundary.
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 				UPDATE work_items SET kind='initiative' WHERE id='work-1';
-				DELETE FROM fold_guard`); err != nil {
+				DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			before := countWorkflowEvents(t, s)
@@ -53,9 +53,9 @@ func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T
 func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
 	s, _, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET kind='initiative' WHERE id='work-1';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	before := countWorkflowEvents(t, s)
@@ -96,7 +96,7 @@ func captureTaskFixture(t *testing.T) (*store.Store, *Service, Authority, string
 	ctx := context.Background()
 	events := []store.Event{
 		{EventID: "capture-task-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "capture-task-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project"}`)},
+		{EventID: "capture-task-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"Project"}`)},
 		{EventID: "capture-task-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {

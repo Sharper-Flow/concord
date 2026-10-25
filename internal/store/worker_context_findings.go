@@ -129,12 +129,8 @@ func ValidateWorkerContextFindings(findings []WorkerContextFinding) error {
 
 // validateWorkerContextFindingDomainsTx validates every reported finding's
 // Domain against the current registry and the approved affected scope on the
-// live terminal fold. Replay folds the retained report without consulting
-// today's registry: the live fold already admitted it.
+// terminal fold.
 func validateWorkerContextFindingDomainsTx(ctx context.Context, tx *sql.Tx, workID string, findings []WorkerContextFinding) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	for _, finding := range findings {
 		if err := ValidateWorkContextDomainTx(ctx, tx, workID, finding.DomainID, finding.ProductWideRationale); err != nil {
 			return err

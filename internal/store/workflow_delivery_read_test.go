@@ -21,25 +21,25 @@ func deliveryGateFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "deliv-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-deliv", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Delivery","priority":1}`)},
+		{EventID: "deliv-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-deliv", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Delivery","priority":1,"defect_intake":{"failure_shape":"delivery-gate","reproduction":"Read work parked at the delivery gate.","searched":"No earlier delivery-gate defect exists in this fixture.","related_defect_ids":[]}}`)},
 		{EventID: "deliv-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-deliv", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr-deliv","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
+	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v13 is not registered")
 	}
 	if !workflowStepIsDeliveryGate(workflowStep(registered.Definition, "delivery")) {
 		t.Fatal("workflow.break_fix v13 has no delivery gate step named delivery")
 	}
-	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,?,'delivery','running')`, registered.Definition.Version, registered.Digest); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,'delivery','running')`, registered.Digest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	return s

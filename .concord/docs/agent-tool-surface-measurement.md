@@ -2,7 +2,7 @@
 
 > **Status:** Accepted and binding until superseded.
 > **Amended:** 2026-10-18.
-> **Decision:** TS9, amended by CD-0042.
+> **Decision:** TS9.
 > **Current boundary:** Concord is pre-go-live. This document defines deterministic
 > evidence for the current path, not a supported-model release gate.
 
@@ -10,8 +10,7 @@
 
 Surface changes need one evidence authority before any supported-model
 population exists. The binding inputs are the accepted PM1 and TS1 scenario
-corpora, the strict generated schemas, and CD-0024's historical exception
-recorded as evidence only. This record defines the deterministic evidence
+corpora and the strict generated schemas. This record defines the deterministic evidence
 contract for the pre-go-live path: what authorizes a change, what the
 evidence planes record, and what the first go-live decision must later
 define.
@@ -87,9 +86,7 @@ changes. It must explicitly re-accept any measurement gate before that gate can
 block a supported release.
 
 Until then, TS9 has no paired-trial threshold, deprecation gate, production-volume
-quota, exception process, or hypothetical runner pipeline. CD-0024's exception is
-historical evidence only; it is not a precedent or a gate requiring another
-exception.
+quota, exception process, or hypothetical runner pipeline.
 
 ## 5. Review triggers and falsifiers
 

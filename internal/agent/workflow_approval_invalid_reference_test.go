@@ -34,13 +34,13 @@ func TestWorkflowActionRefusesAnInvalidApprovalReference(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 10 {
-				t.Fatalf("pre-contract version=%d, want 10", got)
+			if got := advanceCapturedWorkToContract(t, s, service, env, "work-1", "wf-advance"); got != 8 {
+				t.Fatalf("pre-contract version=%d, want 8", got)
 			}
 			input := workflowContractActionInput(t, "wf-approve-invalid-ref", testCase.ref)
 			digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 10}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")
+			env.HostApproval = signedHostApproval(privateKey, testCase.ref, digest, scope, map[string]any{"work": 8}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-invalid-ref-0001")
 			before := agentDurableStateSnapshot(t, s)
 			response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 			if err != nil || response.Outcome != OutcomeError || response.Error == nil {
@@ -63,7 +63,7 @@ func agentDurableStateSnapshot(t *testing.T, s *store.Store) string {
 	t.Helper()
 	var out []string
 	for _, query := range []string{
-		`SELECT count(*) || ':' || coalesce(max(seq), 0) FROM domain_events`,
+		`SELECT (SELECT count(*) FROM effect_receipts) || ':' || last FROM store_sequences WHERE name='effect'`,
 		`SELECT count(*) FROM durable_operations`,
 		`SELECT count(*) || ':' || coalesce(sum(version), 0) FROM work_items`,
 		`SELECT coalesce(group_concat(work_id || '=' || current_step, ','), '') FROM (SELECT work_id, current_step FROM workflow_instances ORDER BY work_id)`,

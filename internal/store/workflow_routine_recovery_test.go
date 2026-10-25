@@ -30,42 +30,22 @@ import (
 // routineRecoveryPolicyDefinition copies a registered definition and declares
 // consequence_v1 on the copy. The registry keeps the legacy version; only the
 // definition-consuming owners under test see the declared policy.
-func routineRecoveryPolicyDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("definition %s v%d is not registered", ref, version)
-	}
+func routineRecoveryPolicyDefinition(registered RegisteredDefinition) WorkflowDefinition {
 	definition := registered.Definition
 	definition.ApprovalPolicy = WorkflowApprovalPolicyConsequenceV1
 	return definition
 }
 
-// seedDuplicateContractProjection folds a second approved contract into the
-// projection the way a historical duplicate recovery fixture does, leaving
-// two active contracts for one work item on the legacy fixture pin.
+// seedDuplicateContractProjection creates the representable duplicate-active
+// state that the current refusal and recovery owners must handle.
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
-	version := readWorkVersion(t, s, workID)
-	legacyApproval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "duplicate projection approval",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"routine-recovery-duplicate-approval-"+workID, WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-22T00:00:00Z", 3, legacyApproval); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
+SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
+DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 	var active int
@@ -109,18 +89,18 @@ func recoveryEventFieldsWith(fields map[string]any, key string, value any) map[s
 
 func setConcordProductKey(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE domain_registries SET product_key='concord' WHERE product_id='product';
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func setContractSelfRepair(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET self_repair_json='{"refusal_kind":"domain_overlap","blocked_operation":"workflow_action.dispatch_worker","evidence_refs":["obs:routine-repair"]}' WHERE work_id=? AND contract_version=1;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -139,14 +119,14 @@ func recordRoutineSelfRepairActor(t *testing.T, s *Store, actor WorkflowActor) s
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`, actorRef, actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef, string(actor.ActorClass), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -162,7 +142,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-duplicate-policy"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -181,7 +161,7 @@ func TestRoutineRecovery(t *testing.T) {
 		defer tx.Rollback()
 		// consequence_v1 supersedes routinely: the unsigned attributed event
 		// passes the authorization branch the live fold delegates to.
-		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)); err != nil {
+		if err := requireWorkflowDuplicateRecoveryApprovalTx(ctx, tx, event, payload, routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))); err != nil {
 			t.Fatalf("unsigned consequence_v1 duplicate recovery authorization refused: %v", err)
 		}
 		// The legacy pin keeps the recorded operator approval requirement on
@@ -196,7 +176,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-duplicate-legacy"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -259,46 +239,42 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-complete-step-gate"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		registered := mustBuiltinDefinition(t, "workflow.break_fix")
+		registered := mustBuiltinDefinition(t, "workflow.implementation")
 		definition := registered.Definition
-		policyDefinition := routineRecoveryPolicyDefinition(t, "workflow.break_fix", registered.Definition.Version)
+		policyDefinition := routineRecoveryPolicyDefinition(registered)
 		// Without the contradiction record the route is closed for both
 		// policies: the gate is state, never consent.
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || available {
 				t.Fatalf("%s complete-step gate before the contradiction record = %t, %v, want closed", name, available, err)
 			}
 		}
 		recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
 		for name, candidate := range map[string]WorkflowDefinition{"legacy": definition, "consequence_v1": policyDefinition} {
-			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "complete", "test", 0)
+			available, err := workflowCompleteStepCorrectionAvailable(ctx, s.DatabaseForTesting(), workID, candidate, "release", "test", 0)
 			if err != nil || !available {
 				t.Fatalf("%s complete-step gate after the contradiction record = %t, %v, want open", name, available, err)
 			}
 		}
 	})
 
-	t.Run("the stale-law recovery wall demands the accepted successor law", func(t *testing.T) {
+	t.Run("the clone recovery wall refuses a deleted mandated law", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-stale-law"
 		ctx := context.Background()
-		fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+		fixture := routineRecoveryAtCompleteStep(t, workID)
 		s := fixture.store
-		// The shared stale-law fixture: contract 1 mandates spec:one, and the
-		// Git-derived law projection supersedes it with accepted spec:two.
-		// The route-level legacy execution of this exact shape stays covered
-		// unchanged by TestCompleteStepCorrectionStaleLawStaysBehindTheGate;
-		// this witness pins the wall owner both policies share.
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+		// A clone keeps the deleted mandate; complete successors may drop it
+		// or bind any current accepted law (CD-0036 D3).
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 			UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
-			UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-			INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
-			INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
-			INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
-			DELETE FROM fold_guard`, workID); err != nil {
+			DELETE FROM law_domain_homes WHERE law_id='spec:one';
+			DELETE FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
+			DELETE FROM write_guard`, workID); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -306,12 +282,10 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		err = validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, workID, []int64{1}, nil)
-		if err == nil || !strings.Contains(err.Error(), "must pin every accepted successor law revision") {
-			t.Fatalf("stale-law recovery without the successor pin returned %v, want the wall refusal", err)
-		}
-		if err := validateStaleWorkflowContractRecoverySuccessorTx(ctx, tx, workID, []int64{1}, []WorkflowLawRevision{{LawID: "spec:two", ContentHash: "sha256:" + strings.Repeat("b", 64)}}); err != nil {
-			t.Fatalf("stale-law recovery pinning the accepted successor law refused: %v", err)
+		err = validateClonedWorkflowContractLawRevisionsTx(ctx, tx, workID, []int64{1})
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "retain a deleted mandated law") {
+			t.Fatalf("clone recovery retaining deleted law returned %v, want the wall refusal", err)
 		}
 	})
 
@@ -319,7 +293,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-walls-new"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -365,75 +339,28 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 	})
 
-	t.Run("failed retry binding revalidates the failed attempt identity", func(t *testing.T) {
+	t.Run("correction preserves the failed attempt identity", func(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-retry-race"
 		ctx := context.Background()
-		s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
-		ownerRef, err := WorkflowActorRef(owner)
-		if err != nil {
-			t.Fatal(err)
+		f, attemptID, epoch := seedCurrentRepairWorker(t, workID)
+		s := f.store
+		// The attributed terminal derives the failure record in the same
+		// commit (CD-0198 D5).
+		lane := laneForID(t)
+		if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(lane), WorkerFailureWorkerError, "the repair attempt failed", time.Unix(40, 0).UTC())); err != nil {
+			t.Fatalf("failed repair terminal: %v", err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`, workID, ownerRef); err != nil {
-			t.Fatal(err)
-		}
-		failAbandonedWorkerAttempt(t, s, workID, attemptID)
 		pin := issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, pin.Version, "routine-race-record-1-"+workID)
-		var first *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			first, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if first == nil || first.FailedAttemptID != attemptID || first.FailedAttemptEpoch != 1 || first.ContractVersion != 1 {
-			t.Fatalf("first binding = %+v, want the exact failed attempt %q epoch 1 contract 1", first, attemptID)
-		}
-		// A fresh attempt opens at a new epoch and fails: the binding the
-		// approval boundary rereads must move to the new failed identity, so
-		// an approval minted against the first attempt cannot authorize this
-		// retry. The contract-version half of the revalidation is witnessed
-		// unchanged by TestIssue933PremiseRevisionUsesTypedContractSupersession,
-		// whose post-supersession binding read re-derives against the
-		// successor contract.
-		worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		pin = issue1013Pin(t, s, workID)
-		issue1013StartRepair(t, s, workID, worker, pin.Version, 2)
-		nextAttempt := "attempt:" + workID + ":race2"
-		issue1013RecordWorkerDispatch(t, s, workID, nextAttempt)
-		failWorkerAttempt(t, s, workID, nextAttempt)
-		pin = issue1013Pin(t, s, workID)
-		applyRecordWorkerFailureForTest(t, s, workID, owner, nextAttempt, 2, pin.Version, "routine-race-record-2-"+workID)
-		var second *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			second, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if second == nil || second.FailedAttemptID != nextAttempt || second.FailedAttemptEpoch != 2 {
-			t.Fatalf("revalidated binding = %+v, want the new failed attempt %q epoch 2", second, nextAttempt)
-		}
-		if second.FailedAttemptID == first.FailedAttemptID || second.FailedAttemptEpoch == first.FailedAttemptEpoch {
-			t.Fatalf("binding did not move with the failed identity: first %+v second %+v", first, second)
-		}
-		var reread *WorkflowRetryApprovalBinding
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			var txErr error
-			reread, txErr = WorkflowFailedWorkerRetryBindingTx(ctx, tx, nil, workID)
-			return txErr
-		}); err != nil || reread == nil || *reread != *second {
-			t.Fatalf("reread binding = %+v, %v, want the same exact binding", reread, err)
+		if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != epoch {
+			t.Fatalf("correction = %+v, want the failed attempt %s at epoch %d", pin.Correction, attemptID, epoch)
 		}
 		var step string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 			t.Fatal(err)
 		}
-		stalePayload := json.RawMessage(`{"attempt_id":"` + nextAttempt + `","worker_packet":{}}`)
-		err = validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
+		stalePayload := json.RawMessage(`{"attempt_id":"` + attemptID + `","worker_packet":{}}`)
+		err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, stalePayload)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindStaleAttempt {
 			t.Fatalf("retry reusing the failed identity returned %v, want the stale-attempt refusal", err)
@@ -441,20 +368,6 @@ func TestRoutineRecovery(t *testing.T) {
 		freshPayload := json.RawMessage(`{"attempt_id":"attempt:routine-retry-fresh","worker_packet":{}}`)
 		if err := validateFailedWorkerRetryIdentity(ctx, s.DatabaseForTesting(), workID, step, freshPayload); err != nil {
 			t.Fatalf("fresh retry identity refused: %v", err)
-		}
-	})
-
-	t.Run("the convergence wall stays evidence-gated", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-convergence-wall"
-		s, _, _ := seedIssue1013EscalatedCorrection(t, workID)
-		var binding *WorkflowRetryApprovalBinding
-		if err := s.Transact(context.Background(), func(tx *Transaction) error {
-			var txErr error
-			binding, txErr = WorkflowFailedWorkerRetryBindingTx(context.Background(), tx, nil, workID)
-			return txErr
-		}); err != nil || binding != nil {
-			t.Fatalf("escalated wall exposed a retry approval binding = %+v, %v, want none", binding, err)
 		}
 	})
 
@@ -477,14 +390,13 @@ func TestRoutineRecovery(t *testing.T) {
 		}
 		workerRef := recordRoutineSelfRepairActor(t, s, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/repair-worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent})
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "routine-self-repair-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: workerRef, OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:routine-self-repair-" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: workerRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "routine-self-repair-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:routine-self-repair-" + workID, "lane_actor_ref": workerRef})
+		dispatch.Actor = workerRef
+		dispatch.OccurredAt = time.Unix(45, 0).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatal(err)
 		}
-		policyDefinition := routineRecoveryPolicyDefinition(t, workflowFixtureRef, 2)
+		policyDefinition := routineRecoveryPolicyDefinition(workflowFixtureDefinition(t, 2))
 		legacyDefinition := workflowFixtureDefinition(t, 2).Definition
 		classify := func(actorRef string, definition WorkflowDefinition) error {
 			tx, txErr := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -549,73 +461,11 @@ func TestRoutineRecovery(t *testing.T) {
 		if !ok || superseded.CurrentVersion != workflowContractSupersededLawChangePayloadVersion {
 			t.Fatalf("contract_superseded registration = %#v, want v%d", superseded, workflowContractSupersededLawChangePayloadVersion)
 		}
-		for version := 1; version < superseded.CurrentVersion; version++ {
-			if superseded.Upcasters[version] == nil {
-				t.Fatalf("contract_superseded registration = %#v, want an upcaster from v%d", superseded, version)
-			}
-		}
 		// A correction request records no dedicated event kind: it is a
 		// workflow.action_completed whose action_id is request_correction.
-		// Its registration is v7 with upcasters 1-6, and replay must keep a
-		// stored pre-attribution correction completion's semantics: the
-		// correction fields survive the upcast and the legacy attribution
-		// marker is stamped explicitly.
 		completed, ok := registeredEventKind(WorkflowActionCompleted)
-		if !ok || completed.CurrentVersion != 7 || completed.Upcasters[1] == nil || completed.Upcasters[4] == nil || completed.Upcasters[5] == nil || completed.Upcasters[6] == nil {
-			t.Fatalf("action_completed registration = %#v, want v7 with upcasters 1-6", completed)
-		}
-		correction := map[string]any{
-			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
-			"step_id": "verify", "action_id": "request_correction", "attempt_epoch": 1,
-			"correction_diagnosis": "the delivered subject is stale", "correction_strategy": "re-produce the artifact",
-			"correction_predicate_ids": []string{"predicate:return-route"}, "correction_evidence_refs": []string{"evidence:stale"},
-		}
-		event := workflowEventWithActor("routine-recovery-correction-upcast", WorkflowActionCompleted, "routine-upcast-work", "actor:test", correction)
-		event.PayloadVersion = 4
-		upcast, err := upcastEvent(event)
-		if err != nil {
-			t.Fatalf("recorded v4 correction completion did not upcast: %v", err)
-		}
-		if upcast.PayloadVersion != completed.CurrentVersion || upcast.replaySourcePayloadVersion != 4 {
-			t.Fatalf("correction upcast payload version = %d source = %d, want %d with source 4", upcast.PayloadVersion, upcast.replaySourcePayloadVersion, completed.CurrentVersion)
-		}
-		var payload workflowActionCompletedPayload
-		if err := json.Unmarshal(upcast.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.ActionID != "request_correction" || payload.CorrectionDiagnosis != "the delivered subject is stale" || payload.CorrectionStrategy != "re-produce the artifact" || len(payload.CorrectionPredicateIDs) != 1 || payload.CorrectionEvidenceRefs[0] != "evidence:stale" {
-			t.Fatalf("correction upcast lost historical correction semantics: %#v", payload)
-		}
-		if payload.FailureAttribution == nil {
-			t.Fatal("correction upcast did not stamp the explicit legacy attribution marker")
-		}
-		// The supersession registration keeps the same guarantee for its
-		// approval binding bytes: a recorded v1 supersession upcasts to the
-		// current version with its attribution preserved and its replay
-		// provenance intact.
-		binding := map[string]any{
-			"work_id": "routine-upcast-work", "expected_version": 2, "resulting_version": 3,
-			"previous_contract_version": 1, "new_contract_version": 2, "supersede_reason": "legacy replacement", "audit_evidence": []string{"evidence:legacy"},
-			"approval_ref":              strings.Repeat("a", 64),
-			"approval_operation_digest": "sha256:" + strings.Repeat("c", 64),
-			"approval_scope_json":       `{}`,
-			"approval_versions_json":    `{"work_id":"routine-upcast-work"}`,
-			"approval_consequence":      "recovery",
-		}
-		supersessionEvent := workflowEventWithActor("routine-recovery-upcast", WorkflowContractSuperseded, "routine-upcast-work", "actor:test", binding)
-		supersededUpcast, err := upcastEvent(supersessionEvent)
-		if err != nil {
-			t.Fatalf("recorded v1 supersession did not upcast: %v", err)
-		}
-		if supersededUpcast.PayloadVersion != workflowContractSupersededLawChangePayloadVersion || supersededUpcast.replaySourcePayloadVersion != 1 {
-			t.Fatalf("upcast payload version = %d source = %d, want %d with source 1", supersededUpcast.PayloadVersion, supersededUpcast.replaySourcePayloadVersion, workflowContractSupersededLawChangePayloadVersion)
-		}
-		var supersessionPayload workflowContractSupersededPayload
-		if err := json.Unmarshal(supersededUpcast.Payload, &supersessionPayload); err != nil {
-			t.Fatal(err)
-		}
-		if supersessionPayload.ApprovalRef != strings.Repeat("a", 64) || supersessionPayload.ApprovalConsequence != "recovery" || supersessionPayload.SupersedeReason != "legacy replacement" {
-			t.Fatalf("upcast payload lost historical approval or attribution bytes: %#v", supersessionPayload)
+		if !ok || completed.CurrentVersion != 7 {
+			t.Fatalf("action_completed registration = %#v, want v7", completed)
 		}
 	})
 
@@ -623,7 +473,7 @@ func TestRoutineRecovery(t *testing.T) {
 		t.Parallel()
 		const workID = "routine-recovery-binding-exact"
 		ctx := context.Background()
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
+		s, owner, _ := seedItemAtAcceptance(t, workID)
 		ownerRef, err := WorkflowActorRef(owner)
 		if err != nil {
 			t.Fatal(err)
@@ -645,4 +495,20 @@ func TestRoutineRecovery(t *testing.T) {
 			t.Fatalf("refused recovery changed the work version from %d to %d", version, got)
 		}
 	})
+}
+
+// routineRecoveryAtCompleteStep parks a current implementation item on its
+// release step: a reviewed candidate with associated current proof and Main's
+// premise confirmation, the state the complete-step recovery routes read.
+func routineRecoveryAtCompleteStep(t *testing.T, workID string) acceptanceRecoveryFixture {
+	t.Helper()
+	ctx := context.Background()
+	fixture := qCurrentAcceptance(t, workID)
+	if err := fixture.run(ctx, "confirm_premise", "confirm", fixture.version(ctx, t), nil, nil); err != nil {
+		t.Fatalf("confirm the premise: %v", err)
+	}
+	if step := currentStep(t, fixture.store, workID); step != "release" {
+		t.Fatalf("step after confirmation = %q, want release", step)
+	}
+	return fixture
 }

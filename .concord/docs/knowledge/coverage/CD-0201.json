@@ -14,15 +14,19 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+      "value": "internal/store.TestAdmissionConformanceLocalJobAcceptHolds"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances"
+      "value": "internal/store.TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReleasedPinKeepsNoShipAcceptRefineCurrent"
+      "value": "internal/store.TestBlockingReviewDispositionAcceptsWithoutAdvancing"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewCurrentAdmissionNegativeCases"
     },
     {
       "kind": "go_test",

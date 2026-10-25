@@ -1,5 +1,5 @@
 import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, scanReportTexts, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
-import { canonicalDirectory, serializeLanePacket } from "./dispatch-window"
+import { canonicalDirectory, dispatchWindows, serializeLanePacket } from "./dispatch-window"
 import { agentLanePacketSchema, laneForIdentity } from "./generated-agent-lanes"
 import { readTaskResult } from "./task-result"
 
@@ -20,8 +20,8 @@ export async function reconcileRetainedWorker(
   options: Parameters<typeof completeWorkerAttempt>[3],
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
-  const lane = laneForIdentity(recovery.dispatch.lane_id, recovery.dispatch.lane_version, recovery.dispatch.lane_digest)
-  if (!lane) throw new Error("the original dispatched lane definition is unavailable")
+  const lane = laneForIdentity(recovery.dispatch.lane_id, recovery.dispatch.lane_digest)
+  if (!lane) throw new Error("the original dispatched lane requires content revalidation; preserve its original identity and evidence")
   // The retained schema artifacts are the recorded pair itself. A
   // pair no released revision produced, or one whose sides disagree, is a
   // record no reader owns: refuse typed before any replacement worker,
@@ -50,7 +50,7 @@ export async function reconcileRetainedWorker(
   let packet: unknown
   try { packet = JSON.parse(part.state.input.prompt) } catch { throw new Error("retained host Task has no original packet") }
   if (!object(packet) || packet.schema_version !== recordedPacketVersion) throw new Error("retained packet schema identity differs from the schema identity the recorded dispatch carried")
-  if (!validateAgentLanePacket(packet) || packet.work_id !== workID || packet.attempt_id !== attemptID || recovery.dispatch.attempt_id !== attemptID || packet.lane_id !== lane.id || packet.lane_version !== lane.version || packet.lane_digest !== recovery.dispatch.lane_digest || serializeLanePacket(packet) !== part.state.input.prompt || part.state.input.subagent_type !== `concord-${lane.id}`) throw new Error("retained host Task packet or executing lane differs from the original attempt")
+  if (!validateAgentLanePacket(packet) || packet.work_id !== workID || packet.attempt_id !== attemptID || recovery.dispatch.attempt_id !== attemptID || packet.lane_id !== lane.id || packet.lane_digest !== recovery.dispatch.lane_digest || serializeLanePacket(packet) !== part.state.input.prompt || part.state.input.subagent_type !== `concord-${lane.id}`) throw new Error("retained host Task packet or executing lane differs from the original attempt")
   const childRead = await readWorkerSessionBody(reader, task.sessionID, signal)
   if (!childRead.ok) throw new Error(childRead.message)
   const child = JSON.parse(childRead.body)
@@ -72,6 +72,7 @@ export async function reconcileRetainedWorker(
   }
   const report = resolveWorkerReportFromText(task.text, packet, readback.metadata.readback_model)
   if ("detail" in report || report.report.status !== "completed") throw new Error("retained report is invalid or incomplete")
+  if (typeof part.callID === "string") dispatchWindows().observeTerminalPart(recovery.coordinator_session, part.callID, part.id, part.state.input.prompt)
   // The existing completion path rechecks child opening, agent and model. Its
   // signed dispatch append also sends the packet to the Go canonical-digest
   // check before replay, so a Task with changed packet content writes nothing.

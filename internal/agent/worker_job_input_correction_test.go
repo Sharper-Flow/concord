@@ -21,7 +21,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 		"stopping_condition": "The recorded checks pass.", "ready": true,
 		"checks": []string{"go test ./..."}, "acceptance_oracle": agentOracleFieldsForWork(t, s, "work-1"),
 	}
-	addAgentJobSizeMembers(t, s, "work-1", fields)
+	addAgentJobCallerMembers(t, s, "work-1", fields)
 	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestRecordWorkerJobInputCorrection(t *testing.T) {
 	snapshot := func() [3]int64 {
 		t.Helper()
 		state := [3]int64{workVersion(t, s, "work-1")}
-		for i, query := range []string{`SELECT count(*) FROM domain_events`, `SELECT count(*) FROM worker_job_revisions`} {
+		for i, query := range []string{`SELECT last FROM store_sequences WHERE name='effect'`, `SELECT count(*) FROM worker_job_revisions`} {
 			if err := s.DatabaseForTesting().QueryRow(query).Scan(&state[i+1]); err != nil {
 				t.Fatal(err)
 			}

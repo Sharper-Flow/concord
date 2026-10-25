@@ -73,7 +73,6 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		{"workflow_action_guards.go", "guardRecoveryEvidenceBind", []string{"bind_evidence"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},
 		{"workflow_action_guards.go", "guardNoRestartDispatch", []string{"cross_context_boundary"}},
-		{"workflow_action_guards.go", "lateBindWorkflowEvidenceTx", []string{"complete"}},
 	} {
 		fields := workflowTestFieldReads(workflowTestFunction(t, files[binding.file], binding.name).Body, "fields")
 		for _, action := range binding.actions {

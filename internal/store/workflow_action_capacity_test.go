@@ -100,6 +100,7 @@ func workerPacketCapacityOptions(defs map[string]any, packet, jobShape string, f
 	return schemawire.Options{
 		Defs: defs,
 		PathBounds: map[string]int{
+			packet + "/inputs/worker_job/" + jobShape + "/direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash": 71,
 			packet + "/inputs/worker_job/" + jobShape + "/acceptance_oracle":        OracleCombinedMaxBytes,
 			packet + "/inputs/worker_job/" + jobShape + "/checks_repair":            WorkerJobChecksRepairMaxBytes,
 			packet + "/inputs/design_record/workflow_design_record/recorded_at":     32,
@@ -111,6 +112,21 @@ func workerPacketCapacityOptions(defs map[string]any, packet, jobShape string, f
 			packet + "/inputs/correction":   true,
 		},
 		FindingRefMax: findingRefMax,
+	}
+}
+
+// The shared repository-source schema leaves commit_oid to its consumer.
+// Oracle capacity uses the combined writer bound; the recipe's own scalar
+// guard must still refuse values outside the declared Git identity domain.
+func TestOracleRecipeCommitOIDCapacityOwner(t *testing.T) {
+	for _, length := range []int{39, 40, 64, 65} {
+		source := WorkContextReadingSource{
+			Kind: WorkContextSourceRepositoryFile, ProjectID: "project-fixture",
+			Path: "scripts/oracle.json", CommitOID: strings.Repeat("a", length),
+		}
+		if err := validateOracleRecipeSource(source); (err == nil) != (length >= 40 && length <= 64) {
+			t.Fatalf("recipe commit length %d: %v", length, err)
+		}
 	}
 }
 
@@ -141,8 +157,8 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	}
 	// Quotes count: the reference serializes inside quotation marks.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	opt := workerPacketCapacityOptions(defs, "worker_packet2", "worker_packet_worker_job", findingRefMax)
-	packetParts, err := schemawire.Max(defs["worker_packet2"], "worker_packet2", opt)
+	opt := workerPacketCapacityOptions(defs, "worker_packet", "worker_packet_worker_job", findingRefMax)
+	packetParts, err := schemawire.Max(defs["worker_packet"], "worker_packet", opt)
 	if err != nil {
 		t.Fatalf("the packet derivation hit an unbudgeted member: %v", err)
 	}
@@ -158,52 +174,8 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if composed > maxWorkflowActionPayloadBytes {
 		t.Fatalf("the composed declared maxima need %d bytes, above the %d-byte whole-action budget; derive the budget again", composed, maxWorkflowActionPayloadBytes)
 	}
-	// The research-context packet3 identity rides the same
-	// composition: its work-context closure — the research entries and the
-	// widened group namespace — sits inside the excluded work_context member,
-	// so the packet3 derivation must match the packet2 derivation byte for
-	// byte under the shared ceiling guard — no second budget and no limit
-	// growth.
-	packet3Parts, err := schemawire.Max(defs["worker_packet3"], "worker_packet3", workerPacketCapacityOptions(defs, "worker_packet3", "worker_packet_worker_job", findingRefMax))
-	if err != nil {
-		t.Fatalf("the packet3 derivation hit an unbudgeted member: %v", err)
-	}
-	if packet3Parts != packetParts {
-		t.Fatalf("the packet3 derivation = %d bytes, want the packet2 derivation %d; the research closure rides the unchanged context aggregate", packet3Parts, packetParts)
-	}
-	packet3Composed := packet3Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
-	if packet3Composed != composed {
-		t.Fatalf("the packet3 composition = %d bytes, want the packet2 composition %d", packet3Composed, composed)
-	}
-	// The checks-repair packet4 identity carries one writer-bounded member
-	// beside the shared job content: the core-recorded checks repair
-	// metadata, bounded by WorkerJobChecksRepairMaxBytes exactly as the
-	// acceptance oracle is.
-	packet4Opt := workerPacketCapacityOptions(defs, "worker_packet4", "worker_packet_checks_repair_job", findingRefMax)
-	packet4Parts, err := schemawire.Max(defs["worker_packet4"], "worker_packet4", packet4Opt)
-	if err != nil {
-		t.Fatalf("the packet4 derivation hit an unbudgeted member: %v", err)
-	}
-	packet4Composed := packet4Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
-	if packet4Composed > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the packet4 composed declared maxima need %d bytes, above the %d-byte whole-action budget: the checks repair writer bound does not fit; derive the budget again or shrink the bound before changing any policy", packet4Composed, maxWorkflowActionPayloadBytes)
-	}
-	// The size-capable packet5 identity mirrors the checks-repair packet4
-	// shape beside the recorded production-size members: the measurement
-	// basis's base commit and the direct-caller allowance's knowledge
-	// content hash are anchored scalars the walker bounds at their exact
-	// quoted serializations, under the same ceiling guard.
-	packet5Opt := workerPacketCapacityOptions(defs, "worker_packet5", "worker_packet5_worker_job", findingRefMax)
-	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/measurement_basis/worker_job_measurement_basis/base_commit"] = 71
-	packet5Opt.PathBounds["worker_packet5/inputs/worker_job/worker_packet5_worker_job/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/work_context_reading_source_knowledge/content_hash"] = 71
-	packet5Parts, err := schemawire.Max(defs["worker_packet5"], "worker_packet5", packet5Opt)
-	if err != nil {
-		t.Fatalf("the packet5 derivation hit an unbudgeted member: %v", err)
-	}
-	packet5Composed := packet5Parts + DispatchContextAggregateMaxBytes - 1 + wrapper
-	if packet5Composed > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the packet5 composed declared maxima need %d bytes, above the %d-byte whole-action budget: the recorded size members do not fit; derive the budget again or shrink the bounds before changing any policy", packet5Composed, maxWorkflowActionPayloadBytes)
-	}
+	// CD-0242 D14 retires comparisons between historical packet closures.
+	// The current walk includes checks repair and direct-caller members.
 	if maxWorkflowPredicateBytes != 64*1024 {
 		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)
 	}
@@ -225,76 +197,6 @@ func TestWorkflowActionPayloadBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 // assumed to dominate: the derivation reports the fields figure, the split
 // contents, the request envelope, and the size of everything beside the
 // 64-oracle term.
-func TestWorkerJobSplitActionPayloadDerivesFromDeclaredMaxima(t *testing.T) {
-	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-	if defs == nil {
-		t.Fatal("the generated payload contract carries no $defs")
-	}
-	// An anchored sha256 digest serializes as "sha256:" plus 64 hex digits
-	// inside its quotes; the widest declared raw commit oid is 64 hex digits
-	// inside its quotes.
-	digestWire := 2 + len("sha256:") + 64
-	commitOIDWire := 2 + 64
-	contentHash := "work_context_reading_source_knowledge/content_hash"
-	opt := schemawire.Options{
-		Defs: defs,
-		RefBounds: map[string]int{
-			// Every serialized acceptance oracle — the ordinary job's and
-			// each split successor's — carries its writer's combined bound.
-			"worker_acceptance_oracle": OracleCombinedMaxBytes,
-		},
-		PathBounds: map[string]int{
-			"record_worker_job_split_action/fields/oneOf/measurement_basis/worker_job_measurement_basis/base_commit":                                                                                                                                        commitOIDWire,
-			"record_worker_job_split_action/fields/oneOf/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/" + contentHash:                                                                     digestWire,
-			"record_worker_job_split_action/fields/oneOf/split/worker_job_split2/predecessor/digest":                                                                                                                                                        digestWire,
-			"record_worker_job_split_action/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor/measurement_basis/worker_job_measurement_basis/base_commit":                                                                    commitOIDWire,
-			"record_worker_job_split_action/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/" + contentHash: digestWire,
-		},
-	}
-	// The fields JSON at its own derivation root, so the walker's paths keep
-	// matching the writer bounds above and the figure answers to the store
-	// budget that owns it.
-	variant, _ := defs["work_transition_action_variant_record_worker_job"].(map[string]any)
-	properties, _ := variant["properties"].(map[string]any)
-	fieldsMax, err := schemawire.Max(properties["fields"], "record_worker_job_split_action/fields", opt)
-	if err != nil {
-		t.Fatalf("the split-action fields derivation hit an unbudgeted member: %v", err)
-	}
-	// The outer work-transition request envelope rides the same writer
-	// bounds; its bytes belong to the agent surface's request ceiling.
-	whole, err := schemawire.Max(defs["work_transition_action_variant_record_worker_job"], "record_worker_job_split_action", opt)
-	if err != nil {
-		t.Fatalf("the whole-request derivation hit an unbudgeted member: %v", err)
-	}
-	splitOpt := schemawire.Options{
-		Defs: defs,
-		RefBounds: map[string]int{
-			"worker_acceptance_oracle": OracleCombinedMaxBytes,
-		},
-		PathBounds: map[string]int{
-			"worker_job_split2/predecessor/digest": digestWire,
-			"worker_job_split2/successors/items/worker_job_split_successor/measurement_basis/worker_job_measurement_basis/base_commit":                                                                    commitOIDWire,
-			"worker_job_split2/successors/items/worker_job_split_successor/direct_caller_allowance/worker_job_direct_caller_allowance/law_bindings/items/worker_oracle_law_binding/source/" + contentHash: digestWire,
-		},
-	}
-	splitMax, err := schemawire.Max(defs["worker_job_split2"], "worker_job_split2", splitOpt)
-	if err != nil {
-		t.Fatalf("the split-contents derivation hit an unbudgeted member: %v", err)
-	}
-	if whole <= fieldsMax {
-		t.Fatalf("the whole-request derivation %d does not exceed the fields derivation %d; the request envelope left the derivation", whole, fieldsMax)
-	}
-	t.Logf("the record_worker_job split fields derive %d bytes: split contents %d plus a %d-byte split wrapper; the 64-oracle term is %d bytes, so the other declared fields carry %d",
-		fieldsMax, splitMax, fieldsMax-splitMax, 64*OracleCombinedMaxBytes, fieldsMax-64*OracleCombinedMaxBytes)
-	t.Logf("the outer work-transition request derives %d bytes, reported beside the shared ceiling agent's MaxRequestBytes aliases; the store decode budget does not own it", whole)
-	if fieldsMax > maxWorkflowActionPayloadBytes {
-		t.Fatalf("the record_worker_job split action's fields derive %d bytes, above the %d-byte whole-action decode budget that owns the fields JSON; the widest-shape derivation owns the ceiling's rounding, so a growth past it requires a new derivation",
-			fieldsMax, maxWorkflowActionPayloadBytes)
-	}
-}
-
-// The whole-action decode budget refuses whole with its typed kind: an
-// over-bound action payload decodes to KindInvalidPayload and nothing else.
 func TestWorkflowActionPayloadBudgetRefusesTypedAndWhole(t *testing.T) {
 	oversize := bytes.Repeat([]byte("x"), maxWorkflowActionPayloadBytes+1)
 	var target map[string]any

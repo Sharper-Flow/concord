@@ -10,15 +10,9 @@
   [issue #195 comment](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5347857526)
 - **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0031, CD-0222, TS1,
   TS5–TS9
-- **Amends:** CD-0005 D6/D8/D9 and implementation acceptance; CD-0024 D3/D4;
-  CD-0031's agent-surface identity; CD-0222's pre-go-live surface sequencing; TS7,
-  TS8, and TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
-  client bootstrap; fail-closed unknown input; durable Product/event authority; release
-  automation
-- **Supersedes:** Pre-go-live agent-surface SemVer, range negotiation, compatibility
-  windows, deprecation metadata, supported-model release trials, and replay/upcast code
-  retained only for unreleased surface revisions
+  client bootstrap; fail-closed unknown input; durable Product state authority; release
+  automation (the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)))
 
 ## Context
 
@@ -79,16 +73,13 @@ release and are not a substitute for deterministic authority evidence.
 
 TS9's supported-model population, paired-trial, telemetry, and deprecation gates become
 active only after the go-live decision defines supported populations and a real current
-contract. CD-0024's one-time exception is closed historical evidence, not a template
-and not a gate that needs another exception.
+contract.
 
 ### D5. Domain-overlap control lands on the primary path
 
-Issue #195 adds `concord_work_relate.resolve_overlap` and typed `domain_overlap`
-recovery directly to the generated current manifest. The accepted `AJ5-resolve-domain-overlap`
-scenario and its real-dispatch binding prove the missing authority path and the new
-outcome. No `5.0.0` cutover, old-client matrix, or model-trial runner is part of this
-change.
+The generated current manifest exposes `concord_work_relate.resolve_overlap`
+and typed `domain_overlap` recovery. The accepted `AJ5-resolve-domain-overlap`
+scenario and its real-dispatch binding prove the authority path and outcome.
 
 ### D6. First go-live must establish future evolution law
 
@@ -113,8 +104,6 @@ them.
   when they alter Product authority or consequence.
 - Historical decision records remain readable, but living contracts describe only the
   current path.
-- Issue #196 no longer needs a TS9 runner before replacing Epic with Initiative; it
-  still needs deterministic scenario and authority evidence.
 
 ## Rejected alternatives
 

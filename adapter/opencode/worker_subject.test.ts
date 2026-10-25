@@ -10,7 +10,7 @@ const lane = agentLanes.find((entry) => entry.id === "review")!
 const subject = "a".repeat(40)
 const packet: AgentLanePacket = {
   schema_version: "1.0", attempt_id: "subject-attempt", work_id: "subject-work", step_id: "review",
-  lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+  lane_id: lane.id, lane_digest: lane.digest,
   inputs: { task: "Review the pinned subject", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "contract_findings" },
     work_context: { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: subject } },
 }
@@ -66,6 +66,12 @@ test("real Git observes the pinned clean subject and refuses untracked files or 
     rmSync(untracked)
     await git("commit", "--quiet", "--allow-empty", "-m", "next fixture")
     expect((await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner))?.detail).toContain("review subject mismatch")
+    expect(await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner, "terminal")).toBeNull()
+    const readOnly = { ...pinned, lane_digest: "sha256:" + "0".repeat(64) }
+    expect((await reviewSubjectFailure(lane, readOnly, root, signal, defaultRunner, "terminal"))?.detail).toContain("review subject mismatch")
+    await git("checkout", "--orphan", "unrelated")
+    await git("commit", "--quiet", "--allow-empty", "-m", "unrelated")
+    expect((await reviewSubjectFailure(lane, pinned, root, signal, defaultRunner, "terminal"))?.detail).toContain("not a proved descendant")
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

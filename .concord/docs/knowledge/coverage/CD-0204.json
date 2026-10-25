@@ -10,11 +10,19 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses"
+      "value": "internal/store.TestPreflightAndMutationRequireAcceptedReadyDisposition"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestFrozenOpsRunbookCleanupRecordsAMissingVerdict"
+      "value": "internal/store.TestCriterionAssociationAtPremiseQuestionWithoutDeclaration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement"
     },
     {
       "kind": "go_test",

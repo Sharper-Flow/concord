@@ -21,10 +21,9 @@
         "internal/store/storetest/neighbor",
         "internal/store/storetest/projection",
         "internal/testenv",
-        "internal/testutil/schemawire",
-        "internal/workflowcorpus"
+        "internal/testutil/schemawire"
       ],
-      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, derives schema budgets, and names corpus coverage. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
+      "reason": "Shared test infrastructure isolates Git and process state, seeds acceptance and migrated-store fixtures, coordinates SQLite neighbors, and derives schema budgets. Production dependencies' tests import these helpers directly or through another declared helper; the checker derives those uses and refuses an orphaned declaration. None belongs in the shipped command dependency set."
     },
     {
       "id": "test-only-registry-assertions",
@@ -41,15 +40,6 @@
         "internal/agent.InvokeWithRegistry"
       ],
       "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam lets the workflow corpus boundary runner drive a scenario registry through the real byte-oriented boundary instead of reaching past it. The tested seam remains until its disposition is decided."
-    },
-    {
-      "id": "contract-generator-history-source",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.BuiltinWorkflowDefinitions",
-        "internal/store.BuiltinWorkflowDefinitionsWithHistory"
-      ],
-      "reason": "BuiltinWorkflowDefinitions supplies the live authoring heads to scripts/workflow-action-contracts; BuiltinWorkflowDefinitionsWithHistory supplies frozen schema references. CI runs generate-agent-contracts.py --check to verify both projections. The analysis roots ./cmd/... only and cannot see these build-time edges. Runtime capture resolves live families through LiveWorkflowDefinitionForRef and the full registry; builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry."
     },
     {
       "id": "contract-generator-cross-field-projection",

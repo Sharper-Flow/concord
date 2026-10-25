@@ -7,21 +7,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
-// The review subject: a review-lane dispatch on implementation and break_fix
-// work reviews one immutable subject, the clean delivery the core observed on
-// the latest accepted implementation-lane completion, which must equal the
-// shared qualified candidate, the packet subject, and the live clean HEAD of
-// the claimed worktree. Failed, rejected, unaccepted, wrong-worktree, and
-// superseded-contract completions cannot replace the accepted source, and an
-// accepted completion without a core observation requires a fresh
-// implementation attempt.
+// The review subject: a review-lane dispatch reviews Main's current
+// integrated candidate, the qualified subject that equals the live clean HEAD
+// of the claimed worktree. It reads no implementation delivery history, so a
+// baseline Review needs no implementation result (CD-0242 D5), and a contract
+// version change alone does not move it (CD-0242 D7).
 
 // reviewSubjectClaim claims the work's worktree as one real git repository
 // and qualifies its HEAD through the worktree-verify owner, so the shared
@@ -112,11 +108,9 @@ func reviewSubjectRecordOperator(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// reviewSubjectAccept records the accept action that binds one completed
-// implementation attempt, exactly as the accept completion the fold records
-// carries the binding the review join reads. An accept completion
-// legitimately advances the delivery-gate step, so the recorded-history
-// route lands the event directly: the join reads the event, not the step.
+// reviewSubjectAccept seeds acceptance of one completed implementation attempt
+// without advancing the fixture's delivery-gate step. Its current Review facts
+// use the same maintaining writer as an admitted acceptance.
 func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
@@ -140,14 +134,23 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
-		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw)); err != nil {
+	event := Event{EventID: workID + ":review-accept:" + attemptID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: operatorRef, OccurredAt: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), PayloadVersion: 2, Payload: raw}
+	seq, err := appendPreparedEvent(t.Context(), tx, event)
+	if err != nil {
 		t.Fatalf("record acceptance of %s: %v", attemptID, err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	event.Seq = seq
+	var action workflowActionCompletedPayload
+	if err := json.Unmarshal(raw, &action); err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, event, action); err != nil {
+		t.Fatalf("record current Review acceptance of %s: %v", attemptID, err)
+	}
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -204,9 +207,9 @@ func reviewSubjectSupersedeContractVersions(t *testing.T, s *Store, workID strin
 func reviewSubjectDispatch(t *testing.T, s *Store, f workContextFixture, attemptID, sessionWorktree string) error {
 	t.Helper()
 	const stepID = "repair"
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	laneDigest := registeredLaneIdentity(t, "review")
 	job := reviewSubjectReadyRevision(t, f)
-	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
@@ -242,20 +245,6 @@ func reviewSubjectReadyRevision(t *testing.T, f workContextFixture) WorkerJobBin
 	return job
 }
 
-// reviewSubjectSecondClaim records one more active claim entry for the work,
-// on another project row, so a review can present a session worktree the
-// accepted delivery never named.
-func reviewSubjectSecondClaim(t *testing.T, s *Store, workID, path string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`
-INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
-VALUES(?,?,?,?,?,?,?,'active',?,'{}');
-DELETE FROM fold_guard;`, WorktreeSetID(workID), "project-2", "claim-2", "change/claim", strings.Repeat("b", 40), path, "repo-2", "2026-09-05T00:00:00Z"); err != nil {
-		t.Fatalf("insert second claim: %v", err)
-	}
-}
-
 func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) WorkerDispatchWindow {
 	t.Helper()
 	var window WorkerDispatchWindow
@@ -271,8 +260,8 @@ func reviewSubjectWindow(t *testing.T, s *Store, workID, attemptID string) Worke
 
 // reviewSubjectImplementComplete dispatches one implementation attempt on a
 // fresh ready job revision and records its terminal event, preparing the
-// core delivery observation when the terminal version carries one.
-func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string, observed bool) {
+// core delivery observation through the current producer path.
+func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptID, eventID string) {
 	t.Helper()
 	s := f.store
 	lane := laneForID(t)
@@ -287,39 +276,22 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
-	version := WorkerEvidenceEventPayloadVersion(WorkerCompleted)
-	if !observed {
-		version = workerCompletedTerminalDeliveryVersion - 1
-	}
+	version := CurrentEventPayloadVersion(WorkerCompleted)
 	completion := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: version, Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}
 	ctx := context.Background()
-	if observed {
-		prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
-		if prepErr != nil {
-			t.Fatalf("terminal delivery preparation refused: %v", prepErr)
-		}
-		ctx = WithWorkerTerminalPreparation(ctx, prepared)
+	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: eventID})
+	if prepErr != nil {
+		t.Fatalf("terminal delivery preparation refused: %v", prepErr)
 	}
+	ctx = WithWorkerTerminalPreparation(ctx, prepared)
 	workerTerminalEventThroughSeamCtx(t, ctx, s, completion)
 }
 
-func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
-	// The review-subject fixture predates the failure-attribution
-	// requirement, and the rule it pins does not depend on the pin
-	// (settlement V3 option a): the review subject is selected from accepted
-	// implementation deliveries joined to worktree claims
-	// (worker_review_anchor.go readReviewDeliveryAnchors :16-46,
-	// cleanCommit :57-75), never from the workflow pin's version. The only
-	// pin-coupled member on this path is the failed-terminal attribution
-	// gate, and the fixture's failed-completion scenery was authored as a
-	// plain released terminal on a claim with no dispatch_worker
-	// authorization — no window exists for an attributed identity to derive
-	// from. Pin the latest pre-attribution head so the scenery keeps the
-	// optional absence it shipped with.
-	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-accepted", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
+func TestReviewDispatchPinsCurrentQualifiedSubject(t *testing.T) {
+	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-current", mustBuiltinDefinition(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	s := fixture.store
 	claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
@@ -327,98 +299,12 @@ func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
 	if err != nil || view == nil || view.SubjectCommit != head {
 		t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), err, head)
 	}
-	reviewSubjectImplementComplete(t, fixture, "attempt-review-accepted-y", "complete-review-accepted-y", true)
-	reviewSubjectAccept(t, s, fixture.workID, "attempt-review-accepted-y")
-	// The other worktree claim lives for the whole test: a later subtest
-	// presents it as the review session, and the claim entry must stay
-	// resolvable until then.
-	otherClaim := reviewSubjectCloneClaim(t, claimDir)
-
-	t.Run("the review pins the accepted delivery subject", func(t *testing.T) {
-		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-r1", claimDir); err != nil {
-			t.Fatalf("review dispatch refused the accepted delivery: %v", err)
-		}
-		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-r1"); window.SubjectCommit != head {
-			t.Fatalf("review window subject = %q, want the accepted delivery %q", window.SubjectCommit, head)
-		}
-	})
-
-	t.Run("a newer unaccepted or failed completion cannot replace the accepted source", func(t *testing.T) {
-		reviewSubjectImplementComplete(t, fixture, "attempt-review-unaccepted-z", "complete-review-unaccepted-z", true)
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-review-failed-z2", laneForID(t), nil)}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "failed-review-z2", "attempt-review-failed-z2", preferredModelForLane(laneForID(t)), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-r2", claimDir); err != nil {
-			t.Fatalf("review refused with a newer unaccepted and failed completion standing: %v", err)
-		}
-		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-r2"); window.SubjectCommit != head {
-			t.Fatalf("review window subject = %q, want the accepted source %q, never the unaccepted or failed completion", window.SubjectCommit, head)
-		}
-	})
-
-	t.Run("a newer accepted delivery from another claimed worktree cannot replace the source", func(t *testing.T) {
-		reviewSubjectSecondClaim(t, s, fixture.workID, otherClaim)
-		// The newer accepted delivery is produced from the other claim, so
-		// it never enters this worktree's accepted source: the review from
-		// this claim still pins the older accepted delivery.
-		wrongTree := seedWrongTreeAcceptedDelivery(t, s, fixture, otherClaim)
-		if wrongTree == "" {
-			t.Fatal("the wrong-worktree accepted delivery was not recorded")
-		}
-		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-newer-wrong-tree", claimDir); err != nil {
-			t.Fatalf("review refused with a newer wrong-worktree acceptance standing: %v", err)
-		}
-		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-newer-wrong-tree"); window.SubjectCommit != head {
-			t.Fatalf("review window subject = %q, want the older accepted source %q, never the newer wrong-worktree delivery", window.SubjectCommit, head)
-		}
-	})
-
-	t.Run("a wrong-worktree-only accepted delivery cannot host the review", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "review-subject-wrong-only")
-		defer fixture.store.Close()
-		s := fixture.store
-		claimDir, _ := reviewSubjectClaim(t, s, fixture.workID)
-		other := reviewSubjectCloneClaim(t, claimDir)
-		reviewSubjectSecondClaim(t, s, fixture.workID, other)
-		if seedWrongTreeAcceptedDelivery(t, s, fixture, other) == "" {
-			t.Fatal("the wrong-worktree accepted delivery was not recorded")
-		}
-		err := reviewSubjectDispatch(t, s, fixture, "attempt-review-wrong-only", claimDir)
-		if err == nil || !hasFailureKind(err, KindUnauthorizedDispatch) || !strings.Contains(err.Error(), "no accepted implementation delivery on this worktree claim") {
-			t.Fatalf("wrong-project-only review error = %v, want %s refusing the review whose only accepted delivery belongs to another worktree", err, KindUnauthorizedDispatch)
-		}
-	})
-
-}
-
-func TestReviewDispatchMissingObservedDelivery(t *testing.T) {
-	fixture := seedWorkContextFixture(t, "review-subject-unobserved")
-	defer fixture.store.Close()
-	s := fixture.store
-	claimDir, _ := reviewSubjectClaim(t, s, fixture.workID)
-	// A completion recorded at the payload version before the core observed
-	// deliveries carries no observed_delivery: the retained history an older
-	// accepted result presents to the review.
-	reviewSubjectImplementComplete(t, fixture, "attempt-review-unobserved", "complete-review-unobserved", false)
-	reviewSubjectAccept(t, s, fixture.workID, "attempt-review-unobserved")
-	err := reviewSubjectDispatch(t, s, fixture, "attempt-review-unobserved-r", claimDir)
-	if err == nil || !hasFailureKind(err, KindUnauthorizedDispatch) || !strings.Contains(err.Error(), "fresh implementation attempt") {
-		t.Fatalf("unobserved review error = %v, want %s requiring a fresh implementation attempt", err, KindUnauthorizedDispatch)
+	if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-baseline", claimDir); err != nil {
+		t.Fatalf("baseline review dispatch refused: %v", err)
 	}
-
-	t.Run("a fresh accepted implementation closes the gap", func(t *testing.T) {
-		reviewSubjectImplementComplete(t, fixture, "attempt-review-fresh", "complete-review-fresh", true)
-		reviewSubjectAccept(t, s, fixture.workID, "attempt-review-fresh")
-		if err := reviewSubjectDispatch(t, s, fixture, "attempt-review-fresh-r", claimDir); err != nil {
-			t.Fatalf("review refused a fresh accepted implementation delivery: %v", err)
-		}
-		if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-fresh-r"); window.SubjectCommit == "" {
-			t.Fatal("the review window recorded no subject")
-		}
-	})
+	if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-review-baseline"); window.SubjectCommit != head {
+		t.Fatalf("review window subject = %q, want the current qualified candidate %q", window.SubjectCommit, head)
+	}
 }
 
 // reviewSubjectPrepareDispatch prepares the one sealed dispatch proof the
@@ -430,72 +316,6 @@ func reviewSubjectPrepareDispatch(s *Store, workID, sessionWorktree string) (con
 		return nil, err
 	}
 	return WithWorkerDispatchPreparation(context.Background(), preparation), nil
-}
-
-// reviewSubjectCloneClaim clones the claimed repository, so another worktree
-// holds the same clean HEAD the qualified subject names.
-func reviewSubjectCloneClaim(t *testing.T, claimDir string) string {
-	t.Helper()
-	other := filepath.Join(t.TempDir(), "other-claim")
-	cmd := exec.Command("git", "clone", "--quiet", claimDir, other) //nolint:gosec // test-only git argv, fixed binary
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("clone claimed repository: %v: %s", err, stderr.String())
-	}
-	return other
-}
-
-// seedWrongTreeAcceptedDelivery dispatches, completes, and accepts one
-// implementation attempt from the given session worktree, so the work holds
-// an accepted delivery whose dispatch window names that other claim.
-func seedWrongTreeAcceptedDelivery(t *testing.T, s *Store, f workContextFixture, sessionWorktree string) string {
-	t.Helper()
-	lane := laneForID(t)
-	job := reviewSubjectReadyRevision(t, f)
-	view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), f.workID)
-	if viewErr != nil || view == nil {
-		t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
-	}
-	attemptID := "attempt-review-wrong-tree-" + time.Now().Format("150405.000000000")
-	packetBytes, marshalErr := json.Marshal(workContextDispatchPacket(t, f, attemptID, job, view))
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	payload, marshalErr := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: f.workID, ExpectedVersion: readWorkVersion(t, s, f.workID), ActionID: "dispatch_worker", Payload: payload,
-		SessionWorktree: sessionWorktree, Actor: f.owner,
-		AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-inputs"), IdempotencyIdentity: attemptID + "-op",
-		OperationID: "op-" + attemptID, PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition",
-		IdempotencyKey: attemptID + "-key", RequestID: "req-" + attemptID, AcceptedScope: `{}`, ContractDigest: testManifestDigest,
-	}); err != nil {
-		t.Fatalf("wrong-tree implement dispatch refused: %v", err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
-		t.Fatal(err)
-	}
-	subject, subjectErr := readCurrentOracleSubject(context.Background(), s.DatabaseForTesting(), f.workID)
-	if subjectErr != nil || subject == "" {
-		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
-	}
-	// The completion reports the same other claim its dispatch authorization
-	// recorded, so the terminal ingest validates the attempt against its own
-	// Project claim instead of the fixture's first claimed worktree.
-	completion := Event{EventID: "complete-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
-		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
-		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job, WorkerDirectory: sessionWorktree,
-	})}
-	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
-	if prepErr != nil {
-		t.Fatalf("wrong-tree observation refused: %v", prepErr)
-	}
-	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
-	reviewSubjectAccept(t, s, f.workID, attemptID)
-	return attemptID
 }
 
 func viewSubject(view *WorkContextView) string {
@@ -510,8 +330,8 @@ func viewSubject(view *WorkContextView) string {
 // so the assembly's own admission is the surface under test.
 func rawLiveDispatch(t *testing.T, s *Store, f workContextFixture, stepID, attemptID, sessionWorktree string, job WorkerJobBinding) error {
 	t.Helper()
-	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	laneDigest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, s, f.workID, stepID, attemptID, "review", laneDigest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, f.workID, job, "review")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, f.workID)
 	packetBytes, err := json.Marshal(packet)
@@ -593,7 +413,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-live-noproof-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-live-noproof-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-live-noproof-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -629,7 +449,7 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 			t.Fatalf("unprepared combined rejection error = %v, want %s refusing the whole operation without its sealed preparation", err, KindInvalidOperation)
 		}
 		var rejections, retryAttempts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, fixture.workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, fixture.workID).Scan(&rejections); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, fixture.workID).Scan(&retryAttempts); err != nil {
@@ -641,12 +461,10 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 	})
 }
 
-// qualifiedSubjectRunner answers the delivery probe without touching the
-// filesystem: HEAD is the work's qualified verify subject, the tree is
-// clean, and the measured-delta probe answers an empty numstat — the clean
-// zero-delta observation. Every other git call — the declared-reading
-// resolution's committed proofs — runs against the real fixture
-// repositories. A preparation over a subject-less view probes nothing.
+// qualifiedSubjectRunner models a clean zero-delta observation at the qualified
+// verify subject. Real repositories resolve their immutable tree through Git;
+// synthetic repositories model the tree OID as the subject OID. Declared-reading
+// proofs still use the real fixture repositories.
 type qualifiedSubjectRunner struct{ head string }
 
 func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -654,9 +472,16 @@ func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...str
 		return nil, nil
 	}
 	if len(args) > 0 && args[0] == "rev-parse" {
+		if strings.HasSuffix(args[len(args)-1], "^{tree}") {
+			if _, err := os.Stat(dir + "/.git"); err == nil {
+				return ExecGitRunner{}.Run(ctx, dir, args...)
+			} else if !os.IsNotExist(err) {
+				return nil, err
+			}
+		}
 		return []byte(r.head), nil
 	}
-	if slices.Contains(args, "--numstat") {
+	if slices.Contains(args, "--name-only") {
 		return nil, nil
 	}
 	return ExecGitRunner{}.Run(ctx, dir, args...)
@@ -679,7 +504,7 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	job := WorkerJobBinding{JobID: "job:accepted-delivery-" + workID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
 	attemptID := "attempt:accepted-delivery:" + workID
-	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Version, lane.Digest)
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "implement", lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, "implement")
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, owner, "accepted-delivery-"+workID, packet); err != nil {
@@ -692,10 +517,9 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	if subjectErr != nil || subject == "" {
 		t.Fatalf("qualified subject = %q err = %v, want the fixture's verify subject", subject, subjectErr)
 	}
-	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-accepted-delivery-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
-		ProductionSize: completionProductionSizeForTest(t, s, workID, &job, subject),
 	})}
 	prepared, prepErr := PrepareWorkerTerminalDelivery(ctx, s, PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: completion.EventID, Runner: qualifiedSubjectRunner{head: subject}})
 	if prepErr != nil {
@@ -705,63 +529,30 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 	reviewSubjectAccept(t, s, workID, attemptID)
 }
 
-// TestReviewDispatchSupersededContractStillPinsAcceptedSubject proves the
-// settled review rule: an accepted clean delivery recorded under an earlier
-// contract version of the same work item hosts the review under the active
-// contract. The review pins that delivery, and a later rejected
-// implementation result does not replace it. A cancelled or superseded work
-// item cannot review at all through the instance lifecycle gate.
-func TestReviewDispatchSupersededContractStillPinsAcceptedSubject(t *testing.T) {
-	// Same pin-independent review-subject rule as the accepted-subject suite
-	// above (worker_review_anchor.go :16-46, :57-75; settlement V3 option
-	// a). The rejected-implementation scenery additionally must not open a
-	// correction record the later review dispatch would have to consume, so
-	// the fixture keeps the pre-attribution head its review rule was
-	// authored against.
-	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-supersede-pins", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
+// TestReviewDispatchAfterContractSupersessionPinsCurrentSubject proves a
+// contract version change alone does not move the reviewed candidate
+// (CD-0242 D7): the review under the active successor contract pins the same
+// qualified subject. A superseded work item cannot review at all through the
+// instance lifecycle gate.
+func TestReviewDispatchAfterContractSupersessionPinsCurrentSubject(t *testing.T) {
+	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-supersede-pins", mustBuiltinDefinition(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	s := fixture.store
 	claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
-	reviewSubjectImplementComplete(t, fixture, "attempt-supersede-y", "complete-supersede-y", true)
-	reviewSubjectAccept(t, s, fixture.workID, "attempt-supersede-y")
 	reviewSubjectSupersedeContract(t, s, fixture.workID)
 	if err := reviewSubjectDispatch(t, s, fixture, "attempt-supersede-r1", claimDir); err != nil {
-		t.Fatalf("review refused the accepted delivery under the superseded contract: %v", err)
+		t.Fatalf("review refused under the successor contract: %v", err)
 	}
 	if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-supersede-r1"); window.SubjectCommit != head {
-		t.Fatalf("review window subject = %q, want the accepted delivery %q from the superseded contract", window.SubjectCommit, head)
-	}
-
-	// A later rejected implementation result cannot replace the accepted
-	// source, and it does not let an older one through either.
-	lane := laneForID(t)
-	failedJob := reviewSubjectReadyRevision(t, fixture)
-	failedView, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
-	if viewErr != nil || failedView == nil {
-		t.Fatalf("admitted view = %+v err = %v, want a present view", failedView, viewErr)
-	}
-	if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-supersede-z", failedJob, failedView)); err != nil {
-		t.Fatalf("rejected implement dispatch refused: %v", err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-supersede-z", lane, failedJob)}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "failed-supersede-z", "attempt-supersede-z", preferredModelForLane(lane), WorkerFailureWorkerError, nil, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := reviewSubjectDispatch(t, s, fixture, "attempt-supersede-r2", claimDir); err != nil {
-		t.Fatalf("review refused with a later rejected implementation standing: %v", err)
-	}
-	if window := reviewSubjectWindow(t, s, fixture.workID, "attempt-supersede-r2"); window.SubjectCommit != head {
-		t.Fatalf("review window subject = %q, want the accepted source %q, never the rejected implementation", window.SubjectCommit, head)
+		t.Fatalf("review window subject = %q, want the unchanged qualified candidate %q", window.SubjectCommit, head)
 	}
 
 	// A superseded work item cannot review at all: the instance lifecycle
 	// gate refuses every workflow action — the review dispatch's own job
 	// record here — before any review effect exists.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE workflow_instances SET instance_state='superseded' WHERE work_id=?;
-		DELETE FROM fold_guard`, fixture.workID); err != nil {
+		DELETE FROM write_guard`, fixture.workID); err != nil {
 		t.Fatal(err)
 	}
 	fields := map[string]any{

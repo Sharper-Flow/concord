@@ -19,7 +19,7 @@ func awaitFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "await-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Await","priority":1}`)},
+		{EventID: "await-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Await","priority":1}`)},
 		{EventID: "await-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr-await","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}}); err != nil {
 		t.Fatal(err)
@@ -47,8 +47,8 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 	authorityOp := "op-await-" + conditionID
 	evidenceRef := "evidence:merged-late:" + conditionID
 	evidenceJSON, _ := json.Marshal([]string{evidenceRef})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,'work-await','workflow.ops_runbook',1,'execute','external_effect',?,?,'completed','{}',?, 'principal/op','req-await',?,?,?)`,
-		authorityOp, "sha256:await", "{}", string(evidenceJSON), recordedAt.Format(time.RFC3339Nano), recordedAt.Format(time.RFC3339Nano), testManifestDigest); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,'work-await','workflow.ops_runbook',?,'execute','external_effect',?,?,'completed','{}',?, 'principal/op','req-await',?,?,?)`,
+		authorityOp, testManifestDigest, "sha256:await", "{}", string(evidenceJSON), recordedAt.Format(time.RFC3339Nano), recordedAt.Format(time.RFC3339Nano), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
 	payload["resolution_authority"] = "durable_operation:" + authorityOp
@@ -57,7 +57,7 @@ func addAwaitCondition(t *testing.T, s *Store, conditionID string, boundSeconds 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "cond-" + conditionID, Kind: WorkflowConditionAdded, SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: recordedAt, PayloadVersion: 1, Payload: raw}}}, newFoldScope(tx)); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{{EventID: "cond-" + conditionID, Kind: WorkflowConditionAdded, SubjectType: SubjectWorkItem, SubjectID: "work-await", Actor: "operator", OccurredAt: recordedAt, PayloadVersion: 1, Payload: raw}}}, newWriteScope(tx)); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}

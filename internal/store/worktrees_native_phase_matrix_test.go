@@ -639,7 +639,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 				f := con829FixtureNew(t)
 				workID := "work-refuse-none"
 				if err := ApplyOperation(context.Background(), f.s, Operation{Events: []Event{
-					{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"no worktree","priority":1}`)},
+					{EventID: workID + "-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: jsonRaw(`{"work_kind":"task","title":"no worktree","priority":1}`)},
 					{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 				}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 					t.Fatal(err)
@@ -718,7 +718,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 					t.Fatal(err)
 				}
 				if _, err := f.s.DatabaseForTesting().ExecContext(context.Background(),
-					`INSERT INTO fold_guard(active) VALUES(1); UPDATE worktree_entries SET git_facts='### not json' WHERE set_id=?; DELETE FROM fold_guard`,
+					`INSERT INTO write_guard(active) VALUES(1); UPDATE worktree_entries SET git_facts='### not json' WHERE set_id=?; DELETE FROM write_guard`,
 					WorktreeSetID("work-refuse-facts")); err != nil {
 					t.Fatal(err)
 				}
@@ -781,15 +781,15 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 			pairs++
 			wantAdmitted := from == to || refPhaseTransitionAdmitted(from, to)
 			// Seed the durable row at the predecessor phase directly: the
-			// seeding is fold-guarded SQL the reclaim fold itself could
+			// seeding is write-guarded SQL the reclaim fold itself could
 			// have written, so the settlement under test is the only
 			// behavior exercised.
 			seed := func(t *testing.T) {
 				t.Helper()
 				if _, err := f.s.db.ExecContext(context.Background(),
-					`INSERT INTO fold_guard(active) VALUES(1);
+					`INSERT INTO write_guard(active) VALUES(1);
 					 UPDATE worktree_ref_outcomes SET phase=?, tip=?, reason='matrix seed' WHERE set_id=? AND project_id=? AND claim_op_id=? AND claim_incarnation=? AND branch=?;
-					 DELETE FROM fold_guard`,
+					 DELETE FROM write_guard`,
 					from, tip, setID, removal.ProjectID, removal.ClaimOpID, removal.ClaimIncarnation, branch); err != nil {
 					t.Fatal(err)
 				}
@@ -801,7 +801,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer tx.Rollback()
-				if err := enterFold(context.Background(), tx); err != nil {
+				if err := enterWrite(context.Background(), tx); err != nil {
 					t.Fatal(err)
 				}
 				payload, _ := json.Marshal(worktreeRemovalSettledPayload{
@@ -814,7 +814,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: payload,
 				})
 				if foldErr != nil {
-					if err := leaveFold(context.Background(), tx); err != nil {
+					if err := leaveWrite(context.Background(), tx); err != nil {
 						t.Fatal(err)
 					}
 					if wantAdmitted {
@@ -837,7 +837,7 @@ func TestWorktreeRefPhaseMatrixCoversAllOrderedPairs(t *testing.T) {
 					}
 					return
 				}
-				if err := leaveFold(context.Background(), tx); err != nil {
+				if err := leaveWrite(context.Background(), tx); err != nil {
 					t.Fatal(err)
 				}
 				if err := tx.Commit(); err != nil {
@@ -1012,16 +1012,16 @@ func TestReclaimSettlementCommitsNoStrandedFoldGuard(t *testing.T) {
 }
 
 // assertNoStrandedFoldGuard pins the transaction-ownership invariant the
-// settlement must hold: no fold_guard row survives a committed settlement
+// settlement must hold: no write_guard row survives a committed settlement
 // pass (CD-0195 D2, fold.go).
 func assertNoStrandedFoldGuard(t *testing.T, f *con829Fixture) {
 	t.Helper()
 	var guards int
-	if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM fold_guard`).Scan(&guards); err != nil {
+	if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM write_guard`).Scan(&guards); err != nil {
 		t.Fatal(err)
 	}
 	if guards != 0 {
-		t.Fatalf("the settlement committed %d fold guard row(s); the fold scope must close before commit", guards)
+		t.Fatalf("the settlement committed %d write guard row(s); the fold scope must close before commit", guards)
 	}
 }
 

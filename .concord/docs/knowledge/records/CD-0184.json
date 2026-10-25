@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:963381bacd0cc966fac9eeb48bc4749ac9a4c0360723b55e3d52ae77118a4347",
+  "sha256": "sha256:1293171e6ec6d217a03c077af9ecfa391e234614085dd46de6ea68806b5ac5ed",
   "status": "accepted",
   "summary": "An approved contract's outcome predicates name only end states verification can decide when the change is delivered. Post-delivery observation over a time window is a follow-up item linked raised_from the delivering item, and one-shot live checks decidable at delivery stay allowed.",
   "tags": [

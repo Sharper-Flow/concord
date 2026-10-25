@@ -46,7 +46,7 @@ func TestOpenRefusesUpgradeWindowState(t *testing.T) {
 func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
@@ -63,7 +63,7 @@ func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 			VALUES('skew-home','skew-locator','HEAD','commit','t',1,?)`, knowledgeProjectionVersion+1); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion+1); err != nil {
+		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion+1); err != nil {
 			t.Fatal(err)
 		}
 	} else {
@@ -71,43 +71,43 @@ func seedUpgradeWindowState(t *testing.T, s *Store, axis string) {
 			INSERT INTO work_items(id,kind,title,urgency,lifecycle,priority,version,created_at,updated_at)
 			VALUES('work-skew','task','skew','standard','needed',50,1,'t','t');
 			INSERT INTO work_projects(work_id,project_id,role) VALUES('work-skew','skew-home','primary');
-			INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state)
-			VALUES('work-skew','workflow.implementation',2147483647,?,'proposal','planned')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+			INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state)
+			VALUES('work-skew','workflow.future_definition',?,'proposal','planned')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,version,digest,binary_version) VALUES('workflow','workflow.implementation',2147483647,?,'v99.0.0')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
+		if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('workflow','workflow.future_definition',0,?,'v99.0.0')`, "sha256:"+strings.Repeat("a", 64)); err != nil {
 			t.Fatal(err)
 		}
 		if axis == "contract" {
 			actor := "actor:" + strings.Repeat("a", 64)
 			if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at)
 				VALUES(?,'principal-skew','client-skew','agent-skew','session-skew','operator','t');
-				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,definition_ref,definition_version,definition_digest)
-				SELECT work_id,1,'premise','internal_sqlite','[]','[]','t',?,'[]','prototype_internal',definition_ref,definition_version,definition_digest FROM workflow_instances;
+				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,definition_ref,definition_digest)
+				SELECT work_id,1,'premise','internal_sqlite','[]','[]','t',?,'[]','prototype_internal',definition_ref,definition_digest FROM workflow_instances;
 				DELETE FROM workflow_instances`, actor, actor); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestBinaryCompatibilityAdmitsHistoricalPinsAndLaterAdditiveSchema(t *testing.T) {
+func TestBinaryCompatibilityUsesCurrentFamilyAndLaterAdditiveSchema(t *testing.T) {
 	s := openTemp(t)
 	db := s.DatabaseForTesting()
 	seedUpgradeWindowState(t, s, "workflow")
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
-		t.Fatal("released workflow version 1 must remain registered")
+		t.Fatal("the current implementation definition must be registered")
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET definition_version=1,definition_digest=? WHERE work_id='work-skew'; DELETE FROM fold_guard`, definition.Digest); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+		UPDATE workflow_instances SET definition_ref='workflow.implementation',definition_digest=? WHERE work_id='work-skew'; DELETE FROM write_guard`, definition.Digest); err != nil {
 		t.Fatal(err)
 	}
 	// A release stamp alone is not authority to reject a compatible pair.
-	if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion); err != nil {
+	if _, err := db.Exec(`INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES('knowledge','',?,'','v99.0.0')`, knowledgeProjectionVersion); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,'future-additive','future-checksum','t',0)`, CurrentSchemaVersion()+1); err != nil {
@@ -115,26 +115,20 @@ func TestBinaryCompatibilityAdmitsHistoricalPinsAndLaterAdditiveSchema(t *testin
 	}
 	path := s.path
 	_ = s.Close()
-	// A plain open stays permissive while a nonterminal work pins old
-	// authoring: recorded history keeps opening and reading. Activation is
-	// the gate that refuses the active old pin, and it writes nothing.
+	// Writer release metadata does not select a different definition.
 	opened, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = PlanUpgradeReadiness(context.Background(), path)
-	assertFailureKind(t, err, KindSchemaUnsupported)
-	if !strings.Contains(err.Error(), "predates the canonical authoring contract") {
-		t.Fatalf("active old-authoring pin refusal = %v, want the authoring cutover refusal", err)
+	if _, err := PlanUpgradeReadiness(context.Background(), path); err != nil {
+		t.Fatalf("current family with writer release metadata refused readiness: %v", err)
 	}
 	odb := opened.DatabaseForTesting()
 	var pending int
 	if err := odb.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=?`, CurrentSchemaVersion()+1).Scan(&pending); err != nil || pending != 1 {
 		t.Fatalf("refused readiness must leave the pending additive migration: count=%d error=%v", pending, err)
 	}
-	// Terminal work opens, reads, and rebuilds: the historical pin plus the
-	// later additive schema stays a compatible pair. work_items is fold-only,
-	// so the terminal disposition lands through the fold.
+	// The terminal disposition remains a write-seam-only lifecycle change.
 	if err := ApplyOperation(context.Background(), opened, Operation{Events: []Event{{
 		EventID: "work-skew-cancel", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-skew",
 		Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
@@ -150,6 +144,50 @@ func TestBinaryCompatibilityAdmitsHistoricalPinsAndLaterAdditiveSchema(t *testin
 	defer opened.Close()
 	if _, err := PlanUpgradeReadiness(context.Background(), path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestArchivedFamilyMetadataReachesCutoverReadiness(t *testing.T) {
+	for _, ref := range []string{"workflow.architecture_spike", "workflow.ops_runbook", "workflow.static_analysis", "workflow.generic_one_off"} {
+		for _, axis := range []string{"workflow", "contract"} {
+			t.Run(ref+"/"+axis, func(t *testing.T) {
+				s := openTemp(t)
+				defer s.Close()
+				seedUpgradeWindowState(t, s, axis)
+				table := "workflow_instances"
+				if axis == "contract" {
+					table = "workflow_contracts"
+				}
+				if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE `+table+` SET definition_ref=? WHERE work_id='work-skew'; DELETE FROM write_guard`, ref); err != nil {
+					t.Fatal(err)
+				}
+				eventsBefore := countRows(t, s, "effect_receipts")
+				ctx := context.Background()
+				if err := s.checkBinaryCompatibility(ctx); err != nil {
+					t.Fatalf("recorded archived metadata must reach its cutover owner: %v", err)
+				}
+				if _, err := PlanUpgradeReadiness(ctx, s.Path()); err == nil {
+					t.Fatal("nonterminal archived work must still refuse activation")
+				} else {
+					assertFailureKind(t, err, KindSchemaUnsupported)
+					if !strings.Contains(err.Error(), ref) || !strings.Contains(err.Error(), `{"cancel_cutover_pinned_work":true}`) {
+						t.Fatalf("readiness must name its archived item and recovery: %v", err)
+					}
+				}
+				plan, err := PlanUpgradeReadiness(ctx, s.Path(), UpgradeOptions{CancelCutoverPinnedWork: true})
+				if err != nil || plan.CutoverDisposition == nil || plan.CutoverDisposition.WorkCount != 1 || len(plan.CutoverDisposition.WorkIDs) != 1 || plan.CutoverDisposition.WorkIDs[0] != "work-skew" {
+					t.Fatalf("read-only disposition must select the archived current row: %+v err=%v", plan, err)
+				}
+				var lifecycle string
+				var version int64
+				if err := s.db.QueryRow(`SELECT lifecycle,version FROM work_items WHERE id='work-skew'`).Scan(&lifecycle, &version); err != nil {
+					t.Fatal(err)
+				}
+				if lifecycle != "needed" || version != 1 || countRows(t, s, "effect_receipts") != eventsBefore {
+					t.Fatal("compatibility/readiness moved work or appended history")
+				}
+			})
+		}
 	}
 }
 
@@ -181,7 +219,7 @@ func TestRuntimeStateWriterCommitsWithItsRepresentation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := recordRuntimeStateWriter(ctx, tx, "knowledge", "", knowledgeProjectionVersion, ""); err != nil {
+		if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(knowledgeProjectionVersion)); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}

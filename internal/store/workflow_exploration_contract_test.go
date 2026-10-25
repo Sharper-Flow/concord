@@ -47,7 +47,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 		if gotProblem != problem {
 			t.Fatalf("replayed problem=%q, want %q", gotProblem, problem)
 		}
-		rows, err := s.db.Query(`SELECT json_extract(payload,'$.action_id') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowActionCompleted)
+		rows, err := s.db.Query(`SELECT x.action_id FROM workflow_phase_exits x JOIN effect_receipts r ON r.effect_seq=x.exit_seq WHERE x.work_id=? AND r.kind=? ORDER BY x.exit_seq`, workID, WorkflowActionCompleted)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 }
 
 func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
 			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
 		}
@@ -88,7 +88,7 @@ func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
 }
 
 func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		omissions := livenessOmittedVariants(definition)
 		for _, kind := range definition.OutcomeSchema.AllowedKinds {
 			if kind != definition.OutcomeSchema.DefaultKind && !slices.Contains(omissions, "outcome_kind="+string(kind)) {
@@ -126,7 +126,7 @@ func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
 }
 
 func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		omitted := livenessOmittedVariants(definition)
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
@@ -140,28 +140,25 @@ func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 
 func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 	const workID = "liveness-generated-correction"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
+	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	reportRef := issue1013Pin(t, j.s, workID).Review.Accepted.ReportRef
+	seedWorkflowAuthority(t, j.s, "liveness-review-authority", workID, j.fixture.owner.PrincipalRef, "request/liveness-review", []string{reportRef})
+	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef, "producer_id": j.fixture.owner.PrincipalRef, "producer_run_ref": "liveness-review-authority", "producer_watermark": "request/liveness-review"}, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
-	step := currentStep(t, fixture.store, workID)
+	step := currentStep(t, j.s, workID)
 	for _, move := range livenessStateMoves(t, definition.Definition, step) {
 		if move.action != "request_correction" {
 			continue
 		}
-		if err := livenessApply(context.Background(), fixture.store, workID, move, 100); err != nil {
+		if err := livenessApply(context.Background(), j.s, workID, move, 100); err != nil {
 			t.Fatalf("generated correction cannot execute: %v", err)
 		}
-		if got := currentStep(t, fixture.store, workID); got != "execution" {
+		if got := currentStep(t, j.s, workID); got != "execution" {
 			t.Fatalf("correction reached %s, want execution", got)
 		}
 		return
@@ -196,7 +193,7 @@ func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
 // cannot substitute for the success path each builtin promises to support.
 func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	paths := map[string]string{
-		"workflow.implementation":     "record_proposal record_alignment record_design approve_contract start_execution bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
+		"workflow.implementation":     "record_proposal record_alignment approve_contract record_design start_execution bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
 		"workflow.break_fix":          "record_diagnosis approve_contract checkpoint_repair bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
 		"workflow.research":           "frame_research approve_contract bind record_finding record_report record_conclusion record_verdict confirm_premise complete",
 		"workflow.architecture_spike": "frame_question approve_contract bind record_research record_option discard_poc record_decision record_verdict accept_decision confirm_premise complete",
@@ -204,14 +201,22 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 		"workflow.static_analysis":    "declare_scope approve_contract run_analysis record_delivery bind record_report record_verdict confirm_premise complete",
 		"workflow.generic_one_off":    "approve_contract start_action bind record_delivery record_verdict confirm_premise complete",
 	}
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		t.Run(definition.Ref, func(t *testing.T) {
 			sequence, ok := paths[definition.Ref]
 			if !ok {
 				t.Fatal("builtin has no completion witness")
 			}
-			s, workID := livenessReplay(t, definition, nil)
+			s := openTemp(t)
+			workID := livenessWorkID
 			defer s.Close()
+			seedWork(t, s, workID)
+			seedWork(t, s, livenessPeerWorkID)
+			seedWorkflowLaw(t, s)
+			seedIssue31DomainRegistry(t, s)
+			livenessInitialize(t, s, workID, definition)
+			insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("c", 16), []string{"root", livenessPeerWorkID})
+			seedWorkflowAuthority(t, s, "liveness-authority", workID, livenessActor().PrincipalRef, "request/liveness", []string{livenessSubjectRef})
 			ctx := context.Background()
 			if workflowFamilyArchived(definition.Ref) {
 				// A retired family refuses public execution: the recorded
@@ -233,6 +238,8 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 				return
 			}
 			ordinal := 0
+			var journey *candidateJourney
+			proofRef := ""
 			apply := func(actionID string, variant map[string]string) {
 				t.Helper()
 				if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
@@ -249,7 +256,23 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal); err != nil {
+				if actionID == "approve_contract" && definition.ChangesProductTruth != nil && *definition.ChangesProductTruth {
+					var fields map[string]any
+					if err := json.Unmarshal(payload, &fields); err != nil {
+						t.Fatal(err)
+					}
+					fields["architecture_binding"] = WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+					payload = mustJSONValue(fields)
+				}
+				switch {
+				case actionID == "record_verdict":
+					err = runVerdictActionAs(t, s, workID, actionID, criterionAssociationPayload(proofRef, "predicate:liveness-exit"), 0, livenessActor())
+				case journey != nil && WorkflowActionRequiresSubjectFreshness(actionID):
+					err = journey.terminalAction(t, actionID, payload, livenessActor())
+				default:
+					err = livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal)
+				}
+				if err != nil {
 					t.Fatalf("witness action %d %s: %v", ordinal, actionID, err)
 				}
 				ordinal++
@@ -272,18 +295,33 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 					continue
 				}
-				// The current implementation and break-fix definitions gate the
-				// refine exit on a green verify run bound in the epoch
-				// (CD-0192); the witness supplies one before the refine
-				// delivery exits.
 				if actionID == "record_delivery" {
-					var witnessStep string
-					if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&witnessStep); err != nil {
+					if journey == nil {
+						journey = pReturnClaim(t, workflowReturnRouteFixture{store: s, owner: livenessActor()}, workID)
+						journey.acceptor = livenessActor()
+						run := journey.observeRun(t, "delivery-proof")
+						qAcceptCriterionReview(t, journey.fixture, journey.repo, run.OperationRef)
+						journey.bindVerification(t, run)
+						proofRef = run.OperationRef
+					}
+				}
+				if actionID == "record_verdict" && definition.Ref == "workflow.research" {
+					fixture := workContextFixture{store: s, workID: workID, owner: livenessActor()}
+					pack := seedResearchContextPack(t, fixture, "liveness-research")
+					bindResearchPack(t, fixture, pack.PackID, 1, true)
+					selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
+					selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criterion."
+					if err := fixture.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
 						t.Fatal(err)
 					}
-					if workflowRefineProofGateActive(definition, witnessStep) {
-						refineProofSeedGreenRun(t, s, workID, strings.Repeat("f", 64))
+					view, err := readWorkContextView(ctx, s.db, workID)
+					if err != nil || view == nil || len(view.ResearchFindings) != 1 {
+						t.Fatalf("selected research proof: %+v err=%v", view, err)
 					}
+					proofRef = view.ResearchFindings[0].ViewID
+				}
+				if actionID == "complete" {
+					bindCompletionClosure(t, s, workID, livenessActor())
 				}
 				apply(actionID, map[string]string{})
 			}
@@ -293,7 +331,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			}
 			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
 				var operatorEvents int
-				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
+				if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts e JOIN workflow_actors a ON a.actor_ref=e.actor WHERE e.subject_id=? AND a.actor_class='operator'`, workID).Scan(&operatorEvents); err != nil {
 					t.Fatal(err)
 				}
 				if operatorEvents != 0 {

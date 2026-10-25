@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "concord_work_start",
-      "description": "Use for implementation work from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or bootstrap the missing canonical worktree. A successful claim moves the session automatically and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume takes only work_id and claims in the calling session's Project; another Project here uses worktree_claim; another repository needs a host-started session.",
+      "description": "Capture work from a default checkout, or resume by work_id or recorded issue_key. Reuse an active worktree or bootstrap its missing canonical entry. A successful claim moves the session and verifies the landing; vacate returns it to the registered main; never claim from a default checkout. Resume takes exactly one selector in the calling session's Project; another Project here uses worktree_claim; another repository needs a host-started session.",
       "args": {
         "oneOf": [
           {
@@ -234,6 +234,13 @@
           {
             "additionalProperties": false,
             "properties": {
+              "issue_key": {
+                "maxLength": 64,
+                "minLength": 3,
+                "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$",
+                "type": "string",
+                "description": "Exact locally recorded Linear issue key. The CLI resolves it to one work item; ambiguity or foreign scope refuses. Bounds: 3..64 code points inclusive"
+              },
               "work_id": {
                 "maxLength": 128,
                 "minLength": 1,
@@ -242,8 +249,17 @@
                 "description": "Bounds: 1..128 code points inclusive"
               }
             },
-            "required": [
-              "work_id"
+            "oneOf": [
+              {
+                "required": [
+                  "work_id"
+                ]
+              },
+              {
+                "required": [
+                  "issue_key"
+                ]
+              }
             ]
           }
         ],

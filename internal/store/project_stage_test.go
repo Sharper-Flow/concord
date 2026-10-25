@@ -2,57 +2,10 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
-func TestProjectCreatedV1UpcastsToInheritedStageWithoutReinterpretation(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	event := projectCreatedEvent("project-stage-v1", "project-stage-v1")
-	upcasted, err := upcastEvent(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if upcasted.PayloadVersion != 2 {
-		t.Fatalf("upcast version=%d, want 2", upcasted.PayloadVersion)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(upcasted.Payload, &fields); err != nil {
-		t.Fatal(err)
-	}
-	if string(fields["stage_maturity_override"]) != "null" || string(fields["stage_audience_commitment_override"]) != "null" {
-		t.Fatalf("v1 defaults=%s", upcasted.Payload)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{
-		Events: []Event{
-			productCreatedEvent("project-stage-product", "project-stage-product-created"),
-			event,
-			operationEvent("project-stage-membership", "product_project.added", SubjectProduct, "project-stage-product", map[string]any{
-				"product_id": "project-stage-product", "project_id": event.SubjectID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "project-stage-product"): 0, VersionRef(SubjectProject, event.SubjectID): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var maturity, audience string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(stage_maturity_override,''),COALESCE(stage_audience_commitment_override,'') FROM projects WHERE id=?`, event.SubjectID).Scan(&maturity, &audience); err != nil {
-		t.Fatal(err)
-	}
-	if maturity != "" || audience != "" {
-		t.Fatalf("v1 Project stage=%q/%q, want inherited null pair", maturity, audience)
-	}
-
-	invalid := event
-	invalid.EventID = "project-stage-v1-invalid"
-	invalid.Payload = []byte(`{"display_name":"Project","stage_maturity_override":"alpha"}`)
-	if _, err := upcastEvent(invalid); err == nil {
-		t.Fatal("v1 payload with a partial stage override was silently reinterpreted")
-	}
-}
-
-func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.T) {
+func TestProjectStageChangeValidatesAndClearsInheritance(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
@@ -69,10 +22,6 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 		t.Fatal(err)
 	}
 	assertProjectStage(t, s, "stage-project", "beta", "public", 2)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	assertProjectStage(t, s, "stage-project", "beta", "public", 2)
 
 	cleared := operationEvent("stage-cleared", "project.stage_changed", SubjectProject, "stage-project", map[string]any{
 		"stage_maturity_override": nil, "stage_audience_commitment_override": nil,
@@ -81,17 +30,13 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 		t.Fatal(err)
 	}
 	assertProjectStage(t, s, "stage-project", "", "", 3)
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	assertProjectStage(t, s, "stage-project", "", "", 3)
 
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE projects SET stage_maturity_override='alpha' WHERE id='stage-project'`); err == nil {
-		t.Fatal("direct Project stage mirror write bypassed fold guard")
+		t.Fatal("direct Project stage mirror write bypassed write guard")
 	}
 }
 
-func TestProjectStageChangedRejectsPartialPairDuringReplay(t *testing.T) {
+func TestProjectStageChangedRejectsPartialPair(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
@@ -117,7 +62,7 @@ func TestProjectCreationWritesStageOnlyThroughVersionedEvent(t *testing.T) {
 	}
 	assertProjectStage(t, s, "operator-stage-project", "beta", "public", 1)
 	var payloadVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE kind='project.created' AND subject_id=?`, "operator-stage-project").Scan(&payloadVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE kind='project.created' AND subject_id=?`, "operator-stage-project").Scan(&payloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	if payloadVersion != 2 {
@@ -140,7 +85,7 @@ func assertProjectStage(t *testing.T, s *Store, id, wantMaturity, wantAudience s
 func countProjectStageEvents(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='project.stage_changed'`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='project.stage_changed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

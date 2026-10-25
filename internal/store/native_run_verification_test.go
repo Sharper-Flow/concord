@@ -90,7 +90,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	}
 
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}}, newFoldScope(tx.tx))
+		_, applyErr := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{report("start", "started", 2)}}, newWriteScope(tx.tx))
 		return applyErr
 	}); err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 	// The producer operation exists from the start, so the only variable in
 	// both binds below is the verification state of the attributed record.
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		_, execErr := tx.tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind,evidence_refs) VALUES('op:start',1,?,'workflow.ops_runbook',1,'execute','external_effect','sha256:'+?,'{}','principal-1','req-1','2026-08-20T12:00:00Z','sha256:'+?,'completed',?)`, workID, repeatHex("b"), repeatHex("c"), workflowJSON([]string{observationID}))
+		_, execErr := tx.tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind,evidence_refs) VALUES('op:start',1,?,'workflow.ops_runbook',?,'execute','external_effect','sha256:'+?,'{}','principal-1','req-1','2026-08-20T12:00:00Z','sha256:'+?,'completed',?)`, workID, testManifestDigest, repeatHex("b"), repeatHex("c"), workflowJSON([]string{observationID}))
 		return execErr
 	}); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}}, newFoldScope(tx.tx))
+		})}}, newWriteScope(tx.tx))
 		return bindErr
 	}); err == nil {
 		t.Fatal("unverified native_run evidence satisfied a completion gate")
@@ -158,7 +158,7 @@ func TestNativeRunVerificationParticipationAndEvidenceGate(t *testing.T) {
 			"evidence_kind": "native_run", "immutable_subject_ref": observationID,
 			"producer_id": "principal-1", "producer_run_ref": "op:start", "producer_watermark": "req-1",
 			"observed_at": "2026-08-20T12:00:30Z",
-		})}}, newFoldScope(tx.tx))
+		})}}, newWriteScope(tx.tx))
 		return bindErr
 	}); err != nil {
 		t.Fatalf("verified native_run evidence was still refused: %v", err)

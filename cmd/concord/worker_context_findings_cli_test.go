@@ -84,7 +84,7 @@ func storedTerminalEvent(t *testing.T, dbPath, eventID string) (int, []byte) {
 	defer s.Close()
 	var version int
 	var payload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,payload FROM domain_events WHERE event_id=?`, eventID).Scan(&version, &payload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.payload_version,a.terminal_payload FROM effect_receipts r JOIN worker_attempts a ON a.terminal_event_id=r.event_id AND a.terminal_seq=r.effect_seq AND a.terminal_payload_version=r.payload_version WHERE r.event_id=?`, eventID).Scan(&version, &payload); err != nil {
 		t.Fatalf("read stored event %s: %v", eventID, err)
 	}
 	return version, payload
@@ -111,7 +111,7 @@ func TestWorkerCompleteCLIRetainsTypedContextFindings(t *testing.T) {
 		t.Fatalf("worker-complete with context_findings exit=%d stderr=%q", code, stderr)
 	}
 	version, payload := storedTerminalEvent(t, dbPath, "complete-findings")
-	if want := store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted); version != want {
+	if want := store.CurrentEventPayloadVersion(store.WorkerCompleted); version != want {
 		t.Fatalf("stored completion payload_version = %d, want current registry version %d", version, want)
 	}
 	var stored struct {
@@ -185,13 +185,19 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-findings001")
 	request["event_id"] = "fail-findings"
 	request["context_findings"] = cliContextFindings()
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 	code, _, stderr := runWorkerCLI(t, "worker-fail", mustJSON(t, request))
 	if code != 0 {
 		t.Fatalf("worker-fail worker_error with context_findings exit=%d stderr=%q", code, stderr)
 	}
 	version, payload := storedTerminalEvent(t, dbPath, "fail-findings")
-	if want := store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed); version != want {
+	if want := store.CurrentEventPayloadVersion(store.WorkerFailed); version != want {
 		t.Fatalf("stored failure payload_version = %d, want %d", version, want)
 	}
 	var stored struct {
@@ -214,6 +220,16 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	diagnostic["failure_kind"] = string(store.WorkerFailureInvalidReport)
 	diagnosticAssertion.FailureKind = string(store.WorkerFailureInvalidReport)
 	diagnostic["context_findings"] = cliContextFindings()
+	diagnosticObservation := attributionHostTerminalObservation("the host could not parse the worker report")
+	diagnosticObservation.Phase = store.WorkerFailurePhaseReportParse
+	diagnosticObservation.Cause, diagnosticObservation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	diagnosticObservation.Sources = []store.WorkerFailureSource{{Kind: store.WorkerFailureSourceValidator, Message: "invalid worker report JSON"}}
+	diagnosticDigest, err := store.WorkerFailureObservationDigest(diagnosticObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostic["failure_attribution"] = diagnosticObservation
+	diagnosticAssertion.Version, diagnosticAssertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, diagnosticDigest
 	diagnostic["assertion"] = signWorkerEvidence(t, key, diagnosticAssertion)
 	code, _, stderr = runWorkerCLI(t, "worker-fail", mustJSON(t, diagnostic))
 	if code == 0 || !strings.Contains(stderr, "worker_error") {
@@ -225,7 +241,7 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerFailed, "attempt-2").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND a.attempt_id=?`, store.WorkerFailed, "attempt-2").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -241,7 +257,7 @@ func seedWorkerFindingsAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", attemptID)
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: "work-1", AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	provenanceDigest := "sha256:" + strings.Repeat("a", 64)
@@ -250,7 +266,7 @@ func seedWorkerFindingsAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 	assertion.PacketDigest = packetDigest
 	request := map[string]any{
 		"event_id": "dispatch-" + attemptID, "work_id": "work-1", "attempt_id": attemptID,
-		"readback_model": readback, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"readback_model": readback, "lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion, "report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest": packetDigest,
 		"host_provenance": map[string]any{
@@ -301,7 +317,7 @@ func TestWorkerEvidenceRepeatAdmissionKeepsTheOriginalFindingsBytes(t *testing.T
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerCompleted, "attempt-1").Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND a.attempt_id=?`, store.WorkerCompleted, "attempt-1").Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

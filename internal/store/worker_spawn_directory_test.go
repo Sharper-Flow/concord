@@ -21,6 +21,7 @@ func TestWorkerCompletionRequiresObservedDirectory(t *testing.T) {
 			t.Run(route+"/"+name, func(t *testing.T) {
 				s := openTemp(t)
 				workID, attemptID := "work-directory-required", "attempt-directory-required"
+				seedWork(t, s, workID)
 				insertWorkerWorktreeEntry(t, s, workID, t.TempDir())
 				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
 					t.Fatal(err)
@@ -34,7 +35,7 @@ func TestWorkerCompletionRequiresObservedDirectory(t *testing.T) {
 					payload["worker_directory"] = ""
 					event.Payload = mustJSONValue(payload)
 				}
-				before := countRows(t, s, "domain_events")
+				before := countRows(t, s, "effect_receipts")
 				var err error
 				if route == "generic" {
 					err = ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
@@ -48,7 +49,7 @@ func TestWorkerCompletionRequiresObservedDirectory(t *testing.T) {
 				if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
 					t.Fatalf("completion failure = %v, want unauthorized_dispatch", err)
 				}
-				if got := countRows(t, s, "domain_events"); got != before {
+				if got := countRows(t, s, "effect_receipts"); got != before {
 					t.Fatalf("missing-directory completion added %d events", got-before)
 				}
 				var lifecycle string
@@ -76,12 +77,13 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		}
 		workID := "work-worker-directory-mismatch"
 		attemptID := "attempt-worker-directory-mismatch"
+		seedWork(t, s, workID)
 		insertWorkerWorktreeEntry(t, s, workID, claimed)
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, BuiltinLaneDefinitions()[0], nil)}}); err != nil {
 			t.Fatal(err)
 		}
 
-		eventCount := countRows(t, s, "domain_events")
+		eventCount := countRows(t, s, "effect_receipts")
 		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletionWithDirectory(workID, "completion-worker-directory-mismatch", attemptID, worker)}})
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindUnauthorizedDispatch {
@@ -98,7 +100,7 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		if !strings.Contains(failure.Detail, workerWorktreeIdentity(claimedCanonical)) || !strings.Contains(failure.Detail, workerWorktreeIdentity(workerCanonical)) {
 			t.Fatalf("completion failure does not name both directory identities: %q", failure.Detail)
 		}
-		if got := countRows(t, s, "domain_events"); got != eventCount {
+		if got := countRows(t, s, "effect_receipts"); got != eventCount {
 			t.Fatalf("rejected completion added %d events, want no event", got-eventCount)
 		}
 		var lifecycle string
@@ -139,12 +141,6 @@ func TestWorkerCompletionDirectoryMustMatchActiveClaim(t *testing.T) {
 		if lifecycle != "completed" {
 			t.Fatalf("attempt lifecycle = %q, want completed", lifecycle)
 		}
-		if err := os.RemoveAll(root); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("completion replay probed a removed directory: %v", err)
-		}
 	})
 }
 
@@ -152,9 +148,10 @@ func workerCompletionWithDirectory(workID, eventID, attemptID, directory string)
 	payload, err := json.Marshal(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]),
 		ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: directory,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(BuiltinLaneDefinitions()[0]),
 	})
 	if err != nil {
 		panic(err)
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: payload}
 }

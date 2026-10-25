@@ -59,7 +59,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		scope, err := beginFold(ctx, tx.tx)
+		scope, err := beginWrite(ctx, tx.tx)
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	var watermark int64
-	if err := s.db.QueryRow("SELECT max(seq) FROM domain_events").Scan(&watermark); err != nil {
+	if err := s.db.QueryRow("SELECT max(effect_seq) FROM effect_receipts").Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
 	backupDestination := filepath.Join(t.TempDir(), "neighbor-backup.db")
@@ -213,8 +213,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "DomainEventWatermark", run: func() error {
-			value, err := s.DomainEventWatermark(ctx)
+		{name: "Revision", run: func() error {
+			value, err := s.Revision(ctx)
 			if err != nil {
 				return err
 			}
@@ -437,12 +437,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 		{name: "requireRecordedInvestigationArtifactSnapshot", run: func() error {
 			return requireRecordedInvestigationArtifactSnapshot(ctx, s, "neighbor-work")
-		}},
-		{name: "readSnapshot workflowFailedWorkerRetryBinding", run: func() error {
-			return s.readSnapshot(ctx, func(q queryer) error {
-				_, err := workflowFailedWorkerRetryBinding(ctx, q, BuiltinWorkflowRegistry(), "neighbor-work")
-				return err
-			})
 		}},
 		{name: "ActiveWorkflowContract", absent: KindProjectionNotFound, run: func() error { _, err := s.ActiveWorkflowContract(ctx, "neighbor-work"); return err }},
 		{name: "readSnapshot latestWorkflowContractVersion", run: func() error {

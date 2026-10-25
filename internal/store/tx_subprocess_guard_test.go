@@ -65,6 +65,8 @@ func foldTx() { os.RemoveAll("path") }`},
 func plans(s *Store) { s.Transact(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
 		{"TransactDurable closure spawns a subprocess", `package store
 func plans(s *Store) { s.TransactDurable(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
+		{"ReadTransaction closure spawns a subprocess", `package store
+func plans(s *Store) { s.ReadTransaction(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
 		{"readSnapshot closure spawns a subprocess", `package store
 func plans(s *Store) { s.readSnapshot(nil, func(q queryer) error { exec.Command("git", "status"); return nil }) }`},
 		{"readSnapshot closure reaches a subprocess through a helper", `package store

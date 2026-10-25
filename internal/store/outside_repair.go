@@ -159,9 +159,9 @@ func applyOutsideRepairMutationTx(ctx context.Context, transaction *Transaction,
 		payload["evidence_source"] = OutsideRepairEvidenceSource
 	}
 	event := workflowTypedEvent(request.EventID, kind, request.WorkID, operator.ref, request.OccurredAt, version+1, payload)
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{actor, event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version}}, scope)
 }
@@ -180,22 +180,14 @@ func outsideRepairURL(value, repository, suffix string) bool {
 }
 
 func validateOutsideRepairEvidenceShape(e OutsideRepairEvidence) error {
-	return validateOutsideRepairEvidenceShapeWithReference(e, ValidReference)
-}
-
-func validateOutsideRepairEvidenceShapeForReplay(e OutsideRepairEvidence) error {
-	return validateOutsideRepairEvidenceShapeWithReference(e, replayValidReference)
-}
-
-func validateOutsideRepairEvidenceShapeWithReference(e OutsideRepairEvidence, validReference func(string) bool) error {
 	invalid := func(detail string) error {
 		return newFailure(KindInvalidPayload, "outside_repair", detail, false, "supply the authenticated merged PR, required checks and published release receipt")
 	}
 	parts := strings.Split(e.Repository, "/")
-	if len(parts) != 2 || !workflowString(e.Repository, 256) || !validReference(parts[0]) || !validReference(parts[1]) || strings.ContainsAny(e.Repository, "?#%\\ ") {
+	if len(parts) != 2 || !workflowString(e.Repository, 256) || !ValidReference(parts[0]) || !ValidReference(parts[1]) || strings.ContainsAny(e.Repository, "?#%\\ ") {
 		return invalid("outside repair repository must be owner/repo")
 	}
-	if !validReference(e.AuthorityRef) || e.ObservedAt.IsZero() || e.PublishedAt.IsZero() || e.ObservedAt.Before(e.PublishedAt) {
+	if !ValidReference(e.AuthorityRef) || e.ObservedAt.IsZero() || e.PublishedAt.IsZero() || e.ObservedAt.Before(e.PublishedAt) {
 		return invalid("outside repair requires an authenticated authority and publication/observation timestamps")
 	}
 	if !workflowString(e.ReleaseTag, 128) || !outsideRepairGitSHA(e.ReleaseSHA) || !outsideRepairURL(e.ReleaseURL, e.Repository, "/releases/tag/"+e.ReleaseTag) {
@@ -299,7 +291,7 @@ func foldOutsideRepairDispositionSet(ctx context.Context, tx *sql.Tx, event Even
 	return err
 }
 
-func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	var p workflowOutsideRepairReconcilePayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -311,7 +303,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.EvidenceSource != OutsideRepairEvidenceSource {
 		return newFailure(KindInvalidPayload, "outside_repair", "reconciliation requires boundary-authenticated provenance", false, "authenticate external evidence at the owning boundary")
 	}
-	if err := validateOutsideRepairEvidenceShapeForReplay(p.Evidence); err != nil {
+	if err := validateOutsideRepairEvidenceShape(p.Evidence); err != nil {
 		return err
 	}
 	if err := requireOutsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
@@ -321,7 +313,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 		return err
 	}
 	if scope == nil || scope.tx != tx || scope.depth == 0 {
-		return newFailure(KindInvalidOperation, "outside_repair", "reconciliation requires its owning fold scope", false, "use the typed outside-repair reconciliation")
+		return newFailure(KindInvalidOperation, "outside_repair", "reconciliation requires its owning write scope", false, "use the typed outside-repair reconciliation")
 	}
 	previous := scope.outsideRepairLifecycleEvent
 	scope.outsideRepairLifecycleEvent = &event
@@ -399,9 +391,6 @@ func requireNoOutsideRepairTx(ctx context.Context, q queryer, workID, op string)
 // An outside hold cannot strand a worker or an unfinished operation. Failed
 // and completed attempts are terminal evidence, not execution blockers.
 func requireOutsideRepairExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	stopped, err := workExecutionStoppedTx(ctx, tx, workID, "")
 	if err != nil {
 		return err

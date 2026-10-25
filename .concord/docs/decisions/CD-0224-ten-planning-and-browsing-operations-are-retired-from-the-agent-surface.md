@@ -4,30 +4,22 @@
 - **Date:** 2026-10-11
 - **Scope:** The retired planning and browsing operations, the surviving
   relation writers, the lesson publication route, the unprocessed-knowledge
-  negative, the surviving Domain reads, and replayable planning history;
+  negative, the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
-- **Amends:** CD-0018, CD-0026, CD-0048, CD-0052, CD-0053, CD-0106, CD-0114,
-  CD-0142, CD-0156, CD-0166, and CD-0179 at the clauses this retirement makes
-  false; each amended record states the current rule in place
 - **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
-  vocabulary and its fold semantics, every planning event family in the
-  event log, the `domain_observations` store, and contract supersession
-  through `supersede_contract`
+  vocabulary, the `domain_observations` store, and contract supersession
+  through `supersede_contract`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Related:** CD-0005, CD-0020, CD-0030, CD-0114, CD-0213,
   [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md), and
   [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md)
 - **Approval:** Operator-delegated law ruling for
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927),
   2026-10-11.
-- **Amended by:** [CD-0237](CD-0237-a-resize-successor-writes-its-own-forward-link-and-supersession.md)
-  at the relation writers and the one-writer Consequences bullet: a size
-  revision that changes a work item's size is a fourth writer, of
-  `forward_link` and `supersedes`.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+[CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+requirements remain required.
 
 ## Context
 
@@ -42,19 +34,11 @@ decision, because its subject retires with the read.
 
 CD-0213 moved planning to Linear, so no planning write belongs on the agent
 surface. The ten operations had no consumer that the surviving reads could
-not serve, and every one of them is a removal surface for the Product
-changes CD-0036 D2 protects. CD-0036 D2 also forbids hiding a removal behind
-a same-ID rewrite: a retirement that existing records describe as live is a
-breaking change, and the break needs its own accepted record.
-
-CD-0068's live subject was the observation record and
-dismiss channel, and that channel retires here, so CD-0068 is superseded
-history rather than amended law.
+not serve.
 
 ## Decision
 
 The retained `resolve_overlap` route uses CD-0013 D11's per-kind consent rule: exact operator approval for merger and supersession, none for dependency, blocking, or compatibility. Every kind still pins both work versions and judged contract content. The retired planning/browsing operations remain retired; changing consent creates no replacement tool or bypass writer.
-
 
 The agent surface retires ten operations: `concord_domain.active_work`,
 `concord_domain.observation_record`, `concord_domain.observation_dismiss`,
@@ -75,7 +59,7 @@ gone, and nothing replaces the five-group projection. The operator
 question the row answered — which fields a glance row carries — returns to
 [`priorities.md`](../priorities.md) if a future surface needs it.
 
-Four writers create work-to-work relations, each scoped to its own kinds.
+Three writers create work-to-work relations, each scoped to its own kinds.
 
 1. `concord_work_relate.resolve_overlap` writes `compatible_with`,
    `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
@@ -84,13 +68,10 @@ Four writers create work-to-work relations, each scoped to its own kinds.
    requires an operator approval pinned to both work versions and both
    contract versions.
 2. Capture writes `raised_from` through its `raised_from_work_id` input.
-   The `work.created` fold inserts that relation row; the input appends no
-   `relation.added` event and runs no cycle check, because capture knows
+   The capture transaction inserts that relation row with the work item's
+   current rows and runs no cycle check, because capture knows
    both endpoints.
 3. The workflow `link_successor` action writes `forward_link`.
-4. A size revision that changes a work item's effective size writes
-   `forward_link` and `supersedes` from its successor, in the transaction
-   that creates the successor and ends the item (CD-0237).
 
 The `blocks` readiness gates are unchanged: a `blocks` row from
 `resolve_overlap`, and an existing link-made `blocks` row, hold a work item
@@ -116,16 +97,12 @@ bounded open window, an observation satisfies nothing, and promotion out of
 an observation stays the CD-0018 `raised_from` capture path that CD-0068 D4
 left unchanged.
 
-Planning history stays replayable. Stored `relation.added`,
-`relation.removed`, `work.superseded`, `work.reopened_from_superseded`, and
-Domain-observation events fold unchanged, and the relation vocabulary, its
-fold validation, and every stored relation kind stay closed as they are.
+The store keeps current rows and finite snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+The relation vocabulary and every stored relation kind stay closed as they
+are, and relation changes write current rows in one transaction.
 
 ## Alternatives considered
 
-- Compatible in-place amendments only. CD-0036 D2 forbids the form: ten
-  removals that consumers must stop using are not a compatible amendment,
-  and a same-ID rewrite would hide the break.
 - Keeping the reads until a consumer appears. No read had a consumer, and
   each one is removal surface for later Product changes, so the surface tax
   bought nothing.
@@ -143,29 +120,26 @@ fold validation, and every stored relation kind stay closed as they are.
 - The agent surface carries no planning write and no browsing read, so the
   CD-0213 authority boundary holds at the tool boundary and not only in
   prose.
-- One record states the retirement, its surviving writers, and its
-  preserved history, so the superseded records can keep their original
-  text as history.
-- Every relation writer has one stated approval rule. `supersedes` and
-  `forward_link` each have two writers (CD-0237); every other surviving
-  relation has one.
+- Every relation writer has one stated approval rule, and every surviving
+  relation has one writer.
+- Superseded records may retain their original text as history.
 
 ### Cost
 
 - An agent that noticed a Domain gap records it in Linear, not in Concord,
   so the observation leaves the tool that could read it back on `detail`.
-- A lesson needs a pull request, so a lesson author needs a branch, a
-  review, and required checks where one approved call stood.
+- A lesson author needs a branch, a pull request, review, and required checks.
 - Link-made `blocks` rows keep their gate until the blocker turns terminal,
   so a stale row needs a `resolve_overlap` resolution or a terminal
   transition to clear.
 
 ## Verification
 
-- `internal/store.TestRetiredPlanningEventsReplay` folds a journal that
-  carries `relation.added`, `relation.removed`, `work.superseded`,
-  `work.reopened_from_superseded`, and Domain-observation events without
-  error after the retirement.
+- The implementing change binds the CD-0242 D2 anchor: the store keeps
+  current rows and finite snapshots, not an event log, and the surviving
+  relation kinds stay closed. Until that change lands,
+  `python3 scripts/check-knowledge-index.py` is the executable anchor for
+  this record's law registration.
 - `internal/store.TestOverlapTerminalResolutionRejectsCycle` proves
   `resolve_overlap` refuses a `supersedes` or `merged_into` resolution that
   would close a cycle.

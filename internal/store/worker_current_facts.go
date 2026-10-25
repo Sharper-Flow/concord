@@ -1,0 +1,101 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"time"
+)
+
+// Authorization can precede an attempt row. Keep that current descriptor keyed
+// by its attempt, rather than treating native dispatch as authorization.
+func writeWorkerAuthorizationTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	if p.ActionID == "dispatch_worker" && p.WorkerAttemptID != "" {
+		start, err := readWorkflowActionStartTx(ctx, tx, event.SubjectID, p.StepID, true)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == sql.ErrNoRows {
+			start.Payload = json.RawMessage(`{}`)
+		}
+		version, err := activeWorkflowContractVersion(ctx, tx, event.SubjectID, "worker_authorization")
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO worker_authorizations(work_id,attempt_id,seq,payload,event_id,start_seq,start_payload,contract_version) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(work_id,attempt_id) DO UPDATE SET seq=excluded.seq,payload=excluded.payload,event_id=excluded.event_id,start_seq=excluded.start_seq,start_payload=excluded.start_payload,contract_version=excluded.contract_version`, event.SubjectID, p.WorkerAttemptID, event.Seq, string(event.Payload), event.EventID, start.Seq, string(start.Payload), version)
+		return err
+	}
+	if p.ActionID == "record_worker_failure" {
+		if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET failure_recorded=failure_recorded+1,failure_recorded_seq=CASE WHEN failure_recorded_seq=0 THEN ? ELSE failure_recorded_seq END WHERE work_id=? AND attempt_id=?`, event.Seq, event.SubjectID, p.WorkerAttemptID); err != nil {
+			return err
+		}
+	}
+	switch p.ActionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure", "record_worker_job":
+		if p.WorkerAttemptID != "" {
+			var firstSeq int64
+			firstPayload := "{}"
+			if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
+				firstSeq, firstPayload = event.Seq, string(event.Payload)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempt_dispositions(work_id,attempt_id,action_id,seq,event_id,payload,first_acceptance_seq,first_acceptance_payload) VALUES(?,?,?,?,?,?,?,?)
+ON CONFLICT(work_id,attempt_id,action_id) DO UPDATE SET seq=excluded.seq,event_id=excluded.event_id,payload=excluded.payload,
+first_acceptance_seq=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_seq ELSE first_acceptance_seq END,
+first_acceptance_payload=CASE WHEN first_acceptance_seq=0 THEN excluded.first_acceptance_payload ELSE first_acceptance_payload END`, event.SubjectID, p.WorkerAttemptID, p.ActionID, event.Seq, event.EventID, string(event.Payload), firstSeq, firstPayload); err != nil {
+				return err
+			}
+		}
+	}
+	switch p.ActionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure":
+		_, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET result_disposition=? WHERE work_id=?`, p.ActionID, event.SubjectID)
+		return err
+	}
+	return nil
+}
+
+func writeWorkerDispatchFactsTx(ctx context.Context, tx *sql.Tx, event Event, attempt string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET dispatch_payload=?,dispatch_event_id=?,dispatch_actor=?,dispatch_seq=?,dispatch_payload_version=? WHERE work_id=? AND attempt_id=?`, string(event.Payload), event.EventID, event.Actor, event.Seq, event.PayloadVersion, event.SubjectID, attempt)
+	return err
+}
+
+func writeWorkerTerminalFactsTx(ctx context.Context, tx *sql.Tx, event Event, attempt string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_payload=?,terminal_event_id=?,terminal_payload_version=?,terminal_kind=?,terminal_seq=?,terminal_occurred_at=? WHERE work_id=? AND attempt_id=?`, string(event.Payload), event.EventID, event.PayloadVersion, event.Kind, event.Seq, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, attempt)
+	return err
+}
+
+func workerAuthorizationActorTx(ctx context.Context, q queryer, work, attempt string) (string, error) {
+	var actor string
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, work, attempt).Scan(&actor)
+	return actor, err
+}
+
+func workerRecordedFailureCountTx(ctx context.Context, q queryer, work, attempt string) (int64, error) {
+	var count int64
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(SUM(failure_recorded),0) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, work, attempt).Scan(&count)
+	return count, err
+}
+
+func readWorkerDispatchFactTx(ctx context.Context, q queryer, work, attempt string) (Event, error) {
+	event := Event{Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: work}
+	err := q.QueryRowContext(ctx, `SELECT dispatch_event_id,dispatch_actor,dispatch_payload,dispatch_payload_version,dispatch_seq FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, work, attempt).Scan(&event.EventID, &event.Actor, &event.Payload, &event.PayloadVersion, &event.Seq)
+	return event, err
+}
+
+func workerDispatchPacketDigestTx(ctx context.Context, q queryer, work, attempt string) (string, error) {
+	var digest string
+	err := q.QueryRowContext(ctx, `SELECT json_extract(dispatch_payload,'$.packet_digest') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_payload IS NOT NULL`, work, attempt).Scan(&digest)
+	return digest, err
+}
+
+func workerCoordinatorSessionTx(ctx context.Context, q queryer, work, attempt string) (string, error) {
+	var session string
+	err := q.QueryRowContext(ctx, `SELECT a.session_ref FROM worker_authorizations d JOIN workflow_actors a ON a.actor_ref=json_extract(d.payload,'$.actor_ref') WHERE d.work_id=? AND d.attempt_id=?`, work, attempt).Scan(&session)
+	return session, err
+}
+
+func workerExecutorAtSequenceTx(ctx context.Context, q queryer, work, attempt string, seq int64) (string, error) {
+	var executor string
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(dispatch_payload,'$.lane_actor_ref'),'') FROM worker_attempts WHERE work_id=? AND attempt_id=? AND dispatch_seq=? UNION ALL SELECT COALESCE(json_extract(payload,'$.lane_actor_ref'),'') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND seq=?`, work, attempt, seq, work, attempt, seq).Scan(&executor)
+	return executor, err
+}

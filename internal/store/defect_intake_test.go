@@ -27,16 +27,15 @@ func defectFixture(t *testing.T) *Store {
 	t.Helper()
 	s := openTemp(t)
 	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "defect-product-a", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product A","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "defect-product-b", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product B","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "defect-project-a", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project A"}`)},
-		{EventID: "defect-project-b", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Project B"}`)},
-		{EventID: "defect-scope-a", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-a", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-a","project_id":"project-a","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "defect-scope-b", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-b", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-b","project_id":"project-b","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-a"): 0, VersionRef(SubjectProduct, "product-b"): 0, VersionRef(SubjectProject, "project-a"): 0, VersionRef(SubjectProject, "project-b"): 0}}); err != nil {
-		t.Fatalf("seed defect fixture scope: %v", err)
+	for _, suffix := range []string{"a", "b"} {
+		if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+			ProductID: "product-" + suffix, DisplayName: "Product " + suffix,
+			StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+			ProjectID: "project-" + suffix, ProjectDisplayName: "Project " + suffix,
+			Role: "primary", Reason: "fixture",
+		}); err != nil {
+			t.Fatalf("seed defect fixture scope: %v", err)
+		}
 	}
 	return s
 }
@@ -55,7 +54,7 @@ func defectIntakeJSON(shape string, related []string, rootCause string) map[stri
 // admission owner, so the whole operation refuses or commits as one unit.
 func captureDefectWork(t *testing.T, s *Store, workID, kind string, intake map[string]any, projectIDs ...string) error {
 	t.Helper()
-	return captureDefectWorkAt(t, s, 4, workID, kind, intake, projectIDs...)
+	return captureDefectWorkAt(t, s, CurrentEventPayloadVersion("work.created"), workID, kind, intake, projectIDs...)
 }
 
 // captureDefectWorkAt appends the capture at one work.created payload version.
@@ -128,31 +127,28 @@ func defectBlockSiblings(t *testing.T, s *Store, workID string) []string {
 	return out
 }
 
-// forceWorkLifecycleTransition records a lifecycle transition the way domain
-// log replay folds it: the recorded from state is the item's current one, and
-// the workflow-completion gate the live path enforces is a live admission
-// rule. By the time a later capture reads the root cause item its completion
-// is historical fact, which is exactly the state replay owns.
+// forceWorkLifecycleTransition seeds the terminal state read by defect intake.
+// These fixtures test capture admission, not workflow completion.
 func forceWorkLifecycleTransition(t *testing.T, s *Store, workID, to, reason string) {
 	t.Helper()
 	ctx := context.Background()
-	var version int64
-	var from string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version, lifecycle FROM work_items WHERE id=?`, workID).Scan(&version, &from); err != nil {
-		t.Fatalf("read version for %s: %v", workID, err)
-	}
-	payload, err := json.Marshal(map[string]any{"from": from, "to": to, "reason": reason, "evidence_refs": []string{}, "expected_version": version, "resulting_version": version + 1})
-	if err != nil {
-		t.Fatal(err)
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	op := Operation{Events: []Event{{EventID: "defect-force-" + workID + "-" + to, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}
-	if _, err := applyOperationTx(workflowReplayContext(ctx), tx, op, newFoldScope(tx), false); err != nil {
-		t.Fatalf("force transition %s -> %s for %s: %v", from, to, workID, err)
+	if err := enterWrite(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(3, 0).UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle=?,version=version+1,updated_at=?,terminal_time=? WHERE id=?`, to, at, at, workID); err != nil {
+		t.Fatalf("seed %s as %s (%s): %v", workID, to, reason, err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=? WHERE work_id=?`, to, at, workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveWrite(ctx, tx); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
@@ -206,19 +202,32 @@ func supersedeWorkForFixture(t *testing.T, s *Store, workID, successor string) {
 	}
 }
 
-func seedHistoricalV2Bug(t *testing.T, s *Store, workID, projectID string) {
+func seedUnclassifiedBug(t *testing.T, s *Store, workID, projectID string) {
 	t.Helper()
-	now := time.Unix(1, 0).UTC()
-	memberships, err := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: projectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
+	if err := captureDefectWork(t, s, workID, "bug", defectIntakeJSON("historical-"+workID, nil, ""), projectID); err != nil {
+		t.Fatalf("seed bug %s: %v", workID, err)
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	op := Operation{Events: []Event{
-		{EventID: workID + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Historical unclassified bug","priority":1}`)},
-		{EventID: workID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: memberships},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}
-	if err := ApplyOperation(context.Background(), s, op); err != nil {
-		t.Fatalf("seed historical v2 bug %s: %v", workID, err)
+	defer tx.Rollback()
+	if err := enterWrite(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	// Migrated pre-CD-0211 bugs have no classification in their current row.
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect') WHERE id=?`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveWrite(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if block := defectBlock(t, s, workID); block != nil {
+		t.Fatalf("unclassified bug %s retained classification: %v", workID, block)
 	}
 }
 
@@ -373,10 +382,6 @@ func TestOtherKindsRefuseDefectIntake(t *testing.T) {
 			t.Fatalf("%s refusal %q does not name defect_intake", kind, failureText(err))
 		}
 	}
-	// A v3 capture carried the same record, so it upcasts without escaping the rules.
-	if err := captureDefectWorkAt(t, s, 3, "work-task-intake-v3", "task", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err == nil {
-		t.Fatal("v3 task capture with defect_intake was admitted")
-	}
 	if err := captureDefectWork(t, s, "work-research-plain", "research", nil); err != nil {
 		t.Fatalf("research capture without intake refused: %v", err)
 	}
@@ -388,8 +393,8 @@ func TestOtherKindsRefuseDefectIntake(t *testing.T) {
 func TestExplicitRelatedDefectValidation(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
-	seedHistoricalV2Bug(t, s, "work-hist-b", "project-b")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-b", "project-b")
 	if err := captureDefectWork(t, s, "work-bug-shaped", "bug", defectIntakeJSON("login-token-expiry", nil, "")); err != nil {
 		t.Fatalf("shaped bug capture refused: %v", err)
 	}
@@ -433,7 +438,7 @@ func TestExplicitRelatedDefectValidation(t *testing.T) {
 func TestHistoricalUnclassifiedBugThroughExplicitSiblingAndRCA(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
 	rca := seedCompletedResearchRCA(t, s, "work-rca-hist", "login-token-expiry", []string{"work-hist-a"})
 	if err := captureDefectWork(t, s, "work-new-hist", "bug", defectIntakeJSON("login-token-expiry", []string{"work-hist-a"}, rca)); err != nil {
 		t.Fatalf("explicit sibling behind completed RCA refused: %v", err)
@@ -514,21 +519,21 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 		t.Fatalf("unpinned research capture refused: %v", err)
 	}
 	forceWorkLifecycleTransition(t, s, unpinned, "completed", "completed without a pinned family")
-	// A research item pinned to the generic workflow family rather than the
+	// A research item pinned to the implementation workflow family rather than the
 	// research family its kind defaults to.
-	if err := captureDefectWork(t, s, "work-rca-generic", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"}, "")); err != nil {
-		t.Fatalf("generic research capture refused: %v", err)
+	if err := captureDefectWork(t, s, "work-rca-wrongfamily", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"}, "")); err != nil {
+		t.Fatalf("wrong-family research capture refused: %v", err)
 	}
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
-		definition, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+		definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 		if err != nil {
 			return err
 		}
-		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: "work-rca-generic", Definition: definition, Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/work-rca-generic", ActorClass: ActorOperator}, Now: time.Unix(3, 0).UTC()})
+		return InitializeWorkflowTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: "work-rca-wrongfamily", Definition: definition, Actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/work-rca-wrongfamily", ActorClass: ActorOperator}, Now: time.Unix(3, 0).UTC()})
 	}); err != nil {
-		t.Fatalf("initialize generic workflow: %v", err)
+		t.Fatalf("initialize the implementation workflow: %v", err)
 	}
-	forceWorkLifecycleTransition(t, s, "work-rca-generic", "completed", "completed on the wrong family")
+	forceWorkLifecycleTransition(t, s, "work-rca-wrongfamily", "completed", "completed on the wrong family")
 	// A completed research RCA in the other Product.
 	if err := captureDefectWork(t, s, "work-rca-otherproduct", "research", defectIntakeJSON("upload-checksum-mismatch", nil, ""), "project-b"); err != nil {
 		t.Fatalf("cross-product research capture refused: %v", err)
@@ -566,7 +571,7 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 		{"wrong kind", taskCause, KindInvalidPayload, "root cause work item " + taskCause + " is kind task, not research"},
 		{"wrong shape", wrongShape, KindInvalidPayload, "root cause work item " + wrongShape + " carries failure_shape login-token-expiry, not upload-checksum-mismatch"},
 		{"absent workflow family", unpinned, KindInvalidPayload, "root cause work item " + unpinned + " pins no workflow family, not workflow.research"},
-		{"wrong workflow family", "work-rca-generic", KindInvalidPayload, "root cause work item work-rca-generic pins workflow family workflow.generic_one_off, not workflow.research"},
+		{"wrong workflow family", "work-rca-wrongfamily", KindInvalidPayload, "root cause work item work-rca-wrongfamily pins workflow family workflow.implementation, not workflow.research"},
 		{"cross product", "work-rca-otherproduct", KindInvalidPayload, "root cause work item work-rca-otherproduct is not in this capture's Product"},
 		{"in progress", inProgress, KindInvalidPayload, "root cause work item " + inProgress + " is lifecycle needed, not completed"},
 		{"cancelled", cancelled, KindInvalidPayload, "root cause work item " + cancelled + " is lifecycle cancelled, not completed"},
@@ -632,40 +637,6 @@ func TestConcurrentSameShapeCapturesAdmitExactlyOne(t *testing.T) {
 	}
 }
 
-// A projection rebuild replays every capture admission from the log and
-// reproduces the persisted classification and sibling snapshots byte for byte.
-func TestRebuildReplaysDefectAdmissionDeterministically(t *testing.T) {
-	t.Parallel()
-	s := defectFixture(t)
-	if err := captureDefectWork(t, s, "work-bug-one", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err != nil {
-		t.Fatalf("first bug capture refused: %v", err)
-	}
-	rca := seedCompletedResearchRCA(t, s, "work-rca-upload", "upload-checksum-mismatch", []string{"work-bug-one"})
-	if err := captureDefectWork(t, s, "work-bug-two", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, rca)); err != nil {
-		t.Fatalf("recurrent capture behind RCA refused: %v", err)
-	}
-	before := map[string]string{}
-	for _, workID := range []string{"work-bug-one", "work-rca-upload", "work-bug-two"} {
-		var intentJSON string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id=?`, workID).Scan(&intentJSON); err != nil {
-			t.Fatal(err)
-		}
-		before[workID] = intentJSON
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild refused: %v", err)
-	}
-	for workID, want := range before {
-		var intentJSON string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT intent_json FROM work_items WHERE id=?`, workID).Scan(&intentJSON); err != nil {
-			t.Fatal(err)
-		}
-		if intentJSON != want {
-			t.Fatalf("%s intent_json after rebuild:\n got %s\nwant %s", workID, intentJSON, want)
-		}
-	}
-}
-
 // A revision cannot erase the persisted classification and cannot turn an
 // unclassified item into a bug, which would bypass capture admission.
 func TestRevisePreservesClassificationAndRefusesBugConversion(t *testing.T) {
@@ -713,29 +684,12 @@ func TestRevisePreservesClassificationAndRefusesBugConversion(t *testing.T) {
 	}
 }
 
-// Historical v1 and v2 work.created events replay unchanged: an unclassified
-// v2 bug folds without refusal and holds no classification block.
-func TestHistoricalWorkCreatedVersionsStayUnclassified(t *testing.T) {
-	t.Parallel()
-	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-v2", "project-a")
-	if block := defectBlock(t, s, "work-hist-v2"); block != nil {
-		t.Fatalf("historical v2 bug holds a classification block: %+v", block)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild with historical events refused: %v", err)
-	}
-	if block := defectBlock(t, s, "work-hist-v2"); block != nil {
-		t.Fatalf("historical v2 bug holds a classification block after rebuild: %+v", block)
-	}
-}
-
 // An explicitly named sibling that is also the root cause item refuses: the
 // root cause is a research item, and a related defect must be a bug.
 func TestRootCauseWorkIDNotAlsoRelation(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
-	seedHistoricalV2Bug(t, s, "work-hist-a", "project-a")
+	seedUnclassifiedBug(t, s, "work-hist-a", "project-a")
 	rca := seedCompletedResearchRCA(t, s, "work-rca-rel", "login-token-expiry", []string{"work-hist-a"})
 	if err := captureDefectWork(t, s, "work-bug-rel-rca", "bug", defectIntakeJSON("login-token-expiry", []string{rca}, rca)); err == nil {
 		t.Fatal("research root cause accepted as a related defect id")

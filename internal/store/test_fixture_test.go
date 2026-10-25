@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // This file uses only production code. A native control pins it as its
@@ -138,21 +139,26 @@ func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
 	second := openTemp(t)
 	ctx := context.Background()
 
-	if _, err := first.DatabaseForTesting().ExecContext(ctx, `INSERT INTO domain_events
-		(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES ('first-only', 'test.event', 'product', 'product-1', 'test', '2026-01-01T00:00:00Z', 1, '{}')`); err != nil {
-		t.Fatalf("insert first store event: %v", err)
+	event := Event{EventID: "first-only", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "first-project", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("project.created"), Payload: []byte(`{"display_name":"First project"}`)}
+	product := Event{EventID: "first-product-created", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "first-product", Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: CurrentEventPayloadVersion("product.created"), Payload: []byte(`{"display_name":"First product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)}
+	membership := Event{EventID: "first-membership", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: product.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: CurrentEventPayloadVersion("product_project.added"), Payload: []byte(`{"product_id":"first-product","project_id":"first-project","role":"primary","reason":"fixture isolation","expected_version":1,"resulting_version":2}`)}
+	if err := ApplyOperation(ctx, first, Operation{Events: []Event{product, event, membership}}); err != nil {
+		t.Fatalf("seed first store: %v", err)
+	}
+	var displayName string
+	if err := first.db.QueryRow(`SELECT display_name FROM projects WHERE id=?`, event.SubjectID).Scan(&displayName); err != nil || displayName != "First project" {
+		t.Fatalf("first store project = %q, err = %v", displayName, err)
 	}
 
 	var firstEvents, secondEvents int
-	if err := first.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&firstEvents); err != nil {
+	if err := first.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&firstEvents); err != nil {
 		t.Fatalf("count first store events: %v", err)
 	}
-	if err := second.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&secondEvents); err != nil {
+	if err := second.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&secondEvents); err != nil {
 		t.Fatalf("count second store events: %v", err)
 	}
-	if firstEvents != 1 || secondEvents != 0 {
-		t.Fatalf("store event counts = (%d, %d), want (1, 0)", firstEvents, secondEvents)
+	if firstEvents != 3 || secondEvents != 0 {
+		t.Fatalf("store receipt counts = (%d, %d), want (3, 0)", firstEvents, secondEvents)
 	}
 
 	if got, err := readSchemaManifestVersion(ctx, second.DatabaseForTesting()); err != nil {

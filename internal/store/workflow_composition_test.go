@@ -46,12 +46,16 @@ func TestWorkflowSuccessorUsesDefinitionFamilyForComposition(t *testing.T) {
 	if result.ResultingVersion != version+2 {
 		t.Fatalf("link resulting version = %d, want %d", result.ResultingVersion, version+2)
 	}
-	var eventKind, payloadKind, payloadDefinition string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind,json_extract(payload,'$.successor_kind'),json_extract(payload,'$.definition_ref') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, sourceID, WorkflowSuccessorLinked).Scan(&eventKind, &payloadKind, &payloadDefinition); err != nil {
+	var eventKind, digest string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT kind,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, sourceID, WorkflowSuccessorLinked).Scan(&eventKind, &digest); err != nil {
 		t.Fatal(err)
 	}
-	if eventKind != WorkflowSuccessorLinked || payloadKind != "task" || payloadDefinition != "workflow.break_fix" {
-		t.Fatalf("link event = (%q, %q, %q), want successor_kind task and workflow.break_fix", eventKind, payloadKind, payloadDefinition)
+	want, err := effectPayloadDigest(mustJSONValue(map[string]any{
+		"work_id": sourceID, "expected_version": version, "resulting_version": version + 1,
+		"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": "task", "definition_ref": "workflow.break_fix",
+	}))
+	if err != nil || eventKind != WorkflowSuccessorLinked || digest != want {
+		t.Fatalf("link receipt kind=%q digest=%q, want the exact task/break-fix successor payload %q: %v", eventKind, digest, want, err)
 	}
 }
 
@@ -90,83 +94,6 @@ func TestWorkflowSuccessorWithoutWorkflowInstanceIsRejected(t *testing.T) {
 	assertUndeterminedSuccessorFamily(t, foldErr, "fold_event")
 }
 
-func TestWorkflowSuccessorLinkedV1RebuildPreservesUnpinnedResearchSuccessor(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	sourceID := "legacy-composition-source"
-	successorID := "legacy-composition-successor"
-	actor := WorkflowActor{PrincipalRef: "principal:legacy-composition", ClientRef: "client:legacy-composition", AgentRef: "agent:legacy-composition", SessionRef: "session:legacy-composition", ActorClass: ActorAgent}
-	seedWork(t, s, sourceID)
-	created := operationEvent("create-"+successorID, "work.created", SubjectWorkItem, successorID, map[string]any{
-		"work_kind": "research", "title": successorID, "priority": 10,
-	})
-	created.PayloadVersion = 2
-	if err := ApplyOperation(ctx, s, Operation{
-		Events: []Event{
-			created,
-			operationEvent("membership-"+successorID, "work_project.added", SubjectWorkItem, successorID, map[string]any{
-				"work_id": successorID, "project_id": "project", "role": "secondary", "reason": "test",
-				"expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, successorID): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	initializeCompositionWorkflow(t, s, sourceID, "workflow.implementation", actor)
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, sourceID)
-	payload, err := json.Marshal(map[string]any{
-		"work_id": sourceID, "expected_version": version, "resulting_version": version + 1,
-		"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": "research",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyEvent := Event{
-		EventID: "legacy-successor-link", Kind: WorkflowSuccessorLinked, SubjectType: SubjectWorkItem,
-		SubjectID: sourceID, Actor: actorRef, OccurredAt: time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC),
-		PayloadVersion: 1, Payload: payload,
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterFold(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	liveErr := foldRegisteredEvent(ctx, tx, legacyEvent)
-	_ = leaveFold(ctx, tx)
-	_ = tx.Rollback()
-	if liveErr == nil {
-		t.Fatal("live workflow.successor_linked v1 bypassed the definition_ref requirement")
-	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		legacyEvent.EventID, legacyEvent.Kind, legacyEvent.SubjectType, legacyEvent.SubjectID, legacyEvent.Actor,
-		legacyEvent.OccurredAt.Format(time.RFC3339Nano), legacyEvent.PayloadVersion, legacyEvent.Payload); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild refused historically valid workflow.successor_linked v1: %v", err)
-	}
-	var relationCount, storedVersion int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='forward_link'`, sourceID, successorID).Scan(&relationCount); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT payload_version FROM domain_events WHERE event_id='legacy-successor-link'`).Scan(&storedVersion); err != nil {
-		t.Fatal(err)
-	}
-	if relationCount != 1 || storedVersion != 1 {
-		t.Fatalf("legacy replay relation count=%d stored payload version=%d, want 1 and 1", relationCount, storedVersion)
-	}
-}
-
 func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -192,7 +119,7 @@ func TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	foldErr := foldRegisteredEvent(ctx, tx, event)
+	foldErr := applyEffect(ctx, tx, event)
 	_ = tx.Rollback()
 	if foldErr == nil {
 		t.Fatal("current workflow.successor_linked accepted an empty definition_ref")
@@ -230,7 +157,7 @@ func executeCompositionLink(ctx context.Context, s *Store, sourceID, successorID
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: sourceID, ExpectedVersion: version, ActionID: "link_successor",
 		Payload: json.RawMessage(`{"successor_work_id":"` + successorID + `"}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "composition-link",

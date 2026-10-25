@@ -60,11 +60,10 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	// A recorded dispatch whose lane digest no registered definition holds:
-	// the log row and the fold-only projection row both record it, the way a
-	// store whose lane definition retired from the registry would carry it.
+	// the current attempt and its receipt both retain that original identity.
 	lostLane := "sha256:" + strings.Repeat("0", 64)
 	dispatchPayload := mustJSON(t, store.WorkerDispatchedPayload{
-		AttemptID: "attempt-1", LaneID: "research", LaneVersion: 1, LaneDigest: lostLane,
+		AttemptID: "attempt-1", LaneID: "research", LaneDigest: lostLane,
 		CapabilityClass: "research", ReadbackModel: "openai/test-model",
 		PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion,
 		PacketDigest: "sha256:" + strings.Repeat("c", 64),
@@ -84,14 +83,15 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES ('event-recovery-lost-lane',?,'work_item','work-1',?,'2026-10-10T00:00:00Z',5,?)`, store.WorkerDispatched, "client:"+workerEvidenceClientRef+":operator-1", dispatchPayload); err != nil {
+	seq := seedCLIReceipt(t, tx, store.Event{EventID: "event-recovery-lost-lane", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "client:" + workerEvidenceClientRef + ":operator-1", PayloadVersion: 5, Payload: []byte(dispatchPayload)})
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at,dispatch_event_id,dispatch_actor,dispatch_payload_version,dispatch_payload,dispatch_seq) VALUES ('work-1','attempt-1','research',?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL,'event-recovery-lost-lane',?,5,?,?)`,
+		lostLane, store.WorkerPacketSchemaVersion, store.WorkerReportSchemaVersion, "client:"+workerEvidenceClientRef+":operator-1", dispatchPayload, seq); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES ('work-1','attempt-1','research',1,?,'research','openai/test-model',?,?,'dispatched','','','2026-10-10T00:00:00Z',NULL,NULL)`,
-		lostLane, store.WorkerPacketSchemaVersion, store.WorkerReportSchemaVersion); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -102,6 +102,8 @@ func TestWorkerRecoveryContextRefusesUnavailableLaneDefinition(t *testing.T) {
 		return err
 	}); err == nil {
 		t.Fatal("recovery admitted an attempt whose recorded lane definition does not resolve")
+	} else if !strings.Contains(err.Error(), "lane") {
+		t.Fatalf("recovery refusal %v does not name the unavailable lane", err)
 	}
 }
 
@@ -115,25 +117,10 @@ func TestWorkerRecoveryContextRefusesUnretainedSchemaPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	// The log is append-only, so a recorded dispatch whose schema pair is not
-	// a released revision is a second, later row for the same attempt — the
-	// latest dispatch evidence the recovery context reads.
-	var payload []byte
-	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload,actor FROM domain_events WHERE kind=? AND json_extract(payload,'$.attempt_id')='attempt-1' ORDER BY seq DESC LIMIT 1`, store.WorkerDispatched).Scan(&payload, &actor); err != nil {
-		t.Fatal(err)
-	}
-	var generic map[string]any
-	if err := json.Unmarshal(payload, &generic); err != nil {
-		t.Fatal(err)
-	}
-	generic["packet_schema_version"] = "9.9"
-	generic["report_schema_version"] = "9.9"
-	corrupt, err := json.Marshal(generic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES ('event-recovery-corrupt-pair',?,'work_item','work-1',?,'2026-10-10T00:00:00Z',5,?)`, store.WorkerDispatched, actor, string(corrupt)); err != nil {
+	// Corrupt the current dispatch descriptor the recovery boundary reads.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE worker_attempts SET dispatch_payload=json_set(dispatch_payload,'$.packet_schema_version','9.9','$.report_schema_version','9.9') WHERE work_id='work-1' AND attempt_id='attempt-1';
+DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	err = s.Transact(context.Background(), func(tx *store.Transaction) error {

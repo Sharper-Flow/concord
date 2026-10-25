@@ -81,8 +81,12 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID          string   `json:"work_id"`
-	ProductIdentity []string `json:"product_identity"`
+	// ReviewInputWarning reports optional Git enrichment failure outside the
+	// projection bytes so session recovery does not depend on repository access.
+	ReviewInputWarning error              `json:"-"`
+	ReviewInput        *WorkerReviewInput `json:"review_input,omitempty"`
+	WorkID             string             `json:"work_id"`
+	ProductIdentity    []string           `json:"product_identity"`
 	// WorkflowInstance states workflow-instance presence as typed
 	// information: WorkflowInstancePresent for the pinned default every
 	// captured item carries, WorkflowInstanceAbsent for an imported or
@@ -103,6 +107,7 @@ type ContinuitySnapshot struct {
 	BoundaryCount            int64                             `json:"boundary_count"`
 	NextCursor               *string                           `json:"next_cursor"`
 	Watermark                string                            `json:"watermark"`
+	SourceVersionWatermark   int64                             `json:"-"`
 	// NativeRuns carries the attributed native-run reports for this work
 	// item, newest phase per run, with reporter, subject, evidence, and both
 	// times alongside the status (CD-0039 D1/D4).
@@ -142,8 +147,7 @@ type ContinuitySnapshot struct {
 	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
 	// ChecksRepairReviewJobs carries satisfied repairing revisions awaiting
 	// their one confirming review (CD-0205 D4), in packet shape. Only review
-	// capability selects them; the core admits funded reviews or requires
-	// ordinary authority for unfunded repeats. They are not ready_worker_jobs.
+	// capability selects them. They are not ready_worker_jobs.
 	ChecksRepairReviewJobs []WorkerPacketJob `json:"checks_repair_review_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
@@ -205,6 +209,10 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
+	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 	if req.Owner != nil {
 		if err := validateSessionWorktreeOwner(*req.Owner); err != nil {
 			return out, err
@@ -222,6 +230,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	out.StepActions = []string{}
 	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
+	if err := publishedWorkAbsenceQ(ctx, tx, req.Work, "C19.Continuity"); err != nil {
+		return out, err
+	}
 	exists, err := workExistsCore(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
@@ -301,11 +312,11 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	out.DesignRecord, _, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
+	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
 	}
-	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.sizeCapable, &out); err != nil {
+	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, &out); err != nil {
 		return out, err
 	}
 	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
@@ -325,6 +336,28 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, viewErr
 	}
 	out.WorkContext, out.WorkContextUnavailable = view, unavailable
+	// Candidate identity is sampled with the dependencies, then its immutable
+	// tree resolves after the read snapshot closes. Dispatch revalidates it
+	// against the sealed native observation; this read grants no authority.
+	var receipt *WorktreeVerifyResult
+	if out.WorkPin != nil && out.WorkPin.Review != nil && out.WorkPin.Review.Dependencies != nil {
+		receipt, err = readCurrentOracleSubjectReceipt(ctx, tx, req.Work)
+		if err != nil {
+			return out, err
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		return out, err
+	}
+	if receipt != nil {
+		commit := strings.TrimPrefix(receipt.SubjectRef, "commit:")
+		tree, treeErr := readReviewCandidateTree(ctx, CommittedReadGitRunner{}, receipt.Path, commit)
+		if treeErr != nil {
+			out.ReviewInputWarning = treeErr
+		} else {
+			out.ReviewInput = &WorkerReviewInput{InputCandidate: WorkerReviewCandidate{ProjectID: receipt.ProjectID, Commit: commit, Tree: tree}, Dependencies: *out.WorkPin.Review.Dependencies}
+		}
+	}
 	return out, nil
 }
 
@@ -362,7 +395,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
@@ -392,17 +425,17 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 			return revisionErr
 		}
 		contract.LawRevisions = revisions
-		// Resolve the contract's binding law and Domains inside the same
-		// read transaction, so the pinned projection carries readable law
-		// references rather than bare IDs. A contract with no bound law
-		// leaves the field absent.
-		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
-		if lawErr != nil {
-			return lawErr
-		}
-		out.LawContext = lawContext
 		if err := continuityResolveLawMandateTx(ctx, tx, work, out, &contract); err != nil {
 			return err
+		}
+		// A stale contract remains inspectable, but cannot supply readable
+		// current-law context for a law that no longer exists (CD-0036 D3/D6).
+		if out.StaleLawRevision == nil {
+			lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+			if lawErr != nil {
+				return lawErr
+			}
+			out.LawContext = lawContext
 		}
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 		registered, verifyErr := verifyReadWorkflowDefinitionForRegistry(definition, registry)
@@ -466,7 +499,7 @@ func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, opera
 	var touched, evidence, questions, decisions string
 	if err := q.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
 		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
-			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return &checkpoint, nil
 	} else if err != sql.ErrNoRows {
@@ -533,19 +566,19 @@ func validateWorkerPacketCheckpoint(ctx context.Context, q queryer, workID strin
 
 // continuityReadReadyWorkerJobsTx reads the dispatch-ready worker-job
 // revisions through the one readiness predicate dispatch admission applies.
-// On a size-capable pin each job carries the caller_exclusions its
+// On a caller-capable pin each job carries the caller_exclusions its
 // implementation dispatch binds (CD-0227 D1); a dispatcher drops them for
 // every other lane. A set above the packet's declared bounds — in count or
 // in per-path characters — is not published, so the read stays available
 // and the dispatch refuses with its recovery.
-func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, sizeCapable bool, out *ContinuitySnapshot) error {
+func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, callerCapable bool, out *ContinuitySnapshot) error {
 	views, err := readWorkerJobRevisions(ctx, tx, work)
 	if err != nil {
 		return err
 	}
 	var corrections map[string][]string
-	if sizeCapable {
-		if corrections, err = workerJobCorrectionMeasuredTx(ctx, tx, work); err != nil {
+	if callerCapable {
+		if corrections, err = workerJobCorrectionPathsTx(ctx, tx, work); err != nil {
 			return err
 		}
 	}
@@ -554,7 +587,7 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 			continue
 		}
 		job := packetJobFromView(view)
-		if sizeCapable {
+		if callerCapable {
 			exclusions := workerJobCorrectionExclusions(corrections, view.Binding.JobID)
 			if len(exclusions) > 0 && validateWorkerJobPacketExclusions(view.Binding.JobID, exclusions) == nil {
 				job.CallerExclusions = exclusions
@@ -562,11 +595,11 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 		}
 		out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, job)
 	}
-	// The awaiting confirming-review jobs (CD-0205 D4, CD-0148 amendment):
+	// The awaiting confirming-review jobs (CD-0205 D4):
 	// every open accepted exact repairing revision whose one confirming
-	// review is still unconsumed — funded or an ordinary-authority repeat.
+	// review is still unconsumed.
 	// They are never ready jobs — the one review dispatch each admits reads
-	// them here; the guard keeps an unfunded dispatch basis-gated.
+	// them here; ordinary dispatch admission still applies.
 	// Candidates keep deterministic binding order, so a reader resolves the
 	// same job first on every read.
 	candidates, err := workerChecksRepairAwaitingReviewTx(ctx, tx, work)
@@ -575,7 +608,7 @@ func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work strin
 	}
 	for _, candidate := range candidates {
 		for _, view := range views {
-			if view.Binding == candidate.Repairing {
+			if view.Binding == candidate {
 				out.ChecksRepairReviewJobs = append(out.ChecksRepairReviewJobs, packetJobFromView(view))
 				break
 			}
@@ -591,7 +624,7 @@ func continuityReadProposalTx(ctx context.Context, tx *sql.Tx, work string, out 
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {
@@ -616,15 +649,9 @@ func continuityReadFailureTx(ctx context.Context, tx *sql.Tx, work string, out *
 	}
 	var failure ContextFailure
 	if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
-FROM domain_events f
-WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
-  AND NOT EXISTS (
-    SELECT 1 FROM domain_events c
-    WHERE c.subject_type=f.subject_type AND c.subject_id=f.subject_id AND c.kind=? AND c.seq>f.seq
-      AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
-      AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
-  )
-ORDER BY f.seq DESC LIMIT 1`, work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
+FROM workflow_action_obligations f
+WHERE f.work_id=? AND f.state='failed'
+ORDER BY f.effect_seq DESC LIMIT 1`, work).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
 		out.UnresolvedFailure = &failure
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
@@ -704,8 +731,8 @@ func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observatio
 // fields: watermark, restart availability, pending messages, observations,
 // and native runs.
 func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
-	var watermark int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, work).Scan(&watermark); err != nil {
+	watermark, err := readWorkEffectSeq(ctx, tx, work)
+	if err != nil {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read continuity watermark", true, "retry once the database is readable", err)
 	}
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
@@ -791,11 +818,16 @@ func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory 
 // continuityInstance is the workflow-instance part of one continuity read.
 // present is false for a recorded work item that holds no instance.
 type continuityInstance struct {
-	step        string
-	definition  WorkflowReadDefinition
-	workVersion int64
-	present     bool
-	sizeCapable bool
+	step string
+	// definition is the read-model reference; the full registered
+	// definition loads beside it, so the caller-scope capability derives
+	// from the declared record_worker_job members exactly as dispatch
+	// admission derives it.
+	definition    WorkflowReadDefinition
+	registered    *RegisteredDefinition
+	workVersion   int64
+	present       bool
+	callerCapable bool
 }
 
 // readContinuityInstanceForRegistryTx is the registry-threaded continuity
@@ -804,7 +836,7 @@ type continuityInstance struct {
 // snapshot projects the same folded confirmation answer the work pin does.
 func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) (continuityInstance, error) {
 	var instance continuityInstance
-	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Version, &instance.definition.Digest, &instance.workVersion)
+	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Digest, &instance.workVersion)
 	if err == sql.ErrNoRows {
 		exists, existsErr := workExistsCore(ctx, tx, work)
 		if existsErr != nil {
@@ -832,7 +864,7 @@ func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work s
 		return instance, err
 	}
 	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	instance.sizeCapable = workflowJobSizeActive(registered.Definition)
+	instance.callerCapable = workflowCallerScopeActive(registered.Definition)
 	if step := workflowStep(registered.Definition, instance.step); step != nil {
 		out.StepActions = append(out.StepActions, step.Actions...)
 	}

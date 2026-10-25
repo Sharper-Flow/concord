@@ -93,8 +93,8 @@ func ValidateDefectIntake(kind string, intake *DefectIntake) error {
 
 // DefectClassification is the persisted intent_json block the admission
 // owner writes: the captured intake plus the core's sibling snapshot. Every
-// list field marshals as an array, never null, so the projection stays
-// byte-stable across a rebuild.
+// list field marshals as an array, never null, so the stored classification
+// has one encoding.
 type DefectClassification struct {
 	FailureShape     string   `json:"failure_shape"`
 	Reproduction     string   `json:"reproduction"`
@@ -144,8 +144,8 @@ func normalizedDefectIntake(intake *DefectIntake) *DefectIntake {
 // admission. The capture membership fold calls it with the new item's Project
 // memberships already inserted, so Product scope is known inside the same
 // transaction that creates the item: concurrent same-shape captures serialize
-// on the store's single write connection, a refusal rolls the whole capture
-// back, and a rebuild replays the identical decision from the log prefix.
+// on the store's single write connection, and a refusal rolls the whole
+// capture back.
 func admitDefectIntakeTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var kind, intentJSON string
 	err := tx.QueryRowContext(ctx, `SELECT kind, intent_json FROM work_items WHERE id=?`, workID).Scan(&kind, &intentJSON)
@@ -160,7 +160,7 @@ func admitDefectIntakeTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
 		return wrapFailure(KindInvariantViolation, "defect_intake", "stored work intent is not readable", false,
-			"rebuild the work item projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	if intent.Defect == nil {
 		return nil
@@ -315,8 +315,8 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 	} else if !sameProduct {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is not in this capture's Product", classification, cluster)
 	}
-	var definition WorkflowDefinition
-	err = tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, cause).Scan(&definition.Ref, &definition.Version)
+	var definitionRef string
+	err = tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, cause).Scan(&definitionRef)
 	if err == sql.ErrNoRows {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins no workflow family, not workflow.research", classification, cluster)
 	}
@@ -324,8 +324,8 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 		return wrapFailure(KindUnavailable, "defect_intake", "cannot read the root cause workflow family", true,
 			"retry once the database is readable", err)
 	}
-	if !workflowCapabilities(definition).has(WorkflowCapabilityRootCauseAnalysis) {
-		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins workflow family "+definition.Ref+", not workflow.research", classification, cluster)
+	if entry, ok := BuiltinWorkflowRegistry().Current(definitionRef); !ok || !workflowCapabilities(entry.Definition).has(WorkflowCapabilityRootCauseAnalysis) {
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins workflow family "+definitionRef+", not workflow.research", classification, cluster)
 	}
 	if lifecycle != "completed" {
 		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is lifecycle "+lifecycle+", not completed", classification, cluster)
@@ -342,7 +342,7 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 	var snapshot []string
 	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
 		return wrapFailure(KindInvariantViolation, "defect_intake", "root cause sibling snapshot is not readable", false,
-			"rebuild the root cause projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	covered := make(map[string]bool, len(snapshot))
 	for _, sibling := range snapshot {

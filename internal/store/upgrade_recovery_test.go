@@ -87,67 +87,19 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 // again; no intermediate state survives the failed transaction.
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	useStampedBuild(t)
-	path := migratedStoreWithTailRemoved(t, 115)
+	path := storePathForTest(t)
+	db := openMigratedTo(t, path, 115)
+	// Keep migration 115's colliding table on its actual historical schema.
+	// The remaining tail must run against the columns its steps consume.
+	if _, err := db.ExecContext(context.Background(), `DELETE FROM schema_migrations WHERE version=115`); err != nil {
+		t.Fatalf("cannot remove the collision marker: %v", err)
+	}
 	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")
 	}
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	// Remove the colliding objects; the pending migrations recreate them
-	// with their checksummed definitions. The v119 worker_attempts rebuild
-	// needs no drop: it renames and recreates, so its re-run is shaped by its
-	// own DDL whether or not the objects already exist. Migration 120's
-	// maintenance triggers attach to pre-existing tables, so they drop by
-	// name before its tables do. Migration 121's ALTER TABLE refuses a
-	// duplicate column, so dropMigration121Objects restores the pre-step
-	// workflow_instances shape beside dropping its tables. The guarded
-	// worktree_ref_outcomes projection is a plain CREATE TABLE, so its
-	// object drops with the rest through its own helper. Migration 124 drops
-	// the planning mirror, so undoMigration124 restores the pre-step schema
-	// first: it recreates every pre-124 object the store lacks, so it must
-	// run before the earlier steps' objects drop.
-	if err := dropMigration125Objects(context.Background(), db); err != nil {
-		t.Fatalf("cannot restore the pre-125 verify lease: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
-		t.Fatalf("cannot restore the pre-127 verify lease: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_contracts DROP COLUMN law_change`); err != nil {
-		t.Fatalf("cannot restore the pre-135 workflow contract: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE workflow_contracts DROP COLUMN decision_domains`); err != nil {
-		t.Fatalf("cannot restore the pre-133 workflow contract: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE project_locators DROP COLUMN normalization_version`); err != nil {
-		t.Fatalf("cannot restore the pre-remote-identity locator shape: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE knowledge_package_domains; DROP TABLE law_coverage_anchors; DROP TABLE law_evidence_paths;`); err != nil {
-		t.Fatalf("cannot restore the pre-package-map schema: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE law_relations DROP COLUMN declarer_law_id`); err != nil {
-		t.Fatalf("cannot restore the pre-declarer law relation shape: %v", err)
-	}
-	if err := undoMigration124(t, context.Background(), db); err != nil {
-		t.Fatalf("cannot restore the pre-124 schema: %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions; DROP TABLE work_resize_lineage; DROP TABLE work_size_overrides; DROP TABLE work_size_assessments;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
-	if err := dropMigration120Objects(context.Background(), db); err != nil {
-		t.Fatalf("cannot drop migration 120's colliding objects: %v", err)
-	}
-	if err := dropMigration121Objects(context.Background(), db); err != nil {
-		t.Fatalf("cannot drop migration 121's colliding objects: %v", err)
-	}
-	if err := dropMigration122Objects(context.Background(), db); err != nil {
-		t.Fatalf("cannot drop migration 122's colliding objects: %v", err)
-	}
-	if err := dropMigration123Objects(context.Background(), db); err != nil {
-		t.Fatalf("cannot drop migration 123's colliding objects: %v", err)
-	}
-	_ = db.Close()
 	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
@@ -176,5 +128,8 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	}
 	if plan.ActivationBlocked || len(plan.Pending) != 0 {
 		t.Fatalf("a resumed store must read clean: %+v", plan)
+	}
+	if tableColumns(t, db, "worker_attempts")["lane_version"] || !tableColumns(t, db, "durable_operations")["workflow_type_digest"] {
+		t.Fatal("the resumed tail did not reach workflow content identity")
 	}
 }

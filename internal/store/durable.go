@@ -39,37 +39,57 @@ type writeTx struct {
 	durable *atomic.Uint64
 }
 
+type writeAdmissionKind uint8
+
+const (
+	stateWriteAdmission writeAdmissionKind = iota + 1
+	// Schema writes precede the revision table; the migration owner advances
+	// the counter after applying migrations that define it.
+	schemaWriteAdmission
+)
+
 // beginWriteTx owns write admission for live stores, migrations and scratch
 // reconstruction. A non-nil counter selects FULL durability on the pinned
 // connection and records successful durable commits.
-func beginWriteTx(ctx context.Context, db *sql.DB, durable *atomic.Uint64) (*writeTx, error) {
+func beginWriteTx(ctx context.Context, db *sql.DB, durable *atomic.Uint64, kind writeAdmissionKind) (*writeTx, error) {
+	if kind != stateWriteAdmission && kind != schemaWriteAdmission {
+		return nil, newFailure(KindInvalidOperation, "transaction", "write admission kind is required", false, "select state or schema write admission")
+	}
+	var write *writeTx
 	if durable == nil {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
-		return &writeTx{Tx: tx, ctx: ctx}, nil
+		write = &writeTx{Tx: tx, ctx: ctx}
+	} else {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := conn.ExecContext(ctx, "PRAGMA synchronous=FULL"); err != nil {
+			discardConn(conn)
+			return nil, err
+		}
+		var level int
+		if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&level); err != nil {
+			return nil, errors.Join(err, releaseDurableConn(conn))
+		}
+		if level != 2 {
+			return nil, errors.Join(fmt.Errorf("durable transaction requires synchronous=2 (FULL), connection reports %d", level), releaseDurableConn(conn))
+		}
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, errors.Join(err, releaseDurableConn(conn))
+		}
+		write = &writeTx{Tx: tx, ctx: ctx, conn: conn, durable: durable}
 	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return nil, err
+	if kind == stateWriteAdmission {
+		if err := advanceStoreRevision(ctx, write.Tx); err != nil {
+			return nil, errors.Join(err, write.Rollback())
+		}
 	}
-	if _, err := conn.ExecContext(ctx, "PRAGMA synchronous=FULL"); err != nil {
-		discardConn(conn)
-		return nil, err
-	}
-	var level int
-	if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&level); err != nil {
-		return nil, errors.Join(err, releaseDurableConn(conn))
-	}
-	if level != 2 {
-		return nil, errors.Join(fmt.Errorf("durable transaction requires synchronous=2 (FULL), connection reports %d", level), releaseDurableConn(conn))
-	}
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, errors.Join(err, releaseDurableConn(conn))
-	}
-	return &writeTx{Tx: tx, ctx: ctx, conn: conn, durable: durable}, nil
+	return write, nil
 }
 
 // Commit commits the transaction. For a durable transaction a nil error means
@@ -162,12 +182,12 @@ func (s *Store) beginStoreWriteTx(ctx context.Context, durable bool) (*writeTx, 
 	if durable {
 		return s.beginDurableTx(ctx)
 	}
-	return beginWriteTx(ctx, s.db, nil)
+	return beginWriteTx(ctx, s.db, nil, stateWriteAdmission)
 }
 
 // beginDurableTx opens a durable write transaction on the store.
 func (s *Store) beginDurableTx(ctx context.Context) (*writeTx, error) {
-	return beginWriteTx(ctx, s.db, &s.durableCommits)
+	return beginWriteTx(ctx, s.db, &s.durableCommits, stateWriteAdmission)
 }
 
 // DurableCommits reports how many durable transactions this store handle has

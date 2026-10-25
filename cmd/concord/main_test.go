@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/store"
@@ -147,7 +148,7 @@ func freshMigratedCLIDatabase(t *testing.T) string {
 func durableCounts(t *testing.T, s *store.Store) map[string]int {
 	t.Helper()
 	counts := make(map[string]int)
-	for _, table := range []string{"domain_events", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
+	for _, table := range []string{"effect_receipts", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
 		var count int
 		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
 			t.Fatalf("count %s: %v", table, err)
@@ -374,7 +375,7 @@ func TestEveryVerbHasAHelpRoute(t *testing.T) {
 		verbs = append(verbs, verb)
 		cases = append(cases, verbCase{name: verb, args: []string{verb}, want: topLevelVerbLines(t, topLevel, verb)})
 	}
-	for _, want := range []string{"continuity-block", "repair", "recover-fold-guard"} {
+	for _, want := range []string{"continuity-block", "repair"} {
 		if !slices.Contains(verbs, want) {
 			t.Fatalf("top-level verbs outside commandSpecs = %v, missing %q", verbs, want)
 		}
@@ -552,7 +553,7 @@ func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	}
 	defer s2.Close()
 	var gotKind string
-	if err := s2.DatabaseForTesting().QueryRow(`SELECT kind FROM domain_events WHERE kind='product.stage_changed' AND subject_id='stage-update-product'`).Scan(&gotKind); err != nil {
+	if err := s2.DatabaseForTesting().QueryRow(`SELECT kind FROM effect_receipts WHERE kind='product.stage_changed' AND subject_id='stage-update-product'`).Scan(&gotKind); err != nil {
 		t.Fatalf("no product.stage_changed event: %v", err)
 	}
 	s, err := store.Open(context.Background(), dbPath)
@@ -676,7 +677,7 @@ func seedCLIDomain(t *testing.T, dbPath, productID, domainID string) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	homeProject, homeLocator := "home-"+productID, "locator-"+productID
@@ -695,7 +696,7 @@ func seedCLIDomain(t *testing.T, dbPath, productID, domainID string) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -710,12 +711,41 @@ func assertCLIEvent(t *testing.T, dbPath, eventID, kind string) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var gotKind, actor, occurredAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,actor,occurred_at FROM domain_events WHERE event_id=?`, eventID).Scan(&gotKind, &actor, &occurredAt); err != nil {
+	var gotKind, actor, subjectID, digest string
+	var seq int64
+	var version int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT kind,actor,subject_id,payload_version,payload_digest,effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&gotKind, &actor, &subjectID, &version, &digest, &seq); err != nil {
 		t.Fatal(err)
 	}
-	if gotKind != kind || actor != "operator" || occurredAt == "" {
-		t.Fatalf("event = kind:%q actor:%q occurred_at:%q, want %q/operator/non-empty", gotKind, actor, occurredAt, kind)
+	if gotKind != kind || actor != "operator" || version != 1 || seq <= 0 || len(digest) != 71 {
+		t.Fatalf("receipt = kind:%q actor:%q version:%d seq:%d digest:%q, want %q/operator/v1/positive/sha256", gotKind, actor, version, seq, digest, kind)
+	}
+	switch kind {
+	case "managed_resource.created", "managed_resource.consumer_added":
+		var updatedAt string
+		role := "owner"
+		wantVersion := 1
+		if kind == "managed_resource.consumer_added" {
+			role = "consumer"
+			wantVersion = 2
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.updated_at FROM managed_resources r JOIN resource_products p ON p.resource_id=r.resource_id WHERE p.product_id=? AND p.role=? AND r.version=?`, subjectID, role, wantVersion).Scan(&updatedAt); err != nil {
+			t.Fatal(err)
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, updatedAt); err != nil || parsed.Location() != time.UTC {
+			t.Fatalf("resource stored time=%q, want UTC: %v", updatedAt, err)
+		}
+	case "domain.project_attachments_replaced", "domain.resource_attachments_replaced":
+		table := "domain_project_attachment_sets"
+		if kind == "domain.resource_attachments_replaced" {
+			table = "domain_resource_attachment_sets"
+		}
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM `+table+` WHERE product_id=? AND version=1`, subjectID).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("current attachment set count=%d, want one version-1 set: %v", count, err)
+		}
+	default:
+		t.Fatalf("unhandled CLI current owner %q", kind)
 	}
 }
 
@@ -982,7 +1012,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
-	fail := workerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
+	fail := wWorkerFailJSON(t, workerKey, "fail-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), string(store.WorkerFailureFallbackBlocked), "provider unavailable", "nonce-lifecycle-fail000002")
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(fail), &out, &errOut); code != 0 {
 		t.Fatalf("worker-fail exit=%d stderr=%q", code, errOut.String())
 	}
@@ -1008,10 +1038,10 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	}
 	defer s.Close()
 	var completed, failed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkerCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkerFailed).Scan(&failed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 2 || failed != 1 {
@@ -1112,7 +1142,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	packetDigest := "sha256:" + strings.Repeat("c", 64)
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readbackModel, HostProvenanceDigest: provenanceDigest, PacketDigest: packetDigest, Nonce: nonce,
 	}
 	if mutate != nil {
@@ -1120,7 +1150,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 	}
 	value := map[string]any{
 		"event_id": eventID, "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"readback_model":        readbackModel,
 		"packet_schema_version": packet, "report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest": packetDigest,
@@ -1637,7 +1667,7 @@ func TestPredecessorImportHappyPath(t *testing.T) {
 	}
 
 	var actor string
-	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT actor FROM domain_events WHERE event_id=?`, "import-advance-work-synth-change-alpha-1").Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT actor FROM effect_receipts WHERE event_id=?`, "import-advance-work-synth-change-alpha-1").Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
 	if actor != "operator:predecessor-import" {
@@ -1883,7 +1913,7 @@ func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
 	}
 	defer func() { _ = readTx.Rollback() }()
 	var eventCount int
-	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&eventCount); err != nil {
+	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM effect_receipts").Scan(&eventCount); err != nil {
 		t.Fatal(err)
 	}
 	code, _, diag := runPredecessorImportRequest(t, dbPath, payload)

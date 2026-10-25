@@ -13,33 +13,33 @@ func jsonRoundTripWorkflowDefinition(t *testing.T, definition WorkflowDefinition
 	t.Helper()
 	raw, err := json.Marshal(definition)
 	if err != nil {
-		t.Fatalf("marshal %s v%d: %v", definition.Ref, definition.Version, err)
+		t.Fatalf("marshal %s: %v", definition.Ref, err)
 	}
 	var cloned WorkflowDefinition
 	if err := json.Unmarshal(raw, &cloned); err != nil {
-		t.Fatalf("unmarshal %s v%d: %v", definition.Ref, definition.Version, err)
+		t.Fatalf("unmarshal %s: %v", definition.Ref, err)
 	}
 	return cloned
 }
 
-// everyWorkflowDefinitionVersion returns each authored chain element as built
-// (before registration normalizes it) and each registered definition.
-func everyWorkflowDefinitionVersion(t *testing.T) []WorkflowDefinition {
+// everyWorkflowDefinitionShape returns each current authored definition before
+// registration normalizes it, and its registered definition.
+func everyWorkflowDefinitionShape(t *testing.T) []WorkflowDefinition {
 	t.Helper()
-	authored := builtinWorkflowDefinitionsWithHistory()
+	authored := BuiltinWorkflowDefinitions()
 	all := append([]WorkflowDefinition(nil), authored...)
 	for _, definition := range authored {
-		registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+		registered, ok := BuiltinWorkflowRegistry().Current(definition.Ref)
 		if !ok {
-			t.Fatalf("%s v%d is not registered", definition.Ref, definition.Version)
+			t.Fatalf("%s is not registered", definition.Ref)
 		}
 		all = append(all, registered.Definition)
 	}
 	return all
 }
 
-func TestCloneWorkflowDefinitionEqualsJSONRoundTripForEveryVersion(t *testing.T) {
-	definitions := everyWorkflowDefinitionVersion(t)
+func TestCloneWorkflowDefinitionEqualsJSONRoundTripForEveryDefinition(t *testing.T) {
+	definitions := everyWorkflowDefinitionShape(t)
 	if len(definitions) < 2 {
 		t.Fatal("no workflow definitions to compare")
 	}
@@ -47,7 +47,7 @@ func TestCloneWorkflowDefinitionEqualsJSONRoundTripForEveryVersion(t *testing.T)
 		got := cloneWorkflowDefinition(definition)
 		want := jsonRoundTripWorkflowDefinition(t, definition)
 		if !reflect.DeepEqual(got, want) {
-			t.Errorf("%s v%d: clone differs from its JSON round trip", definition.Ref, definition.Version)
+			t.Errorf("%s: clone differs from its JSON round trip", definition.Ref)
 		}
 	}
 }
@@ -56,19 +56,19 @@ func TestRegisteredWorkflowDefinitionsAreJSONRoundTripFixedPoints(t *testing.T) 
 	// The JSON-cloning registry stored round-tripped values. A registered
 	// definition that equals its own round trip is the value that registry
 	// stored, field for field, not only digest for digest.
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-		registered, _ := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
+	for _, definition := range BuiltinWorkflowDefinitions() {
+		registered, _ := BuiltinWorkflowRegistry().Current(definition.Ref)
 		if !reflect.DeepEqual(registered.Definition, jsonRoundTripWorkflowDefinition(t, registered.Definition)) {
-			t.Errorf("%s v%d: registered definition is not its own JSON round trip", definition.Ref, definition.Version)
+			t.Errorf("%s: registered definition is not its own JSON round trip", definition.Ref)
 		}
 	}
 }
 
 func TestCloneWorkflowDefinitionDropsEmptyOmitEmptySlicesLikeJSON(t *testing.T) {
-	// No built-in version carries an empty non-nil omitempty slice today, so
-	// the every-version comparison cannot see this rule; a JSON round trip
+	// No built-in definition carries an empty non-nil omitempty slice, so
+	// the all-definition comparison cannot see this rule; a JSON round trip
 	// turns one into nil, and the clone must too.
-	definition := builtinWorkflowDefinitionsWithHistory()[0]
+	definition := BuiltinWorkflowDefinitions()[0]
 	definition.RecoveryRoutes = []WorkflowRecoveryRoute{}
 	definition.AvailableActions = []string{}
 	got := cloneWorkflowDefinition(definition)
@@ -84,31 +84,31 @@ func TestCloneWorkflowDefinitionDropsEmptyOmitEmptySlicesLikeJSON(t *testing.T) 
 }
 
 func TestCloneWorkflowDefinitionSharesNoMemoryWithItsSource(t *testing.T) {
-	for _, definition := range everyWorkflowDefinitionVersion(t) {
+	for _, definition := range everyWorkflowDefinitionShape(t) {
 		clone := cloneWorkflowDefinition(definition)
 		if path, shared := sharedReference(reflect.ValueOf(clone), reflect.ValueOf(definition), "definition"); shared {
-			t.Errorf("%s v%d: clone shares %s with its source", definition.Ref, definition.Version, path)
+			t.Errorf("%s: clone shares %s with its source", definition.Ref, path)
 		}
 	}
 }
 
-func TestLookupReturnsADefinitionCallersCannotUseToMutateTheRegistry(t *testing.T) {
+func TestCurrentReturnsADefinitionCallersCannotUseToMutateTheRegistry(t *testing.T) {
 	registry := NewWorkflowDefinitionRegistry()
-	source := builtinWorkflowDefinitionsWithHistory()[0]
+	source := BuiltinWorkflowDefinitions()[0]
 	if _, err := registry.Register(source); err != nil {
 		t.Fatal(err)
 	}
-	first, _ := registry.Lookup(source.Ref, source.Version)
+	first, _ := registry.Current(source.Ref)
 	if len(first.Definition.ActionDefinitions) == 0 {
 		t.Fatal("fixture definition has no actions to mutate")
 	}
 	first.Definition.ActionDefinitions[0].ID = "mutated"
 	first.Definition.AvailableActions = nil
-	second, _ := registry.Lookup(source.Ref, source.Version)
+	second, _ := registry.Current(source.Ref)
 	if second.Definition.ActionDefinitions[0].ID == "mutated" || second.Definition.AvailableActions == nil {
 		t.Fatal("mutating a looked-up definition changed the registered one")
 	}
-	if err := registry.Verify(source.Ref, source.Version, second.Digest); err != nil {
+	if err := registry.Verify(source.Ref, second.Digest); err != nil {
 		t.Fatalf("registered digest drifted after a caller mutation: %v", err)
 	}
 }

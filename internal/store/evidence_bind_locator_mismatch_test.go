@@ -11,15 +11,15 @@ import (
 func seedCompletedProducerOperation(t *testing.T, s *Store, workID, opID, requestID, principal, recordedLocator string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		opID, 1, workID, "workflow.break_fix", 1, "repair", "external_effect", "sha256:"+strings.Repeat("c", 64), "", principal, requestID, "2026-09-17T00:00:00Z", "completed", `["`+recordedLocator+`"]`, "sha256:"+strings.Repeat("d", 64))
+	_, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		opID, 1, workID, "workflow.break_fix", mustBuiltinDefinition(t, "workflow.break_fix").Digest, "repair", "external_effect", "sha256:"+strings.Repeat("c", 64), "", principal, requestID, "2026-09-17T00:00:00Z", "completed", `["`+recordedLocator+`"]`, "sha256:"+strings.Repeat("d", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -44,7 +44,7 @@ func TestEvidenceBindRefusalNamesLocatorMismatchOverAuthority(t *testing.T) {
 	seedCompletedProducerOperation(t, s, workID, opID, requestID, principal, recordedURL)
 
 	payload := `{"evidence_kind":"verification","immutable_subject_ref":"` + boundWrongURL + `","producer_id":"` + principal + `","producer_run_ref":"` + opID + `","producer_watermark":"` + requestID + `"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a binding naming a locator the producer never recorded was admitted")
 	}
@@ -68,7 +68,7 @@ func TestEvidenceBindRefusalNamesMissingProducerOperation(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 
 	payload := `{"evidence_kind":"verification","evidence_ref":"evidence:orphan","producer_id":"principal/operator","producer_run_ref":"no-such-op","producer_watermark":"request:none"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a binding naming no producer operation was admitted")
 	}
@@ -103,7 +103,7 @@ func TestEvidenceBindRefusalNamesMismatchedProducerField(t *testing.T) {
 			s := seedMandateRecoveryItem(t, workID)
 			seedCompletedProducerOperation(t, s, workID, opID, requestID, principal, locator)
 			payload := `{"evidence_kind":"verification","immutable_subject_ref":"` + locator + `","producer_id":"` + tc.producerID + `","producer_run_ref":"` + opID + `","producer_watermark":"` + tc.watermark + `"}`
-			err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+			err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 			if err == nil {
 				t.Fatal("a binding naming the wrong producer identity was admitted")
 			}
@@ -123,7 +123,7 @@ func TestEvidenceBindRefusalNamesProducerOnOtherWork(t *testing.T) {
 	s := seedMandateRecoveryItem(t, workID)
 	seedCompletedProducerOperation(t, s, "evidence-producer-elsewhere", "producer-op-3", "request:producer-3", "principal/operator", "evidence:elsewhere")
 	payload := `{"evidence_kind":"verification","immutable_subject_ref":"evidence:elsewhere","producer_id":"principal/operator","producer_run_ref":"producer-op-3","producer_watermark":"request:producer-3"}`
-	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0)
+	err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload))
 	if err == nil {
 		t.Fatal("a producer operation from another work item was admitted")
 	}

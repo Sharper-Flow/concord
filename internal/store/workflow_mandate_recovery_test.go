@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The reservation rows a contract's own law addition folds. The FK chain
@@ -15,7 +17,7 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'product',?,'root',?)`, workID, digest, digest); err != nil {
@@ -27,7 +29,7 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,1,'product',?,'root',?,1)`, workID, "CD-0189", workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -38,13 +40,13 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 func seedPublishedLawSubject(t *testing.T, s *Store, lawID string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'decision','accepted','docs/decisions/`+lawID+`-other.md','Another work''s decision','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, lawID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -53,7 +55,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/mandate", "client/mandate", "agent/mandate", "session/"+workID)
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','now')`, actorRef, "principal/mandate", "client/mandate", "agent/mandate", "session/"+workID); err != nil {
@@ -62,7 +64,7 @@ func seedMandateContract(t *testing.T, s *Store, workID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'mandate recovery','internal_sqlite','[]','[]','now',?,'["`+"CD-0189"+`"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -176,45 +178,47 @@ func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
 	}
 }
 
-// A failed dispatched attempt leaves the failure record as the first admitted
-// route at a step whose definition predates record_worker_failure's pinned
-// actions: the refusal names record_worker_failure, then the supersession.
-func TestMandateRecoveryNamesFailureRecordFirstWhenRejectionIsUnavailable(t *testing.T) {
+// A failed dispatched attempt's terminal derives its own failure record
+// (CD-0198 D5), so the refusal at the binding step names no failure-record
+// route: the failure is already dispositioned, and no live step declares
+// record_worker_failure.
+func TestMandateRecoveryNamesNoFailureRecordOnceTheTerminalDerivedIt(t *testing.T) {
 	t.Parallel()
 	workID := "mandate-recovery-failure"
-	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
-	failAbandonedWorkerAttempt(t, s, workID, attemptID)
-	seedMandateContract(t, s, workID)
-	seedReservedLawAddition(t, s, workID)
-	definition := entry.Definition
-	bindingStep := workflowEvidenceBindingStep(definition, "repair")
-	if bindingStep == "" {
-		t.Fatal("the old fixture carries no bind_evidence step")
+	f, attemptID, _ := seedCurrentRepairWorker(t, workID)
+	s := f.store
+	failed := s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID, preferredModelForLane(laneForID(t)), WorkerFailureAbandoned, "the host observed that the lane never reported", time.Unix(30, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, failed); err != nil {
+		t.Fatal(err)
 	}
-	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "record_verdict"))
-	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") || !strings.Contains(failure.RecoveryAction, "record_worker_failure, then supersede_contract") {
-		t.Fatalf("recovery=%q, want conditional guidance then record_worker_failure and supersede_contract", failure.RecoveryAction)
+	if records := s2DerivedFailureRecords(t, s, workID, attemptID); len(records) != 1 {
+		t.Fatalf("derived failure records = %+v, want one", records)
 	}
-}
-
-func TestMandateRecoveryNamesDeclaredFailureRecordForAFailedAttempt(t *testing.T) {
-	t.Parallel()
-	workID := "mandate-recovery-declared-failure"
-	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
-	failAbandonedWorkerAttempt(t, s, workID, attemptID)
-	seedMandateContract(t, s, workID)
-	seedReservedLawAddition(t, s, workID)
-	definition := entry.Definition
-	for index := range definition.StepGraph.Steps {
-		if definition.StepGraph.Steps[index].ID == "repair" {
-			definition.StepGraph.Steps[index].Actions = append(definition.StepGraph.Steps[index].Actions, "record_worker_failure")
+	// The fixture already approved contract 1 with its architecture binding;
+	// the contract now mandates the law it adds and reserves.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE workflow_contracts SET spec_mandate='["CD-0189"]' WHERE work_id=?1 AND contract_version=1;
+INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) SELECT product_id,'CD-0189',work_id,1,home_domain_id FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
+INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) SELECT work_id,1,product_id,'CD-0189',home_domain_id,work_id,1 FROM workflow_architecture_bindings WHERE work_id=?1 AND contract_version=1;
+DELETE FROM write_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	for _, step := range definition.StepGraph.Steps {
+		if slices.Contains(step.Actions, "record_worker_failure") {
+			t.Fatalf("live step %s declares record_worker_failure", step.ID)
 		}
 	}
-	definition.AvailableActions = append(definition.AvailableActions, "record_worker_failure")
 	bindingStep := workflowEvidenceBindingStep(definition, "repair")
+	if bindingStep == "" {
+		t.Fatal("the live definition carries no bind_evidence step at repair")
+	}
 	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "record_verdict"))
-	if !strings.Contains(failure.RecoveryAction, "record_worker_failure, then supersede_contract") {
-		t.Fatalf("recovery=%q, want declared record_worker_failure then supersede_contract", failure.RecoveryAction)
+	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") {
+		t.Fatalf("recovery=%q, want the conditional bind_evidence guidance", failure.RecoveryAction)
+	}
+	if strings.Contains(failure.RecoveryAction, "record_worker_failure") {
+		t.Fatalf("recovery=%q, want no record_worker_failure route over the derived record", failure.RecoveryAction)
 	}
 }
 

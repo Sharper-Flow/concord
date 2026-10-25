@@ -41,8 +41,15 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 			t.Fatalf("intent=%+v, want workflow action at pin version", intent)
 		}
 	}
-	if !reflect.DeepEqual(gotActions, step.Actions) {
-		t.Fatalf("intent actions=%v, want %v", gotActions, step.Actions)
+	var wantActions []string
+	for _, action := range step.Actions {
+		// A declaration is not admission: no worker result exists at proposal.
+		if action != "accept_worker_result" {
+			wantActions = append(wantActions, action)
+		}
+	}
+	if !reflect.DeepEqual(gotActions, wantActions) {
+		t.Fatalf("intent actions=%v, want %v", gotActions, wantActions)
 	}
 
 	var transactionPin WorkPin
@@ -160,7 +167,7 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.DatabaseForTesting().Exec(`UPDATE work_items SET lifecycle=? WHERE id=?`, item.lifecycle, item.id); err != nil {
@@ -175,11 +182,11 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'primary')`, item.id, item.project); err != nil {
 			t.Fatalf("seed %s: %v", item.id, err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('pin-count-other','project','secondary'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('pin-count-other','project','secondary'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := ReadWorkPin(ctx, s, "pin-count-completed")
@@ -264,7 +271,7 @@ func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
 		t.Fatalf("verified criteria=%+v, want one approved predicate", pin.VerifiedCriteria)
 	}
 	criterion := pin.VerifiedCriteria[0]
-	if criterion.PredicateID != "predicate:primary" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
+	if criterion.PredicateID != "predicate:return-route" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
 		t.Fatalf("verified criterion=%+v, want the approved check and ok verdict", criterion)
 	}
 }

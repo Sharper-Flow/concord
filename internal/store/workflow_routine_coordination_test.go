@@ -10,9 +10,7 @@ package store
 // and the host assertion signs that digest. The store receives the same
 // binding only as opaque fields — a digest plus recorded scope and version
 // strings — and records them verbatim without re-deriving kind or direction
-// from them. Both event
-// families version their payloads so a historical event replays under its
-// source version's rules, and the delivery-correction routine path records
+// from them. The delivery-correction routine path records
 // the real recorded caller instead of deriving an operator from a consumed
 // approval. A correction request may carry the already-authenticated caller
 // tuple, which the shared actor-prefix owner records when its actor row is
@@ -22,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -50,8 +47,7 @@ func routineResolve(t *testing.T, s *Store, from, to, kind, approval, actor, eve
 }
 
 // routineOverlapBoundaryEvent builds one raw overlap resolution event at an
-// explicit payload version, so the tests can pin v1 source rules and the v2
-// boundary on the fixture's fixed pair. Approval claims are omitted entirely
+// explicit payload version on the fixture's fixed pair. Approval claims are omitted entirely
 // unless supplied.
 func routineOverlapBoundaryEvent(id, actor string, fromExpected, toExpected int64, kind string, payloadVersion int, approval string) Event {
 	fromWorkID, toWorkID := "content-left", "content-right"
@@ -79,15 +75,6 @@ func routineOverlapBoundaryEvent(id, actor string, fromExpected, toExpected int6
 // unless supplied, which is the shape the routine path refuses.
 func routineCorrectionEvent(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion int, approval map[string]string) Event {
 	return routineCorrectionEventAt(id, workID, actor, expected, targetEventID, targetSeq, targetPayloadVersion, 2, approval)
-}
-
-// routineCorrectionV1Event builds one raw historical delivery correction
-// event whose payload records the complete approval binding the v1 source
-// rules re-check on replay. Historical shapes are constructed explicitly at
-// their recorded source version, so the current writer's version cannot
-// rewrite them.
-func routineCorrectionV1Event(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion int, approval map[string]string) Event {
-	return routineCorrectionEventAt(id, workID, actor, expected, targetEventID, targetSeq, targetPayloadVersion, 1, approval)
 }
 
 func routineCorrectionEventAt(id, workID, actor string, expected int64, targetEventID string, targetSeq int64, targetPayloadVersion, payloadVersion int, approval map[string]string) Event {
@@ -131,7 +118,7 @@ func routinePairVersions(t *testing.T, s *Store) (int64, int64) {
 func routineOverlapEventCount(t *testing.T, s *Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND (subject_id='content-left' OR subject_id='content-right')`, WorkflowOverlapResolved).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -158,7 +145,7 @@ func unsignedDeliveryCorrectionRequest(t *testing.T, s *Store, workID string, ve
 	request.ApprovalScopeJSON = ""
 	request.ApprovalVersionsJSON = ""
 	request.ApprovalConsequence = ""
-	request.Actor = readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+	request.Actor = readWorkflowRecordedActorRef(t, s, workID)
 	return request
 }
 
@@ -184,8 +171,8 @@ func seedRecordedWorkerLaneActor(t *testing.T, s *Store, workID string, version 
 	}
 	dispatch := Event{
 		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
-			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(map[string]any{
+			"attempt_id": "attempt:" + workID + "-lane", "lane_id": lane.ID, "lane_digest": lane.Digest,
 			"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 			"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 		}),
@@ -205,6 +192,7 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Run(kind, func(t *testing.T) {
 				t.Parallel()
 				s, _, actor := overlapContentFixture(t)
+				beforeFrom, beforeTo := routinePairVersions(t, s)
 				if err := routineResolve(t, s, "content-left", "content-right", kind, "", actor, "routine-"+kind); err != nil {
 					t.Fatalf("routine %s resolution without an approval claim refused: %v", kind, err)
 				}
@@ -223,17 +211,16 @@ func TestRoutineCoordination(t *testing.T) {
 					t.Fatalf("routine %s resolution recorded an approval claim %q", kind, recordedRef)
 				}
 				fromVersion, toVersion := routinePairVersions(t, s)
-				if fromVersion != 10 || toVersion != 10 {
-					t.Fatalf("routine %s resolution left versions %d/%d, want both advanced to 10", kind, fromVersion, toVersion)
+				if fromVersion != beforeFrom+1 || toVersion != beforeTo+1 {
+					t.Fatalf("routine %s resolution moved versions %d/%d to %d/%d, want each advanced by one", kind, beforeFrom, beforeTo, fromVersion, toVersion)
 				}
 				var storedVersion int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "routine-"+kind).Scan(&storedVersion); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, "routine-"+kind).Scan(&storedVersion); err != nil {
 					t.Fatal(err)
 				}
 				if storedVersion != eventKindRegistry[WorkflowOverlapResolved].CurrentVersion {
 					t.Fatalf("entry wrote payload version %d, want the registered current version %d", storedVersion, eventKindRegistry[WorkflowOverlapResolved].CurrentVersion)
 				}
-				assertRoutineProjectionRebuildsEqual(t, s)
 			})
 		}
 	})
@@ -380,39 +367,8 @@ func TestRoutineCoordination(t *testing.T) {
 		}
 	})
 
-	t.Run("versioned overlap payloads replay under their source rules", func(t *testing.T) {
+	t.Run("current overlap payload admission", func(t *testing.T) {
 		t.Parallel()
-		t.Run("a v1 routine event without a claim keeps its source requirement", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			event := routineOverlapBoundaryEvent("routine-v1-routine-claimless", actor, fromVersion, toVersion, ResolutionCompatibleWith, 1, "")
-			err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)})
-			failure := routineFailure(t, err)
-			if failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "invalid endpoint, version, kind, or reason") {
-				t.Fatalf("v1-source compatible_with without a claim error = %v, want the v1 source-rule refusal, not a projection conflict", err)
-			}
-			if nowFrom, nowTo := routinePairVersions(t, s); nowFrom != fromVersion || nowTo != toVersion {
-				t.Fatalf("refused v1 event moved versions to %d/%d", nowFrom, nowTo)
-			}
-		})
-		t.Run("a v1 event with its claim folds under the source rules", func(t *testing.T) {
-			t.Parallel()
-			s, _, actor := overlapContentFixture(t)
-			fromVersion, toVersion := routinePairVersions(t, s)
-			event := routineOverlapBoundaryEvent("routine-v1-with-claim", actor, fromVersion, toVersion, ResolutionCompatibleWith, 1, "approval:routine-v1")
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", fromVersion)}); err != nil {
-				t.Fatalf("v1 event with its claim refused: %v", err)
-			}
-			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
-				t.Fatal(err)
-			}
-			if storedVersion != 1 {
-				t.Fatalf("stored v1 payload version = %d, want the historical bytes kept", storedVersion)
-			}
-			assertRoutineProjectionRebuildsEqual(t, s)
-		})
 		t.Run("a v2 routine event needs no claim", func(t *testing.T) {
 			t.Parallel()
 			s, _, actor := overlapContentFixture(t)
@@ -422,13 +378,12 @@ func TestRoutineCoordination(t *testing.T) {
 				t.Fatalf("v2 routine event without a claim refused: %v", err)
 			}
 			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&storedVersion); err != nil {
 				t.Fatal(err)
 			}
 			if storedVersion != 2 {
 				t.Fatalf("stored v2 payload version = %d, want the source version kept", storedVersion)
 			}
-			assertRoutineProjectionRebuildsEqual(t, s)
 		})
 		t.Run("a v2 destructive event without a claim still refuses by name", func(t *testing.T) {
 			t.Parallel()
@@ -457,7 +412,11 @@ func TestRoutineCoordination(t *testing.T) {
 		// effect, so a live writer that rewrote the assertion could not
 		// escape the comparison after the effect and the rebuild.
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+			t.Fatal(err)
+		}
+		var nonAssertionEventID string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM effect_receipts r JOIN workflow_phase_exits x ON x.exit_seq=r.effect_seq WHERE x.work_id=? AND x.action_id='confirm_premise' AND r.delivery_assertion=0 ORDER BY r.effect_seq LIMIT 1`, workID).Scan(&nonAssertionEventID); err != nil {
 			t.Fatal(err)
 		}
 
@@ -476,7 +435,7 @@ func TestRoutineCoordination(t *testing.T) {
 				return r
 			}, wantKind: KindInvalidOperation, wantPiece: "does not match the recorded assertion"},
 			{name: "target is not an assertion", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
-				r.TargetEventID = "proposal-" + workID
+				r.TargetEventID = nonAssertionEventID
 				return r
 			}, wantKind: KindInvalidOperation, wantPiece: "not a recorded delivery assertion"},
 			{name: "target event is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
@@ -503,17 +462,17 @@ func TestRoutineCoordination(t *testing.T) {
 			t.Fatalf("unsigned direct-entry delivery correction refused: %v", err)
 		}
 		var eventActor string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE event_id=?`, settled.EventID).Scan(&eventActor); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE event_id=?`, settled.EventID).Scan(&eventActor); err != nil {
 			t.Fatal(err)
 		}
-		if expected := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID); eventActor != expected {
+		if expected := readWorkflowRecordedActorRef(t, s, workID); eventActor != expected {
 			t.Fatalf("correction actor = %q, want the recorded coordinator %q", eventActor, expected)
 		}
 		if got := readWorkVersion(t, s, workID); got != version+1 {
 			t.Fatalf("correction version = %d, want the single correction advance %d", got, version+1)
 		}
 		var afterEffectPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&afterEffectPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&afterEffectPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != afterEffectPayload {
@@ -523,11 +482,7 @@ func TestRoutineCoordination(t *testing.T) {
 		second.EventID = "routine-correction-second"
 		requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, second), KindInvalidOperation, "already corrected")
 
-		// The instance stays closed. This fixture closes the work lifecycle
-		// by a raw UPDATE (the completion fold writes the instance only), so
-		// the full projection hash is not rebuild-stable here by
-		// construction; the rebuild witness is the complete read projection
-		// re-deriving identically from the log alone.
+		// The instance stays closed after correction.
 		var instanceState string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
 			t.Fatal(err)
@@ -535,39 +490,15 @@ func TestRoutineCoordination(t *testing.T) {
 		if instanceState != "completed" {
 			t.Fatalf("correction reopened the instance to %q", instanceState)
 		}
-		live, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("rebuild refused the recorded correction: %v", err)
-		}
-		replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(replayed, live) {
-			t.Fatalf("replayed read projection diverges from the live read after rebuild")
-		}
-		var replayedPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
-			t.Fatal(err)
-		}
-		if originalPayload != replayedPayload {
-			t.Fatal("the original assertion event payload was rewritten")
-		}
 	})
 
-	t.Run("versioned delivery correction payloads replay under their source rules", func(t *testing.T) {
+	t.Run("current delivery correction payload admission", func(t *testing.T) {
 		t.Parallel()
 		t.Run("a v2 correction records the real coordinator without an approval claim", func(t *testing.T) {
 			t.Parallel()
 			const workID = "routine-coord-correction-v2"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			correctionRef := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
 			event := routineCorrectionEvent("routine-correction-v2", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, nil)
 			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatalf("v2 correction without an approval claim refused: %v", err)
@@ -592,27 +523,12 @@ func TestRoutineCoordination(t *testing.T) {
 			if instanceState != "completed" {
 				t.Fatalf("v2 correction reopened the instance to %q", instanceState)
 			}
-			// The first read is the replay baseline: the fold must re-derive
-			// it from the log alone, without any mutable approval row.
-			if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("rebuild refused the v2 correction: %v", err)
-			}
-			replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(replayed, read) {
-				t.Fatalf("replayed read projection diverges from the live read after the v2 correction rebuild")
-			}
 		})
 		t.Run("a v2 correction rejects a supplied approval claim by name", func(t *testing.T) {
 			t.Parallel()
 			const workID = "routine-coord-correction-v2-claim"
 			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-			correctionRef := readWorkflowRecordedActorRef(t, s, workID, "owner-actor-"+workID)
+			correctionRef := readWorkflowRecordedActorRef(t, s, workID)
 			event := routineCorrectionEvent("routine-correction-v2-claim", workID, correctionRef, version, targetEventID, targetSeq, targetPayloadVersion, map[string]string{
 				"approval_ref": deliveryCorrectionApprovalRef, "approval_operation_digest": deliveryCorrectionDigest,
 				"approval_scope_json": deliveryCorrectionScopeJSON(workID), "approval_versions_json": deliveryCorrectionVersionsJSON(version),
@@ -676,142 +592,23 @@ func TestRoutineCoordination(t *testing.T) {
 				t.Fatalf("v2 correction attributed to a recorded worker-lane actor error = %v, want unauthorized", err)
 			}
 		})
-		t.Run("a v1 correction replays without approval rows", func(t *testing.T) {
-			t.Parallel()
-			const workID = "routine-coord-correction-v1"
-			s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
-
-			// The original assertion bytes are captured before the historical
-			// events exist, so the v1 replay cannot rewrite them undetected.
-			var originalPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
-				t.Fatal(err)
-			}
-
-			// The historical v1 shape is constructed explicitly: the operator
-			// actor event the v1 source rules re-check, then the v1 payload
-			// carrying the complete approval binding. No approval row is
-			// recorded for the binding's ref, so the replay proves the fold
-			// carries its binding durably.
-			approvalRef := "b7" + strings.Repeat("7", 62)
-			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-approval", ActorClass: ActorOperator}
-			operatorRef, err := WorkflowActorRef(operator)
-			if err != nil {
-				t.Fatal(err)
-			}
-			events := []Event{
-				workflowEvent("operator-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{
-					"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-					"actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef,
-					"agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator",
-				}),
-				routineCorrectionV1Event("correction-"+workID, workID, operatorRef, version+1, targetEventID, targetSeq, targetPayloadVersion, map[string]string{
-					"approval_ref": approvalRef, "approval_operation_digest": deliveryCorrectionDigest,
-					"approval_scope_json": deliveryCorrectionScopeJSON(workID), "approval_versions_json": deliveryCorrectionVersionsJSON(version),
-					"approval_consequence": deliveryCorrectionConsequence,
-				}),
-			}
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: workVersion(workID, version)}); err != nil {
-				t.Fatalf("explicit v1 correction refused: %v", err)
-			}
-			var afterEffectPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&afterEffectPayload); err != nil {
-				t.Fatal(err)
-			}
-			if originalPayload != afterEffectPayload {
-				t.Fatal("the v1 correction append rewrote the original assertion event payload")
-			}
-			live, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if live.DeliveryAssertion == nil || live.DeliveryAssertion.Correction == nil {
-				t.Fatalf("live read carries no correction: %+v", live.DeliveryAssertion)
-			}
-			// The v1 read carries the original approval binding the historical
-			// payload recorded, so the historical ref stays visible beside the
-			// claimless current class.
-			if live.DeliveryAssertion.Correction.ApprovalRef != approvalRef {
-				t.Fatalf("v1 correction read carries approval ref %q, want the original nonempty binding %q", live.DeliveryAssertion.Correction.ApprovalRef, approvalRef)
-			}
-			var storedVersion int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id='correction-` + workID + `'`).Scan(&storedVersion); err != nil {
-				t.Fatal(err)
-			}
-			if storedVersion != 1 {
-				t.Fatalf("stored correction payload version = %d, want the v1 historical bytes kept", storedVersion)
-			}
-			// The v1 fold re-derives its admission from the payload binding
-			// and the recorded operator actor alone: the replay admits the
-			// recorded correction after every approval row is purged.
-			if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
-				t.Fatal(err)
-			}
-			if err := RebuildFromLog(context.Background(), s); err != nil {
-				t.Fatalf("replay without approval rows refused the recorded v1 correction: %v", err)
-			}
-			replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if replayed.DeliveryAssertion == nil || live.DeliveryAssertion == nil || replayed.DeliveryAssertion.Correction == nil ||
-				replayed.DeliveryAssertion.Correction.Artifact != live.DeliveryAssertion.Correction.Artifact {
-				t.Fatalf("replayed correction read %+v diverges from the live read %+v", replayed.DeliveryAssertion, live.DeliveryAssertion)
-			}
-			if replayed.DeliveryAssertion.Correction.ApprovalRef != approvalRef {
-				t.Fatalf("replayed v1 correction read carries approval ref %q, want the original binding %q", replayed.DeliveryAssertion.Correction.ApprovalRef, approvalRef)
-			}
-			var replayedPayload string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
-				t.Fatal(err)
-			}
-			if originalPayload != replayedPayload {
-				t.Fatal("the original assertion event payload was rewritten by the v1 replay")
-			}
-		})
 	})
 }
 
-// readWorkflowRecordedActorRef returns the recorded actor ref for one seeded
-// workflow actor event, so the correction events attribute the real recorded
-// identity the fixture's own actor event created.
-func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID, eventID string) string {
+// readWorkflowRecordedActorRef returns the delivery fixture owner's recorded actor.
+func readWorkflowRecordedActorRef(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var actorRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE event_id=? AND subject_id=?`, eventID, workID).Scan(&actorRef); err != nil {
+	if err := s.db.QueryRow(`SELECT actor_ref FROM workflow_actors WHERE principal_ref='principal/operator' AND client_ref='client/concord-1' AND agent_ref='agent/owner' AND session_ref=?`, "session/"+workID).Scan(&actorRef); err != nil {
 		t.Fatal(err)
-	}
-	if actorRef == "" {
-		t.Fatalf("actor event %s carries no recorded actor ref", eventID)
 	}
 	return actorRef
-}
-
-// assertRoutineProjectionRebuildsEqual holds the rebuild-equality witness on
-// the event-owned overlap fixture: the full production projection hash is
-// identical before and after a replay from the log alone.
-func assertRoutineProjectionRebuildsEqual(t *testing.T, s *Store) {
-	t.Helper()
-	before, err := WorkflowProjectionHash(context.Background(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("rebuild refused the coordination history: %v", err)
-	}
-	after, err := WorkflowProjectionHash(context.Background(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("coordination rebuild drift: before=%s after=%s", before, after)
-	}
 }
 
 func routineWorkEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -867,11 +664,11 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			t.Fatalf("fresh coordinator actor already recorded (%d rows)", actorRows)
 		}
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
 		var watermark int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&watermark); err != nil {
 			t.Fatal(err)
 		}
 		actorsBefore := routineActorRowCount(t, s)
@@ -889,7 +686,7 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			actor   string
 			payload string
 		}
-		rows, err := s.DatabaseForTesting().Query(`SELECT kind,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq>? ORDER BY seq`, workID, watermark)
+		rows, err := s.DatabaseForTesting().Query(`SELECT kind,actor,payload_digest FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq>? ORDER BY effect_seq`, workID, watermark)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -917,20 +714,13 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		if newEvents[0].actor != freshRef || newEvents[1].actor != freshRef {
 			t.Fatalf("new event actors = %q,%q, want both attributed to %q", newEvents[0].actor, newEvents[1].actor, freshRef)
 		}
-		var recorded struct {
-			ActorRef     string `json:"actor_ref"`
-			PrincipalRef string `json:"principal_ref"`
-			ClientRef    string `json:"client_ref"`
-			AgentRef     string `json:"agent_ref"`
-			SessionRef   string `json:"session_ref"`
-			ActorClass   string `json:"actor_class"`
-		}
-		if err := json.Unmarshal([]byte(newEvents[0].payload), &recorded); err != nil {
-			t.Fatal(err)
-		}
-		if recorded.ActorRef != freshRef || recorded.PrincipalRef != fresh.PrincipalRef || recorded.ClientRef != fresh.ClientRef ||
-			recorded.AgentRef != fresh.AgentRef || recorded.SessionRef != fresh.SessionRef || recorded.ActorClass != string(ActorAgent) {
-			t.Fatalf("prefix event tuple %+v, want the exact authenticated tuple", recorded)
+		prefixDigest, err := effectPayloadDigest(mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"actor_ref": freshRef, "principal_ref": fresh.PrincipalRef, "client_ref": fresh.ClientRef,
+			"agent_ref": fresh.AgentRef, "session_ref": fresh.SessionRef, "actor_class": string(ActorAgent),
+		}))
+		if err != nil || newEvents[0].payload != prefixDigest {
+			t.Fatalf("prefix digest=%q, want the exact authenticated tuple/version digest %q: %v", newEvents[0].payload, prefixDigest, err)
 		}
 		var principal, client, agent, session, class string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, freshRef).Scan(&principal, &client, &agent, &session, &class); err != nil {
@@ -939,14 +729,14 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 		if principal != fresh.PrincipalRef || client != fresh.ClientRef || agent != fresh.AgentRef || session != fresh.SessionRef || class != string(ActorAgent) {
 			t.Fatalf("recorded actor tuple = %q,%q,%q,%q,%q, want the exact canonical tuple", principal, client, agent, session, class)
 		}
-		var claim struct {
-			ApprovalRef string `json:"approval_ref"`
-		}
-		if err := json.Unmarshal([]byte(newEvents[1].payload), &claim); err != nil {
-			t.Fatal(err)
-		}
-		if claim.ApprovalRef != "" {
-			t.Fatalf("correction recorded an approval claim %q", claim.ApprovalRef)
+		correctionDigest, err := effectPayloadDigest(mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2,
+			"target_event_id": request.TargetEventID, "target_seq": request.TargetSeq, "target_payload_version": request.TargetPayloadVersion,
+			"reason": request.Reason, "delivery_artifact": request.DeliveryArtifact, "delivery_state": request.DeliveryState,
+			"evidence_source": DeliveryEvidenceSourceCoordinatorAsserted,
+		}))
+		if err != nil || newEvents[1].payload != correctionDigest {
+			t.Fatalf("correction digest=%q, want the exact unsigned request/version digest %q: %v", newEvents[1].payload, correctionDigest, err)
 		}
 		if got := routineActorRowCount(t, s); got != actorsBefore+1 {
 			t.Fatalf("actor rows after the effect = %d, want only the fresh coordinator row added to %d", got, actorsBefore)
@@ -955,7 +745,7 @@ func TestRoutineCorrectionActorPrefix(t *testing.T) {
 			t.Fatalf("correction version = %d, want the prefix plus correction advance %d", got, version+2)
 		}
 		var afterPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&afterPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, targetEventID).Scan(&afterPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != afterPayload {

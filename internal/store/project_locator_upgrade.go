@@ -123,7 +123,7 @@ func upgradeRemoteLocators(ctx context.Context, tx *sql.Tx, at time.Time) error 
 		op.Events = append(op.Events, Event{EventID: remoteLocatorUpgradeName + ":" + l.ID, Kind: kind, SubjectType: SubjectProject, SubjectID: l.ProjectID, Actor: "operator", OccurredAt: at, PayloadVersion: payloadVersion, Payload: payload})
 		versions[l.ProjectID]++
 	}
-	if _, err := applyOperationTx(ctx, tx, op, newFoldScope(tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, tx, op, newWriteScope(tx), false); err != nil {
 		return err
 	}
 	var legacy bool

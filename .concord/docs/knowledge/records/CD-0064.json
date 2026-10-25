@@ -9,8 +9,7 @@
   "evidence": [
     "adapter/opencode/dispatch.ts",
     "scripts/generate-agent-lanes.py",
-    "adapter/opencode/dispatch.test.ts",
-    "adapter/opencode/evals/native-lane.native.case.ts"
+    "adapter/opencode/dispatch.test.ts"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0064",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9cdb0c61bd25e80e521f914d970b24c995663c869f0d99dfa1f37c44f14839d7",
+  "sha256": "sha256:158368efbd2391b0dd59f7a9825cb5d1d6976252c03901f5870a38691de14a8d",
   "status": "accepted",
   "summary": "Execution lanes generate as hidden subagents for authorized native Task dispatch, never primary session or CLI-run targets. Native child-session readback must assert the exact dispatched executor before any worker evidence is recorded. A mismatch refuses with agent_identity_mismatch. Nesting denials, capabilities, registry digests, packet and report schemas remain unchanged; model selection remains host-owned under CD-0058.",
   "tags": [

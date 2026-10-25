@@ -194,7 +194,7 @@ func writeDriftGit(t *testing.T, dbPath, driftSQL string) string {
 	script := fmt.Sprintf(`#!/bin/sh
 real_git="/usr/bin/git"
 if [ "$3" = "rev-parse" ] && [ "$4" = "--verify" ]; then
-  sqlite3 %q "%s" || exit 90
+  sqlite3 %q "BEGIN; INSERT INTO write_guard(active) VALUES(1); %s DELETE FROM write_guard; COMMIT;" || exit 90
 fi
 exec "$real_git" "$@"
 `, dbPath, driftSQL)
@@ -235,10 +235,10 @@ func assertZeroTerminalEffects(t *testing.T, dbPath, nonce string) {
 	}
 	defer s.Close()
 	var terminals, derived, nonces int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind IN (?,?) AND json_extract(payload,'$.attempt_id')=?`, store.WorkerCompleted, store.WorkerFailed, attemptID).Scan(&terminals); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND a.work_id='work-1' AND r.kind IN (?,?) AND a.attempt_id=?`, store.WorkerCompleted, store.WorkerFailed, attemptID).Scan(&terminals); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&derived); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT coalesce(sum(failure_recorded),0) FROM worker_attempts WHERE work_id='work-1' AND attempt_id=?`, attemptID).Scan(&derived); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM agent_nonce_replay WHERE nonce=?`, nonce).Scan(&nonces); err != nil {
@@ -423,7 +423,13 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		}
 		request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-observe-fail001")
 		request["event_id"] = "failed-observe-no-probe"
-		request["assertion"] = signWorkerEvidence(t, key, assertion)
+		observation := attributionWorkerReportObservation()
+		digest, err := store.WorkerFailureObservationDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request["failure_attribution"] = observation
+		request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 		var out, errOut bytes.Buffer
 		if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
 			t.Fatalf("worker-fail with the worktree gone exit=%d stderr=%s out=%s", code, errOut.String(), out.String())
@@ -537,6 +543,10 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("a claim drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
 		}
+		var claim string
+		if err := mustOpenCutoverStore(t, dbPath).QueryRow(`SELECT claim_op_id FROM worktree_entries WHERE set_id=?`, store.WorktreeSetID("work-1")).Scan(&claim); err != nil || claim != "drifted-claim" {
+			t.Fatalf("claim drift did not commit: claim=%q err=%v", claim, err)
+		}
 		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftc1")
 	})
 
@@ -544,12 +554,16 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 		dbPath := freshMigratedCLIDatabase(t)
 		request, assertion, key := completeImplementationAttempt(t, dbPath, "nonce-observe-driftw1")
 		commitWorktreeFixtureTree(t, cliFixtureWorktree(t, dbPath), "anchor head")
-		driftSQL := `UPDATE domain_events SET payload=json_set(payload,'$.worker_context_frontier',999) WHERE event_id='dispatch-completed-attempt-1';`
+		driftSQL := `UPDATE worker_authorizations SET payload=json_set(payload,'$.worker_context_frontier',999) WHERE event_id='dispatch-completed-attempt-1';`
 		t.Setenv("PATH", writeDriftGit(t, dbPath, driftSQL)+string(os.PathListSeparator)+os.Getenv("PATH"))
 		request["event_id"] = "complete-observe-drift-window"
 		code, out, stderr := runCompleteJSON(t, request, assertion, key)
 		if code == 0 {
 			t.Fatalf("a window drift after the probe admitted the completion: out=%s stderr=%s", out, stderr)
+		}
+		var frontier int64
+		if err := mustOpenCutoverStore(t, dbPath).QueryRow(`SELECT json_extract(payload,'$.worker_context_frontier') FROM worker_authorizations WHERE event_id='dispatch-completed-attempt-1'`).Scan(&frontier); err != nil || frontier != 999 {
+			t.Fatalf("window drift did not commit: frontier=%d err=%v", frontier, err)
 		}
 		assertZeroTerminalEffects(t, dbPath, "nonce-observe-driftw1")
 	})
@@ -572,7 +586,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 			}
 			defer s.Close()
 			var recorded int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id='complete-observe-forge'`).Scan(&recorded); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id='complete-observe-forge'`).Scan(&recorded); err != nil {
 				t.Fatal(err)
 			}
 			if recorded != 0 {
@@ -585,8 +599,7 @@ func TestWorkerTerminalObservedDelivery(t *testing.T) {
 // TestWorkerTerminalObservationReplay proves the acknowledgment boundary: an
 // exact repeat of a recorded completion returns the original observation
 // without any Git lookup, later HEAD movement never rewrites recorded
-// history, rebuild consumes recorded events only, and changed caller content
-// still refuses.
+// history, and changed caller content still refuses.
 func TestWorkerTerminalObservationReplay(t *testing.T) {
 	record := func(t *testing.T, dbPath string) (map[string]any, agent.WorkerEvidenceAssertion, ed25519.PrivateKey, store.LaneDefinition, string) {
 		t.Helper()
@@ -641,63 +654,12 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 		}
 		defer s.Close()
 		var completions int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=? AND json_extract(payload,'$.attempt_id')='attempt-1'`, store.WorkerCompleted).Scan(&completions); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND a.work_id='work-1' AND r.kind=? AND a.attempt_id='attempt-1'`, store.WorkerCompleted).Scan(&completions); err != nil {
 			t.Fatal(err)
 		}
 		if completions != 1 {
 			t.Fatalf("the acknowledgment left %d completion events, want exactly the original one", completions)
 		}
-	})
-
-	t.Run("rebuild after removing the fixture repository performs no git lookup", func(t *testing.T) {
-		dbPath := freshMigratedCLIDatabase(t)
-		_, _, _, _, head := record(t, dbPath)
-		_, recordedPayload := rawWorkerPayloadJSON(t, dbPath, "complete-replay")
-		if !strings.Contains(recordedPayload, "observed_delivery") {
-			t.Fatalf("the recorded completion lost the observation: %s", recordedPayload)
-		}
-		// Rebuild consumes recorded events only. The witness log carries the
-		// recorded dispatched and completed evidence with the lane-actor pin
-		// stripped from the dispatch copy — the pin's actor row belongs to
-		// the fixture's workflow machinery this log does not reproduce — and
-		// the recorded completion bytes untouched.
-		events := copiedWorkerEvidenceEvents(t, dbPath)
-		replayDBPath := freshMigratedCLIDatabase(t)
-		replayStore, err := store.Open(context.Background(), replayDBPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Seed the recorded log, not a new live completion whose original
-		// workflow authorization is deliberately absent from this witness.
-		if _, err := replayStore.DatabaseForTesting().Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'project-1','claim-replay','work/replay',?,?,'repo-1','active','now','{}')`, store.WorktreeSetID("work-1"), head, cliFixtureWorktree(t, dbPath)); err != nil {
-			t.Fatal(err)
-		}
-		for _, event := range events {
-			if _, err := replayStore.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
-				t.Fatalf("the recorded evidence did not fold into the witness log: %v", err)
-			}
-		}
-		replayStore.Close()
-		_, replayPayload := rawWorkerPayloadJSON(t, replayDBPath, "complete-replay")
-		if replayPayload != recordedPayload {
-			t.Fatalf("the witness log changed the recorded completion bytes:\n%s\nwant\n%s", replayPayload, recordedPayload)
-		}
-		if err := os.RemoveAll(cliFixtureWorktree(t, dbPath)); err != nil {
-			t.Fatal(err)
-		}
-		replayStore, err = store.Open(context.Background(), replayDBPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer replayStore.Close()
-		if err := store.RebuildFromLog(context.Background(), replayStore); err != nil {
-			t.Fatalf("rebuild after repository removal: %v", err)
-		}
-		versionAfter, payloadAfter := rawWorkerPayloadJSON(t, replayDBPath, "complete-replay")
-		if payloadAfter != recordedPayload {
-			t.Fatalf("rebuild rewrote the recorded completion:\n%s\nwant\n%s", payloadAfter, recordedPayload)
-		}
-		_ = versionAfter
 	})
 
 	t.Run("changed caller content still refuses", func(t *testing.T) {
@@ -710,51 +672,6 @@ func TestWorkerTerminalObservationReplay(t *testing.T) {
 			t.Fatalf("changed replay content exit=%d stderr=%s, want the identity conflict", code, stderr)
 		}
 	})
-}
-
-// copiedWorkerEvidenceEvents reads the recorded worker.dispatched and
-// worker.completed events of attempt-1 from one CLI database, stripping the
-// lane-actor pin from the dispatch copy.
-func copiedWorkerEvidenceEvents(t *testing.T, dbPath string) []store.Event {
-	t.Helper()
-	from, err := sql.Open("sqlite", store.SQLiteFileURI(dbPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer from.Close()
-	rows, err := from.Query(`SELECT event_id,kind,subject_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind IN (?,?) AND json_extract(payload,'$.attempt_id')='attempt-1' ORDER BY seq`, store.WorkerDispatched, store.WorkerCompleted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events := make([]store.Event, 0, 2)
-	for rows.Next() {
-		var id, kind, subject, actor, at string
-		var version int
-		var payload []byte
-		if err := rows.Scan(&id, &kind, &subject, &actor, &at, &version, &payload); err != nil {
-			t.Fatal(err)
-		}
-		occurredAt, parseErr := time.Parse(time.RFC3339Nano, at)
-		if parseErr != nil {
-			t.Fatal(parseErr)
-		}
-		if kind == store.WorkerDispatched {
-			var decoded map[string]json.RawMessage
-			if json.Unmarshal(payload, &decoded) == nil {
-				delete(decoded, "lane_actor_ref")
-				payload, _ = json.Marshal(decoded)
-			}
-		}
-		events = append(events, store.Event{EventID: id, Kind: kind, SubjectType: store.SubjectWorkItem, SubjectID: subject, Actor: actor, OccurredAt: occurredAt, PayloadVersion: version, Payload: payload})
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	rows.Close()
-	if len(events) != 2 {
-		t.Fatalf("recorded worker events = %d, want the dispatched and completed pair", len(events))
-	}
-	return events
 }
 
 // A transient Git observation refusal must stay recoverable: the existing
@@ -833,6 +750,15 @@ func TestWorkerEvidenceRecoveryAfterObservationRefusal(t *testing.T) {
 		assertion.ReadbackModel = ""
 		assertion.FailureKind = string(store.WorkerFailureAbandoned)
 		request["event_id"] = "failed-recover-abandon"
+		observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+		observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+		observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+		digest, err := store.WorkerFailureObservationDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request["failure_attribution"] = observation
+		assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 		request["assertion"] = signWorkerEvidence(t, key, assertion)
 		var out, errOut bytes.Buffer
 		if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {

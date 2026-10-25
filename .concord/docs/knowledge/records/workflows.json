@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf8228c59a8612d9f40cdda2cdedaafc06056a9a3256ca667e22d14a373e8ad8",
+  "sha256": "sha256:3bf0e83adb8b591017316276497f7ebe9d337def5358eed97fe30f74efc38aba",
   "status": "published",
-  "summary": "Describes the three retained execution families, shared-part workflow composition, model-selected size, and exact historical definition pins under CD-0218 and CD-0229.",
+  "summary": "Describes the three retained execution families, shared-part workflow composition, and the model-set size; definitions are generated from one canonical source under CD-0218, CD-0229, and CD-0242.",
   "tags": [
     "workflows",
     "taxonomy"

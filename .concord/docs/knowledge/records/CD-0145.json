@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2da646a9392e36bfebcf939f80616fd88ae9098bab7181bff6219f9825c9807e",
+  "sha256": "sha256:e2a47a2c91977c9dcf0fbcb73d27dc75223832ba5696c3d5c25d0f395f16d202",
   "status": "accepted",
   "summary": "Amends CD-0222 D6 so Domain overlap blocks execution authority only for shared law writes, Domain modifications, or exact Domain-relation tuples. Shared affected Domains remain in refusal detail but do not block by themselves, and existing resolutions remain immutable history.",
   "tags": [

@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,7 +16,7 @@ import (
 func sequenceWitnessEventCount(t *testing.T, s *Store, workID string) int64 {
 	t.Helper()
 	var count int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -38,7 +38,7 @@ func sequenceWitnessAttemptCount(t *testing.T, s *Store, workID string) int {
 func sequenceWitnessAcceptEventID(t *testing.T, s *Store, workID, attemptID string) string {
 	t.Helper()
 	var eventID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&eventID); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.event_id FROM worker_attempt_dispositions d JOIN effect_receipts r ON r.event_id=d.event_id AND r.effect_seq=d.seq WHERE d.work_id=? AND d.attempt_id=? AND d.action_id='accept_worker_result' AND r.kind=? AND r.subject_type=? AND r.subject_id=d.work_id`, workID, attemptID, WorkflowActionCompleted, string(SubjectWorkItem)).Scan(&eventID); err != nil {
 		t.Fatalf("the accepted result completion for %s: %v", attemptID, err)
 	}
 	return eventID
@@ -71,10 +71,10 @@ func sequenceWitnessRecordJob(t *testing.T, s *Store, workID string, actor Workf
 // acceptance satisfies exactly its recorded revision and holds the step,
 // zero delivery and zero approval surface moves, and the rebuild folds back
 // to identical bindings, result references, and readiness.
-func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *testing.T) {
+func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptance(t *testing.T) {
 	t.Parallel()
 	const workID = "job-sequence-witness-prereq-chain"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := oSeedReviewRoute(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
 	ctx := context.Background()
@@ -132,8 +132,8 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	if got := sequenceWitnessEventCount(t, s, workID); got != eventsBefore {
 		t.Fatalf("the blocked dispatch left %d events (before %d); the refusal keeps no partial writes", got, eventsBefore)
 	}
-	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 0 {
-		t.Fatalf("the blocked dispatch opened %d step windows, want none", len(starts))
+	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("the blocked dispatch opened a current step window or start receipt: %+v", start)
 	}
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != 0 {
 		t.Fatalf("the blocked dispatch left %d attempt bindings, want none", got)
@@ -142,6 +142,17 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// The dependency dispatches, completes, and its plain local acceptance
 	// satisfies exactly its recorded revision and holds the parent step.
 	attemptA := "attempt:" + workID + ":first"
+	acceptExit := func() int64 {
+		t.Helper()
+		var seq int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='accept_worker_result'`, workID).Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		return seq
+	}
+	// A held local job acceptance keeps the worker-result interval open, so
+	// the real fold must not record an accept_worker_result phase exit.
+	exitBefore := acceptExit()
 	dispatchJobBoundAttempt(t, s, workID, "repair", attemptA, nil, fixture.owner, 0, "sequence-a-"+workID, jobA)
 	completeAndAcceptAttempt(t, s, workID, attemptA, lane, acceptor)
 	views, err := readWorkerJobRevisions(ctx, s.db, workID)
@@ -171,14 +182,14 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	// plain local acceptance satisfies its revision, keeps the effect step
 	// held, and writes no delivery assertion and no correction disposition.
 	attemptB := "attempt:" + workID + ":second"
-	dispatchJobBoundAttempt(t, s, workID, "repair", attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
+	oDispatchJobBoundAttempt(t, s, workID, attemptB, nil, fixture.owner, 0, "sequence-b-"+workID, jobB)
 	completeAndAcceptAttempt(t, s, workID, attemptB, lane, acceptor)
 	views, err = readWorkerJobRevisions(ctx, s.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 2 || views[0].State != "satisfied" || views[1].State != "satisfied" {
-		t.Fatalf("revisions after the second local accept = %#v, want both revisions satisfied", views)
+	if len(views) != 3 || views[0].Binding != *jobA || views[1].Binding != *jobB || views[0].State != "satisfied" || views[1].State != "satisfied" || views[2].State != "satisfied" {
+		t.Fatalf("revisions after the second local accept = %#v, want both implementation revisions and their continuation Review satisfied", views)
 	}
 	if views[1].SatisfiedResultRef == "" || views[1].SatisfiedResultRef == views[0].SatisfiedResultRef || views[1].SatisfiedResultRef != sequenceWitnessAcceptEventID(t, s, workID, attemptB) {
 		t.Fatalf("second satisfied result ref = %q, want the second acceptance's own distinct event id", views[1].SatisfiedResultRef)
@@ -186,12 +197,15 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 	if pin := issue1013Pin(t, s, workID); pin.Step != "repair" {
 		t.Fatalf("step after the second local accept = %q, want the effect step held", pin.Step)
 	}
+	if got := acceptExit(); got != exitBefore {
+		t.Fatalf("local job acceptances moved the accept_worker_result phase exit %d -> %d", exitBefore, got)
+	}
 	if seq, err := workflowLatestDeliveryAssertionSeq(ctx, s, workID); err != nil || seq != 0 {
 		t.Fatalf("delivery assertion after two local accepts = %d, %v; want none", seq, err)
 	}
 	for _, actionID := range []string{"record_delivery", "reject_worker_result", "request_correction", "record_worker_failure"} {
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, actionID).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM workflow_phase_exits WHERE work_id=? AND action_id=?)+(SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id=?)`, workID, actionID, workID, actionID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 0 {
@@ -205,33 +219,6 @@ func TestWorkerJobPrerequisiteChainSequencesDispatchAcceptanceAndRebuild(t *test
 		t.Fatalf("the acceptance chain moved the approval tables from (%d,%d) to (%d,%d), want zero approval delta", approvalsBefore, challengesBefore, approvalsAfter, challengesAfter)
 	}
 
-	// The rebuild folds the stored chain to identical revision bindings,
-	// accepted result references, and derived readiness.
-	viewsBefore, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyBefore, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("rebuild from the log: %v", err)
-	}
-	viewsAfter, err := readWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readyAfter, err := readyWorkerJobRevisions(ctx, s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(viewsBefore, viewsAfter) {
-		t.Fatalf("rebuilt revision views differ:\nbefore: %#v\nafter:  %#v", viewsBefore, viewsAfter)
-	}
-	if !reflect.DeepEqual(readyBefore, readyAfter) {
-		t.Fatalf("rebuilt ready set differs:\nbefore: %#v\nafter:  %#v", readyBefore, readyAfter)
-	}
 }
 
 // TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole drives the
@@ -269,7 +256,8 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 
 	versionBefore := readWorkVersion(t, s, workID)
 	eventsBefore := sequenceWitnessEventCount(t, s, workID)
-	startsBefore := len(workflowStartedEventsAtStep(t, s, workID, "execution"))
+	startBefore := workflowCurrentStartAtStep(t, s, workID, "execution")
+	startsBefore := workflowStartReceiptIDs(t, s, workID)
 	attemptsBefore := sequenceWitnessAttemptCount(t, s, workID)
 	const combinedOperation = "sequence-unready-combined-" + workID
 	if _, err := s2CombinedReject(t, s, workID, fixture.owner, s2CombinedRejectPayload(attempt, epoch, json.RawMessage(`{"lane_id":"implement"}`)), combinedOperation); err == nil {
@@ -286,14 +274,14 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 	if got := sequenceWitnessEventCount(t, s, workID); got != eventsBefore {
 		t.Fatalf("the refused combined call left %d events (before %d); the refusal keeps no partial writes", got, eventsBefore)
 	}
-	if got := len(workflowStartedEventsAtStep(t, s, workID, "execution")); got != startsBefore {
-		t.Fatalf("the refused combined call left %d step windows (before %d)", got, startsBefore)
+	if got := workflowCurrentStartAtStep(t, s, workID, "execution"); got == nil || startBefore == nil || *got != *startBefore || !slices.Equal(workflowStartReceiptIDs(t, s, workID), startsBefore) {
+		t.Fatalf("the refused combined call changed the current start or exact receipts: %+v -> %+v", startBefore, got)
 	}
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != attemptsBefore {
 		t.Fatalf("the refused combined call left %d attempt bindings (before %d)", got, attemptsBefore)
 	}
 	var rejectionCompletions, retryAttemptRows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attempt).Scan(&rejectionCompletions); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND attempt_id=? AND action_id='reject_worker_result'`, workID, attempt).Scan(&rejectionCompletions); err != nil {
 		t.Fatal(err)
 	}
 	if rejectionCompletions != 0 {
@@ -321,8 +309,8 @@ func TestCombinedRejectRetryWithUnreadyLatestJobRevisionRefusesWhole(t *testing.
 	if got := sequenceWitnessAttemptCount(t, s, workID); got != attemptsBefore {
 		t.Fatalf("the rejection-only escape left %d attempt bindings (before %d), want no retry attempt", got, attemptsBefore)
 	}
-	if got := len(workflowStartedEventsAtStep(t, s, workID, "execution")); got != startsBefore {
-		t.Fatalf("the rejection-only escape left %d step windows (before %d), want no dispatch start", got, startsBefore)
+	if got := workflowCurrentStartAtStep(t, s, workID, "execution"); got == nil || startBefore == nil || *got != *startBefore || !slices.Equal(workflowStartReceiptIDs(t, s, workID), startsBefore) {
+		t.Fatalf("the rejection-only escape changed the current start or exact receipts: %+v -> %+v", startBefore, got)
 	}
 }
 

@@ -126,13 +126,13 @@ func TestBootstrapOriginValidationRefusesClaimDriftDuringGitProbe(t *testing.T) 
 			if err != nil {
 				return err
 			}
-			if err := enterFold(ctx, tx); err != nil {
+			if err := enterWrite(ctx, tx); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE worktree_entries SET branch='work/replaced-claim' WHERE path=?`, origin.Entry.Path); err != nil {
 				return err
 			}
-			return leaveFold(ctx, tx)
+			return leaveWrite(ctx, tx)
 		})
 		return nil, err
 	})

@@ -38,8 +38,10 @@ func resumeCLIAsSession(t *testing.T, s *store.Store, directory, workID, session
 	return code, parsed, errOut.String()
 }
 
-func transitionWorkItem(t *testing.T, s *store.Store, workID string, from, to string, version int64) {
+func transitionWorkItem(t *testing.T, s *store.Store, workID string, version int64) {
 	t.Helper()
+	const from = "needed"
+	const to = "cancelled"
 	payload, err := json.Marshal(map[string]any{"from": from, "to": to, "reason": "fixture transition", "expected_version": version, "resulting_version": version + 1})
 	if err != nil {
 		t.Fatal(err)
@@ -304,7 +306,7 @@ func TestWorkResumeRefusesTerminalAndUnknownButBootstrapsUnclaimedWork(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitionWorkItem(t, s, origin.WorkID, "needed", "cancelled", origin.WorkVersion)
+	transitionWorkItem(t, s, origin.WorkID, origin.WorkVersion)
 	if code, _, stderr := resumeCLI(t, s, repo, origin.WorkID); code == 0 || !strings.Contains(stderr, "terminal work item") {
 		t.Fatalf("terminal work code=%d stderr=%q", code, stderr)
 	}
@@ -319,7 +321,7 @@ func TestWorkResumeBootstrapsExistingIdentityAndRecoversAfterNativeCreate(t *tes
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-wl").Scan(&beforeVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, "work-wl").Scan(&beforeEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, "work-wl").Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 	req := store.ExistingBootstrapRequest{ProductID: "product-wl", ProjectID: "project-wl", WorkID: "work-wl"}
@@ -339,7 +341,7 @@ func TestWorkResumeBootstrapsExistingIdentityAndRecoversAfterNativeCreate(t *tes
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-wl").Scan(&afterVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, "work-wl").Scan(&afterEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, "work-wl").Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if afterVersion != beforeVersion || afterEvents != beforeEvents {
@@ -353,7 +355,7 @@ func TestWorkResumeBootstrapsExistingIdentityAndRecoversAfterNativeCreate(t *tes
 	if err != nil || !reused.Replayed || reused.Entry.Path != completed.Entry.Path {
 		t.Fatalf("active existing bootstrap reuse=%+v err=%v", reused, err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, "work-wl").Scan(&afterEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, "work-wl").Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if afterEvents != beforeEvents+1 {
@@ -431,7 +433,7 @@ func TestWorkResumeReclaimsBootstrapAndAdoptsAdvancedCanonicalBranch(t *testing.
 		t.Fatalf("advance canonical branch: %v\n%s", err, output)
 	}
 	var beforeEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, first.WorkID).Scan(&beforeEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, first.WorkID).Scan(&beforeEvents); err != nil {
 		t.Fatal(err)
 	}
 
@@ -449,7 +451,7 @@ func TestWorkResumeReclaimsBootstrapAndAdoptsAdvancedCanonicalBranch(t *testing.
 		t.Fatalf("restarted worktree head=%s want %s", head, advancedSHA)
 	}
 	var afterEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, first.WorkID).Scan(&afterEvents); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, first.WorkID).Scan(&afterEvents); err != nil {
 		t.Fatal(err)
 	}
 	if afterEvents != beforeEvents+1 {
@@ -618,7 +620,7 @@ func TestWorkResumeDeterministicRefusalsExit2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitionWorkItem(t, s, doomed.WorkID, "needed", "cancelled", doomed.WorkVersion)
+	transitionWorkItem(t, s, doomed.WorkID, doomed.WorkVersion)
 	out, errOut = bytes.Buffer{}, bytes.Buffer{}
 	terminal, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: doomed.WorkID})
 	if err != nil {
@@ -714,7 +716,7 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	// frontier renders only handoffs recorded under the active version, so
 	// the fixture seeds the contract the recorded handoff names.
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	actorRef := store.DeriveWorkflowActorRef("principal/resume", "client/resume", "agent/resume", "session/source")
@@ -729,7 +731,7 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 		}
 	}
 	seedResumeContract(1, "resume handoff fixture")
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := json.Marshal(map[string]any{
@@ -793,14 +795,14 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	// The stale-frontier pin: a successor handoff recorded under the
 	// replacement contract, consumed, leaves the superseded contract's
 	// recorded handoff omitted — resume renders the current frontier only.
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	seedResumeContract(2, "resume handoff fixture v2")
 	if _, err := db.Exec(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, origin.WorkID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	successorID := origin.WorkID + ":project-handoff:project-other:project-wl:feedbeeffeedbeef"

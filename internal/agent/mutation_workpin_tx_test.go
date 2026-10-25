@@ -31,9 +31,9 @@ func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, 
 func driftWorkPinVersion(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	// Inject a later writer after the owning transaction has committed.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		UPDATE work_items SET version=version+1 WHERE id=?;
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -63,6 +63,7 @@ func requireMutationPinVersion(t *testing.T, response Envelope, workID string, v
 
 func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	observed := false
@@ -86,6 +87,7 @@ func TestCompactionPublishPinUsesLinkTransaction(t *testing.T) {
 
 func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 	_, before := readWorkFromStore(t, s, "work-cancelled")
 	service.publicationObserver = func(phase string) error {
@@ -99,7 +101,7 @@ func TestCompactionReconcilePinFailureRollsBackLink(t *testing.T) {
 		t.Fatalf("orphan fixture: %+v", pending)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TRIGGER drift_compaction_pin AFTER INSERT ON archived_work
-		BEGIN UPDATE workflow_instances SET definition_digest='sha256:0000000000000000000000000000000000000000000000000000000000000000' WHERE work_id=NEW.id; END`); err != nil {
+		BEGIN UPDATE workflow_instances SET definition_ref='workflow.unavailable_fixture' WHERE work_id=NEW.id; END`); err != nil {
 		t.Fatal(err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
@@ -124,6 +126,7 @@ func TestCompactionCompletedReplaysKeepTransactionPin(t *testing.T) {
 		t.Run(route, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, key, home := agentJobsCompactionFixture(t)
+			holdCompactionCleanup(t, s)
 			initializeMutationPinWorkflow(t, s, "work-cancelled", store.BuiltinWorkflowDefinitions()[0])
 			_, before := readWorkFromStore(t, s, "work-cancelled")
 			first := publishCancelledNote(t, s, service, grant, key, home)
@@ -301,7 +304,7 @@ func TestWorktreeAuditReclaimThirtyTwoPinlessItems(t *testing.T) {
 	for i := range MaxChangedRefs {
 		workID := fmt.Sprintf("pinless-%d", i)
 		events := []store.Event{
-			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
+			{EventID: workID + ":created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Pinless work","priority":1}`)},
 			{EventID: workID + ":member", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
@@ -340,7 +343,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 	s, workID, pin := enrichmentPinFixture(t)
 	membership, _ := json.Marshal(map[string]any{"memberships": []map[string]string{{"project_id": pin.ProjectID, "role": "primary"}}, "expected_version": 1, "resulting_version": 2})
 	events := []store.Event{
-		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
+		{EventID: "unmanaged-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"Unmanaged work","priority":1}`)},
 		{EventID: "unmanaged-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "unmanaged-work", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: membership},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "unmanaged-work"): 0}}); err != nil {
@@ -409,8 +412,8 @@ func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 	}
 }
 
-func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
-	r, grant, raw, _ := committedWorkflowReplay(t)
+func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
+	r, grant, raw, first := committedWorkflowReplay(t)
 	before := workflowReplayEffectCounts(t, r.Store)
 	driftWorkPinVersion(t, r.Store, "work-1")
 	afterWrite := workflowReplayEffectCounts(t, r.Store)
@@ -418,16 +421,18 @@ func TestWorkflowReplayUsesCurrentPinAndRejectsLaterVersion(t *testing.T) {
 		t.Fatal("later writer did not advance the item")
 	}
 	replay := workflowTransactionReplay(t, r, grant, raw)
-	if replay.Outcome != OutcomeError || replay.Error == nil || !strings.Contains(replay.Error.Message, "work pin version") {
-		t.Fatalf("transaction replay must compare the current pin, not return an original snapshot: %+v", replay.Error)
+	if replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("transaction replay lost the committed result: replay=%+v original=%s", replay, first.Result)
 	}
+	requireMutationPinVersion(t, replay, "work-1", before.Version)
 	if workflowReplayEffectCounts(t, r.Store) != afterWrite {
-		t.Fatal("refused replay changed the effect")
+		t.Fatal("replay repeated the effect or changed the later version")
 	}
 }
 
 func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	holdCompactionCleanup(t, s)
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	response := publishCancelledNote(t, s, service, grant, key, home)
 	if response.Outcome != OutcomeOK {
@@ -443,6 +448,27 @@ func TestCompactionPreservesFollowingWriteVersion(t *testing.T) {
 			}
 		} else if err != nil {
 			t.Fatalf("write at N must succeed: %v", err)
+		}
+	}
+}
+
+func TestCompactionFencesFollowingWritesAfterCleanup(t *testing.T) {
+	s, service, grant, key, home := agentJobsCompactionFixture(t)
+	receipt := cancelledPublicationContent(t, newCancelledNotePublication(t, s, grant, home, "reviewed-receipt"))
+	reviewCancelledReceipt(t, s, receipt.ContentDigest)
+	_, version := readWorkFromStore(t, s, "work-cancelled")
+	response := publishCancelledNote(t, s, service, grant, key, home)
+	if response.Outcome != OutcomeOK {
+		t.Fatalf("publish: %+v", response.Error)
+	}
+	for _, expected := range []int64{version + 1, version} {
+		payload, _ := json.Marshal(map[string]any{"from": "cancelled", "reason": "reopen", "expected_version": expected, "resulting_version": expected + 1})
+		err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: fmt.Sprintf("reopen-after-compact-%d", expected), Kind: "work.reopened", SubjectType: store.SubjectWorkItem, SubjectID: "work-cancelled", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-cancelled"): expected}})
+		// CD-0242 D2 releases terminal execution after publication; its old
+		// version no longer authorizes reopening collected execution state.
+		var failure *store.Failure
+		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
+			t.Fatalf("write after cleanup must return canonical absence: %v", err)
 		}
 	}
 }

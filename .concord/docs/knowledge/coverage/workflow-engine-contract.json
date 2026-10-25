@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestOwnerOracleConvergence"
+      "value": "internal/store.TestOwnerOracleCorrectionLineage"
     },
     {
       "kind": "go_test",

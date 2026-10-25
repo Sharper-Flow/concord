@@ -9,9 +9,8 @@ import (
 )
 
 // These tests hold concord_work_define revise_intent to the size revision
-// route (CD-0229 D6, CD-0237): size_inputs reruns the model, operator_size
-// records the operator's size behind a consumed approval, and a change of the
-// effective size supersedes the item with a forward-linked successor.
+// route (CD-0229 D6): size_inputs reruns the model and operator_size
+// records the operator's size behind a consumed approval, both in place.
 
 func reviseSizeInput(workID string, version int64, key, sizeField string) map[string]any {
 	input := map[string]any{"work_id": workID, "expected_version": version, "title": "Sized", "value_statement": "The model sizes captured work", "kind": "task", "reason": "the change touches authentication", "idempotency_key": key}
@@ -57,7 +56,7 @@ func readWorkSizeSummary(t *testing.T, s *store.Store, service *Service, env Cal
 	return readback.Work.Size
 }
 
-func TestReviseIntentSizeRevisionsResizeTheWork(t *testing.T) {
+func TestReviseIntentSizeRevisionsStayOnTheWork(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, scopeVersion := indexedCaptureFixture(t)
@@ -75,28 +74,27 @@ func TestReviseIntentSizeRevisionsResizeTheWork(t *testing.T) {
 		t.Fatalf("operator_size with size_inputs = %+v", both.Error)
 	}
 
-	// A rerun the model sizes crucial supersedes the larger item.
+	// The model's crucial decision stays on the same work item.
 	env.RequestID = "resize-rerun"
 	rerun, _ := dispatchRevise(t, s, service, env, reviseSizeInput(workID, 4, "resize-rerun", `"size_inputs":{"paths":["README.md"],"security":true,"user_visible":false,"blast_radius":"package","estimated_production_lines":20}`))
-	if rerun.Outcome != OutcomeOK || rerun.ChangedRefs == nil || len(*rerun.ChangedRefs) != 2 {
+	if rerun.Outcome != OutcomeOK || rerun.ChangedRefs == nil || len(*rerun.ChangedRefs) != 1 {
 		t.Fatalf("rerun = %+v changed=%+v", rerun.Error, rerun.ChangedRefs)
 	}
 	refs := *rerun.ChangedRefs
-	successor := refs[1].ID
-	if refs[0].ID != workID || refs[0].Version != "8" || workVersion(t, s, workID) != 8 || refs[1].Version != "4" || workVersion(t, s, successor) != 4 {
+	if refs[0].ID != workID || refs[0].Version != "5" || workVersion(t, s, workID) != 5 {
 		t.Fatalf("rerun changed refs = %+v", refs)
 	}
 	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil || lifecycle != "superseded" {
-		t.Fatalf("predecessor lifecycle = %q, %v", lifecycle, err)
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil || lifecycle != "needed" {
+		t.Fatalf("work lifecycle = %q, %v", lifecycle, err)
 	}
-	if size := readWorkSizeSummary(t, s, service, env, successor); size == nil || size.Size != store.WorkSizeCrucial || size.ModelSize != store.WorkSizeCrucial || size.OperatorSize != nil {
-		t.Fatalf("successor size = %+v", size)
+	if size := readWorkSizeSummary(t, s, service, env, workID); size == nil || size.Size != store.WorkSizeCrucial || size.ModelSize != store.WorkSizeCrucial || size.OperatorSize != nil {
+		t.Fatalf("rerun size = %+v", size)
 	}
 
 	// The operator's size needs a consumed approval; with it, the effective
-	// size changes and the successor is itself superseded.
-	input := reviseSizeInput(successor, 4, "resize-override", `"operator_size":"larger"`)
+	// size changes in place.
+	input := reviseSizeInput(workID, 5, "resize-override", `"operator_size":"larger"`)
 	env.RequestID = "resize-override"
 	challenge, _ := dispatchRevise(t, s, service, env, input)
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
@@ -111,18 +109,20 @@ func TestReviseIntentSizeRevisionsResizeTheWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{successor}, "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(nil, challengeRef, mutationDigest("concord_work_define", "revise_intent", env, approvedRaw), scope, map[string]any{"work": int64(4)}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "")
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{workID}, "scope_version": scopeVersion}
+	env.HostApproval = signedHostApproval(nil, challengeRef, mutationDigest("concord_work_define", "revise_intent", env, approvedRaw), scope, map[string]any{"work": int64(5)}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "")
 	override, _ := dispatchRevise(t, s, service, env, approvedInput)
-	if override.Outcome != OutcomeOK || override.ChangedRefs == nil || len(*override.ChangedRefs) != 2 {
+	if override.Outcome != OutcomeOK || override.ChangedRefs == nil || len(*override.ChangedRefs) != 1 {
 		t.Fatalf("approved override = %+v changed=%+v", override.Error, override.ChangedRefs)
 	}
-	next := (*override.ChangedRefs)[1].ID
-	if (*override.ChangedRefs)[0].Version != "9" || workVersion(t, s, successor) != 9 {
+	if (*override.ChangedRefs)[0].ID != workID || (*override.ChangedRefs)[0].Version != "7" || workVersion(t, s, workID) != 7 {
 		t.Fatalf("override changed refs = %+v", *override.ChangedRefs)
 	}
 	larger := store.WorkSizeLarger
-	if size := readWorkSizeSummary(t, s, service, env, next); size == nil || size.Size != larger || size.ModelSize != store.WorkSizeCrucial || size.OperatorSize == nil || *size.OperatorSize != larger {
-		t.Fatalf("carried override size = %+v", size)
+	if size := readWorkSizeSummary(t, s, service, env, workID); size == nil || size.Size != larger || size.ModelSize != store.WorkSizeCrucial || size.OperatorSize == nil || *size.OperatorSize != larger {
+		t.Fatalf("override size = %+v", size)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE kind IN ('work.resized','work.superseded','workflow.successor_linked')`) != 0 {
+		t.Fatal("size revision created a successor, relation, or supersession")
 	}
 }

@@ -9,16 +9,14 @@
   `work-2b85cd5008dba4e50005c3e8` in session on 2026-09-06, under CD-0092
   pinning, selecting a zero-commit clean tree as the authorizing gate.
 - **Related:** CD-0095, CD-0096, CD-0105, issue #723
-- **Amends:** CD-0096 D3 Destroy at the approval sentence, which reserved
-  approval-free removal to merged terminal work; CD-0105 D1 and D2 at the
-  class count and the pass's action set
-- **Preserves:** Every CD-0095 and CD-0096 D3 gate on removal except the one
-  sentence this record amends: the clean tree, the observed-session
+- **Preserves:** The CD-0095 and CD-0096 D3 removal gates: the clean tree, the
+  observed-session
   stranding refusal, and operator approval for every other non-terminal
   removal and for destructive removal
 
-**Approval amendment:** [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-limits this record's operator-consent requirements to its six classes; its D5 replaces an unconditional recovery veto. Occupancy and other non-consent checks remain required.
+**Consent:** This record's operator-consent requirements follow the six classes in
+[CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes).
+Recovery follows its D5. Occupancy and other non-consent checks remain required.
 
 ## Context
 

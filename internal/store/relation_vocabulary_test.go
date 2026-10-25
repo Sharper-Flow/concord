@@ -46,7 +46,7 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
@@ -55,16 +55,27 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 		('collision-successor','task','Successor','needed',1,1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
-		('collision-overlap','workflow.overlap_resolved','work_item','collision-from','operator','2026-01-01T00:00:00Z',1,'{}'),
-		('collision-successor-event','workflow.successor_linked','work_item','collision-from','operator','2026-01-01T00:00:01Z',1,'{}')`); err != nil {
+	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: "collision-from", Actor: "operator", OccurredAt: relationTestTime("2026-01-01T00:00:00Z"), PayloadVersion: 1, Payload: []byte(`{"resulting_version":2}`)}
+	overlap.Seq, err = appendPreparedEvent(t.Context(), tx, overlap)
+	if err != nil {
 		t.Fatal(err)
 	}
-	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:00Z")}
+	successor := Event{EventID: "collision-successor-event", Kind: WorkflowSuccessorLinked, SubjectType: SubjectWorkItem, SubjectID: "collision-from", Actor: "operator", OccurredAt: relationTestTime("2026-01-01T00:00:01Z"), PayloadVersion: 1, Payload: []byte(`{"resulting_version":3}`)}
+	successor.Seq, err = appendPreparedEvent(t.Context(), tx, successor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, malformed := range []struct {
+		payload []byte
+		kind    FailureKind
+	}{{nil, KindInvalidPayload}, {[]byte(`{}`), KindInvariantViolation}} {
+		invalid := overlap
+		invalid.Payload = malformed.payload
+		assertFailureKind(t, insertRelation(t.Context(), tx, invalid, relationPayload{From: "collision-from", To: "collision-to", Kind: "compatible_with"}), malformed.kind)
+	}
 	if err := insertRelation(context.Background(), tx, overlap, relationPayload{From: "collision-from", To: "collision-to", Kind: "compatible_with"}); err != nil {
 		t.Fatalf("insert overlap relation: %v", err)
 	}
-	successor := Event{EventID: "collision-successor-event", Kind: WorkflowSuccessorLinked, Seq: 2, SubjectID: "collision-from", OccurredAt: relationTestTime("2026-01-01T00:00:01Z")}
 	if err := insertWorkflowForwardRelation(context.Background(), tx, successor, "collision-successor"); err != nil {
 		t.Fatalf("insert successor relation: %v", err)
 	}

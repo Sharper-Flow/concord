@@ -39,7 +39,7 @@ func TestBindEvidenceRefusesLocatorTheVerdictCannotName(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload), 0); err == nil {
+			if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(payload)); err == nil {
 				t.Fatalf("bind_evidence admitted a locator no verdict can name: %q", tc.locator)
 			} else if !strings.Contains(err.Error(), "reference rule") {
 				t.Fatalf("bind_evidence refusal does not name the reference rule: %v", err)

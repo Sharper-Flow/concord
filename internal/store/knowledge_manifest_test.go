@@ -257,13 +257,13 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 
 func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":".concord/docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"work-0f1e2d3c4b5a6978","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
-		t.Fatalf("superseded law with home and empty applicability rejected: %v", err)
+		t.Fatalf("law with home and empty applicability rejected: %v", err)
 	}
 	missingHome := strings.Replace(valid, `,"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[]`, `,"applies_to_domain_ids":["product-root:concord"]`, 1)
 	if _, err := parseKnowledgeManifest([]byte(missingHome)); err == nil {
-		t.Fatal("superseded law applicability without a home was accepted")
+		t.Fatal("law applicability without a home was accepted")
 	}
 }
 
@@ -297,50 +297,6 @@ func TestKnowledgeDomainRegistryHashIsDeterministicAndNonMutating(t *testing.T) 
 	}
 	if !reflect.DeepEqual(first.Domains[0].ArchitectureRelations[0].GoverningLawIDs, original) {
 		t.Fatal("hash normalization mutated caller-owned governing law IDs")
-	}
-}
-
-func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {
-	t.Parallel()
-	base := func(id, kind, status, successor string) KnowledgeRecord {
-		recordPath := ".concord/docs/" + id + ".md"
-		if kind == "decision" {
-			recordPath = ".concord/docs/decisions/CD-0001-" + id + ".md"
-		}
-		authority := KnowledgeAuthority{Tier: "derived"}
-		if kind == "constitution" || kind == "decision" {
-			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
-		}
-		record := KnowledgeRecord{ID: id, Kind: kind, Path: recordPath, Status: status, Date: "2026-08-10T00:00:00Z", Title: id, Summary: "summary", Tags: []string{}, Authority: authority, Scopes: KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, SHA256: "sha256:" + strings.Repeat("a", 64)}
-		if status == "accepted" && manifestLawBearingKinds[kind] {
-			record.HomeDomainID = "product-root:concord"
-			record.ProductWideRationale = "Fixture law binds every child Domain."
-		}
-		if successor != "" {
-			record.Successor = successor
-		}
-		return record
-	}
-	manifest := func(records ...KnowledgeRecord) KnowledgeManifest {
-		return KnowledgeManifest{
-			SchemaVersion: "1.2", SupportedKinds: []string{"lesson", "decision", "spec", "research"}, IndexedKinds: []string{"lesson", "decision", "spec"}, Records: records,
-			DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord", Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}}},
-		}
-	}
-	for name, candidate := range map[string]KnowledgeManifest{
-		"missing target":    manifest(base("old", "decision", "superseded", "new")),
-		"self target":       manifest(base("old", "decision", "superseded", "old")),
-		"cross kind":        manifest(base("old", "decision", "superseded", "new"), base("new", "spec", "accepted", "")),
-		"bad target status": manifest(base("old", "decision", "superseded", "new"), base("new", "decision", "superseded", "other"), base("other", "decision", "accepted", "")),
-	} {
-		t.Run(name, func(t *testing.T) {
-			assertFailureKind(t, validateKnowledgeManifest(candidate), KindInvalidNoteProof)
-		})
-	}
-	old, successor := base("old", "decision", "superseded", "new"), base("new", "decision", "accepted", "")
-	successor.LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "old"}}
-	if err := validateKnowledgeManifest(manifest(old, successor)); err != nil {
-		t.Fatalf("valid supersession rejected: %v", err)
 	}
 }
 
@@ -418,7 +374,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		t.Fatalf("rich manifest Q10=%#v err=%v", result, err)
 	}
 
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='spec-rich'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='spec-rich'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.QueryQ10(ctx, Q10Request{KnowledgeID: "spec-rich"})
@@ -550,7 +506,7 @@ func knowledgeProjectionSnapshot(t *testing.T, s *Store) string {
 		`SELECT id,type,title,completed_at,outcome_tag,lesson_tags,summary,scope_mode,note_path,commit_oid,content_hash FROM archived_work ORDER BY id`,
 		`SELECT work_id,product_id FROM archived_work_products ORDER BY work_id,product_id`,
 		`SELECT work_id,project_id FROM archived_work_projects ORDER BY work_id,project_id`,
-		`SELECT work_id,component_id FROM archived_work_components ORDER BY work_id,component_id`,
+		`SELECT work_id,domain_id FROM archived_work_domains ORDER BY work_id,domain_id`,
 		`SELECT work_id,tag_id FROM archived_work_tags ORDER BY work_id,tag_id`,
 		`SELECT kind,coverage,reason,scanned_commit_oid FROM knowledge_kind_coverage ORDER BY kind`,
 		`SELECT law_id,kind,status,path,title,content_hash,scanned_commit_oid FROM law_subjects ORDER BY home_project_id,home_locator_id,law_id`,

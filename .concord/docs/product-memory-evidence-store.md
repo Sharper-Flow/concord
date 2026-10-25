@@ -36,7 +36,7 @@ deduplicate, retain, back up, or garbage-collect WIP logs, traces, screenshots, 
 output, recordings, or arbitrary binary files.
 
 WIP output is process exhaust owned by its producing tool or environment. It must not
-become a Concord domain event, durable evidence reference, external-file path record,
+become a Concord typed record, durable evidence reference, external-file path record,
 or a backup obligation merely because it exists. A failed task may still record a
 bounded outcome/error classification in normal Product-memory state; raw output is not
 required for that state to be valid.
@@ -45,21 +45,18 @@ No generic Concord task, workflow, acceptance, or compaction rule may require a
 screenshot. A product-specific contract may require direct human visual inspection, but
 PM8 does not turn that into screenshot capture, upload, retention, or hashing.
 
-This narrows CD-0002 §2d: its proposed external evidence files with “hash + path” are
-not a v1 Concord feature. Small, structured Concord artifacts remain SQLite text under
+Small, structured Concord artifacts remain SQLite text under
 the existing decision; durable markdown knowledge remains PM6 and compaction-retention-policy git content. Neither
 is a general binary-evidence store.
 
 CD-0215 narrows one structured-artifact case further: research-pack text lives
-only in SQLite pack tables until explicit retirement. It never enters retained `domain_events` or Git as a research pack and is
+only in SQLite pack tables until explicit retirement. It never enters Git as a
+research pack and is
 deleted after proof-backed archive. Selected durable decisions/specs/lessons/reasoning
 are promoted to their existing PM6/CD-0006 homes before deletion; that promotion is
 not pack retention.
 
 ### 1.1 Native oracle producer streams
-
-This exception reuses the [approved law patch `4e9144477b0cf71e2ecbb5a913e9f973704eb408`](https://github.com/Sharper-Flow/concord/commit/4e9144477b0cf71e2ecbb5a913e9f973704eb408).
-The scope and consequence remain those of that approval.
 
 Only `worktree_verify_leases.stdout_blob` and `worktree_verify_leases.stderr_blob`
 may retain native oracle command streams, at most 2 MiB each.
@@ -78,20 +75,7 @@ That measurement remains deferred; this exception claims no measured result.
 
 ### Accepted synchronization
 
-This accepted change retires the previous external-blob assumption across:
-
-- CD-0002 §2a's blob-placement framing, §2d, its evidence-blob falsifier, and §7's
-  “Closed earlier by this record” evidence-placement clause;
-- CD-0003's `blobs(...)` spine row;
-- PM2 backup/export wording that currently names CAS or an evidence manifest;
-- PM3's `artifacts / blobs` row;
-- PM1's external-blob budget exception; PM6 and compaction-retention-policy PM8 deferrals; the PM6 dependency
-  cell; the PM8 and PM10 rows in both clarification tables; and the TS7 durable-ID/
-  hash claim and PM8 dependency;
-- README and storage-slice cross-references.
-
-The accepted edits remove only the retired Concord blob mechanism. They preserve normal
-PM3 `external_refs` for PRs, commits, upstream systems, and URLs; those are ordinary
+PM3 `external_refs` for PRs, commits, upstream systems, and URLs are ordinary
 locators, not retained WIP-byte paths.
 
 ## 2. Named value and boundary
@@ -105,12 +89,13 @@ promises**:
   bytes;
 - Concord avoids a second filesystem durability, corruption, recovery, backup, and
   deletion subsystem whose value is not currently named;
-- compaction-retention-policy keeps event history and PM6 keeps concise reviewed knowledge, which are the
-  current post-hoc needs—not exact WIP byte replay.
+- the store keeps current state and PM6 keeps concise reviewed knowledge
+  ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
+  which are the current post-hoc needs—not exact WIP byte replay.
 
-Except for section 1.1, the boundary is structural: Concord's v1 schema and domain-event registry contain no
+Except for section 1.1, the boundary is structural: Concord's v1 schema and typed record set contain no
 blob descriptor, evidence-reference, file-path, digest, content-addressed-store, or
-blob-lifecycle event. A workflow cannot accidentally make WIP output durable by adding
+blob-lifecycle record. A workflow cannot accidentally make WIP output durable by adding
 an optional metadata field.
 
 ## 3. Normal flow and failure handling
@@ -118,9 +103,9 @@ an optional metadata field.
 | Situation | Concord behavior | Not a Concord responsibility |
 |---|---|---|
 | generic test/build/log output | producer/CI retains or discards it under its own policy; section 1.1 alone owns native oracle streams | ingestion, hashing, mirroring, or backup beyond section 1.1 |
-| task fails | record only the bounded state/outcome needed by its owning Product-memory event | storing full command output as evidence |
+| task fails | record only the bounded state/outcome needed by its owning Product-memory record | storing full command output as evidence |
 | terminal compaction | PM6 note distills outcome, decision, lesson, and normal links | copying raw WIP files into git/SQLite |
-| compaction-retention-policy projection pruning | retains authoritative `domain_events` and durable note/index behavior | preserving raw WIP bytes |
+| compaction-retention-policy projection pruning | retains authoritative current rows and durable note/index behavior (CD-0242 D2) | preserving raw WIP bytes |
 | producer output disappears | surface only an external-link failure if a user tries to follow a normal link | recovery/substitution of a Concord-held blob |
 
 No operation may report an unavailable WIP blob as an integrity incident, because
@@ -136,8 +121,10 @@ large outputs are not scanned, hashed, copied, or enrolled into Product memory.
 Outside the lease/work deletion rule in section 1.1, there is no Concord blob retention period, refcount, quarantine, backup inventory, or
 garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
 does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
-durable knowledge when material and rejects a separate receipt—not automatic retention
-of raw WIP bytes.
+durable knowledge when material and rejects a separate process-exhaust receipt—closure's
+one completion receipt answers
+([CD-0242 D9](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)),
+not automatic retention of raw WIP bytes.
 
 ## 5. Structural invariants
 
@@ -164,9 +151,9 @@ of raw WIP bytes.
    remains with the producing environment.
 3. PM6 compaction creates a concise note with outcome/lesson/ordinary links and no raw
    output copy or generated evidence attachment.
-4. compaction-retention-policy prunes an eligible work projection while Q7 event history and the note/index
+4. compaction-retention-policy prunes an eligible work projection while current state and the note/index
    remain valid without requiring any external blob.
-5. Schema and event-registry validation reject attempts to introduce blob descriptors,
+5. Schema and record validation reject attempts to introduce blob descriptors,
    content hashes, arbitrary filesystem paths, or raw output payloads through generic
    metadata.
 6. PM10 clean-machine restore succeeds with SQLite and canonical git authorities alone;
@@ -257,8 +244,8 @@ carries a typed exemption naming the structural proof. The checker
   (`internal/store/pm8_pm9_absence_test.go`), whose exhaustive binary large
   object (BLOB) column allow-list admits fixed-size authority material and only
   the two native stream columns in section 1.1.
-- Criterion 2 is proved by the same absence test's event-kind registry
-  sweep, which admits no exhaust-retention event, together with
+- Criterion 2 is proved by the same absence test's record-kind
+  sweep, which admits no exhaust-retention record, together with
   `TestRegressionDefect3_TerminalWithoutEvidenceReturnsMissingEvidence`
   (`internal/agent/agent_defects_regression_test.go`), which fixes the
   bounded terminal classification.

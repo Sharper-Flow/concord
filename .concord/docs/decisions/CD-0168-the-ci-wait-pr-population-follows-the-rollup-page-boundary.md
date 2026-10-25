@@ -33,7 +33,7 @@ requests again.
 
 ### D1. The rollup is the population, and the page cap is the exception
 
-This record amends CD-0160 D4. Checks mode builds its check population from the
+Checks mode builds its check population from the
 `gh pr view` status-check rollup. It queries `gh pr checks` only when that
 rollup holds exactly the full 100-context page, where pagination still decides
 the set. Merge mode classifies the newest attempt per check identity from

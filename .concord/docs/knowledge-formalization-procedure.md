@@ -5,11 +5,6 @@
 This document defines how a document in this repository becomes accepted
 Product law, becomes registered non-law, or is explicitly dispositioned.
 
-It exists because classification was previously improvised per document.
-Two people could read the same file and reach different answers about what
-kind it was, whether it carried authority, and whether it needed acceptance
-criteria. That is a defect in the procedure, not in the documents.
-
 The procedure below is a decision path. Followed on the same document by two
 different readers, it must produce the same kind, the same authority claim,
 and the same obligations every time.
@@ -310,10 +305,6 @@ served as law either.
 When a document stops being a non-authorizing candidate and becomes accepted,
 its record eligibility must be re-evaluated as part of that acceptance. The
 person who accepts the document owns that re-evaluation.
-
-This rule exists because it was violated: two accepted contracts stayed
-structurally barred from holding records for eleven days after acceptance,
-and no check noticed.
 
 Re-evaluation means three concrete questions. Is the document's path still
 ineligible for a record? Does its kind still match the selection path above,

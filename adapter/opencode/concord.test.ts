@@ -74,7 +74,7 @@ test("the worker reader transport uses only the held request and dispatched dire
     work_id: "read-work", attempt_id: "read-attempt", worktree_identity: "bound-identity",
     packet: {
       schema_version: "1.0", work_id: "read-work", attempt_id: "read-attempt", step_id: "verify",
-      lane_id: "verify", lane_version: 1, lane_digest: "bound-lane",
+      lane_id: "verify", lane_digest: "bound-lane",
       inputs: { task: "Read the declared source", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
     },
     ordinal: 0, offset: 0, length: 6,
@@ -172,7 +172,7 @@ test("the worker reader transport refuses failed, oversized, or non-single-objec
 
 function workerControlTransportFixture() {
   const context = { sessionID: "actual-child", messageID: "actual-message", agent: "concord-verify", directory: "/dispatched-worktree", abort: new AbortController().signal, ask: async () => {} }
-  const request: Parameters<typeof adapter.executeBoundWorkerControl>[0] = { work_id: "check-work", project_id: "check-project", attempt_id: "check-attempt", worktree_identity: "sha256:" + "b".repeat(64), control_id: "control:check", packet: { schema_version: "2.0", work_id: "check-work", attempt_id: "check-attempt", step_id: "verify", lane_id: "verify", lane_version: 1, lane_digest: "sha256:" + "c".repeat(64), inputs: { task: "Check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" } } } }
+  const request: Parameters<typeof adapter.executeBoundWorkerControl>[0] = { work_id: "check-work", project_id: "check-project", attempt_id: "check-attempt", worktree_identity: "sha256:" + "b".repeat(64), control_id: "control:check", packet: { schema_version: "2.0", work_id: "check-work", attempt_id: "check-attempt", step_id: "verify", lane_id: "verify", lane_digest: "sha256:" + "c".repeat(64), inputs: { task: "Check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "commands" } } } }
   const digest = "sha256:" + "a".repeat(64)
   const ambient = { project_id: request.project_id, product_ids: ["check-product"], scope_version: "scope-check", main_worktree: false }
   return { context, request, digest, ambient }
@@ -436,16 +436,17 @@ test("published tool arguments expose a host-safe request shape", async () => {
   }
   // Every generated field reaches the host through the registration map,
   // which derives its field set from the generated capture/resume branches —
-  // no handwritten parity list. The resume branch carries exactly work_id:
-  // the resume claims in the calling session's Project, and no
-  // Project selector is published on either mode.
+  // no handwritten parity list. The resume branch carries exactly one of
+  // work_id or issue_key: the resume claims in the calling session's Project,
+  // and no Project selector is published on either mode.
   const [generatedCapture, generatedResume] = hostToolSchemas.concord_work_start.oneOf
   const expectedWorkStartFields = Object.keys({ ...generatedCapture.properties, ...generatedResume.properties })
   expect(Object.keys((adapter.work_start as any).args).sort(), "work_start registration fields").toEqual(expectedWorkStartFields.sort())
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeUndefined()
-  expect(Object.keys(generatedResume.properties)).toEqual(["work_id"])
+  expect(Object.keys(generatedResume.properties)).toEqual(["issue_key", "work_id"])
+  expect((generatedResume as any).oneOf).toEqual([{ required: ["work_id"] }, { required: ["issue_key"] }])
   // Conditional branches preserve both generated closed modes without a
   // root union that Anthropic's tool-schema validator would reject. The
   // published branches may share repeated field schemas through local
@@ -454,9 +455,11 @@ test("published tool arguments expose a host-safe request shape", async () => {
   await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
   const publishedWorkStart = workStartDefinition.jsonSchema as any
   expect(publishedWorkStart.if).toEqual({ required: ["work_id"] })
+  expect(publishedWorkStart.else.if).toEqual({ required: ["issue_key"] })
   const expandedWorkStart: any = expandedPublishedRequestSchema(publishedWorkStart)
-  expect(expandedWorkStart.else).toEqual(generatedCapture)
-  expect(expandedWorkStart.then).toEqual(generatedResume)
+  expect(expandedWorkStart.else.else).toEqual(generatedCapture)
+  expect(expandedWorkStart.then).toEqual(expandedPublishedRequestSchema(generatedResume))
+  expect(expandedWorkStart.else.then).toEqual(expandedPublishedRequestSchema(generatedResume))
 })
 
 test("work define publishes the record-only issue identity contract", () => {
@@ -1672,7 +1675,7 @@ test("worker recovery bounds a cooperative two-second host read with one caller 
     dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
     packet_schema_version: "1.0", report_schema_version: "1.0",
     dispatch: {
-      attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
+      attempt_id: "attempt-1", lane_id: lane.id,
       lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),
       capability_class: lane.capability_class, packet_schema_version: "1.0", report_schema_version: "1.0",
       readback_model: "openai/test-model",
@@ -1848,14 +1851,25 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
       recovery_action: { kind: "request_approval" }, effect_state: "none",
       stale_law_revision: {
         old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
-        accepted_successor_law_id: "law-current", accepted_successor_content_hash: `sha256:${"b".repeat(64)}`,
-        recovery_actions: ["revise_contract"],
+        recovery_actions: ["supersede_contract", "terminal_work"],
       },
     },
   })
   expect(validateGeneratedEnvelope(staleLaw)).toBe(true)
   const stale: any = await runTransition(runnerWithContext(staleLaw))
   expect(stale.error.kind).toBe("stale_law_revision")
+  expect(stale.error.stale_law_revision).toEqual({
+    old_law_id: "law-old", old_content_hash: `sha256:${"a".repeat(64)}`,
+    recovery_actions: ["supersede_contract", "terminal_work"],
+  })
+  const withRevision = (revision: unknown) => ({ ...staleLaw, error: { ...staleLaw.error, stale_law_revision: revision } })
+  for (const extra of [
+    { accepted_successor_law_id: "law-current" },
+    { accepted_successor_content_hash: `sha256:${"b".repeat(64)}` },
+  ]) {
+    expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, ...extra }))).toBe(false)
+  }
+  expect(validateGeneratedEnvelope(withRevision({ ...stale.error.stale_law_revision, old_content_hash: "sha256:not-a-proof" }))).toBe(false)
 })
 
 test("cross-repository placement passes the generated adapter boundary", async () => {
@@ -2718,6 +2732,12 @@ const resumeSuccess = () => ({
   branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 2 },
 })
 
+const resumeCallEnvelope = () => ({
+  schema_version: "1.0", request_id: "session-1-message-1", client_ref: expect.any(String), principal_ref: "",
+  session_ref: "session-1", agent_ref: "agent-1", directory: WORKTREE, worktree: WORKTREE,
+  ambient_project_id: "project-1", selected_product_id: "product-1", scope_version: "1", manifest_digest: manifestDigest,
+})
+
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
   async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
     calls.push({ argv, input, options })
@@ -2748,7 +2768,8 @@ test("work start resume derives the entry by work_id and moves the session", asy
   // second session of the receiving Project can only render the shared
   // bind after its landing records placement — and renders nothing here.
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
-  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
+  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
+  expect(JSON.parse(calls[4].input)).toEqual(JSON.parse(calls[1].input))
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
   expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "", agent: "agent-1" })
@@ -3101,6 +3122,87 @@ const recordedLinearIssue = () => ({
   url: "https://linear.app/example/issue/EX-3",
 })
 
+test("work start issue-key resume uses the CLI identity through verified landing and readback", async () => {
+  const { moved } = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_issue: recordedLinearIssue() }), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ issue_key: "EX-3" }, landedContextFor()))
+  expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", session_id: "session-1", linear_issue: recordedLinearIssue() })
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
+  expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
+  expect(JSON.parse(calls[2].input)).toEqual({ product_id: "product-1", work_id: "work-1", task: "", agent: "agent-1" })
+  expect(JSON.parse(calls[3].input)).toMatchObject({ work_id: "work-1", session_ref: "session-1", landed_directory: WORKTREE, host_pid: process.pid })
+  expect(JSON.parse(calls[4].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
+  expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+  expect(armedClaimedWorktree("session-1")).toBe(WORKTREE)
+})
+
+test("work start accepts exact issue-key bounds through the same resume route", async () => {
+  for (const issue_key of ["A-1", `E${"X".repeat(61)}-3`]) {
+    clearClaimedWorktree("session-1")
+    bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_issue: { ...recordedLinearIssue(), human_key: issue_key } }), stderr: "" }),
+    }) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ issue_key }, landedContextFor()))
+    expect(result).toMatchObject({ outcome: "ok", work_id: "work-1" })
+    expect(JSON.parse(calls[1].input).issue_key).toBe(issue_key)
+    expect(JSON.parse(calls[4].input).work_id).toBe("work-1")
+  }
+})
+
+test("work start issue-key resume forwards core resolution refusals before claim or movement", async () => {
+  for (const stderr of [
+    "concord work-resume: store: linear_link_resolve: unknown_scope: no work item records that Linear issue key\nrecovery: supply a recorded Linear issue key or an explicit work_id",
+    "concord work-resume: store: linear_link_resolve: ambiguous_scope: multiple work items record that Linear issue key\nrecovery: supply an explicit work_id",
+    "concord work-resume: store: work_resume: unknown_scope: work item is outside the requested Product and Project",
+  ]) {
+    clearClaimedWorktree("session-1")
+    const { moved } = bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+      "work-resume": () => ({ exitCode: 2, stdout: "", stderr }),
+    }) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ issue_key: "EX-3" }, landedContextFor()))
+    expect(result.outcome).toBe("error")
+    expect(result.error).toMatchObject({ kind: "resume_failure", effect_state: "none", retry_safe: false, recovery_action: { kind: "contact_operator" } })
+    expect(result.error.message).toBe(stderr)
+    expect(result.work_id).toBeUndefined()
+    expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", issue_key: "EX-3", session_ref: "session-1", call_envelope: resumeCallEnvelope() })
+    expect(moved).toEqual([])
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+  }
+})
+
+test("work start issue-key resume refuses an unbound or invalid returned identity before movement", async () => {
+  const response = resumeSuccess()
+  for (const body of [
+    response,
+    { ...response, linear_issue: { ...recordedLinearIssue(), human_key: "EX-4" } },
+    { ...response, work_id: "invalid identity", linear_issue: recordedLinearIssue() },
+    { ...response, work_id: "", linear_issue: recordedLinearIssue() },
+    { ...response, project_id: "project-2", linear_issue: recordedLinearIssue() },
+  ]) {
+    clearClaimedWorktree("session-1")
+    const { moved } = bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify(body), stderr: "" }),
+    }) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ issue_key: "EX-3" }, landedContextFor()))
+    expect(result.outcome, JSON.stringify(body)).toBe("error")
+    expect(result.error.kind).toBe("malformed_response")
+    expect(result.error.message).toContain("strict resume contract")
+    expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+    expect(moved).toEqual([])
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+  }
+})
+
 test("work start resume forwards the locally recorded linear_issue unchanged", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
@@ -3403,6 +3505,17 @@ const workStartDiagnosticCases: Array<{ name: string; args: unknown; fragments: 
   { name: "invalid resume identity", args: { work_id: "sensitive-input-value bad" }, fragments: ["work_id", "match"] },
   { name: "oversize resume identity", args: { work_id: "w".repeat(129) }, fragments: ["work_id", "128"] },
   { name: "null resume identity", args: { work_id: null }, fragments: ["work_id", "string"] },
+  { name: "both resume selectors", args: { work_id: "work-1", issue_key: "EX-3" }, fragments: ["matches 2 oneOf branches"] },
+  { name: "empty issue key", args: { issue_key: "" }, fragments: ["issue_key", "minimum of 3"] },
+  { name: "short issue key", args: { issue_key: "A-" }, fragments: ["issue_key", "minimum of 3"] },
+  { name: "numeric issue key", args: { issue_key: 3 }, fragments: ["issue_key", "string"] },
+  { name: "lowercase issue key", args: { issue_key: "ex-3" }, fragments: ["issue_key", "match"] },
+  { name: "padded issue key", args: { issue_key: " EX-3" }, fragments: ["issue_key", "match"] },
+  { name: "leading zero issue number", args: { issue_key: "EX-03" }, fragments: ["issue_key", "match"] },
+  { name: "zero issue number", args: { issue_key: "EX-0" }, fragments: ["issue_key", "match"] },
+  { name: "oversize issue key", args: { issue_key: `E${"X".repeat(62)}-3` }, fragments: ["issue_key", "64"] },
+  { name: "null issue key", args: { issue_key: null }, fragments: ["issue_key", "string"] },
+  { name: "issue key with Project override", args: { issue_key: "EX-3", project_id: "sensitive-input-value" }, fragments: ["undeclared", "project_id"] },
   { name: "duplicate tags", args: { ...bootstrapArgs, tags: ["sensitive-input-value", "sensitive-input-value"] }, fragments: ["tags", "duplicate"] },
   { name: "invalid tag item", args: { ...bootstrapArgs, tags: ["valid", "sensitive-input-value bad"] }, fragments: ["tags[1]", "match"] },
   { name: "too many tags", args: { ...bootstrapArgs, tags: Array.from({ length: 33 }, (_, index) => `tag-${index}`) }, fragments: ["tags", "32"] },
@@ -3415,6 +3528,7 @@ for (const field of hostToolSchemas.concord_work_start.oneOf[0].required) {
 }
 for (const field of Object.keys(hostToolSchemas.concord_work_start.oneOf[0].properties)) {
   workStartDiagnosticCases.push({ name: `resume mixed with ${field}`, args: { work_id: "work-1", [field]: "sensitive-input-value" }, fragments: ["undeclared", field] })
+  workStartDiagnosticCases.push({ name: `issue-key resume mixed with ${field}`, args: { issue_key: "EX-3", [field]: "sensitive-input-value" }, fragments: ["undeclared", field] })
 }
 for (const field of ["constructor", "toString", "__proto__"]) {
   for (const mode of ["capture", "resume"]) {
@@ -3438,7 +3552,7 @@ for (const { name, args, fragments } of workStartDiagnosticCases) {
     expect(result).toMatchObject({ outcome: "error", error: { kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } } })
     for (const fragment of fragments) expect(result.error.message).toContain(fragment)
     expect(result.error.message).toContain("Capture requires")
-    expect(result.error.message).toContain("Resume requires only work_id")
+    expect(result.error.message).toContain("Resume requires exactly one of work_id or issue_key")
     expect(result.error.message).not.toContain("sensitive-input-value")
     expect(result.work_id).toBeUndefined()
     expect(hostWrites).toBe(0)
@@ -3449,9 +3563,9 @@ for (const { name, args, fragments } of workStartDiagnosticCases) {
 test("work start description explains the generated capture and resume requirements", async () => {
   const definition = { description: adapter.work_start.description, parameters: {}, jsonSchema: {} }
   await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, definition)
-  const [capture, resume] = hostToolSchemas.concord_work_start.oneOf
+  const [capture] = hostToolSchemas.concord_work_start.oneOf
   expect(definition.description).toContain(`Capture requires ${capture.required.join(", ")}`)
-  expect(definition.description).toContain(`Resume requires only ${resume.required.join(", ")}`)
+  expect(definition.description).toContain("Resume requires exactly one of work_id or issue_key")
   expect(definition.description).toContain("Do not combine capture and resume fields")
   expect(definition.description.match(/Capture requires/g)).toHaveLength(1)
 })
@@ -4080,7 +4194,7 @@ test("an own-row recovery reports a refused retry without claiming closure", asy
   let abandonCalls = 0
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4147,7 +4261,6 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
     schema_version: "1.0" as const,
     attempt_id: "attempt-1",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4194,7 +4307,6 @@ test.each(["none", "possible", "unknown"] as const)("a missing-row worker_abando
     schema_version: "1.0" as const,
     attempt_id: "attempt-stranded",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4238,7 +4350,6 @@ test("a missing-row worker_abandon refusal preserves a foreign retained record",
     schema_version: "1.0" as const,
     attempt_id: "attempt-stranded",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4282,7 +4393,6 @@ test.each([
     schema_version: "1.0" as const,
     attempt_id: "attempt-1",
     lane_id: "implement",
-    lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
@@ -4358,7 +4468,7 @@ test("an own-row recovery reports a refused re-land without invoking a receipt f
   let abandonCalls = 0
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4443,7 +4553,7 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
   })
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -4521,7 +4631,7 @@ test.each([false, true])("a terminal abandon releases only its authorization whe
   const sessionID = `session-abandon-receipt-failure-${foreign}`
   const windows = dispatchWindows()
   windows.open(sessionID, {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
     inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
@@ -5378,7 +5488,7 @@ const recoveryLane = ((await import("./generated-agent-lanes")).agentLanes as re
 const RECOVERY_SESSION = "parent-concord-913"
 const recoveryPacket: Parameters<typeof serializeLanePacket>[0] = {
   schema_version: "1.0", work_id: "work-concord-913", attempt_id: "attempt-concord-913",
-  lane_id: recoveryLane.id, lane_version: recoveryLane.version, lane_digest: recoveryLane.digest, step_id: "repair",
+  lane_id: recoveryLane.id, lane_digest: recoveryLane.digest, step_id: "repair",
   inputs: { task: "Verify a retained synthetic report.", binding: { objective_source: "contract_premise", work_version: 7, contract_version: 1, assigned_result: "exit_codes" } },
 }
 const recoveryReport = {
@@ -5391,7 +5501,7 @@ const recoveryContextFixture = {
   attempt_epoch: 23, dispatch_event_id: "historical-concord-913", lifecycle_state: "dispatched",
   packet_schema_version: "1.0", report_schema_version: "1.0",
   dispatch: {
-    attempt_id: recoveryPacket.attempt_id, lane_id: recoveryLane.id, lane_version: recoveryLane.version, lane_digest: recoveryLane.digest,
+    attempt_id: recoveryPacket.attempt_id, lane_id: recoveryLane.id, lane_digest: recoveryLane.digest,
     capability_class: recoveryLane.capability_class, packet_schema_version: "1.0", report_schema_version: "1.0",
     packet_digest: "sha256:" + "a".repeat(64), readback_model: "openai/test-model",
     host_provenance: { digest: "sha256:" + "b".repeat(64), sources: [{ kind: "agent_definition", path: "original-agent.md", sha256: "sha256:" + "c".repeat(64) }] },
@@ -5439,7 +5549,7 @@ test("CON-913 row 18: a stopped recovery composite reports an uncertain effect w
     throw new Error("no evidence may run past a stopped composite: " + argv.join(" "))
   } })
   expectTuple(result, M, "row 18")
-  expect(result.error.message).toContain("lane definition")
+  expect(result.error.message).toContain("the original dispatched lane requires content revalidation")
 })
 
 test("CON-913 row 17: a caller deadline during the recovery composite keeps the conflict tuple and the cause", async () => {

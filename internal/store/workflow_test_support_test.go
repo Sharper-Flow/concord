@@ -31,9 +31,10 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 // and supersession fixtures pin. It carries the implementation step graph so
 // step IDs stay familiar, and a work kind without Product-truth authority so a
 // contract fixture stays about the mechanism under test rather than about
-// architecture binding. Version 2 adds the current worker actions, which give the
-// registry a real supersession to prove against.
+// architecture binding. The worker fixture is a separate synthetic family;
+// neither family retains another definition.
 const workflowFixtureRef = "workflow.test_fixture"
+const workflowWorkerFixtureRef = "workflow.worker_test_fixture"
 
 // workflowFixtureWorkKind is the payload spelling of the fixture family's work
 // kind.
@@ -59,8 +60,8 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	registry := BuiltinWorkflowRegistry()
 	registered := make([]RegisteredDefinition, 0, 2)
 	for _, definition := range []WorkflowDefinition{
-		workflowFixtureShape(builtinImplementation(false), 1),
-		workflowFixtureShape(withWorkerActions(builtinImplementation(false), false), 2),
+		workflowFixtureShape(workflowFixtureBase()),
+		workflowFixtureWorkerDefinition(),
 	} {
 		entry, err := registry.Register(definition)
 		if err != nil {
@@ -71,6 +72,30 @@ func registerWorkflowFixtureFamily() []RegisteredDefinition {
 	return registered
 }
 
+func workflowFixtureWorkerDefinition() WorkflowDefinition {
+	definition := workflowFixtureShape(workflowFixtureWorkerActions(workflowFixtureBase()))
+	definition.Ref = workflowWorkerFixtureRef
+	return definition
+}
+
+func workflowFixtureWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+	for _, actionID := range []string{"accept_worker_result", "record_worker_failure", "dispatch_worker"} {
+		definition.AvailableActions = append(definition.AvailableActions, actionID)
+		action := currentActionDefinition(actionID, false)
+		action.RequiredCapability = "work_transition"
+		if actionID == "dispatch_worker" {
+			action.RequiredCapability = WorkerDispatchCapability
+		}
+		definition.ActionDefinitions = append(definition.ActionDefinitions, action)
+		for i := range definition.StepGraph.Steps {
+			if definition.StepGraph.Steps[i].Kind == WorkflowStepExternalEffect {
+				definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, actionID)
+			}
+		}
+	}
+	return definition
+}
+
 func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition {
 	t.Helper()
 	if version < 1 || version > int64(len(workflowFixtureVersions)) {
@@ -79,17 +104,11 @@ func workflowFixtureDefinition(t *testing.T, version int64) RegisteredDefinition
 	return workflowFixtureVersions[version-1]
 }
 
-func workflowFixtureShape(definition WorkflowDefinition, version int64) WorkflowDefinition {
+func workflowFixtureShape(definition WorkflowDefinition) WorkflowDefinition {
 	definition.Ref = workflowFixtureRef
-	definition.Version = version
 	definition.WorkKind = WorkKindStaticAnalysis
 	changesProductTruth := false
 	definition.ChangesProductTruth = &changesProductTruth
-	// The fixture keeps the implementation step graph, so it must also keep
-	// the recovery-route table that graph owns: the fixture ref is outside
-	// the quarantined released range, and a table-less evaluator definition
-	// refuses at registration.
-	definition.RecoveryRoutes = implementationRecoveryRoutes()
 	return definition
 }
 
@@ -105,7 +124,7 @@ func workflowFixtureDigest(t *testing.T) string {
 // cancelled leaves the lifecycle-side decision gate in force.
 func seedTerminalInstanceForTesting(t *testing.T, s *Store, workID, state string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state=?,completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded'); DELETE FROM fold_guard`, state, workID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state=?,completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded'); DELETE FROM write_guard`, state, workID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -187,11 +206,11 @@ func applyWorkflowTestOperation(ctx context.Context, s *Store, operation Operati
 			return applyWorkflowTestOperation(ctx, s, Operation{Events: suffix, ExpectedVersions: expected})
 		}
 		var currentStep, definitionRef string
-		var definitionVersion, versionBefore int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &definitionRef, &definitionVersion, &versionBefore); err != nil {
+		var versionBefore int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&currentStep, &definitionRef, &versionBefore); err != nil {
 			continue
 		}
-		entry, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+		entry, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 		if !ok {
 			continue
 		}
@@ -235,7 +254,7 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	if err != nil {
 		return err
 	}
-	_, err = applyWorkflowOperationTx(ctx, tx, operation, newFoldScope(tx))
+	_, err = applyWorkflowOperationTx(ctx, tx, operation, newWriteScope(tx))
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -264,13 +283,13 @@ func shiftWorkflowTestEventVersions(event Event, shift int64) Event {
 func advanceWorkflowTestInstanceToStep(ctx context.Context, s *Store, workID, targetStep, actor string) error {
 	for {
 		var currentStep, definitionRef string
-		var definitionVersion, version int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definitionRef, &definitionVersion, &version); err != nil {
+		var version int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step,definition_ref,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &definitionRef, &version); err != nil {
 			return err
 		}
-		entry, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+		entry, ok := BuiltinWorkflowRegistry().Current(definitionRef)
 		if !ok {
-			return fmt.Errorf("workflow fixture definition %s@%d is not registered", definitionRef, definitionVersion)
+			return fmt.Errorf("workflow fixture definition %s is not registered", definitionRef)
 		}
 		if currentStep == targetStep {
 			return nil
@@ -300,32 +319,6 @@ func advanceWorkflowTestInstanceToStep(ctx context.Context, s *Store, workID, ta
 	}
 }
 
-// replayWorkflowAuthority is the corpus-only authority fixture seam. It uses
-// the production durable claim/completion protocol so condition folds can
-// validate evidence against a real completed operation; it never inserts a
-// durable_operations row directly.
-func replayWorkflowAuthority(ctx context.Context, s *Store, opID, workID, principal, requestID string, evidence []string) error {
-	digest := "sha256:" + strings.Repeat("a", 64)
-	workflowTypeRef, workflowTypeVersion, stepID := "workflow.test", 1, "evidence"
-	_ = s.DatabaseForTesting().QueryRowContext(ctx, `SELECT definition_ref,definition_version,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowTypeRef, &workflowTypeVersion, &stepID)
-	claimed, err := ClaimStepAuthorized(ctx, s, ClaimRequest{
-		OpID: opID, WorkID: workID, WorkflowTypeRef: workflowTypeRef, WorkflowTypeVersion: workflowTypeVersion,
-		StepID: stepID, StepKind: StepInternalSQLite, AcceptedInputsDigest: digest,
-		AcceptedScopeSnapshot: `{}`, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ContractDigest: testManifestDigest,
-	}, nil)
-	if err != nil {
-		return err
-	}
-	_, err = CompleteStep(ctx, s, CompleteRequest{
-		OpID: opID, AttemptEpoch: claimed.AttemptEpoch, ResultKind: ResultCompleted,
-		EvidenceRefs: evidence, PrincipalRef: principal, Tool: "workflow-corpus", IdempotencyKey: opID,
-		RequestID: requestID, ObservedAt: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
-		CompletedAt: ptrTime(time.Date(2026, 8, 9, 0, 0, 1, 0, time.UTC)),
-	})
-	return err
-}
-
 func ptrTime(value time.Time) *time.Time { return &value }
 
 // CompleteWorkflow drives the ordered completion gate directly, outside the
@@ -346,7 +339,7 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	// check happens before opening the mutation transaction and never treats a
 	// different event identity as a replay.
 	var existingKind string
-	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
+	err := s.db.QueryRowContext(ctx, `SELECT kind FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&existingKind)
 	if err == nil && existingKind == WorkflowCompleted {
 		replay, err := s.beginDurableTx(ctx)
 		if err != nil {
@@ -368,12 +361,15 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
 	}
 	defer tx.finish(&retErr)
-	scope, err := beginFold(ctx, tx.Tx)
+	scope, err := beginWrite(ctx, tx.Tx)
 	if err != nil {
 		return err
 	}
 	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
 		return err
+	}
+	if len(scope.eventIDs) < 2 || scope.eventIDs[len(scope.eventIDs)-2] != event.EventID || scope.eventIDs[len(scope.eventIDs)-1] != event.EventID+":lifecycle" {
+		return fmt.Errorf("completion receipts omit or reorder completion and derived lifecycle: %v", scope.eventIDs)
 	}
 	if err := scope.close(ctx); err != nil {
 		return err
@@ -389,13 +385,12 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 func pinnedWorkflowDefinitionForTest(t testing.TB, s *Store, workID string) WorkflowDefinition {
 	t.Helper()
 	var ref string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
 		t.Fatal(err)
 	}
-	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	registered, ok := BuiltinWorkflowRegistry().Current(ref)
 	if !ok {
-		t.Fatalf("pinned definition %s v%d is not registered", ref, version)
+		t.Fatalf("current definition %s is not registered", ref)
 	}
 	return registered.Definition
 }

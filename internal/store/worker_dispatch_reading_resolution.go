@@ -266,7 +266,7 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 			} else if watermarkErr != sql.ErrNoRows {
 				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source watermark", true, "retry once the knowledge projection is readable", watermarkErr))
 			}
-			record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, reading.Source.LawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, "", row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
+			record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, reading.Source.LawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
 			if recordErr != nil {
 				return nil, readingResolutionFailure(ordinal, witness.identity, recordErr)
 			}
@@ -401,12 +401,6 @@ func readDispatchReadingContent(ctx context.Context, runner GitRunner, witness d
 // a changed source can never borrow an earlier proof.
 func admitWorkerDispatchReadingResolutionTx(ctx context.Context, tx *sql.Tx, workID string, admittedContext *WorkContextView) error {
 	proof := workerDispatchPreparationFrom(ctx)
-	if proof == nil {
-		return newFailure(KindInvalidOperation, workerDispatchReadingResolutionOp, "the dispatch reached live action assembly without its sealed preparation", false, "run the dispatch through the authenticated mutation boundary, which prepares one proof per dispatch before the transaction opens")
-	}
-	if proof.proof.workID != workID {
-		return newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "the sealed preparation names work "+proof.proof.workID+", not this dispatch's work", false, "prepare the dispatch this mutation authorizes")
-	}
 	var readings []WorkContextReading
 	if admittedContext != nil {
 		readings = admittedContext.RequiredReading

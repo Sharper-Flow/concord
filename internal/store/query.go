@@ -105,11 +105,11 @@ type Q6Request struct {
 }
 
 type Q7Request struct {
-	Work       string
-	Direction  string
-	EventKinds []string
-	Limit      int
-	Cursor     string
+	Work        string
+	Direction   string
+	RecordKinds []string
+	Limit       int
+	Cursor      string
 	// ContractVersion, when nonzero, selects the recorded contract version
 	// the workflow read describes instead of the active one.
 	ContractVersion int64
@@ -198,13 +198,10 @@ type WorkItem struct {
 	// and value statement (the scope read and the full-detail list); bounded
 	// summary reads keep their column-only shape.
 	DefectIntake *DefectClassification `json:"defect_intake,omitempty"`
-	// Size is the current size record (CD-0229 D4). It rides the same
-	// authoritative intent reads; unsized work carries none.
-	Size *WorkSizeSummary `json:"size,omitempty"`
+	Size         *WorkSizeSummary      `json:"size,omitempty"`
 }
 
-// WorkSizeSummary is the read projection of a work item's current size: Size
-// is the effective size, the operator's when one is recorded.
+// WorkSizeSummary reports the current model decision and governing operator size.
 type WorkSizeSummary struct {
 	Size         WorkSize  `json:"size"`
 	ModelSize    WorkSize  `json:"model_size"`
@@ -242,35 +239,15 @@ type Q6WorkResultPayload struct {
 	Work *WorkItem `json:"work"`
 }
 
-type TimelineEvent struct {
-	EventID      string   `json:"event_id"`
-	Seq          int      `json:"seq"`
-	GlobalSeq    int64    `json:"global_seq,omitempty"`
-	Kind         string   `json:"kind"`
-	AttemptID    string   `json:"attempt_id,omitempty"`
-	Actor        string   `json:"actor"`
-	OccurredAt   string   `json:"occurred_at"`
-	From         *string  `json:"from"`
-	To           *string  `json:"to"`
-	Reason       string   `json:"reason,omitempty"`
-	EvidenceRefs []string `json:"evidence_refs"`
-	// ContractVersion names the contract version a workflow.contract_approved
-	// or workflow.contract_superseded event made; a supersession also names
-	// the version it replaced.
-	ContractVersion         *int64               `json:"contract_version,omitempty"`
-	PreviousContractVersion *int64               `json:"previous_contract_version,omitempty"`
-	ConflictApplication     *ConflictApplication `json:"conflict_application,omitempty"`
-}
-
 type Q7Result struct {
 	ResultMeta
-	Events   []TimelineEvent         `json:"events"`
+	Entries  []HistoryEntry          `json:"entries"`
 	Result   *Q7ResultPayload        `json:"result"`
 	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
 }
 
 type Q7ResultPayload struct {
-	Events   []TimelineEvent         `json:"events"`
+	Entries  []HistoryEntry          `json:"entries"`
 	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
 }
 
@@ -351,14 +328,14 @@ func beginRead(ctx context.Context, s *Store, op string) (*sql.Tx, error) {
 }
 
 func queryMeta(ctx context.Context, tx *sql.Tx, id string, scope ResolvedScope, keys []string) (ResultMeta, error) {
-	var watermark sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT max(seq) FROM domain_events`).Scan(&watermark); err != nil {
+	watermark, err := storeRevision(ctx, tx)
+	if err != nil {
 		return ResultMeta{}, wrapFailure(KindUnavailable, id, "cannot read the live source watermark", true, "retry once the database is readable", err)
 	}
 	now := time.Now().UTC()
 	return ResultMeta{
 		QueryID: id, ContractVersion: queryContractVersion, ResolvedScope: scope,
-		SourceVersionWatermark: watermark.Int64, Authority: "authoritative",
+		SourceVersionWatermark: watermark, Authority: "authoritative",
 		Freshness:    Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false},
 		OrderingKeys: keys, Omissions: []string{}, Warnings: []string{},
 	}, nil
@@ -825,7 +802,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each
 // item: task, value statement, tags, and workflow type reference from the
-// stored intent projection, and the current size record. Only the authoritative intent reads call it, so
+// stored intent projection. Only the authoritative intent reads call it, so
 // bounded summary and preview reads never carry intent detail. A tag array
 // the intent recorded as empty stays the empty array; a null or absent array
 // stays nil.
@@ -849,7 +826,7 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	for rows.Next() {
 		var id, intentJSON string
 		if err := rows.Scan(&id, &intentJSON); err != nil {
-			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "repair the live projection from its event log", err)
+			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "restore the current rows from a verified snapshot", err)
 		}
 		if i, ok := byID[id]; ok {
 			if err := decodeRecordedIntent(&items[i], intentJSON); err != nil {
@@ -871,7 +848,6 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	return nil
 }
 
-// attachWorkSize copies the item's current size record, when it has one.
 func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
 	decision, ok, err := readEffectiveWorkSize(ctx, q, item.ID)
 	if err != nil || !ok {
@@ -889,7 +865,7 @@ func attachWorkSize(ctx context.Context, q queryer, item *WorkItem) error {
 func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
-		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "repair the live projection from its event log", err)
+		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	item.Task = intent.Task
 	item.ValueStatement = intent.ValueStatement
@@ -931,7 +907,7 @@ func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) (
 	for rows.Next() {
 		var w WorkItem
 		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Version, &w.Priority, &w.Urgency, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
-			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "repair the live projection from its event log", err)
+			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "restore the current rows from a verified snapshot", err)
 		}
 		w.Terminal = terminalState(w.Lifecycle)
 		w.Active = w.Lifecycle == "in_progress"
@@ -1298,6 +1274,9 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 }
 
 func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
+	if err := publishedWorkAbsenceQ(ctx, tx, id, "query"); err != nil {
+		return WorkItem{}, err
+	}
 	items, err := scanWorkItems(ctx, tx, `SELECT id,kind,title,lifecycle,version,priority,urgency,created_at,updated_at,coalesce(terminal_time,'') FROM work_items WHERE id=?`, id)
 	if err != nil {
 		return WorkItem{}, err
@@ -1307,7 +1286,7 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	}
 	// The bounded narrative rides the single-record read only. The recorded
 	// mutable-intent detail (task, value statement, tags, workflow type
-	// reference) and the current size ride with it so a coordinator can carry the complete
+	// reference) rides with it so a coordinator can carry the complete
 	// revisable intent off this one authoritative read; list queries keep
 	// their column-only shape.
 	var narrative, intentJSON string
@@ -1358,6 +1337,9 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	}
 	defer tx.Rollback()
 	if req.Work != "" {
+		if err := publishedWorkAbsenceInScopeQ(ctx, tx, req.Work, req.Product, req.Project, "PM1.Q6"); err != nil {
+			return out, err
+		}
 		w, err := readOneWork(ctx, tx, req.Work)
 		if err != nil {
 			return out, err
@@ -1456,191 +1438,6 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 		return out, err
 	}
 	return out.LimitPage(req, limit)
-}
-
-func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
-	var out Q7Result
-	limit, err := queryLimit(req.Limit)
-	if err != nil {
-		return out, err
-	}
-	direction := req.Direction
-	if direction == "" {
-		direction = "newest_first"
-	}
-	if direction != "oldest_first" && direction != "newest_first" {
-		return out, newFailure(KindInvalidFilter, "PM1.Q7", "direction must be oldest_first or newest_first", false, "choose a closed event direction")
-	}
-	tx, err := beginRead(ctx, s, "PM1.Q7")
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback()
-	if _, err := readOneWork(ctx, tx, req.Work); err != nil {
-		return out, err
-	}
-	where := ""
-	args := []any{req.Work}
-	var cursorSeq int64
-	if req.Cursor != "" {
-		b, e := base64.RawURLEncoding.DecodeString(req.Cursor)
-		var c q7Cursor
-		if e != nil || json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q7" || c.Work != req.Work || c.Direction != direction || c.ContractVersion != req.ContractVersion || c.Seq < 1 {
-			return out, newFailure(KindInvalidCursor, "PM1.Q7", "cursor does not match the event listing", false, "use a cursor returned for the same work, direction, and contract version")
-		}
-		if direction == "oldest_first" {
-			where = " AND seq > ?"
-		} else {
-			where = " AND seq < ?"
-		}
-		cursorSeq = c.Seq
-	}
-	order := "DESC"
-	if direction == "oldest_first" {
-		order = "ASC"
-	}
-	eventKinds := req.EventKinds
-	if len(eventKinds) == 0 {
-		eventKinds = []string{"work.created", "work.transitioned", "work.reopened", "work.superseded", "work.reopened_from_superseded"}
-	}
-	for _, kind := range eventKinds {
-		if _, ok := eventKindRegistry[kind]; !ok {
-			failure := newFailure(KindInvalidFilter, "PM1.Q7", "event kind "+strconv.Quote(kind)+" is not recognized", false, "choose an accepted work event kind")
-			for admitted := range eventKindRegistry {
-				failure.AdmittedEventKinds = append(failure.AdmittedEventKinds, admitted)
-			}
-			sort.Strings(failure.AdmittedEventKinds)
-			return out, failure
-		}
-	}
-	kindPlaceholders := make([]string, len(eventKinds))
-	for i, kind := range eventKinds {
-		kindPlaceholders[i] = "?"
-		args = append(args, kind)
-	}
-	if cursorSeq != 0 {
-		// The cursor seq placeholder follows the kind placeholders in the SQL
-		// text, so its bind argument must follow them too.
-		args = append(args, cursorSeq)
-	}
-	q := `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (` + strings.Join(kindPlaceholders, ",") + `)` + where + ` ORDER BY seq ` + order + ` LIMIT ?` //nolint:gosec // placeholders are fixed, where and order are closed branches, and all request values stay parameter-bound.
-	args = append(args, limit+1)
-	rows, err := tx.QueryContext(ctx, q, args...)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	var raw []TimelineEvent
-	for rows.Next() {
-		var eventID string
-		var global int64
-		var kind, actor, occurred, payload string
-		if err := rows.Scan(&eventID, &global, &kind, &actor, &occurred, &payload); err != nil {
-			return out, err
-		}
-		e, err := decodeTimelineEvent(eventID, global, kind, actor, occurred, []byte(payload))
-		if err != nil {
-			return out, err
-		}
-		raw = append(raw, e)
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
-	}
-	if out.Events == nil {
-		out.Events = []TimelineEvent{}
-	}
-	var nextCursor *string
-	if len(raw) > limit {
-		last := raw[limit-1]
-		raw = raw[:limit]
-		b, _ := json.Marshal(q7Cursor{Version: 1, QueryID: "PM1.Q7", Work: req.Work, Direction: direction, ContractVersion: req.ContractVersion, Seq: last.GlobalSeq})
-		encoded := base64.RawURLEncoding.EncodeToString(b)
-		nextCursor = &encoded
-	}
-	for i := range raw {
-		raw[i].Seq = i + 1
-	}
-	out.Events = raw
-	out.Result = &Q7ResultPayload{Events: out.Events}
-	if workflow, workflowErr := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work, ContractVersion: req.ContractVersion}); workflowErr != nil {
-		return out, workflowErr
-	} else if workflow.WorkID == "" && req.ContractVersion != 0 {
-		return out, newFailure(KindUnknownScope, "PM1.Q7", "the work item has no workflow contract", false, "omit contract_version for work outside a workflow")
-	} else if workflow.WorkID != "" {
-		out.Workflow = &workflow
-		out.Result.Workflow = &workflow
-	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"seq"})
-	out.NextCursor = nextCursor
-	return out, err
-}
-
-// q7Cursor is the PM1.Q7 event-listing cursor. It binds the work, the
-// direction, and the selected contract version, so a cursor never carries a
-// page across selectors.
-type q7Cursor struct {
-	Version                  int `json:"version"`
-	QueryID, Work, Direction string
-	ContractVersion          int64 `json:"contract_version,omitempty"`
-	Seq                      int64 `json:"seq"`
-}
-
-func decodeTimelineEvent(eventID string, global int64, kind, actor, occurred string, payload []byte) (TimelineEvent, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil {
-		return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event payload is malformed", false, "repair the event log before reading history")
-	}
-	e := TimelineEvent{EventID: eventID, GlobalSeq: global, Kind: kind, Actor: actor, OccurredAt: occurred, EvidenceRefs: []string{}}
-	switch kind {
-	case WorkerDispatched, WorkerCompleted, WorkerFailed:
-		if raw, ok := fields["attempt_id"]; ok {
-			if err := json.Unmarshal(raw, &e.AttemptID); err != nil || e.AttemptID == "" {
-				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event worker attempt identity is malformed", false, "repair the event log before reading history")
-			}
-		}
-	}
-	for name, dst := range map[string]**string{"from": &e.From, "to": &e.To} {
-		if raw, ok := fields[name]; ok && string(raw) != "null" {
-			var v string
-			if json.Unmarshal(raw, &v) != nil {
-				return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event lifecycle field is malformed", false, "repair the event log before reading history")
-			}
-			*dst = &v
-		}
-	}
-	if raw, ok := fields["reason"]; ok {
-		if err := json.Unmarshal(raw, &e.Reason); err != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event reason is malformed", false, "repair the event log before reading history")
-		}
-	}
-	if raw, ok := fields["evidence_refs"]; ok {
-		if err := json.Unmarshal(raw, &e.EvidenceRefs); err != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "event evidence references are malformed", false, "repair the event log before reading history")
-		}
-	}
-	versions := map[string]**int64{}
-	switch kind {
-	case WorkflowContractApproved:
-		versions["contract_version"] = &e.ContractVersion
-	case WorkflowContractSuperseded:
-		versions["new_contract_version"] = &e.ContractVersion
-		versions["previous_contract_version"] = &e.PreviousContractVersion
-	case WorkConflictApplied:
-		var application ConflictApplication
-		if err := decodeRegisteredPayload(Event{Payload: payload}, &application); err != nil || validateWorkConflictAppliedPayload(Event{}, application) != nil {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "recorded conflict application is not inside the frozen v1 shape", false, "repair the event log before reading history")
-		}
-		e.ConflictApplication = &application
-	}
-	for name, dst := range versions {
-		var version int64
-		if raw, ok := fields[name]; !ok || json.Unmarshal(raw, &version) != nil || version < 1 {
-			return TimelineEvent{}, newFailure(KindInvariantViolation, "PM1.Q7", "workflow contract event names no contract version", false, "repair the event log before reading history")
-		}
-		*dst = &version
-	}
-	return e, nil
 }
 
 type relationSpec struct {

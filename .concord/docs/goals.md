@@ -5,8 +5,8 @@ operator, who said that "the concord backlog and operation snowball no longer re
 Quotes are the operator's exact words. Items marked "approved" began as agent proposals that the operator
 approved.
 
-[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) amends the roles and the
-operator's approval boundary below.
+[CD-0243](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
+operator's approval boundary.
 
 ## Purpose
 - Scope: "a single machine solution using Opencode to coordinate agent led code development of software
@@ -69,8 +69,8 @@ the case (Appendix A), not a ranking.
   delivers a complete refactor, we may need multiple review and refine steps."
 - The operator expected this already: "I thought part of what we were going to do was make workflow
   dynamically different sizes."
-- Who picks the size: "A defined decision model." Not the operator case by case, and not the agent's own
-  judgment.
+- Who picks the size: A defined decision model sets the minimum steps. The agent may add steps, never
+  remove one.
   - Inputs: subject, sensitivity, "blast radius, security, relatize size, span, etc."
   - "Span" means how many domains, packages, or repositories a change touches (approved).
   - The operator may move a size up or down. An agent may only ask for the model to run again (approved).
@@ -130,8 +130,6 @@ the case (Appendix A), not a ranking.
 - Stop ranking the goals strictly. Defined conflict rules replace the ranking.
 - Stop treating Advance replacement as current direction: "Sections on replacing advance are history."
 - Stop naming the retired launcher as a primary surface: "Remove the bit about the launcher."
-- Remove the first-usable floor section and the decision tracker table from the priorities doc as history
-  (approved).
 
 ## 4. Constraints that must hold
 - Single machine.
@@ -223,10 +221,10 @@ Columns are the sizes the decision model gives a change. "Same" means the rule d
 | 2 | Two agents change one domain at once | R2 | Same | Same | Coordinator |
 | 3 | A change breaks a product law | R3, with P12 for approval | Same | Same | Agent; operator when P12 requires approval |
 | 4 | A change needs a new domain or moves a domain boundary | Resize the task (row 8); apply P12 | The architect step decides; apply P12 | Same | Agent; operator when P12 requires approval |
-| 5 | Review finds problems | Fix problems inside the change's scope now; file follow-up items for the rest | One refine step fixes them, then one more review | Repeat review and refine until review finds no high or medium problem | Agent; the coordinator ends the loop |
+| 5 | Review finds problems | Review fixes problems inside the change's scope and verifies its fixes; file follow-up items for the rest | Same | Same; the coordinator runs more review until review reports no high or medium problem | Review fixes; the coordinator ends the loop |
 | 6 | A check fails for a cause the change did not make | Do not fix it in the current change. File a bug item. If it blocks shipping, the coordinator schedules the bug first | Same | Same | Coordinator |
 | 7 | A change affects UI/UX | U | Same | Same | Operator for new design or interaction; agent for minor corrections under U |
-| 8 | A task proves bigger than its workflow size | Stop, run the decision model again, continue at the new size | Same | Same | Decision model; coordinator |
+| 8 | A task proves bigger than its workflow size | Run the decision model again, add the newly required steps, and continue without redoing completed work | Same | Same | Decision model; coordinator |
 | 9 | Data safety is at risk | S; P10 | Same | Same | Agent assesses risk; operator when CD-0243 D2 requires approval |
 
 ## Appendix B. Review of `.concord/docs/priorities.md`

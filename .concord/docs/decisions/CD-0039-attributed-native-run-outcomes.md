@@ -10,8 +10,6 @@
   ([`agent-result-envelope.md`](../agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md)),
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
-- **Supersedes:** nothing
-- **Amended by:** CD-0040 external observation provenance, verification, and consumption rules
 
 ## Context
 
@@ -59,11 +57,11 @@ replacement floor depend on the accepted but not yet implemented C15 managed
 resource inventory. A later C15 implementation may resolve that subject without
 changing who reported the claim.
 
-### D3. One typed event records the report
+### D3. One typed report records the outcome
 
-The workflow event vocabulary gains `workflow.native_run_recorded`. Per
-CD-0040, every native-run event also embeds the shared external-observation
-capture component before this event is implemented. Its closed domain payload
+The workflow records a typed native-run report, `workflow.native_run_recorded`.
+Per CD-0040, every native-run report also embeds the shared external-observation
+capture component before this surface is implemented. Its closed domain payload
 contains:
 
 ```text
@@ -79,11 +77,11 @@ reporting_authority_ref
 actor_ref
 ```
 
-`recorded_at` remains the core event time. `asserted_at` is the report's own
+`recorded_at` remains the core record time. `asserted_at` is the report's own
 time, must be RFC3339, and may not be more than two minutes after `recorded_at`.
 The named two-minute native-report skew uses the existing authority clock-skew
-bound; a different value requires contract evidence. The event ID
-and accepted-input digest provide retry identity.
+bound; a different value requires contract evidence. The record identity
+and accepted-input digest provide retry identity. The report is a current row written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Phase controls the status vocabulary:
 
@@ -99,12 +97,11 @@ Health reports require an observation reference and digest. Rollback reports
 require rollback evidence. Unknown statuses, missing required evidence, or a
 reused run ID with different subject/authority/content fail structurally.
 
-### D4. Projection preserves the claim, not a copied verdict
+### D4. The stored row preserves the claim, not a copied verdict
 
-A fold-only `workflow_native_runs` projection derives the latest phase/status
-for each `(work_id, run_id)` from the event log. It stores the event ID,
+`workflow_native_runs` keeps the latest phase/status for each
+`(work_id, run_id)` as current rows. The row is written in the report's one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). It stores the report identity,
 reporting authority, actor, subject, evidence, and both times alongside status.
-Rebuild clears and refolds it.
 
 `native_change.status=rolled_back` in TS1 is a read projection over that row. The
 binding must also prove the corresponding reporting authority and evidence are
@@ -129,17 +126,18 @@ must reach the core as typed fields and be validated before the event appends.
 
 ### D6. Workflow-engine mappings and surface input change together
 
-The workflow-engine action-to-event table maps `record_health`, `rollback_run`,
-`start_run`, and `cleanup_run` to `workflow.native_run_recorded` plus their
-existing started/completed events as applicable. The fold table adds the
-`workflow_native_runs` projection. The canonical workflow and agent payload
-schemas, generated clients, docs, and registry definitions move in one change.
+The workflow-engine action mappings record `workflow.native_run_recorded` for
+`record_health`, `rollback_run`, `start_run`, and `cleanup_run`, with their
+existing started/completed facts as applicable, and write the
+`workflow_native_runs` rows in the same transactions. The canonical workflow
+and agent payload schemas, generated clients, docs, and registry definitions
+move in one change.
 
 Tightening the current arbitrary workflow-action field bag into required typed
 phase payloads is a TS8 major change. It may share CD-0037's major release if the
 implementations land together; otherwise it opens its own major line. There is
 no compatibility alias. Old clients regenerate, old/new pairs fail closed at
-bootstrap, and pre-amendment history never acquires a native status
+bootstrap, and pre-amendment records never acquire a native status
 retroactively. Existing completed workflow-action operations replay as their
 recorded generic result; there are no native reports to infer from them. This
 record is the explicit operator acceptance required by TS8.
@@ -150,7 +148,7 @@ The workflow-action claim already owns idempotency, attempt epochs, and replay.
 No provider executor or compaction-style composite operation is added.
 
 When a native report shows that the approved logical operation did not complete
-successfully, the action appends the attributed event and completes its durable
+successfully, the action records the attributed report and completes its durable
 classification as `partial` or `failed` in the same transaction. The agent
 surface returns TS7 `partial` with:
 
@@ -171,20 +169,19 @@ A changed payload under the same idempotency key receives
 
 ### D8. `ok` is reserved for successful native predicates
 
-Returning `ok` while a folded row says `failed` or `rolled_back` is forbidden.
+Returning `ok` while the recorded row says `failed` or `rolled_back` is forbidden.
 The adapter cannot synthesize `partial` from prose or provider output; the core
 derives it from the typed report committed with the durable operation.
 
-`outcome_mismatch` remains the completion-gate error for a workflow contract
-whose final predicate is not satisfied. Native-run partials use
+A workflow contract whose final predicate is not proved refuses completion with
+`missing_evidence`. Native-run partials use
 `operation_conflict` and reconciliation so the two error meanings do not drift.
 
 ### D9. The execution boundary does not move
 
 Concord does not call a routing provider, run health probes, wait on timers, or
 perform rollback. Context cancellation does not prove that any native effect
-stopped. The native authority supplies the report and evidence; Concord records
-and folds it.
+stopped. The native authority supplies the report and evidence; Concord records it.
 
 ## Rejected alternatives
 
@@ -218,9 +215,10 @@ and carries no phase/status invariants.
 - `AJ8-health-failure-rollback` binds with no adapter-domain inference.
 - The record and every read carry reporter, subject, status, evidence, and time.
 - Agent-supplied authority names cannot change attribution.
-- Phase/status/evidence mismatches fail before append.
-- Event-log rebuild reproduces the native-run projection exactly.
-- Same-key replay returns the same partial operation and no duplicate event.
+- Phase/status/evidence mismatches fail before the row is written.
+- The implementing change binds the current-state anchor: native-run rows read
+  back unchanged, with no event-log rebuild (CD-0242 D2).
+- Same-key replay returns the same partial operation and no duplicate report.
 - A successful predicate returns `ok`; failed health plus successful rollback
   returns `partial` and durable `rolled_back` state.
 - No test or production path calls a provider, probes health, or fabricates

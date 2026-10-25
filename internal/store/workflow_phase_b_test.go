@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,14 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
+func TestBuiltinWorkflowRegistryHasTheThreeLiveContractFamilies(t *testing.T) {
 	t.Parallel()
-	// The live selector publishes exactly the three authoring heads; the
-	// frozen enumeration keeps all seven family heads registered for decode
-	// and replay, and the shape assertions below run against that frozen set.
 	live := BuiltinWorkflowDefinitions()
 	liveRefs := make([]string, len(live))
 	for index, definition := range live {
@@ -26,42 +21,30 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	if !reflect.DeepEqual(liveRefs, []string{"workflow.implementation", "workflow.break_fix", "workflow.research"}) {
 		t.Fatalf("live authoring heads = %v, want the three retained families in chain order", liveRefs)
 	}
-	defs := builtinWorkflowFrozenHeads()
-	if len(defs) != 7 {
-		t.Fatalf("frozen definition count = %d, want 7", len(defs))
+	defs := BuiltinWorkflowDefinitions()
+	if len(defs) != 3 {
+		t.Fatalf("current definition count = %d, want 3", len(defs))
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation":     {"proposal", "alignment", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
-		"workflow.break_fix":          {"diagnosis", "planning", "repair", "refine", "delivery", "verify", "complete"},
-		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
-		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
-		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
-		"workflow.static_analysis":    {"scope", "analyze", "report", "review", "complete"},
-		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
+		"workflow.implementation": {"proposal", "alignment", "planning", "design", "execution", "refine", "delivery", "acceptance", "release"},
+		"workflow.break_fix":      {"diagnosis", "planning", "repair", "refine", "delivery", "verify", "complete"},
+		"workflow.research":       {"frame", "investigate", "findings", "conclude", "complete"},
 	}
 	// A composed head lists each action once, in first appearance over its
 	// compiled steps.
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "record_design", "approve_contract", "accept_worker_evidence", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
-		"workflow.break_fix":          {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "accept_worker_result", "record_worker_job", "checkpoint_refine", "request_correction", "record_verdict", "confirm_premise", "complete"},
-		"workflow.research":           {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete"},
-		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
-		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
-		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
-		"workflow.generic_one_off":    {"approve_contract", "start_action", "checkpoint_action", "bind_evidence", "link_successor", "record_delivery", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
+		"workflow.implementation": {"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context", "record_alignment", "approve_contract", "accept_worker_evidence", "record_design", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "request_correction", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.break_fix":      {"record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context", "approve_contract", "dispatch_worker", "accept_worker_evidence", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "request_correction", "accept_worker_result", "record_worker_job", "checkpoint_refine", "record_verdict", "confirm_premise", "complete"},
+		"workflow.research":       {"frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "dispatch_worker", "accept_worker_evidence", "record_work_context", "record_finding", "revise_candidates", "bind_evidence", "accept_worker_result", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "record_worker_job", "complete"},
 	}
 	wantTerminals := map[string]string{
-		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
+		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
-		"workflow.break_fix":          {{"diagnosis", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
-		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
-		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
-		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},
-		"workflow.static_analysis":    {{"scope", "analyze", WorkflowEdgeForward}, {"analyze", "report", WorkflowEdgeForward}, {"report", "review", WorkflowEdgeForward}, {"review", "complete", WorkflowEdgeForward}, {"analyze", "analyze", WorkflowEdgeRetry}},
-		"workflow.generic_one_off":    {{"define", "execute", WorkflowEdgeForward}, {"execute", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"execute", "execute", WorkflowEdgeRetry}},
+		"workflow.implementation": {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "planning", WorkflowEdgeForward}, {"planning", "design", WorkflowEdgeForward}, {"design", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
+		"workflow.break_fix":      {{"diagnosis", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
+		"workflow.research":       {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 	}
 	for _, definition := range defs {
 		registered, err := registry.Register(definition)
@@ -71,10 +54,10 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		if registered.Digest == "" || !strings.HasPrefix(registered.Digest, "sha256:") {
 			t.Fatalf("%s has no computed digest", definition.Ref)
 		}
-		if err := registry.Verify(definition.Ref, definition.Version, registered.Digest); err != nil {
+		if err := registry.Verify(definition.Ref, registered.Digest); err != nil {
 			t.Fatalf("verify %s: %v", definition.Ref, err)
 		}
-		stored, ok := registry.Lookup(definition.Ref, definition.Version)
+		stored, ok := registry.Current(definition.Ref)
 		if !ok || !reflect.DeepEqual(stored.Definition, definition) {
 			t.Fatalf("registry changed the full definition for %s", definition.Ref)
 		}
@@ -125,7 +108,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 			}
 		}
 	}
-	if _, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1); !ok {
+	if _, ok := BuiltinWorkflowRegistry().Current("workflow.implementation"); !ok {
 		t.Fatal("implementation definition was not registered")
 	}
 }
@@ -146,9 +129,9 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
 		// The derived-start shape: the qualifying checkpoint opens the fence,
-		// and the evidence, delivery, and continuity actions follow it.
-		if !reflect.DeepEqual(refine.Actions[:4], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context"}) {
-			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, continuity", definition.Ref, refine.Actions)
+		// and the evidence, delivery, correction, and continuity actions follow it.
+		if !reflect.DeepEqual(refine.Actions[:5], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "request_correction", "checkpoint_context"}) {
+			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, correction, continuity", definition.Ref, refine.Actions)
 		}
 		var delivery WorkflowStep
 		for _, candidate := range definition.StepGraph.Steps {
@@ -189,7 +172,7 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 		"workflow.static_analysis":    {evidence: []EvidenceKind{EvidenceArtifact, EvidenceReview}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"run_analysis": ActionExternalEffect, "checkpoint_analysis": ActionExternalEffect}},
 		"workflow.generic_one_off":    {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_action": ActionExternalEffect, "checkpoint_action": ActionExternalEffect}},
 	}
-	for _, definition := range builtinWorkflowFrozenHeads() {
+	for _, definition := range BuiltinWorkflowDefinitions() {
 		wantDefinition, ok := want[definition.Ref]
 		if !ok {
 			t.Fatalf("missing exact metadata expectation for %s", definition.Ref)
@@ -218,7 +201,7 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
 	for _, latest := range BuiltinWorkflowDefinitions() {
-		registered, ok := registry.Lookup(latest.Ref, latest.Version)
+		registered, ok := registry.Current(latest.Ref)
 		if !ok {
 			t.Fatalf("%s definition is not registered", latest.Ref)
 		}
@@ -226,35 +209,11 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resolved.Definition.Version != registered.Definition.Version || resolved.Digest != registered.Digest {
-			t.Fatalf("resolver for %s = v%d %s, want v%d %s", latest.Ref, resolved.Definition.Version, resolved.Digest, registered.Definition.Version, registered.Digest)
+		if resolved.Definition.Ref != registered.Definition.Ref || resolved.Digest != registered.Digest {
+			t.Fatalf("resolver for %s = %s, want %s", latest.Ref, resolved.Digest, registered.Digest)
 		}
-		// The lane-step dispatch join (#892) composes the worker pair onto
-		// every non-terminal step whose kind a binding admits, except
-		// approval-gated steps, whose only advancing exit is the operator
-		// action. The CD-0156 alignment step is also exempt: record_alignment
-		// must be its only advance exit, so no dispatched attempt can accept
-		// its way past the search.
-		for _, step := range latest.StepGraph.Steps {
-			admitted := slices.Contains(step.Actions, "accept_worker_result")
-			terminalStep := slices.Contains(latest.StepGraph.TerminalSteps, step.ID)
-			gated := false
-			for _, actionID := range step.Actions {
-				for _, action := range latest.ActionDefinitions {
-					if action.ID == actionID && action.Approval == ActionApprovalRequired {
-						gated = true
-					}
-				}
-			}
-			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			// The merged break_fix diagnosis step joins the alignment
-			// exemption: its only advance exit is record_diagnosis, so a
-			// dispatched attempt cannot accept its way past the sections
-			// (CD-0198 D2).
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery" && step.ID != "diagnosis") {
-				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
-			}
-		}
+		// TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair
+		// owns which steps compose the worker pair (CD-0242 D5).
 		for _, action := range latest.ActionDefinitions {
 			if action.ID != "accept_worker_result" {
 				continue
@@ -272,9 +231,6 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 					WorkflowPayloadField{Name: "delivery_artifact", ValueType: PayloadRef},
 					WorkflowPayloadField{Name: "delivery_state", ValueType: PayloadString, Enum: []string{"asserted"}},
 				)
-			}
-			if workflowJobSizeActive(latest) {
-				want = append(want, WorkflowPayloadField{Name: "supplemental_classifications", ValueType: PayloadArray, ItemRef: "worker_job_measured_path"})
 			}
 			if len(fields) != len(want) {
 				t.Fatalf("%s acceptance payload has %d fields, want %d", latest.Ref, len(fields), len(want))
@@ -349,7 +305,7 @@ func TestWorkflowDefinitionCanonicalDigestAndDriftProtection(t *testing.T) {
 	if registered.Digest != digest {
 		t.Fatalf("registered digest = %q, computed = %q", registered.Digest, digest)
 	}
-	if err := registry.Verify(definition.Ref, definition.Version, "sha256:"+strings.Repeat("0", 64)); err == nil {
+	if err := registry.Verify(definition.Ref, "sha256:"+strings.Repeat("0", 64)); err == nil {
 		t.Fatal("stored digest drift was accepted")
 	}
 }
@@ -401,6 +357,60 @@ func TestWorkflowDefinitionCanonicalEncodingMatchesPublicFixture(t *testing.T) {
 	}
 }
 
+func TestWorkflowCapabilityVocabularyMatchesPublicSchema(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "workflow-definition.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties struct {
+			Capabilities struct {
+				UniqueItems bool `json:"uniqueItems"`
+				MaxItems    int  `json:"maxItems"`
+				Items       struct {
+					Enum []WorkflowCapability `json:"enum"`
+				} `json:"items"`
+			} `json:"capabilities"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := schema.Properties.Capabilities
+	if !slices.Equal(capabilities.Items.Enum, workflowCapabilityNames) || !capabilities.UniqueItems || capabilities.MaxItems != len(workflowCapabilityNames) {
+		t.Fatalf("public capability vocabulary/bounds differ from the canonical registry: %+v", capabilities)
+	}
+}
+
+func TestWorkerPacketSchemaMatchesCurrentDispatchFormat(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "contracts", "agent-tool-surface-payloads.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]json.RawMessage `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	var packet struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema.Defs["worker_packet"], &packet); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(packet.Properties["schema_version"].Enum, []string{WorkerPacketSchemaVersion}) {
+		t.Fatalf("current packet schema differs from dispatch format %q", WorkerPacketSchemaVersion)
+	}
+	if _, exists := packet.Properties["lane_version"]; exists {
+		t.Fatal("current packet carries a retired lane counter")
+	}
+}
+
 func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 	t.Parallel()
 	valid := []byte(`{"kind":"exists","surface":"git:tree","subjects":["path:cmd/concord"]}`)
@@ -431,37 +441,25 @@ func TestWorkflowPredicateDecoderIsClosedAndRejectsTrailingData(t *testing.T) {
 	}
 }
 
-func TestWorkflowActorValidationAndDistinctness(t *testing.T) {
+func TestWorkflowActorValidation(t *testing.T) {
 	t.Parallel()
 	if err := ValidateWorkflowActor(WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}); err != nil {
 		t.Fatal(err)
 	}
-	executing := WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}
-	verdict := executing
-	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, false); err == nil {
-		t.Fatal("same executing and verdict actor accepted")
-	}
-	operatorVerdict := executing
-	operatorVerdict.ActorClass = ActorOperator
-	if err := validateDistinctWorkflowActorsForReplay(executing, operatorVerdict, false); err != nil {
-		t.Fatalf("operator verdict was not distinct from agent executor: %v", err)
-	}
 }
 
 // The pinned definition, not the generic outcome union, decides which outcome
-// tokens a predicate may carry: research refuses the architecture-spike token,
-// and the spike definition admits it without an inline decision record because
-// the bound record lives in workflow_decision_records.
-func TestWorkflowPredicateForDefinitionBindsSpikeTokensToTheSpikeFamily(t *testing.T) {
+// tokens a predicate may carry: live research refuses the retired
+// architecture-spike token.
+func TestResearchPredicateRefusesTheArchitectureSpikeToken(t *testing.T) {
 	t.Parallel()
-	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
-	researchDefinition := phaseBDefinition(t, "workflow.research", 17)
-	if err := ValidateWorkflowPredicateForDefinition(researchDefinition, spikeToken); err == nil {
-		t.Fatal("research definition accepted an architecture-spike token")
+	research, err := BuiltinWorkflowDefinitionForRef("workflow.research")
+	if err != nil {
+		t.Fatal(err)
 	}
-	spikeDefinition := phaseBDefinition(t, "workflow.architecture_spike", 17)
-	if err := ValidateWorkflowPredicateForDefinition(spikeDefinition, spikeToken); err != nil {
-		t.Fatalf("spike outcome predicate without an inline decision record was refused: %v", err)
+	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
+	if err := ValidateWorkflowPredicateForDefinition(research.Definition, spikeToken); err == nil {
+		t.Fatal("research definition accepted an architecture-spike token")
 	}
 }
 
@@ -489,16 +487,16 @@ func TestWorkflowDefinitionPinPreflightFailsClosedOnDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: registered.Digest}); err != nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Digest: registered.Digest}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Version: definition.Version, Digest: "sha256:" + strings.Repeat("f", 64)}); err == nil {
+	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: definition.Ref, Digest: "sha256:" + strings.Repeat("f", 64)}); err == nil {
 		t.Fatal("drifted workflow pin was accepted")
 	}
 	s := openTemp(t)
 	seedWork(t, s, "drift-work")
 	badEvent := workflowEvent("drift-definition", WorkflowDefinitionSelected, "drift-work", map[string]any{
-		"work_id": "drift-work", "expected_version": 2, "resulting_version": 3, "ref": definition.Ref, "version": definition.Version,
+		"work_id": "drift-work", "expected_version": 2, "resulting_version": 3, "ref": definition.Ref,
 		"digest": "sha256:" + strings.Repeat("f", 64), "work_kind": string(definition.WorkKind),
 	})
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{badEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "drift-work"): 2}}); err == nil {
@@ -531,7 +529,7 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	}
 	event := workflowEvent("preflight-definition", WorkflowDefinitionSelected, "preflight-work", map[string]any{
 		"work_id": "preflight-work", "expected_version": 2, "resulting_version": 3,
-		"ref": definition.Ref, "version": definition.Version, "digest": registered.Digest, "work_kind": string(definition.WorkKind),
+		"ref": definition.Ref, "digest": registered.Digest, "work_kind": string(definition.WorkKind),
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "preflight-work"): 2}}); err != nil {
 		t.Fatal(err)
@@ -544,129 +542,4 @@ func TestWorkflowActionAuthorizationPreflightsBeforeCallbackOnRegistryDrift(t *t
 	if err == nil || called {
 		t.Fatalf("registry drift did not fail before authorization: err=%v called=%v", err, called)
 	}
-}
-
-func phaseBDefinition(t *testing.T, ref string, version int64) WorkflowDefinition {
-	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
-	if !ok {
-		t.Fatalf("%s v%d is not registered", ref, version)
-	}
-	return entry.Definition
-}
-
-// spikeWorkflowFixture seeds one Product, Project, and task work item the way
-// the fail-closed completion fixture does, so the approval and completion
-// tests below measure only the decision-record boundary.
-func spikeWorkflowFixture(t *testing.T, s *Store, workID string, actor WorkflowActor) {
-	t.Helper()
-	ctx := context.Background()
-	events := []Event{
-		{EventID: workID + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: workID + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-" + workID, Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-		{EventID: workID + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-" + workID, Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"product_id": "product-" + workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: workID + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{"work_kind": "task", "title": "Spike", "priority": 1})},
-		{EventID: workID + "-work-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"work_id": workID, "project_id": "project-" + workID, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-"+workID): 0, VersionRef(SubjectProject, "project-"+workID): 0, VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	initializeCompositionWorkflow(t, s, workID, "workflow.architecture_spike", actor)
-}
-
-// spikeDecisionRecordEnvelope is one record_decision payload whose token can
-// be varied per case.
-func spikeDecisionRecordEnvelope(decision string) json.RawMessage {
-	return mustJSONValue(map[string]any{"action_id": "record_decision", "fields": map[string]any{"question": "Which mechanism binds state?", "options_considered": []string{"one"}, "decision": decision, "rationale": "rationale", "consequences": []string{"effect"}, "inputs": []string{"input"}, "poc_findings": "findings"}})
-}
-
-// CD-0013 D4 binds the architecture-spike record at evaluation and completion
-// through the row record_decision writes, so contract approval admits an
-// outcome predicate without an inline record and still validates a record
-// when one is supplied.
-func TestSpikeContractApprovalAdmitsOutcomeWithoutInlineRecord(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	const workID = "spike-approval-no-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	actorRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approval := func(eventID string, outcome map[string]any) Event {
-		return workflowEventWithActor(eventID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	}
-	event := approval("approval-contract-"+workID, map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatalf("spike contract without an inline decision record was refused: %v", err)
-	}
-}
-
-// An inline record, when supplied, is still validated: its decision token must
-// sit inside the predicate's allowed set, so approval refuses the mismatch.
-func TestSpikeContractApprovalValidatesASuppliedInlineRecord(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	const workID = "spike-approval-mismatched-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	actorRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := map[string]any{"question": "q", "options_considered": []string{"one"}, "decision": "insufficient_evidence", "rationale": "r", "consequences": []string{"c"}, "inputs": []string{"i"}, "poc_findings": "none", "supersedes": nil, "superseded_by": nil, "unknowns": []string{"u"}, "required_to_decide": []string{"d"}, "reviewer_actor_ref": "actor:" + strings.Repeat("a", 64), "operator_approval_ref": "approval:spike"}
-	outcome := map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}, "decision_record": record}
-	event := workflowEventWithActor("approval-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "spike the binding mechanism", "outcome_kind": "outcome", "outcome_payload": outcome, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:spike-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": outcome}}, "required_evidence": []string{"review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err == nil {
-		t.Fatal("spike contract accepted an inline record outside the approved token set")
-	} else {
-		// The generic outcome union refuses the mismatch before the pinned
-		// definition is consulted, so the fold reports invalid_payload.
-		assertFailureKind(t, err, KindInvalidPayload)
-	}
-}
-
-// Completion binds to the recorded row: without one the fold refuses, with
-// one whose token sits in the pinned allowed set the work completes.
-func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	const workID = "spike-completion-bound-record"
-	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	spikeWorkflowFixture(t, s, workID, owner)
-	// CD-0183 D4: the lifecycle decision-record gate runs for an instance the
-	// gate never owned, so the fixture completes the instance before the
-	// transition.
-	seedTerminalInstanceForTesting(t, s, workID, "completed")
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
-			return err
-		}
-		if err := foldWorkflowDecisionRecord(ctx, tx.tx, Event{SubjectID: workID, OccurredAt: time.Unix(100, 0)}, spikeDecisionRecordEnvelope("accepted_decision")); err != nil {
-			return err
-		}
-		return leaveFold(ctx, tx.tx)
-	}); err != nil {
-		t.Fatalf("record_decision fold refused the typed record: %v", err)
-	}
-	event := operationEventForResearch(workID+"-complete", "work.transitioned", workID, map[string]any{"from": "needed", "to": "completed", "reason": "decision accepted", "evidence_refs": []string{"evidence:spike-decision"}, "expected_version": 4, "resulting_version": 5})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatalf("spike completion with a bound decision record was refused: %v", err)
-	}
-	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "completed" {
-		t.Fatalf("lifecycle = %q, want completed", lifecycle)
-	}
-}
-
-// foldWorkflowDecisionRecord keeps the builtin resolution for direct callers;
-// the scoped checkpoint fold carries the transaction's registry to the same
-// core.
-func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
-	return foldWorkflowDecisionRecordForRegistry(ctx, tx, BuiltinWorkflowRegistry(), event, raw)
 }

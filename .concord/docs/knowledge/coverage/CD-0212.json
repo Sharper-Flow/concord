@@ -26,7 +26,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReclaimInterruptedRestorationDebtSurvivesLogRebuild"
+      "value": "internal/store.TestReclaimInterruptedRestorationDebtResolvesAtPinnedTip"
     },
     {
       "kind": "go_test",
@@ -58,7 +58,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestReclaimRefOutcomeRowsSurviveLogRebuild"
+      "value": "internal/store.TestReclaimRefOutcomeSettlesAfterRestoration"
     },
     {
       "kind": "go_test",
@@ -87,10 +87,6 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent"
     },
     {
       "kind": "go_test",

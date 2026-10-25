@@ -9,57 +9,466 @@
       "instance": {
         "schema_version": "1.3",
         "ref": "workflow.implementation",
-        "version": 1,
-        "digest": "sha256:179f8a9a42bc2ece30d555c02b383da6047882292a8ac45504f918f032d62431",
         "work_kind": "implementation",
         "changes_product_truth": true,
+        "capabilities": [],
         "step_graph": {
           "start_step": "proposal",
-          "terminal_steps": ["release"],
+          "terminal_steps": [
+            "release"
+          ],
           "steps": [
-            {"id": "proposal", "kind": "internal_sqlite", "actions": ["record_proposal", "checkpoint_context", "cross_context_boundary"]},
-            {"id": "discovery", "kind": "internal_sqlite", "actions": ["record_discovery", "checkpoint_context", "cross_context_boundary"]},
-            {"id": "design", "kind": "internal_sqlite", "actions": ["record_design", "checkpoint_context", "cross_context_boundary"]},
-            {"id": "planning", "kind": "human_checkpoint", "actions": ["approve_contract", "checkpoint_context", "cross_context_boundary"]},
-            {"id": "execution", "kind": "external_effect", "actions": ["start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"]},
-            {"id": "acceptance", "kind": "human_checkpoint", "actions": ["record_verdict", "confirm_premise", "checkpoint_context", "cross_context_boundary"]},
-            {"id": "release", "kind": "internal_sqlite", "actions": ["complete", "checkpoint_context", "cross_context_boundary"]}
+            {
+              "id": "proposal",
+              "kind": "internal_sqlite",
+              "actions": [
+                "record_proposal",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            },
+            {
+              "id": "discovery",
+              "kind": "internal_sqlite",
+              "actions": [
+                "record_discovery",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            },
+            {
+              "id": "design",
+              "kind": "internal_sqlite",
+              "actions": [
+                "record_design",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            },
+            {
+              "id": "planning",
+              "kind": "human_checkpoint",
+              "actions": [
+                "approve_contract",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            },
+            {
+              "id": "execution",
+              "kind": "external_effect",
+              "actions": [
+                "start_execution",
+                "checkpoint_execution",
+                "bind_evidence",
+                "declare_impact",
+                "link_successor",
+                "checkpoint_context",
+                "cross_context_boundary",
+                "accept_worker_result",
+                "dispatch_worker"
+              ]
+            },
+            {
+              "id": "acceptance",
+              "kind": "human_checkpoint",
+              "actions": [
+                "record_verdict",
+                "confirm_premise",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            },
+            {
+              "id": "release",
+              "kind": "internal_sqlite",
+              "actions": [
+                "complete",
+                "checkpoint_context",
+                "cross_context_boundary"
+              ]
+            }
           ],
           "edges": [
-            {"from": "proposal", "to": "discovery", "kind": "forward"},
-            {"from": "discovery", "to": "design", "kind": "forward"},
-            {"from": "design", "to": "planning", "kind": "forward"},
-            {"from": "planning", "to": "execution", "kind": "forward"},
-            {"from": "execution", "to": "acceptance", "kind": "forward"},
-            {"from": "acceptance", "to": "release", "kind": "forward"},
-            {"from": "execution", "to": "execution", "kind": "retry"}
+            {
+              "from": "proposal",
+              "to": "discovery",
+              "kind": "forward"
+            },
+            {
+              "from": "discovery",
+              "to": "design",
+              "kind": "forward"
+            },
+            {
+              "from": "design",
+              "to": "planning",
+              "kind": "forward"
+            },
+            {
+              "from": "planning",
+              "to": "execution",
+              "kind": "forward"
+            },
+            {
+              "from": "execution",
+              "to": "acceptance",
+              "kind": "forward"
+            },
+            {
+              "from": "acceptance",
+              "to": "release",
+              "kind": "forward"
+            },
+            {
+              "from": "execution",
+              "to": "execution",
+              "kind": "retry"
+            }
           ]
         },
-        "available_actions": ["record_proposal", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker"],
-        "action_definitions": [
-          {"id": "record_proposal", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "advance", "payload": {"fields": []}},
-          {"id": "record_discovery", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "advance", "payload": {"fields": []}},
-          {"id": "record_design", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "advance", "payload": {"fields": []}},
-          {"id": "approve_contract", "consequence": "internal_sqlite", "approval": "required", "execution_mode": "advance", "payload": {"fields": []}},
-          {"id": "start_execution", "consequence": "external_effect", "approval": "none", "execution_mode": "fenced", "payload": {"fields": []}},
-          {"id": "checkpoint_execution", "consequence": "external_effect", "approval": "none", "execution_mode": "checkpoint", "payload": {"fields": []}},
-          {"id": "bind_evidence", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": []}},
-          {"id": "declare_impact", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": []}},
-          {"id": "link_successor", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": []}},
-          {"id": "record_verdict", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": []}},
-          {"id": "confirm_premise", "consequence": "internal_sqlite", "approval": "required", "execution_mode": "advance", "payload": {"fields": []}},
-          {"id": "complete", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": []}},
-          {"id": "checkpoint_context", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "hold", "payload": {"fields": [{"name": "checkpoint_id", "value_type": "ref", "required": false}, {"name": "checkpoint_sequence", "value_type": "integer", "required": false, "minimum": 1, "maximum": 2147483647}, {"name": "active_unit", "value_type": "string", "required": true, "min_length": 2, "max_length": 256}, {"name": "hypothesis", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "diagnosis", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "strategy", "value_type": "string", "required": true, "min_length": 2, "max_length": 4096}, {"name": "touched_refs", "value_type": "string_list", "required": true, "min_items": 1, "max_items": 64}, {"name": "evidence_refs", "value_type": "string_list", "required": true, "min_items": 1, "max_items": 64}, {"name": "pending_questions", "value_type": "string_list", "required": true, "min_items": 0, "max_items": 16}, {"name": "pending_decisions", "value_type": "string_list", "required": true, "min_items": 0, "max_items": 16}]}},
-          {"id": "cross_context_boundary", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "advance", "payload": {"fields": [{"name": "boundary_kind", "value_type": "string", "required": true, "min_length": 1, "max_length": 16}, {"name": "mode", "value_type": "string", "required": true, "min_length": 1, "max_length": 16}, {"name": "checkpoint_id", "value_type": "ref", "required": true}, {"name": "checkpoint_sequence", "value_type": "integer", "required": false, "minimum": 1, "maximum": 2147483647}, {"name": "summary", "value_type": "string", "required": true, "min_length": 1, "max_length": 16384}]}},
-          {"id": "accept_worker_result", "consequence": "internal_sqlite", "approval": "none", "execution_mode": "advance", "required_capability": "work_transition", "payload": {"fields": [{"name": "attempt_id", "value_type": "ref", "required": true, "min_length": 2, "max_length": 128}, {"name": "attempt_epoch", "value_type": "integer", "required": true, "minimum": 1, "maximum": 2147483647}]}},
-          {"id": "dispatch_worker", "consequence": "external_effect", "approval": "none", "execution_mode": "fenced", "required_capability": "worker_dispatch", "payload": {"fields": [{"name": "attempt_id", "value_type": "ref", "required": true, "min_length": 2, "max_length": 128}]}}
+        "available_actions": [
+          "record_proposal",
+          "record_discovery",
+          "record_design",
+          "approve_contract",
+          "start_execution",
+          "checkpoint_execution",
+          "bind_evidence",
+          "declare_impact",
+          "link_successor",
+          "record_verdict",
+          "confirm_premise",
+          "complete",
+          "checkpoint_context",
+          "cross_context_boundary",
+          "accept_worker_result",
+          "dispatch_worker"
         ],
-        "required_evidence_kinds": ["verification", "review"],
-        "outcome_schema": {"default_kind": "check", "allowed_kinds": ["exists", "absent", "check"], "allowed_outcome_tokens": [], "decision_record_required": false},
-        "rigor_rules": [{"maturity": "prototype", "audience_band": "internal", "required_evidence_kinds": ["verification"]}],
+        "action_definitions": [
+          {
+            "id": "record_proposal",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "record_discovery",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "record_design",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "approve_contract",
+            "consequence": "internal_sqlite",
+            "approval": "required",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "start_execution",
+            "consequence": "external_effect",
+            "approval": "none",
+            "execution_mode": "fenced",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "checkpoint_execution",
+            "consequence": "external_effect",
+            "approval": "none",
+            "execution_mode": "checkpoint",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "bind_evidence",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "declare_impact",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "link_successor",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "record_verdict",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "confirm_premise",
+            "consequence": "internal_sqlite",
+            "approval": "required",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "complete",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": []
+            }
+          },
+          {
+            "id": "checkpoint_context",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "hold",
+            "payload": {
+              "fields": [
+                {
+                  "name": "checkpoint_id",
+                  "value_type": "ref",
+                  "required": false
+                },
+                {
+                  "name": "checkpoint_sequence",
+                  "value_type": "integer",
+                  "required": false,
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                {
+                  "name": "active_unit",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 256
+                },
+                {
+                  "name": "hypothesis",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 4096
+                },
+                {
+                  "name": "diagnosis",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 4096
+                },
+                {
+                  "name": "strategy",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 4096
+                },
+                {
+                  "name": "touched_refs",
+                  "value_type": "string_list",
+                  "required": true,
+                  "min_items": 1,
+                  "max_items": 64
+                },
+                {
+                  "name": "evidence_refs",
+                  "value_type": "string_list",
+                  "required": true,
+                  "min_items": 1,
+                  "max_items": 64
+                },
+                {
+                  "name": "pending_questions",
+                  "value_type": "string_list",
+                  "required": true,
+                  "min_items": 0,
+                  "max_items": 16
+                },
+                {
+                  "name": "pending_decisions",
+                  "value_type": "string_list",
+                  "required": true,
+                  "min_items": 0,
+                  "max_items": 16
+                }
+              ]
+            }
+          },
+          {
+            "id": "cross_context_boundary",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "advance",
+            "payload": {
+              "fields": [
+                {
+                  "name": "boundary_kind",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 1,
+                  "max_length": 16
+                },
+                {
+                  "name": "mode",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 1,
+                  "max_length": 16
+                },
+                {
+                  "name": "checkpoint_id",
+                  "value_type": "ref",
+                  "required": true
+                },
+                {
+                  "name": "checkpoint_sequence",
+                  "value_type": "integer",
+                  "required": false,
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                {
+                  "name": "summary",
+                  "value_type": "string",
+                  "required": true,
+                  "min_length": 1,
+                  "max_length": 16384
+                }
+              ]
+            }
+          },
+          {
+            "id": "accept_worker_result",
+            "consequence": "internal_sqlite",
+            "approval": "none",
+            "execution_mode": "advance",
+            "required_capability": "work_transition",
+            "payload": {
+              "fields": [
+                {
+                  "name": "attempt_id",
+                  "value_type": "ref",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 128
+                },
+                {
+                  "name": "attempt_epoch",
+                  "value_type": "integer",
+                  "required": true,
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            }
+          },
+          {
+            "id": "dispatch_worker",
+            "consequence": "external_effect",
+            "approval": "none",
+            "execution_mode": "fenced",
+            "required_capability": "worker_dispatch",
+            "payload": {
+              "fields": [
+                {
+                  "name": "attempt_id",
+                  "value_type": "ref",
+                  "required": true,
+                  "min_length": 2,
+                  "max_length": 128
+                }
+              ]
+            }
+          }
+        ],
+        "required_evidence_kinds": [
+          "verification",
+          "review"
+        ],
+        "outcome_schema": {
+          "default_kind": "check",
+          "allowed_kinds": [
+            "exists",
+            "absent",
+            "check"
+          ],
+          "allowed_outcome_tokens": [],
+          "decision_record_required": false
+        },
+        "rigor_rules": [
+          {
+            "maturity": "prototype",
+            "audience_band": "internal",
+            "required_evidence_kinds": [
+              "verification"
+            ]
+          }
+        ],
         "staleness_rules": [],
-        "composition_rules": {"forward_link_only": true, "allowed_successor_work_kinds": ["break_fix", "research"], "forbidden_compositions": []},
-        "evaluator_independence": {"model_distinct": false}
+        "composition_rules": {
+          "forward_link_only": true,
+          "allowed_successor_work_kinds": [
+            "break_fix",
+            "research"
+          ],
+          "forbidden_compositions": []
+        },
+        "evaluator_independence": {
+          "model_distinct": false
+        },
+        "recovery_routes": [
+          {
+            "step": "acceptance",
+            "trigger": "unhealthy_verdict",
+            "action": "request_correction",
+            "target": "execution"
+          },
+          {
+            "step": "release",
+            "trigger": "unhealthy_verdict",
+            "action": "request_correction",
+            "target": "execution"
+          }
+        ],
+        "digest": "sha256:acbf930ac7ac11c5f3adccd761f6ad870af787c425704fec25b3abf640eaff2f"
       }
     },
     {"id": "outcome-exists-valid", "schema": "workflow-outcome.schema.json", "valid": true, "instance": {"kind": "exists", "surface": "git:tree", "subjects": ["path:cmd/concord"]}},
@@ -93,7 +502,6 @@
     {"id": "scenario-initial-state-float-invalid", "mutation": "invalid_float", "expected_error": "oneOf mismatch"},
     {"id": "scenario-unknown-error-kind", "mutation": "unknown_error_kind", "expected_error": "undeclared scenario error kind"},
     {"id": "scenario-rejection-removed-surface-version", "mutation": "removed_surface_version_rejection", "expected_error": "unknown properties"},
-    {"id": "scenario-notice-id-invalid", "mutation": "wrong_notice_id", "expected_error": "notice-ID derivation mismatch"},
     {"id": "scenario-literal-backslash-zero-actor", "mutation": "literal_backslash_zero_actor", "expected_error": "actor-ID derivation mismatch"}
   ],
   "structured_scenario_negative_cases": [
@@ -101,6 +509,10 @@
     {"id": "structured-unknown-request-field", "mutation": "unknown_request_field", "expected_error": "unknown structured request field"},
     {"id": "structured-dangling-fixture-reference", "mutation": "dangling_fixture_ref", "expected_error": "dangling fixture reference"},
     {"id": "structured-unknown-fault-kind", "mutation": "unknown_fault_kind", "expected_error": "unknown structured fault kind"},
-    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"}
+    {"id": "structured-unknown-observation-op", "mutation": "unknown_observation_op", "expected_error": "unknown structured observation op"},
+    {"id": "structured-grant-actor-mismatch", "mutation": "grant_actor", "expected_error": "actor-ID derivation mismatch"},
+    {"id": "structured-setup-actor-mismatch", "mutation": "setup_actor", "expected_error": "dangling fixture reference setup actor"},
+    {"id": "structured-request-action-mismatch", "mutation": "request_action", "expected_error": "request action mismatch"},
+    {"id": "structured-request-scope-mismatch", "mutation": "request_scope", "expected_error": "request scope mismatch"}
   ]
 }

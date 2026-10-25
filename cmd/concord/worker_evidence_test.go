@@ -92,7 +92,7 @@ func workerCompleteJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, a
 	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbComplete, WorkID: workID, AttemptID: attemptID,
-		LaneID: resolved.ID, LaneVersion: resolved.Version, LaneDigest: resolved.Digest,
+		LaneID: resolved.ID, LaneDigest: resolved.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	evidence := make([]map[string]any, 0, len(resolved.EvidenceObligations))
@@ -113,7 +113,7 @@ func workerFailJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attem
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, FailureKind: failureKind, Nonce: nonce,
 	}
 	value := map[string]any{
@@ -131,7 +131,7 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: verb, WorkID: "work-1", AttemptID: "attempt-1",
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	request := map[string]any{
@@ -148,7 +148,6 @@ func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition,
 		assertion.HostProvenanceDigest = provenanceDigest
 		assertion.PacketDigest = packetDigest
 		request["lane_id"] = lane.ID
-		request["lane_version"] = lane.Version
 		request["lane_digest"] = lane.Digest
 		request["packet_schema_version"] = store.WorkerPacketSchemaVersion
 		request["report_schema_version"] = store.WorkerReportSchemaVersion
@@ -196,8 +195,6 @@ func restrictWorkerEvidenceAssertion(t *testing.T, assertion agent.WorkerEvidenc
 			restricted.AttemptID = assertion.AttemptID
 		case "lane_id":
 			restricted.LaneID = assertion.LaneID
-		case "lane_version":
-			restricted.LaneVersion = assertion.LaneVersion
 		case "lane_digest":
 			restricted.LaneDigest = assertion.LaneDigest
 		case "readback_model":
@@ -238,8 +235,6 @@ func mutateWorkerEvidenceField(t *testing.T, assertion agent.WorkerEvidenceAsser
 		assertion.AttemptID = "attempt-somewhere-else"
 	case "lane_id":
 		assertion.LaneID = "lane-somewhere-else"
-	case "lane_version":
-		assertion.LaneVersion++
 	case "lane_digest":
 		assertion.LaneDigest = "sha256:" + strings.Repeat("d", 64)
 	case "readback_model":
@@ -273,8 +268,9 @@ func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.
 
 // TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet proves, per verb, that the
 // CLI binding populates exactly the field set the shared vector declares. An
-// assertion claiming that set is accepted, so the CLI binds nothing beyond it;
-// restating any one of those fields is refused, so it binds every one of them.
+// assertion claiming that v1 set authenticates; a failed terminal without a
+// producer observation then refuses at the store's attribution gate. Restating
+// any one of those fields refuses at authentication, so it binds every one.
 // The adapter signs the same declared set (adapter/opencode/worker_evidence.test.ts),
 // which is what keeps the two sides from drifting apart per verb.
 func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
@@ -297,8 +293,15 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 			code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &errOut)
 			return code, errOut.String(), dbPath
 		}
-		t.Run(verb+"/accepts the declared field set", func(t *testing.T) {
-			code, stderr, _ := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion { return a })
+		t.Run(verb+"/authenticates the declared v1 field set", func(t *testing.T) {
+			code, stderr, dbPath := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion { return a })
+			if verb == agent.WorkerEvidenceVerbFail {
+				if code == 0 || !strings.Contains(stderr, "the pinned definition requires recorded failure_attribution") {
+					t.Fatalf("v1 worker-fail exit=%d stderr=%q, want authentication followed by the missing-attribution refusal", code, stderr)
+				}
+				attributionAssertNoEffects(t, dbPath, "nonce-bound-fieldset00001")
+				return
+			}
 			if code != 0 {
 				t.Fatalf("%s with the declared field set exit=%d stderr=%q, want acceptance", verb, code, stderr)
 			}
@@ -308,10 +311,13 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 				code, stderr, dbPath := run(t, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 					return mutateWorkerEvidenceField(t, a, field)
 				})
-				if code == 0 {
-					t.Fatalf("%s accepted an assertion restating %s", verb, field)
+				if code == 0 || !strings.Contains(stderr, "does not bind this attempt identity") {
+					t.Fatalf("%s restating %s exit=%d stderr=%q, want the binding refusal", verb, field, code, stderr)
 				}
 				assertNoTerminalWorkerEvent(t, dbPath, stderr)
+				if rows := attributionNonceRows(t, dbPath, "nonce-bound-fieldset00001"); rows != 0 {
+					t.Fatalf("restated %s consumed %d nonce rows, want zero", field, rows)
+				}
 			})
 		}
 	}
@@ -329,18 +335,22 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-nolaneidentity")
-	unbound := assertion
-	unbound.LaneID = ""
-	unbound.LaneVersion = 0
-	unbound.LaneDigest = ""
-	request["assertion"] = signWorkerEvidence(t, key, unbound)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, func(a *agent.WorkerEvidenceAssertion) {
+		a.LaneID, a.LaneDigest = "", ""
+	})
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "does not bind this attempt identity") {
 		t.Fatalf("worker-fail without lane identity exit=%d stderr=%q, want an attempt-identity refusal", code, errOut.String())
 	}
 	assertNoTerminalWorkerEvent(t, dbPath, errOut.String())
 
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, readback, assertion.Nonce, digest, nil)
 	out.Reset()
 	errOut.Reset()
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
@@ -361,11 +371,10 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 }
 
 // TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation proves that
-// the host-only close route carries no caller-supplied model. The core derives
-// the dispatched model from its attempt row. CD-0178 D3 narrows the host
-// observation surface: the abandon path reads worktree_occupancy and process
-// liveness instead of caller-supplied session lists, so an empty observation
-// is the only valid input.
+// the host-only close route carries no caller-supplied model or liveness list.
+// The core derives the dispatched model from its attempt row and reads
+// worktree_occupancy and process liveness. The signed failure attribution
+// records only the abandonment request, not a claim that the child has ended.
 func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
@@ -380,6 +389,15 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 	var out, errOut bytes.Buffer
@@ -414,7 +432,7 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 		t.Fatalf("replayed worker-abandon exit=%d stderr=%q, want the existing event", code, errOut.String())
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND json_extract(a.terminal_payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {
@@ -440,6 +458,15 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 	// Seed a live worktree and a live occupancy row whose host pid is the
@@ -456,11 +483,11 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	}
 	defer s.Close()
 	if _, err := s.DatabaseForTesting().Exec(`
-		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 		SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_live', '2026-01-01T00:00:00Z', ?, ?, 1
 		  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
-		DELETE FROM fold_guard`, pid, pidStart); err != nil {
+		DELETE FROM write_guard`, pid, pidStart); err != nil {
 		t.Fatal(err)
 	}
 
@@ -497,6 +524,15 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 			delete(request, "failure_kind")
 			assertion.ReadbackModel = ""
 			assertion.FailureKind = string(store.WorkerFailureAbandoned)
+			observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+			observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+			observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+			digest, err := store.WorkerFailureObservationDigest(observation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request["failure_attribution"] = observation
+			assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 			request["assertion"] = signWorkerEvidence(t, key, assertion)
 
 			// The test process holds the only live host lease, and it
@@ -521,11 +557,11 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := s.DatabaseForTesting().Exec(`
-				INSERT INTO fold_guard(active) VALUES(1);
+				INSERT INTO write_guard(active) VALUES(1);
 				INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
 				SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_legacy', ?, NULL, NULL, 0
 				  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
-				DELETE FROM fold_guard`, tc.recordedAt); err != nil {
+				DELETE FROM write_guard`, tc.recordedAt); err != nil {
 				t.Fatal(err)
 			}
 			var rows int
@@ -572,7 +608,7 @@ func assertNoTerminalWorkerEvent(t *testing.T, dbPath, stderr string) {
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind IN (?,?)`, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind IN (?,?)`, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -798,7 +834,7 @@ func TestWorkerCompleteCLIRequiresObservedDirectory(t *testing.T) {
 			}
 			defer s.Close()
 			var eventsBefore, noncesBefore int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay)`).Scan(&eventsBefore, &noncesBefore); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts), (SELECT count(*) FROM agent_nonce_replay)`).Scan(&eventsBefore, &noncesBefore); err != nil {
 				t.Fatal(err)
 			}
 			out.Reset()
@@ -821,7 +857,7 @@ func TestWorkerCompleteCLIRequiresObservedDirectory(t *testing.T) {
 			}
 			var eventsAfter, noncesAfter int
 			var lifecycle string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM agent_nonce_replay), lifecycle_state FROM worker_attempts WHERE attempt_id='attempt-1'`).Scan(&eventsAfter, &noncesAfter, &lifecycle); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts), (SELECT count(*) FROM agent_nonce_replay), lifecycle_state FROM worker_attempts WHERE attempt_id='attempt-1'`).Scan(&eventsAfter, &noncesAfter, &lifecycle); err != nil {
 				t.Fatal(err)
 			}
 			if eventsAfter != eventsBefore || noncesAfter != noncesBefore || lifecycle != "dispatched" {
@@ -853,7 +889,7 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 	overwrite := fmt.Sprintf(`{"event_id":"fail-after-complete","work_id":"work-1","attempt_id":"attempt-1","readback_model":%q,"failure_kind":%q,"detail":"late failure","assertion":%s}`,
 		preferredLaneModel(lane), store.WorkerFailureFallbackBlocked, mustJSON(t, signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 			Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: "attempt-1",
-			LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			LaneID: lane.ID, LaneDigest: lane.Digest,
 			ReadbackModel: preferredLaneModel(lane), FailureKind: string(store.WorkerFailureFallbackBlocked),
 			Nonce: "nonce-fail-afterterminal",
 		})))
@@ -987,7 +1023,7 @@ func TestWorkerDispatchRefusesMismatchedPacketDigest(t *testing.T) {
 		assertion := agent.WorkerEvidenceAssertion{
 			ClientRef: workerEvidenceClientRef, Verb: agent.WorkerEvidenceVerbDispatch,
 			WorkID: "work-1", AttemptID: "attempt-1", LaneID: lane.ID,
-			LaneVersion: lane.Version, LaneDigest: lane.Digest,
+			LaneDigest:           lane.Digest,
 			ReadbackModel:        preferredLaneModel(lane),
 			HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
 			PacketDigest:         "sha256:" + strings.Repeat("0", 64),
@@ -1031,7 +1067,7 @@ func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	}
 	defer s.Close()
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE kind=?`, store.WorkerDispatched).Scan(&actor); err != nil {
 		t.Fatal(err)
 	}
 	if actor == "worker:cli" || !strings.Contains(actor, workerEvidenceClientRef) {
@@ -1061,7 +1097,7 @@ func assertNoWorkerEvents(t *testing.T, dbPath string) {
 	}
 	defer s.Close()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind IN (?,?,?)`, store.WorkerDispatched, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind IN (?,?,?)`, store.WorkerDispatched, store.WorkerCompleted, store.WorkerFailed).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 0 {
@@ -1085,8 +1121,8 @@ func mustJSON(t *testing.T, value any) string {
 //
 // CD-0059 D5 makes the dispatch-window integrity check structural, so the
 // pre-existing capability/signature/nonce tests in this file cannot exercise
-// the layers under the window unless the window exists. The helper folds
-// the rows directly through fold_guard so the helper is a one-call fixture
+// the layers under the window unless the window exists. The helper seeds
+// the current rows through write_guard so the helper is a one-call fixture
 // and the tests keep testing what they are named for.
 func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string) {
 	t.Helper()
@@ -1104,7 +1140,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	// The instance row pins version 4, so the digest must be version 4's
 	// own: the worker-evidence seam verifies the pinned definition identity
 	// on every terminal ingest.
-	entry, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 4)
+	entry, ok := store.BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("workflow.implementation v4 is not registered")
 	}
@@ -1167,8 +1203,8 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		"worker_context_frontier": 0,
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
-	// product_projects, work_projects, and the workflow event families are
-	// fold-only, so the rows are admitted through one fold_guard session.
+	// product_projects and work_projects are write-seam-only, so the rows
+	// are admitted through one write_guard session.
 	// The modernc.org/sqlite driver inconsistently binds parameters across
 	// a multi-statement exec, so each insert is run as its own prepared
 	// statement inside a single transaction.
@@ -1177,7 +1213,7 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		t.Fatalf("begin: %v", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-1', 'Concord', 'prototype', 'operator_only', 1, '2026-08-22T00:00:00Z', '2026-08-22T00:00:00Z')`); err != nil {
@@ -1201,16 +1237,11 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?, 'project-1', ?, 'work/dispatch', ?, ?, 'repo-1', 'active', '2026-08-22T00:00:00Z', '{}')`, store.WorktreeSetID(workID), "claim-"+attemptID, strings.Repeat("a", 40), worktreePath); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', 4, ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?, 'workflow.implementation', ?, 'execution', 'running', ?, '2026-08-22T00:00:00Z')`, workID, entry.Digest, actorRef); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_started', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 1, ?)`, "dispatch-start-"+attemptID, workID, actorRef, []byte(startPayload)); err != nil {
-		t.Fatalf("seed dispatch window: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, '2026-08-22T00:00:00Z', 2, ?)`, "dispatch-completed-"+attemptID, workID, actorRef, []byte(completionPayload)); err != nil {
-		t.Fatalf("seed dispatch window: %v", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	seedCLIAuthorization(t, tx, workID, attemptID, actorRef, startPayload, completionPayload)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed dispatch window: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

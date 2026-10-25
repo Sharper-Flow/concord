@@ -27,6 +27,15 @@ func TestWorkerEvidenceExactReconciliation(t *testing.T) {
 				seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 			}
 			request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-reconcile-first-001")
+			if verb == agent.WorkerEvidenceVerbFail {
+				observation := attributionWorkerReportObservation()
+				digest, err := store.WorkerFailureObservationDigest(observation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				request["failure_attribution"] = observation
+				assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
+			}
 			request["assertion"] = signWorkerEvidence(t, key, assertion)
 			var out, diagnostic bytes.Buffer
 			if code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {
@@ -51,7 +60,7 @@ func TestWorkerEvidenceExactReconciliation(t *testing.T) {
 			}
 			defer s.Close()
 			var count int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, request["event_id"]).Scan(&count); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, request["event_id"]).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			if count != 1 {
@@ -107,7 +116,13 @@ func TestWorkerRecoveryContextOriginalIdentity(t *testing.T) {
 		})
 	}
 	request, assertion := workerEvidenceRequest(t, "worker-fail", lane, preferredLaneModel(lane), "nonce-recovery-terminal-fail001")
-	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	observation := attributionWorkerReportObservation()
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	request["assertion"] = attributionSignedV2Assertion(t, key, assertion.AttemptID, lane, preferredLaneModel(lane), assertion.Nonce, digest, nil)
 	var out, diagnostic bytes.Buffer
 	if code := runWithInput([]string{"worker-fail"}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {
 		t.Fatalf("record real terminal failure: %s", diagnostic.String())
@@ -179,7 +194,7 @@ func TestWorkerEvidenceDurableReconciliationIgnoresPinnedReader(t *testing.T) {
 	}
 	defer tx.Rollback()
 	var count int
-	if err := tx.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := tx.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	request, assertion := workerEvidenceRequest(t, "worker-dispatch", lane, preferredLaneModel(lane), "nonce-busy-effect-first001")
@@ -222,11 +237,11 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`INSERT INTO fold_guard(active) VALUES(1)`,
-		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-1','attempt-1',?,?,?,'implementation','','1.0','1.0','in_flight','2026-01-01T00:00:00Z')`,
-		`DELETE FROM fold_guard`,
+		`INSERT INTO write_guard(active) VALUES(1)`,
+		`INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES('work-1','attempt-1',?,?,'implementation','','1.0','1.0','in_flight','2026-01-01T00:00:00Z')`,
+		`DELETE FROM write_guard`,
 	} {
-		if _, err := seedTx.ExecContext(ctx, statement, lane.ID, lane.Version, lane.Digest); err != nil {
+		if _, err := seedTx.ExecContext(ctx, statement, lane.ID, lane.Digest); err != nil {
 			t.Fatalf("seed in-flight attempt: %v", err)
 		}
 	}
@@ -238,6 +253,15 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
+	observation := attributionHostTerminalObservation("the coordinator asked to abandon this attempt")
+	observation.Cause, observation.Basis = store.WorkerFailureCauseUnknown, store.WorkerFailureBasisUnknown
+	observation.Sources[0].Host = &store.WorkerFailureHostObservation{Tag: store.WorkerFailureHostTagAbandonment, EventType: "worker_abandon"}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request["failure_attribution"] = observation
+	assertion.Version, assertion.ObservationDigest = agent.WorkerEvidenceAssertionVersion2, digest
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 	var out, diagnostic bytes.Buffer
 	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &diagnostic); code != 0 {
@@ -251,7 +275,7 @@ func TestWorkerAbandonReplayValidatesAnInFlightBindingWithoutDispatchEvidence(t 
 		t.Fatalf("exact replay of the in-flight abandonment: exit=%d %s", code, diagnostic.String())
 	}
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND json_extract(payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.kind=? AND json_extract(a.terminal_payload,'$.failure_kind')=?`, store.WorkerFailed, store.WorkerFailureAbandoned).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	if events != 1 {

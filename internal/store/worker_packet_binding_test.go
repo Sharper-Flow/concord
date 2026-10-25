@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -52,7 +53,73 @@ func bindPacketToRecordedState(t *testing.T, s *Store, packet map[string]any) ma
 	for member, value := range recordedPacketRecords(t, s, packet["work_id"].(string)) {
 		inputs[member] = value
 	}
+	if testLaneCapabilityClass(packet["lane_id"].(string)) == "review" {
+		snapshot, err := ReadWorkflowContinuity(t.Context(), s, ContinuityRequest{Work: packet["work_id"].(string)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reviewInput := reviewInputForPacketFixture(t, s, snapshot); reviewInput != nil {
+			inputs["review_input"] = reviewInput
+		}
+	}
 	return packet
+}
+
+// Synthetic Git fixtures derive the expected input with their declared subject
+// runner. Real repositories carry the continuity descriptor unchanged.
+func reviewInputForPacketFixture(t *testing.T, s *Store, snapshot ContinuitySnapshot) *WorkerReviewInput {
+	t.Helper()
+	if snapshot.ReviewInputWarning == nil {
+		return snapshot.ReviewInput
+	}
+	definition := mustBuiltinDefinition(t, snapshot.WorkPin.WorkflowType).Definition
+	if !workflowDefinitionProducesDelivery(definition) {
+		return nil
+	}
+	receipt, err := readCurrentOracleSubjectReceipt(t.Context(), s.db, snapshot.WorkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt == nil {
+		t.Fatal("synthetic Review fixture has no qualified subject")
+	}
+	prepared, err := PrepareWorkerDispatchFreshness(t.Context(), s, PrepareWorkerDispatchRequest{
+		WorkID: snapshot.WorkID, SessionWorktree: receipt.Path,
+		Runner: qualifiedSubjectRunner{head: strings.TrimPrefix(receipt.SubjectRef, "commit:")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := currentWorkerReviewInput(WithWorkerDispatchPreparation(t.Context(), prepared), s.db, snapshot.WorkID, LaneDefinition{CapabilityClass: "review"}, definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+func TestBindPacketToRecordedStateCopiesReviewInputOnlyForReviewLane(t *testing.T) {
+	f := seedWorkContextFixture(t, "packet-binding-review-input")
+	t.Cleanup(func() { _ = f.store.Close() })
+	reviewSubjectClaim(t, f.store, f.workID)
+	snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: f.workID})
+	if err != nil || snapshot.ReviewInput == nil {
+		t.Fatalf("current Review input = %+v, err = %v", snapshot.ReviewInput, err)
+	}
+	for _, lane := range []string{"review", "implement"} {
+		t.Run(lane, func(t *testing.T) {
+			packet := bindPacketToRecordedState(t, f.store, map[string]any{
+				"work_id": f.workID, "lane_id": lane, "inputs": map[string]any{},
+			})
+			got, present := packet["inputs"].(map[string]any)["review_input"]
+			if lane == "review" {
+				if !reflect.DeepEqual(got, snapshot.ReviewInput) {
+					t.Fatalf("Review input = %+v, want current continuity descriptor %+v", got, snapshot.ReviewInput)
+				}
+			} else if present {
+				t.Fatalf("non-Review packet carries Review input: %+v", got)
+			}
+		})
+	}
 }
 
 // recordedPacketRecords returns the recorded-state members a truthful lane
@@ -112,8 +179,11 @@ func dispatchBindingAttempt(t *testing.T, s *Store, seed cd0059DispatchSeed, att
 func dispatchStartedCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=?`,
-		string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker").Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts r WHERE r.subject_type='work_item' AND r.subject_id=? AND r.kind=? AND (
+		EXISTS(SELECT 1 FROM worker_authorizations a WHERE a.work_id=r.subject_id AND a.start_seq=r.effect_seq) OR
+		EXISTS(SELECT 1 FROM workflow_step_epochs e WHERE e.work_id=r.subject_id AND e.latest_dispatch_start_seq=r.effect_seq) OR
+		EXISTS(SELECT 1 FROM workflow_action_obligations o WHERE o.work_id=r.subject_id AND o.effect_seq=r.effect_seq AND json_extract(o.payload,'$.action_id')='dispatch_worker'))`,
+		workID, WorkflowActionStarted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -124,11 +194,11 @@ func dispatchStartedCount(t *testing.T, s *Store, workID string) int {
 func seedActiveContract(t *testing.T, s *Store, workID string, version int64, premise string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/binding", "client/binding", "agent/binding", "session/binding")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-09T00:00:00Z'); DELETE FROM fold_guard`,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-09T00:00:00Z'); DELETE FROM write_guard`,
 		actorRef, "principal/binding", "client/binding", "agent/binding", "session/binding"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,'internal_sqlite','[]','[]','2026-09-09T00:00:00Z',?,'[]','[]',1,'prototype_internal'); DELETE FROM fold_guard`,
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,'internal_sqlite','[]','[]','2026-09-09T00:00:00Z',?,'[]','[]',1,'prototype_internal'); DELETE FROM write_guard`,
 		workID, version, premise, actorRef); err != nil {
 		t.Fatal(err)
 	}

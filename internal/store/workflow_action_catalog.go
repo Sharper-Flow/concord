@@ -5,26 +5,9 @@ import (
 	"slices"
 )
 
-// A workflowActionRevision is one change to one action's contract. Each
-// revision is written once and serves two readers: the frozen chain
-// builders apply it to the action's in-definition entry at the version that
-// shipped it (reviseWorkflowAction), and the versioned action catalog folds
-// it over the action's policy-table base. A revision never mutates the
-// slices it receives, because the base shares them with
-// builtinActionPolicies.
+// A workflowActionRevision composes one action contract without mutating the
+// policy-table slices it receives.
 type workflowActionRevision func(WorkflowActionDefinition) WorkflowActionDefinition
-
-// reviseWorkflowAction applies one revision to the named action's entry in a
-// copy of the definition. Every other action and the graph are unchanged.
-func reviseWorkflowAction(definition WorkflowDefinition, actionID string, revise workflowActionRevision) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	for index := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[index].ID == actionID {
-			definition.ActionDefinitions[index] = revise(definition.ActionDefinitions[index])
-		}
-	}
-	return definition
-}
 
 func withRequiredCapability(capability string) workflowActionRevision {
 	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
@@ -79,31 +62,16 @@ func withPayloadFieldRevision(name string, revise func(WorkflowPayloadField) Wor
 	}
 }
 
-// withWorkerPacketRef points dispatch_worker's worker_packet field at one
-// frozen packet schema closure.
-func withWorkerPacketRef(schemaRef string) workflowActionRevision {
-	return withPayloadFieldRevision("worker_packet", func(field WorkflowPayloadField) WorkflowPayloadField {
-		field.SchemaRef = schemaRef
-		return field
-	})
-}
-
-// workflowActionCatalog is one released version of the action catalog
-// (CD-0229 D2). It owns each action contract once: an action's definition is
-// its policy-table base with the catalog's revisions for it applied in
-// order. A part step names action IDs; the composition pins one catalog
-// version, so the compiled action definitions come from here and never from
-// a family head. A released catalog version is frozen; a contract change is
-// a new catalog version.
-type workflowActionCatalog struct {
-	Version   int
-	revisions map[string][]workflowActionRevision
-}
+// workflowActionCatalog owns each action contract once (CD-0229 D2): an
+// action's definition is its policy-table base with the catalog's revisions
+// for it applied in order. A part step names action IDs; the compiled action
+// definitions come from here and never from a family head.
+type workflowActionCatalog map[string][]workflowActionRevision
 
 func (catalog workflowActionCatalog) action(actionID string) (WorkflowActionDefinition, error) {
-	revisions, ok := catalog.revisions[actionID]
+	revisions, ok := catalog[actionID]
 	if !ok {
-		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, fmt.Sprintf("action %s is not in action catalog v%d", actionID, catalog.Version))
+		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, fmt.Sprintf("action %s is not in the action catalog", actionID))
 	}
 	if _, ok := builtinActionPolicies[actionID]; !ok {
 		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, fmt.Sprintf("action %s has no policy", actionID))
@@ -119,36 +87,15 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 	return cloneWorkflowDefinition(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{action}}).ActionDefinitions[0]
 }
 
-// builtinWorkflowActionCatalogs lists every released action catalog version.
-func builtinWorkflowActionCatalogs() []workflowActionCatalog {
-	return []workflowActionCatalog{workflowActionCatalogV1(), workflowActionCatalogV2(), workflowActionCatalogV3()}
+// catalogAction returns one action as the current catalog declares it.
+func catalogAction(actionID string) (WorkflowActionDefinition, error) {
+	return builtinWorkflowActionCatalog().action(actionID)
 }
 
-// latestCatalogAction returns an action as the latest catalog that carries
-// it declares it: the shape current definitions pin and publication projects.
-func latestCatalogAction(actionID string) (WorkflowActionDefinition, error) {
-	catalogs := builtinWorkflowActionCatalogs()
-	for index := len(catalogs) - 1; index >= 0; index-- {
-		if _, carried := catalogs[index].revisions[actionID]; carried {
-			return catalogs[index].action(actionID)
-		}
-	}
-	return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, "action "+actionID+" is in no action catalog")
-}
-
-func builtinWorkflowActionCatalog(version int) (workflowActionCatalog, bool) {
-	for _, catalog := range builtinWorkflowActionCatalogs() {
-		if catalog.Version == version {
-			return catalog, true
-		}
-	}
-	return workflowActionCatalog{}, false
-}
-
-// workflowActionCatalogV1 is the action contract set the first composed
-// heads ship: each action as the last chain heads declared it.
-func workflowActionCatalogV1() workflowActionCatalog {
-	return workflowActionCatalog{Version: 1, revisions: map[string][]workflowActionRevision{
+// builtinWorkflowActionCatalog is the one current action catalog every
+// composition compiles against.
+func builtinWorkflowActionCatalog() workflowActionCatalog {
+	return workflowActionCatalog{
 		"accept_worker_evidence": {workTransitionAction},
 		"accept_worker_result":   {workTransitionAction, acceptDeliveryPayload},
 		"approve_contract":       {premiseFloor},
@@ -161,7 +108,7 @@ func workflowActionCatalogV1() workflowActionCatalog {
 		"confirm_premise":        {confirmPremiseOperatorPayload},
 		"cross_context_boundary": nil,
 		"declare_impact":         nil,
-		"dispatch_worker":        {workerDispatchAction, withWorkerPacketRef(researchContextPacketSchema)},
+		"dispatch_worker":        {workerDispatchAction},
 		"frame_research":         nil,
 		"link_successor":         nil,
 		"record_alignment":       nil,
@@ -174,88 +121,46 @@ func workflowActionCatalogV1() workflowActionCatalog {
 		"record_report":          nil,
 		"record_verdict":         {canonicalVerdictPayload},
 		"record_work_context":    {researchContextSelection},
-		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision},
+		"record_worker_job":      {workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision, withAppendedPayloadFields(workerJobCallerScopeActionFields), memberGroupActionPayload},
 		"request_correction":     {workTransitionAction, openFindingsCorrection, failureAttributionCorrection},
 		"revise_candidates":      nil,
 		"start_execution":        nil,
-	}}
+	}
 }
 
-// workerJobSizeActionFields declares the three optional size members the v3
-// catalog appends to record_worker_job (CD-0225 D1, CD-0227 D1): the
-// production-size cap, the measurement basis that binds it, and the
-// conditional direct-caller allowance. Whether one job carries all three or
-// none is the authoring rule the store guard enforces; the declared action
-// contract admits both shapes.
-func workerJobSizeActionFields() []WorkflowPayloadField {
+// workerJobCallerScopeActionFields declares the optional direct-caller
+// allowance the shared catalog declares on record_worker_job (CD-0227 D1 as
+// amended by CD-0242 D6). Whether one job carries it or not is the
+// authoring rule the store guard enforces; the declared action contract
+// admits both shapes.
+func workerJobCallerScopeActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("production_size_max", false, 2147483647),
-		actionObjectField("measurement_basis", false, "worker_job_measurement_basis"),
 		actionObjectField("direct_caller_allowance", false, "worker_job_direct_caller_allowance"),
 	}
 }
 
-// workerJobSplitRevision adds record_worker_job's closed split variant
-// (CD-0225 D3). The ordinary group's members stop being individually
-// required: the engine's alternative groups require either the whole
-// ordinary group or the split alone. The acceptance oracle stays required
-// beside the ordinary group; the split group forbids it, which exempts it.
-func workerJobSplitRevision(action WorkflowActionDefinition) WorkflowActionDefinition {
-	fields := make([]WorkflowPayloadField, 0, len(action.Payload.Fields)+1)
-	for _, field := range action.Payload.Fields {
-		if slices.Contains(workerJobOrdinaryGroup, field.Name) {
-			field.Required = false
+func memberGroupActionPayload(action WorkflowActionDefinition) WorkflowActionDefinition {
+	action.Payload.Fields = slices.Clone(action.Payload.Fields)
+	for i := range action.Payload.Fields {
+		if slices.Contains(workerJobOrdinaryGroup, action.Payload.Fields[i].Name) {
+			// The ordinary alternative requires the complete group; these are
+			// not unconditional requirements on the two member variants.
+			action.Payload.Fields[i].Required = false
 		}
-		fields = append(fields, field)
 	}
-	fields = append(fields, actionObjectField("split", false, "worker_job_split2"))
-	action.Payload.Fields = fields
+	action.Payload.Fields = append(action.Payload.Fields,
+		actionObjectField("assignment_group", false, "workflow_assignment_group_input"),
+		actionObjectField("member_binding", false, "workflow_member_binding_input"))
 	return action
 }
 
-// workflowActionCatalogV2 restates record_worker_job with the checks repair's
-// authoring members (CD-0205 D4): optional repair_revisions and
-// repair_reason, supplied together, admitted only on the versions that pin
-// this catalog. Its dispatch_worker points at the packet4 closure, the one
-// named schema whose worker-job shape admits the repair metadata — the
-// frozen packet2/packet3 closures keep the bytes they shipped with, and the
-// generator's named additions never rewrite them. Every other action's
-// contract stays byte-identical to v1.
-func workflowActionCatalogV2() workflowActionCatalog {
-	v1 := workflowActionCatalogV1()
-	revisions := make(map[string][]workflowActionRevision, len(v1.revisions))
-	for actionID, actionRevisions := range v1.revisions {
-		revisions[actionID] = actionRevisions
-	}
-	revisions["dispatch_worker"] = []workflowActionRevision{workerDispatchAction, withWorkerPacketRef(checksRepairPacketSchema)}
-	revisions["record_worker_job"] = []workflowActionRevision{workTransitionAction, acceptanceOracleRevision, checksRepairAuthoringRevision}
-	return workflowActionCatalog{Version: 2, revisions: revisions}
+func memberGroupActionAlternatives() WorkflowActionCrossField {
+	// Optional ordinary fields cannot ride on a roster or binding. Required
+	// ordinary fields already belong to the disjoint ordinary group.
+	ordinary := []string{"path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration", "readiness_evidence", "acceptance_oracle", "repair_revisions", "repair_reason", "direct_caller_allowance"}
+	return WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{
+		{Fields: slices.Clone(workerJobOrdinaryGroup)},
+		{Fields: []string{"assignment_group"}, Forbids: slices.Clone(ordinary)},
+		{Fields: []string{"member_binding"}, Forbids: slices.Clone(ordinary)},
+	}}
 }
-
-// workflowActionCatalogV3 composes the size-capable delta over the v2
-// checks-repair catalog (CD-0225 D1, CD-0227 D1, CD-0225 D3): the three
-// optional size members appended beside record_worker_job's repair authoring
-// members, the closed split variant, dispatch_worker re-anchored at the
-// worker_packet5 closure that projects the size-bearing worker_job beside
-// its repair metadata and the caller exclusions, and the acceptance's
-// optional supplemental classifications. Every other action's contract is
-// v2's.
-func workflowActionCatalogV3() workflowActionCatalog {
-	v2 := workflowActionCatalogV2()
-	revisions := make(map[string][]workflowActionRevision, len(v2.revisions))
-	for actionID, actionRevisions := range v2.revisions {
-		revisions[actionID] = actionRevisions
-	}
-	revisions["record_worker_job"] = append(slices.Clone(revisions["record_worker_job"]), withAppendedPayloadFields(workerJobSizeActionFields), workerJobSplitRevision)
-	revisions["dispatch_worker"] = append(slices.Clone(revisions["dispatch_worker"]), withWorkerPacketRef(workerPacket5Schema))
-	revisions["accept_worker_result"] = append(slices.Clone(revisions["accept_worker_result"]), withAppendedPayloadFields(func() []WorkflowPayloadField {
-		return []WorkflowPayloadField{actionItemArrayField("supplemental_classifications", false, 1, WorkerJobMeasuredPathsMax, "worker_job_measured_path")}
-	}))
-	return workflowActionCatalog{Version: 3, revisions: revisions}
-}
-
-// workerPacket5Schema is the size-capable packet closure the v3 catalog's
-// dispatch_worker anchors: the checks-repair packet4's shape with the
-// size-bearing worker_job beside its repair metadata and the dispatch-time
-// caller exclusions.
-const workerPacket5Schema = "worker_packet5"

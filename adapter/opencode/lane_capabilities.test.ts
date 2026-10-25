@@ -1,25 +1,31 @@
 import { expect, test } from "bun:test"
 import { createWorkerCapabilityGuard, toolAllowedByCapabilities } from "./lane_capabilities"
 import { agentLanes } from "./generated-agent-lanes"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { defaultRunner } from "./dispatch"
+import { reviewSubjectFailure } from "./worker_subject"
 import { DispatchWindows, serializeLanePacket } from "./dispatch-window"
 import type { AgentLanePacket, DispatchRunner } from "./dispatch"
 
-async function fixture(laneID = "verify", subject?: string, subjectRunner?: DispatchRunner) {
+async function fixture(laneID = "verify", subject?: string, subjectRunner?: DispatchRunner, directory = process.cwd(), readOnly = false) {
   const lane = agentLanes.find((entry) => entry.id === laneID)!
   const packet: AgentLanePacket = {
     schema_version: "1.0", attempt_id: "capability-attempt", work_id: "capability-work", step_id: "execute",
-    lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    lane_id: lane.id, lane_digest: readOnly ? "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d" : lane.digest,
     inputs: { task: "Run the recorded check", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "verification_commands" } },
   }
   if (subject) packet.inputs.work_context = { source_event_frontier: 1, required_reading: [], findings: [], domain_groups: [], subject_commit: subject }
   const windows = new DispatchWindows()
-  windows.open("parent", packet, "sha256:" + "a".repeat(64), process.cwd())
-  await windows.bind("task", "parent", { subagent_type: `concord-${laneID}`, prompt: "capability-attempt", description: "bounded worker" }, "task-call", async () => process.cwd(), process.cwd())
+  windows.open("parent", packet, "sha256:" + "a".repeat(64), directory)
+  await windows.bind("task", "parent", { subagent_type: `concord-${laneID}`, prompt: "capability-attempt", description: "bounded worker" }, "task-call", async () => directory, directory)
   const state = { agent: `concord-${laneID}`, openingAgent: `concord-${laneID}`, openingRole: "user", openingSession: undefined as string | undefined, parentScope: "managed" as "managed" | "unmanaged" | null, opening: serializeLanePacket(packet), extraPart: false, readerUnavailable: false, paginate: false, messageReads: 0, nestedParent: false, failedReads: new Set<string>(), failedAncestry: new Set<string>() }
+  const placement = { directory }
   const reader = {
     get: async (id: string) => {
       if (state.failedReads.has(id)) throw new Error("host session read unavailable")
-      return { data: { id, directory: process.cwd(), agent: id === "root" || id === "parent" ? "build" : state.agent, ...(id === "root" || id === "parent" ? {} : { parentID: "parent" }) }, response: new Response(null, { status: 200 }) }
+      return { data: { id, directory: placement.directory, agent: id === "root" || id === "parent" ? "build" : state.agent, ...(id === "root" || id === "parent" ? {} : { parentID: "parent" }) }, response: new Response(null, { status: 200 }) }
     },
     messages: async (id: string, _limit: number, before: string | undefined) => {
       state.messageReads++
@@ -40,7 +46,7 @@ async function fixture(laneID = "verify", subject?: string, subjectRunner?: Disp
   } })
   const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "child") => guard.before({ tool, sessionID }, { args })
   const isNativeChild = (sessionID: string) => guard.isNativeChildOf(sessionID, "parent")
-  return { state, windows, guard, before, isNativeChild }
+  return { state, windows, guard, before, isNativeChild, placement }
 }
 
 test("the capability ceiling denies shell, editors, and unknown indirect executors to non-authors", () => {
@@ -122,9 +128,9 @@ test("every bound lane keeps its tool ceiling despite a broader selected agent",
 test("a settling or retired attempt grants no further worker calls", async () => {
   const f = await fixture()
   await f.before("read")
-  f.windows.claimSettlement("parent")
+  const record = f.windows.claimSettlement("parent")!
   await expect(f.before("read")).rejects.toThrow("active authorized attempt")
-  f.windows.unclaimSettlement("parent")
+  f.windows.unclaimSettlement("parent", record)
   f.windows.takeInFlight("parent")
   await expect(f.before("read")).rejects.toThrow("active authorized attempt")
 })
@@ -244,26 +250,56 @@ test("malformed original identity and nested or missing ancestry never authorize
   }
 })
 
-test("review tool admission refuses subject drift even after the host child is bound", async () => {
+test("a stale Review digest grants no tools and preserves the original packet", async () => {
   const subject = "a".repeat(40)
-  let head = subject
-  let dirty = false
   const calls: string[][] = []
   const subjectRunner: DispatchRunner = { run: async (argv) => {
     calls.push(argv)
-    return { exitCode: 0, stdout: argv.includes("rev-parse") ? head + "\n" : dirty ? "?? file\0" : "", stderr: "", signal_state: null }
+    return { exitCode: 0, stdout: "", stderr: "", signal_state: null }
   } }
-  const f = await fixture("review", subject, subjectRunner)
-  await f.before("read")
-  head = "b".repeat(40)
-  await expect(f.before("read")).rejects.toThrow("review subject")
-  head = subject
-  dirty = true
-  await expect(f.before("read")).rejects.toThrow("review subject")
-  expect(calls.length).toBeGreaterThan(0)
-  for (const argv of calls) {
-    expect(argv).toEqual(argv.includes("rev-parse")
-      ? ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "rev-parse", "--verify", "HEAD^{commit}"]
-      : ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", process.cwd(), "status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  const f = await fixture("review", subject, subjectRunner, process.cwd(), true)
+  const before = serializeLanePacket(f.windows.activeAttempt("parent")!.packet)
+  for (const tool of ["read", "edit", "bash", "concord_worker_check"]) {
+    await expect(f.before(tool)).rejects.toThrow("content revalidation")
+  }
+  expect(serializeLanePacket(f.windows.activeAttempt("parent")!.packet)).toBe(before)
+  expect(calls).toHaveLength(0)
+})
+
+test("repairing Review admits clean B, two edits and a commit, and verifies clean terminal C", async () => {
+  const root = mkdtempSync(join(tmpdir(), "review-capability-"))
+  const signal = AbortSignal.timeout(15_000)
+  const git = async (...args: string[]) => {
+    const r = await defaultRunner.run(["git", "-C", root, "-c", "user.name=Synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], "", signal)
+    expect(r.exitCode, r.stderr).toBe(0)
+    return r.stdout.trim()
+  }
+  try {
+    await git("init", "--quiet", "--initial-branch=main")
+    await git("commit", "--quiet", "--allow-empty", "-m", "baseline")
+    const b = await git("rev-parse", "HEAD")
+    const f = await fixture("review", b, defaultRunner, root)
+    const record = f.windows.activeAttempt("parent")!
+    const lane = agentLanes.find((x) => x.id === "review")!
+    await f.before("edit")
+    writeFileSync(join(root, "value.txt"), "first edit\n")
+    await f.before("edit")
+    writeFileSync(join(root, "value.txt"), "second edit\n")
+    await expect(f.before("concord_worker_check")).rejects.toThrow("tree_clean=false")
+    await f.before("bash")
+    await git("add", "value.txt")
+    await f.before("bash")
+    await git("commit", "--quiet", "-m", "repair")
+    const c = await git("rev-parse", "HEAD")
+    expect(c).not.toBe(b)
+    await f.before("concord_worker_check")
+    expect(await reviewSubjectFailure(lane, record.packet, root, signal, defaultRunner, "terminal")).toBeNull()
+    f.placement.directory = tmpdir()
+    await expect(f.before("edit")).rejects.toThrow("directory")
+    f.placement.directory = root
+    f.windows.claimSettlement("parent")
+    await expect(f.before("edit")).rejects.toThrow("active authorized attempt")
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })

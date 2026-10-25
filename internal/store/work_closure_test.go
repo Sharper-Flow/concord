@@ -134,14 +134,13 @@ func TestReadWorkClosureDegradesToThePinAlone(t *testing.T) {
 	}
 }
 
-// CD-0202: the current implementation definition declares the optional
-// out_of_scope prose list on record_proposal, a released pin refuses the
-// undeclared field, and a recorded out_of_scope list survives a rebuild.
+// The current implementation definition admits bounded out_of_scope prose.
+// Retired definitions are not executable pins.
 func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	t.Parallel()
-	current, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 22)
-	if !ok {
-		t.Fatal("workflow.implementation v22 is not registered")
+	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
 	payload := json.RawMessage(`{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."],"out_of_scope":["The launcher.","The release automation."]}`)
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", payload); err != nil {
@@ -158,13 +157,6 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", tooWide); err == nil {
 		t.Fatal("the current version admitted more than sixteen out_of_scope entries")
 	}
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 21)
-	if !ok {
-		t.Fatal("workflow.implementation v21 is not registered")
-	}
-	if err := validateWorkflowActionPayload(pinned.Definition, "record_proposal", payload); err == nil {
-		t.Fatal("the released pin admitted the out_of_scope field; pinned instances would change behavior")
-	}
 
 	s := openTemp(t)
 	defer s.Close()
@@ -180,7 +172,7 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:out-of-scope", IdempotencyIdentity: "out-of-scope", OperationID: "out-of-scope",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "out-of-scope",
@@ -199,16 +191,6 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	}
 	if len(closure.OutOfScope) != 2 || closure.OutOfScope[0] != "The launcher." || closure.OutOfScope[1] != "The release automation." {
 		t.Fatalf("persisted out_of_scope = %v", closure.OutOfScope)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	rebuilt, err := ReadWorkClosure(context.Background(), s, workID)
-	if err != nil {
-		t.Fatalf("rebuilt closure read refused: %v", err)
-	}
-	if len(rebuilt.OutOfScope) != 2 || rebuilt.OutOfScope[0] != closure.OutOfScope[0] {
-		t.Fatalf("out_of_scope changed after replay: %v vs %v", rebuilt.OutOfScope, closure.OutOfScope)
 	}
 }
 

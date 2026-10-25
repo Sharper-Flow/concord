@@ -2,11 +2,7 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+      "value": "internal/store.TestLiveHeadsAreTheirCompiledCompositions"
     },
     {
       "kind": "go_test",

@@ -51,7 +51,7 @@ func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 	return version, err
 }
 
-func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
+func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
@@ -66,11 +66,8 @@ func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
 	if err != nil || first.Outcome != OutcomeOK {
 		t.Fatalf("initial workflow response=%+v err=%v", first, err)
 	}
-	// The boundary preflight sees this row when another request commits after
-	// the initial unlocked lookup. The result copy is not a result owner.
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET result_payload='{}',changed_refs='[]' WHERE tool='concord_work_transition' AND operation_kind='workflow_action' AND idempotency_key='tx-replay-owner'`); err != nil {
-		t.Fatal(err)
-	}
+	// Exercise the transaction-bound replay window, including its durable
+	// metadata write, without reapplying the already committed action.
 	before := workflowReplayEffectCounts(t, s)
 	commits := s.DurableCommits()
 	var in actionMutationInput
@@ -88,14 +85,7 @@ func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
 		t.Fatalf("STOP: transaction replay repeated an effect: mutated=%t before=%+v after=%+v", mutated, before, workflowReplayEffectCounts(t, s))
 	}
 	if rejected {
-		if err == nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
-			t.Fatalf("STOP: replay did not return a typed refusal: response=%+v err=%v", response, err)
-		}
-		if s.DurableCommits() != commits || replayMetadataCount(t, s, "tx-replay-owner") != 0 {
-			t.Fatal("STOP: refused replay did not roll back")
-		}
-		t.Log("older-binary witness: malformed_response, rollback, no event, operation, attempt or dispatch; replay count unchanged")
-		t.Fatalf("transaction replay returned typed refusal instead of the durable result: %s", response.Error.Message)
+		t.Fatalf("transaction replay refused its committed response: response=%+v err=%v", response.Error, err)
 	}
 	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || string(response.Result) != string(first.Result) {
 		t.Fatalf("transaction replay response=%+v err=%v, want original result=%s", response, err, first.Result)
@@ -103,29 +93,32 @@ func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
 	if err := response.Validate(); err != nil {
 		t.Fatalf("replay envelope: %v", err)
 	}
+	requireReplayCommit(t, s, "tx-replay-owner", commits, 0, true)
 }
 
 type workflowReplayEffects struct {
 	Events, Operations, Attempts, Dispatches int
 	Version                                  int64
+	CurrentRows                              string
 }
 
 func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffects {
 	t.Helper()
 	var counts workflowReplayEffects
-	for table, target := range map[string]*int{"domain_events": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
+	for table, target := range map[string]*int{"effect_receipts": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(target); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
 		t.Fatal(err)
 	}
 	counts.Version = workOneVersion(t, s)
+	counts.CurrentRows = agentCurrentEffects(t, s)
 	return counts
 }
 
-func TestWorkflowReplayIndexStoresNoResponseCopy(t *testing.T) {
+func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
@@ -143,16 +136,28 @@ func TestWorkflowReplayIndexStoresNoResponseCopy(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT result_payload,changed_refs,result_event_ids FROM idempotency_records WHERE idempotency_key='no-response-copy'`).Scan(&payload, &refs, &events); err != nil {
 		t.Fatal(err)
 	}
-	if payload != "{}" || refs != "[]" {
-		t.Fatalf("workflow response copy retained: payload bytes=%d refs=%s", len(payload), refs)
+	if payload != string(response.Result) {
+		t.Fatalf("committed workflow response not retained: payload=%s response=%s", payload, response.Result)
 	}
-	if events == "[]" || len(response.Result) <= len(payload) {
-		t.Fatalf("event references or response lost: events=%s response=%s", events, response.Result)
+	var changed []ChangedRef
+	if err := json.Unmarshal([]byte(refs), &changed); err != nil || response.ChangedRefs == nil || !reflect.DeepEqual(changed, *response.ChangedRefs) {
+		t.Fatalf("committed changed references lost: refs=%s response=%+v err=%v", refs, response.ChangedRefs, err)
+	}
+	if events == "[]" {
+		t.Fatal("result identity references were discarded")
 	}
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	owner, err := store.Step(context.Background(), s, "workflow-"+digest[7:31])
 	if err != nil || owner.ResultKind != store.ResultCompleted || len(owner.ResultPayload) == 0 || len(owner.ChangedRefs) != 1 {
 		t.Fatalf("durable owner=%+v err=%v", owner, err)
+	}
+	prior, found, err := s.LookupMutationIdempotency(context.Background(), store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "no-response-copy"})
+	if err != nil || !found {
+		t.Fatalf("completed response record found=%t err=%v", found, err)
+	}
+	snapshot, err := retainedMutationResponse(prior.AuthorizedScopeSnapshot)
+	if err != nil || !reflect.DeepEqual(snapshot.ResolvedScope, response.ResolvedScope) || response.NextValidIntents == nil || !reflect.DeepEqual(snapshot.NextValidIntents, *response.NextValidIntents) || !reflect.DeepEqual(snapshot.EvidenceRefs, response.EvidenceRefs) || !reflect.DeepEqual(snapshot.Omissions, response.Omissions) {
+		t.Fatalf("committed response metadata differs: snapshot=%+v response=%+v err=%v", snapshot, response, err)
 	}
 }
 
@@ -161,6 +166,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 	for _, vector := range []struct {
 		name, kind, ownerPayload, ownerDigest, scope string
 		missing                                      bool
+		missingPayload                               bool
 		want                                         Outcome
 	}{
 		{name: "completed", kind: "completed", want: OutcomeOK},
@@ -171,6 +177,8 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 		{name: "malformed result", kind: "completed", ownerPayload: "{}", want: OutcomeError},
 		{name: "manifest mismatch", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), want: OutcomeError},
 		{name: "missing owner", kind: "completed", missing: true, want: OutcomeError},
+		{name: "missing response payload", kind: "completed", missingPayload: true, want: OutcomeError},
+		{name: "missing response metadata", kind: "completed", scope: `{"product_id":"product-1","project_ids":["project-1"]}`, want: OutcomeError},
 		{name: "unreadable scope", kind: "completed", scope: "not JSON", want: OutcomeError},
 		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: OutcomeError},
 	} {
@@ -203,10 +211,10 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// Historical copies are deliberately misleading. Neither replay path
-			// may use them even when the authoritative result is unavailable.
-			if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET result_payload='{"changed_refs":[],"next_valid_intents":[]}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
-				t.Fatal(err)
+			if vector.missingPayload {
+				if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET result_payload='{}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if vector.scope != "" {
 				if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE op_id=?`, vector.scope, opID); err != nil {
@@ -214,6 +222,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 				}
 			}
 			before := workflowReplayEffectCounts(t, s)
+			beforeCommits := s.DurableCommits()
 			public, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 			if err != nil {
 				t.Fatal(err)
@@ -235,8 +244,13 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if workflowReplayEffectCounts(t, s) != before {
 				t.Fatal("replay changed events, operations, attempts, dispatches or work version")
 			}
-			if vector.want == OutcomeError && replayMetadataCount(t, s, "owner-classification") != 0 {
-				t.Fatal("refused replay changed metadata")
+			if vector.want == OutcomeError && (replayMetadataCount(t, s, "owner-classification") != 0 || s.DurableCommits() != beforeCommits) {
+				t.Fatal("refused replay committed metadata or a durable write")
+			}
+			if vector.missingPayload || vector.name == "missing response metadata" {
+				if transaction.Error == nil || transaction.Error.EffectState != EffectPossible || transaction.Error.RetrySafe {
+					t.Fatalf("incomplete committed response lost effect truth: %+v", transaction.Error)
+				}
 			}
 		})
 	}
@@ -300,7 +314,7 @@ func TestIdempotencyAuthorityLifetimeReplay(t *testing.T) {
 	}
 }
 
-func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
+func TestIdempotencyDeduplicationBackupRestore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	r, grant, raw, first := committedWorkflowReplay(t)
@@ -311,10 +325,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	}
 	indexBefore := workflowReplayIndex(t, r.Store)
 	var watermark int64
-	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RebuildFromLog(ctx, r.Store); err != nil {
+	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
 	backup := filepath.Join(t.TempDir(), "backup.db")
@@ -327,7 +338,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	if restoreReport.SourceSnapshot.EventWatermark != watermark || restoreReport.RestoredDatabase.EventWatermark != watermark || restoreReport.RestoredDatabase.SchemaVersion != store.CurrentSchemaVersion() {
-		t.Fatalf("restore inventories do not preserve the replay watermark: %+v", restoreReport)
+		t.Fatalf("restore inventories do not preserve the store revision: %+v", restoreReport)
 	}
 	restored, err := store.Open(ctx, restoredPath)
 	if err != nil {
@@ -340,7 +351,7 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 	service.ProjectHostMatcher = r.Authority.ProjectHostMatcher
 	r.Store, r.Authority = restored, service
 	if workflowReplayIndex(t, restored) != indexBefore {
-		t.Fatal("rebuild, backup or restore changed replay index")
+		t.Fatal("backup or restore changed idempotency index")
 	}
 	ownerAfter, err := store.Step(ctx, restored, ownerID)
 	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
@@ -432,7 +443,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
 	var completed int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 0 {
@@ -489,7 +500,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		}
 		t.Fatalf("workflow replay response=%+v err=%v", replay, err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
 	if completed != 1 {
@@ -665,16 +676,16 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	t.Helper()
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	opID := "workflow-" + digest[7:31]
-	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(workOneVersion(t, s), 10) + `}`
+	version := workOneVersion(t, s)
+	changedRef := `{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(version, 10) + `}`
 	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
-	idempotencyChanged := "[]"
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
 	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
 	if defErr != nil {
 		t.Fatal(defErr)
 	}
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Digest, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,7 +703,38 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 			}
 		}
 	}
-	_, err = s.DatabaseForTesting().Exec(`INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, env.PrincipalRef, "concord_work_transition", "workflow_action", idempotencyKey(input), digest, opID, "[]", `{"changed_refs":[],"next_valid_intents":[]}`, idempotencyChanged, scope, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano))
+	err = s.Transact(context.Background(), func(tx *store.Transaction) error {
+		record := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: env.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: idempotencyKey(input)}, CanonicalDigest: digest, OperationID: opID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: scope, ObservedAt: fixedTime()}
+		if resultKind == "completed" {
+			r := runtime{Store: s, Tool: "concord_work_transition", Operation: "workflow_action"}
+			changed := []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}}
+			payload, intents, pinless, err := r.enrichMutationPayloadTx(context.Background(), tx, json.RawMessage(resultPayload), changed)
+			if err != nil {
+				return err
+			}
+			var originalScope map[string]any
+			if err := json.Unmarshal([]byte(scope), &originalScope); err != nil {
+				return err
+			}
+			base := NewBase(env.RequestID, r.Tool, r.Operation)
+			base.ResolvedScope = scopeFromMap(originalScope)
+			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+			response := r.mutationResult(base, payload, changed, intents, pinless...)
+			if response.Outcome != OutcomeOK {
+				t.Fatalf("completed response fixture: %+v", response.Error)
+			}
+			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless, false))
+			if err != nil {
+				return err
+			}
+			refs, err := json.Marshal(changed)
+			if err != nil {
+				return err
+			}
+			record.ResultPayload, record.ChangedRefs, record.AuthorizedScopeSnapshot = string(payload), string(refs), string(metadata)
+		}
+		return store.InsertMutationIdempotencyTx(context.Background(), tx, record)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +744,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 func countWorkflowEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -728,22 +770,18 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	// The canonical head removed the discovery marker, so the pre-contract
-	// walk is proposal, alignment, design; each consumes two events.
-	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	// Proposal and alignment establish the criteria approval context.
+	for i, action := range []string{"record_proposal", "record_alignment"} {
 		fields := ""
-		if action == "record_design" {
-			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		}
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 		}
 		if action == "record_alignment" {
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		}
-		// Cumulative expected versions: proposal, alignment, and design each
+		// Cumulative expected versions: proposal and alignment each
 		// consume two events over the version-4 capture.
-		expectedVersion := []int{4, 6, 8}[i]
+		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
@@ -758,14 +796,14 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 10}
+	versions := map[string]any{"work": 8}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
-	if durableBefore != 3 {
-		t.Fatalf("approval challenge durable operation count=%d, want 3 prior actions", durableBefore)
+	if durableBefore != 2 {
+		t.Fatalf("approval challenge durable operation count=%d, want 2 prior actions", durableBefore)
 	}
 	approvedInput := workflowContractActionInput(t, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
@@ -779,8 +817,8 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "execution" {
-		t.Fatalf("approved action current step=%s, want execution", step)
+	if step != "design" {
+		t.Fatalf("approved action current step=%s, want design", step)
 	}
 	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
@@ -812,21 +850,18 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	// The canonical pre-contract walk is proposal, alignment, design: two
+	// The pre-contract walk is proposal and alignment: two
 	// events each over the version-4 capture, so the approval lands at
-	// expected version 10.
-	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	// expected version 8.
+	for i, action := range []string{"record_proposal", "record_alignment"} {
 		fields := ""
-		if action == "record_design" {
-			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		}
 		if action == "record_proposal" {
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 		}
 		if action == "record_alignment" {
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		}
-		expectedVersion := []int{4, 6, 8}[i]
+		expectedVersion := []int{4, 6}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-late-` + action + `"}`)
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
@@ -874,8 +909,8 @@ func TestWorkflowLateHostApprovalNeedsOneChallenge(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "execution" {
-		t.Fatalf("late-approved action current step=%s, want execution", step)
+	if step != "design" {
+		t.Fatalf("late-approved action current step=%s, want design", step)
 	}
 	replayed, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "wf-late-approval", ref)}, env)
 	if err != nil || replayed.Outcome != OutcomeOK || !replayed.Replayed {

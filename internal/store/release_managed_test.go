@@ -241,7 +241,6 @@ func TestReleaseManagedStoreRefusesEveryPathEntryPoint(t *testing.T) {
 				}},
 				{"Upgrade", func(_, dbPath string) error { _, err := Upgrade(ctx, dbPath, nil); return err }},
 				{"PlanUpgradeReadiness", func(_, dbPath string) error { _, err := PlanUpgradeReadiness(ctx, dbPath); return err }},
-				{"RecoverFoldGuard", func(_, dbPath string) error { _, err := RecoverFoldGuard(ctx, dbPath); return err }},
 				{"BackupDatabase source", func(_, dbPath string) error {
 					_, err := BackupDatabase(ctx, dbPath, filepath.Join(t.TempDir(), "copy.db"))
 					return err

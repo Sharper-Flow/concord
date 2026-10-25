@@ -13,8 +13,8 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 	for _, defect := range []string{"invalid_digest", "too_many_sources"} {
 		t.Run(defect, func(t *testing.T) {
 			ctx := context.Background()
-			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-			grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+			grant.Worktree = seedWorkerRetryMutationFixture(t, s, service, grant)
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -33,7 +33,8 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+			beforeEvents := agentCurrentEffects(t, s)
+			acceptedEvidenceBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`)
 			digest := "sha256:" + strings.Repeat("a", 64)
 			provenance := &store.WorkerHostProvenance{Digest: digest, Sources: []store.WorkerHostProvenanceSource{{Kind: "unenumerated", Path: "synthetic-host-surface"}}}
 			if defect == "invalid_digest" {
@@ -45,8 +46,8 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				}
 			}
 			lane := retryLane(t)
-			dispatch := store.Event{EventID: "refused-provenance-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerDispatchedPayload{
-				AttemptID: failedID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+			dispatch := store.Event{EventID: "refused-provenance-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{
+				AttemptID: failedID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
 				PacketDigest: digest, ReadbackModel: "model/synthetic", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, HostProvenance: provenance,
 			})}
 			err = s.Transact(ctx, func(tx *store.Transaction) error {
@@ -61,7 +62,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				t.Fatalf("dispatch refusal=%v, want the provenance boundary", err)
 			}
 			after, err := store.ReadWorkPin(ctx, s, "work-1")
-			if err != nil || after.Version != before.Version || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+			if err != nil || after.Version != before.Version || agentCurrentEffects(t, s) != beforeEvents {
 				t.Fatalf("refused dispatch changed durable state: before=%d after=%d error=%v", before.Version, after.Version, err)
 			}
 			var attempt store.WorkerAttempt
@@ -77,11 +78,11 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			for _, obligation := range lane.EvidenceObligations {
 				evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "synthetic worker report"})
 			}
-			completion := store.Event{EventID: "unaccepted-worker-completion", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: failedID, ReadbackModel: "model/synthetic", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceReported, Evidence: evidence})}
+			completion := store.Event{EventID: "unaccepted-worker-completion", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: failedID, ReadbackModel: "model/synthetic", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceReported, Evidence: evidence})}
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{completion}}); !strings.Contains(fmt.Sprint(err), "worker attempt lifecycle is not admissible for this terminal event") {
 				t.Fatalf("completion without admitted dispatch evidence=%v, want the lifecycle fence", err)
 			}
-			if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+			if agentCurrentEffects(t, s) != beforeEvents {
 				t.Fatal("refused completion persisted evidence")
 			}
 			// The host's terminal evidence precedes the typed abandonment receipt.
@@ -141,31 +142,25 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "retry-refused-provenance",
 				"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)},
 			}
-			challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
-			if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-				t.Fatalf("retry without approval: %+v", challenge.Error)
+			// consequence_v1 keeps this engineering retry on ordinary authority.
+			challengesBefore := verifyWallChallenges(t, s)
+			retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
+			if retry.Outcome != OutcomeOK {
+				t.Fatalf("fresh retry: %+v", retry.Error)
 			}
-			ref, ok := challenge.Error.Details["approval_ref"].(string)
-			if !ok || ref == "" {
-				t.Fatal("retry challenge has no approval reference")
+			if got := verifyWallChallenges(t, s); got != challengesBefore {
+				t.Fatalf("engineering retry minted approval challenges: %d -> %d", challengesBefore, got)
 			}
-			approvedRaw := retryJSON(cloneWithApproval(t, retryInput, ref))
-			scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
-			versions := map[string]any{"work": pin.Version, "contract": 1, "failed_attempt_epoch": 1}
-			env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
-			approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-			if approved.Outcome != OutcomeOK {
-				t.Fatalf("approved fresh retry: %+v", approved.Error)
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != acceptedEvidenceBefore {
+				t.Fatalf("recovery changed accepted evidence events from %d to %d", acceptedEvidenceBefore, got)
 			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind IN ('worker.dispatched','worker.completed')`); got != 0 {
-				t.Fatalf("recovery fabricated %d accepted evidence events", got)
-			}
-			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 2 {
+			if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND capability_class='implementation'`); got != 2 {
 				t.Fatalf("recovery created %d attempts, want the failed and fresh identities", got)
 			}
 			var epoch int64
-			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil || epoch != 2 {
-				t.Fatalf("fresh retry epoch=%d error=%v, want 2", epoch, err)
+			wantEpoch := attemptEpoch(t, s, failedID) + 1
+			if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(latest_dispatch_start_payload,'$.attempt_epoch') FROM workflow_step_epochs WHERE work_id='work-1' ORDER BY latest_dispatch_start_seq DESC LIMIT 1`).Scan(&epoch); err != nil || epoch != wantEpoch {
+				t.Fatalf("fresh retry epoch=%d error=%v, want %d", epoch, err, wantEpoch)
 			}
 		})
 	}

@@ -2,12 +2,6 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-06
-- **Amended:** 2026-10-17. D3, D5, the intent scenarios, and the
-  verification name the actions the engine admits at the pin's state
-  (CD-0133 D4, CD-0173 D1, CD-0201 D1, CD-0209 D6), as the released pin does.
-  D3 names which results keep a hand-written intent. D2 names the two kinds of
-  work item that have no pin and the one omission notice that counts them, and
-  a mutation refuses when any other pin cannot be read.
 - **Scope:** The mutation result envelope of the agent tool surface, the read
   projections that carry the same state, and the derivation of
   `next_valid_intents`
@@ -15,7 +9,6 @@
   `work-201ad0df0700db9255d3f256`.
 - **Related:** CD-0005, CD-0027, CD-0030, CD-0039, CD-0096, CD-0133, CD-0173,
   CD-0201, CD-0209
-- **Amends:** None
 
 ## Context
 
@@ -82,9 +75,10 @@ intent per action the engine admits at the pin's state, each carrying `tool`,
 `operation`, `action_id`, `required_fields`, and `expected_version`. The
 admitted actions are the current step's declared actions and the engine-owned
 recovery actions that admission admits. An action that admission holds only
-behind the operator's approval, a convergence basis (CD-0173 D1), or the fresh
-review its own acceptance supplies counts as admitted, so the pin names the
-route to that wall. A result that carries a pin takes its intents from the pin
+behind the operator's approval or the fresh review its own acceptance supplies
+counts as admitted, so the pin names that route
+([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)).
+A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
 intents its operation writes, if any: reads that verify the write, or
 research-pack mutations, never a work mutation.
@@ -92,9 +86,7 @@ research-pack mutations, never a work mutation.
 ### D4. Reads embed the same pin
 
 `concord_work_trace.continuity` and `concord_work_browse.list` with
-`detail: full` embed the pin. `WorkflowStatus` in
-`internal/store/workflow_continuity.go` is a partial precursor of the pin and
-is removed.
+`detail: full` embed the pin.
 
 ### D5. Structural tests
 

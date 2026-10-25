@@ -158,6 +158,7 @@ func TestResearchReadOwnerVersion2DescriptorsAndContinuation(t *testing.T) {
 	if first.Outcome != OutcomeOK {
 		t.Fatalf("owner page one failed: %+v", first.Error)
 	}
+	assertStoreRevisionWatermark(t, s, first)
 	var page struct {
 		ResultVersion int              `json:"result_version"`
 		Packs         []map[string]any `json:"packs"`

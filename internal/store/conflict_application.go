@@ -14,12 +14,10 @@ import (
 	"unicode/utf8"
 )
 
-// WorkConflictApplied records one applied conflict rule as an event-only
-// record in domain_events (CD-0230 D3). It is settlement evidence: it names
-// the rule, the effective size it was applied against, and the outcome. It
-// grants no approval, law authority, verification result, or permission to
-// execute a blocked action, and it never advances the work version or writes
-// a projection.
+// WorkConflictApplied records a settlement identity and payload digest after
+// validating the applied rule, effective size, and outcome. It grants no
+// approval, law authority, verification result, or permission to execute a
+// blocked action, and never advances the work version or writes a projection.
 const WorkConflictApplied = "work.conflict_applied"
 
 // ConflictApplication is one recorded conflict-rule application. The JSON
@@ -99,11 +97,9 @@ func validateWorkConflictAppliedPayload(_ Event, p ConflictApplication) error {
 	return nil
 }
 
-// foldWorkConflictApplied checks the payload against the size projection at
-// this event position, including the operator override when present. Rebuild
-// folds the prefix in order, so later sizes cannot rewrite the historical
-// record. It never consults the current rule table, writes a projection, or
-// advances the work version.
+// foldWorkConflictApplied checks the payload against the current effective
+// size, including the operator override when present. It never consults the
+// current rule table, writes a projection, or advances the work version.
 func foldWorkConflictApplied(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -159,9 +155,9 @@ func conflictApplicationEventID(request ConflictApplicationRequest, sequence int
 
 // RecordConflictApplicationTx records one conflict-rule application inside the
 // caller's transaction. It refuses an unsized work item without any effects,
-// validates the rule against the current generated table, freezes the live
-// source hash and catalog generation into the immutable event, and folds the
-// event with the same registration live application and replay share.
+// validates the rule against the current generated table, binds the live source
+// hash and catalog generation into the payload digest, and applies the effect
+// through its registered writer.
 //
 // Event identity is settlement identity, derived from the settlement inputs
 // and the stored assessment sequence: an exact retry carrying the same
@@ -226,10 +222,11 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		SubjectID:      request.WorkID,
 		Actor:          request.Actor,
 		OccurredAt:     request.OccurredAt,
-		PayloadVersion: 1,
+		PayloadVersion: 2,
 		Payload:        encoded,
 	}
-	if _, err := AppendEvent(ctx, tx, event); err != nil {
+	seq, err := AppendEvent(ctx, tx, event)
+	if err != nil {
 		var failure *Failure
 		if errors.As(err, &failure) && failure.Kind == KindDuplicateEvent {
 			// An exact retry of the same settlement inputs: the recorded event
@@ -238,7 +235,21 @@ func RecordConflictApplicationTx(ctx context.Context, transaction *Transaction, 
 		}
 		return "", err
 	}
-	if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+	scope := transaction.write
+	if scope == nil {
+		scope = newWriteScope(tx)
+	}
+	if err := scope.enter(ctx); err != nil {
+		return "", err
+	}
+	event.Seq = seq
+	if err := applyEffect(ctx, tx, event, scope); err != nil {
+		return "", err
+	}
+	if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
+		return "", err
+	}
+	if err := scope.close(ctx); err != nil {
 		return "", err
 	}
 	return eventID, nil

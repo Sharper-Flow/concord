@@ -11,7 +11,9 @@
     "internal/store/workflow_admission_test.go",
     "internal/store/workflow_admission_liveness_test.go",
     "internal/store/workflow_admission_conformance_test.go",
-    "internal/store/workflow_no_ship_review_test.go",
+    "internal/store/workflow_admission_review_model_test.go",
+    "internal/store/workflow_review_conformance_test.go",
+    "internal/store/workflow_review_disposition_test.go",
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow_correction.go",
     "internal/store/workpin.go",
@@ -44,15 +46,14 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c6c504002b9b73dd5e2223f65456cba59e33c57266b6551e9be857ada736fede",
+  "sha256": "sha256:7d1336b178a8f043d615b2c460685c4838c1bed46af19c3da0f0d80903cc8aec",
   "status": "accepted",
-  "summary": "One tx-scoped history loader and pure workflowAdmit function own admission across all sites; payload and identity checks stay at existing boundaries. Oracle histories consume one ranked-finding lineage, fold its open count, and expose canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without resetting retries. Every registered version keeps the liveness law and conformance checks over modeled dimensions. Only fresh accepted ship or legacy absent reviews settle review debt.",
+  "summary": "One tx-scoped loader and pure workflowAdmit function own admission across all sites, derived from current rows; payload and identity checks stay at existing boundaries. Oracle work consumes one ranked-finding lineage, counts its open findings, and exposes canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without erasing open blockers. The registered definitions keep the liveness law and conformance checks over modeled dimensions.",
   "tags": [
     "workflow",
     "workflow-engine",
     "admission",
-    "liveness",
-    "review-debt"
+    "liveness"
   ],
   "title": "Workflow action admission is derived once and every reachable state stays live"
 }

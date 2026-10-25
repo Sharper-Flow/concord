@@ -123,11 +123,10 @@ func deadBootstrapOwner(t *testing.T) (int64, string) {
 func seedBootstrapStoreAuthority(t *testing.T, s *Store, repo string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "bootstrap-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "bootstrap-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-bootstrap", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap"}`)},
-		{EventID: "bootstrap-membership", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"project-bootstrap","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 0, VersionRef(SubjectProject, "project-bootstrap"): 0}}); err != nil {
+	if _, err := s.CreateProductWithProject(ctx, ProductCreation{
+		ProductID: "product-bootstrap", DisplayName: "bootstrap", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
+		ProjectID: "project-bootstrap", ProjectDisplayName: "bootstrap", Role: "primary", Reason: "fixture",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(ctx, "project-bootstrap", ProjectLocator{ID: "bootstrap-path", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
@@ -146,10 +145,9 @@ func bootstrapStoreRequest() BootstrapRequest {
 // path. Each test store seeds at most one extra Project.
 func seedBootstrapProject(t *testing.T, s *Store, projectID, repo string) {
 	t.Helper()
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: "bootstrap-project-" + projectID, Kind: "project.created", SubjectType: SubjectProject, SubjectID: projectID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"` + projectID + `"}`)},
-		{EventID: "bootstrap-membership-" + projectID, Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"` + projectID + `","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, projectID): 0}}); err != nil {
+	if _, err := s.CreateProjectForProduct(context.Background(), ProjectCreation{
+		ProjectID: projectID, DisplayName: projectID, ProductID: "product-bootstrap", Role: "secondary", Reason: "fixture", ExpectedProductVersion: 2,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(context.Background(), projectID, ProjectLocator{ID: "bootstrap-path-" + projectID, Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
@@ -312,7 +310,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := ensureInstallationKey(ctx, db); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',zeroblob(32),'2026-08-30T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 	repo := initBootstrapStoreRepo(t)
@@ -707,24 +705,28 @@ func TestValidateBootstrapOriginRefusesDirtyLeasedOrDispatchedOrigin(t *testing.
 		}
 	})
 
-	t.Run("dispatched", func(t *testing.T) {
-		repo := initBootstrapStoreRepo(t)
-		s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer s.Close()
-		seedBootstrapStoreAuthority(t, s, repo)
-		origin := liveBootstrapOrigin(t, s, "bootstrap-origin-dispatched-combined")
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',1,?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
-			t.Fatal(err)
-		}
-		_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
-		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
-			t.Fatalf("dispatched origin was not refused: %v", err)
-		}
-	})
+	// Authorization creates the attempt in_flight before the worker is
+	// dispatched; both states hold the origin.
+	for _, state := range []string{"in_flight", "dispatched"} {
+		t.Run(state, func(t *testing.T) {
+			repo := initBootstrapStoreRepo(t)
+			s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			seedBootstrapStoreAuthority(t, s, repo)
+			origin := liveBootstrapOrigin(t, s, "bootstrap-origin-"+state+"-combined")
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open-combined','implement',?,'implementation','','1.0','1.0',?,'2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64), state); err != nil {
+				t.Fatal(err)
+			}
+			_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindResourceBusy || !strings.Contains(failure.Detail, "worker attempt") {
+				t.Fatalf("%s origin attempt was not refused: %v", state, err)
+			}
+		})
+	}
 }
 
 func TestValidateBootstrapOriginRefusesHeldVerifyLease(t *testing.T) {
@@ -760,7 +762,7 @@ func TestValidateBootstrapOriginRefusesDispatchedWorkerAttempt(t *testing.T) {
 	defer s.Close()
 	seedBootstrapStoreAuthority(t, s, repo)
 	origin := terminalBootstrapOrigin(t, s, "bootstrap-origin-dispatched")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open','implement',1,?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at) VALUES(?, 'attempt-open','implement',?,'implementation','','1.0','1.0','dispatched','2026-01-01T00:00:00Z'); DELETE FROM write_guard`, origin.WorkID, "sha256:"+strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.ValidateBootstrapOrigin(context.Background(), origin.Entry.ProjectID, origin.Entry.Path, nil)
@@ -814,34 +816,6 @@ func TestResumeWorktreeLocationRefusals(t *testing.T) {
 	if _, err := s.ResumeWorktreeLocation(context.Background(), request.ProductID, request.ProjectID, first.WorkID); !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "terminal work item") {
 		t.Fatalf("terminal refusal=%v", err)
 	}
-}
-
-func TestBootstrapExistingRetiredInitiativeCreatesNoNativeState(t *testing.T) {
-	t.Parallel()
-	s, _ := seedRetiredPlanningHistory(t)
-	repo := initBootstrapStoreRepo(t)
-	ctx := context.Background()
-	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "retired-repo", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	before := planningEventCount(t, s.db)
-	phases := 0
-	_, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "product", ProjectID: "project", WorkID: "retired-initiative"}, func(string) error { phases++; return nil })
-	if phases != 0 {
-		t.Errorf("retired bootstrap entered %d creation phases", phases)
-	}
-	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project", "retired-initiative")
-	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
-		t.Errorf("retired bootstrap left a native directory: %v", statErr)
-	}
-	branches, gitErr := (ExecGitRunner{}).Run(ctx, repo, "branch", "--list", "work/retired-initiative")
-	if gitErr != nil || strings.TrimSpace(string(branches)) != "" {
-		t.Errorf("retired bootstrap left a native branch: %q err=%v", branches, gitErr)
-	}
-	if after := planningEventCount(t, s.db); after != before {
-		t.Errorf("retired bootstrap appended events: before=%d after=%d", before, after)
-	}
-	assertRetiredPlanningRefusal(t, err)
 }
 
 func TestBootstrapExistingWorktreeReusesReclaimedCaptureIdentity(t *testing.T) {
@@ -905,9 +879,7 @@ func TestBootstrapExistingWorktreeReusesReclaimedCaptureIdentity(t *testing.T) {
 
 // A claim a completed bootstrap journal reopens is a new incarnation of the
 // same claim row. Its occupancy release and reclaim events derive their own
-// identities, the first incarnation's recorded rows stay byte-identical, and
-// the subject's sub-log replays through the folds with both incarnations'
-// reclaim events.
+// identities, and the first incarnation's recorded rows stay byte-identical.
 func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	t.Parallel()
 	repo := initBootstrapStoreRepo(t)
@@ -938,8 +910,8 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	if legacyReclaim != first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-reclaimed" {
 		t.Fatalf("first incarnation identity=%q, want the legacy derivation", legacyReclaim)
 	}
-	var firstID, firstPayload, firstOccurredAt string
-	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&firstID, &firstPayload, &firstOccurredAt); err != nil {
+	var firstReceipt string
+	if err := s.db.QueryRow(`SELECT json_array(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts WHERE event_id=?`, legacyReclaim).Scan(&firstReceipt); err != nil {
 		t.Fatalf("first incarnation reclaim event: %v", err)
 	}
 
@@ -967,10 +939,10 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	}
 
 	var reclaims, releases int
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_reclaimed' AND subject_id=?`, first.WorkID).Scan(&reclaims); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_reclaimed' AND subject_id=?`, first.WorkID).Scan(&reclaims); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.worktree_occupancy_released' AND subject_id=?`, first.WorkID).Scan(&releases); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind='work.worktree_occupancy_released' AND subject_id=?`, first.WorkID).Scan(&releases); err != nil {
 		t.Fatal(err)
 	}
 	if reclaims != 2 || releases != 2 {
@@ -981,39 +953,37 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	if reopenedReclaim == legacyReclaim || reopenedRelease == first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-occupancy-released:ses-reopened" {
 		t.Fatalf("reopened incarnation identities=%q %q, want distinct from the first incarnation's", reopenedReclaim, reopenedRelease)
 	}
-	var reclaimPayload string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedReclaim).Scan(&reclaimPayload); err != nil {
+	var reclaimDigest, releaseDigest, facts, reclaimedAt, state string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='work.worktree_reclaimed' AND subject_id=? AND actor='principal/operator'`, reopenedReclaim, first.WorkID).Scan(&reclaimDigest); err != nil {
 		t.Fatalf("reopened incarnation reclaim event: %v", err)
 	}
-	var reclaimed worktreeReclaimedPayload
-	if err := json.Unmarshal([]byte(reclaimPayload), &reclaimed); err != nil {
+	if err := s.db.QueryRow(`SELECT git_facts,reclaimed_at,state FROM worktree_entries WHERE set_id=? AND project_id=? AND claim_op_id=?`, WorktreeSetID(first.WorkID), first.ProjectID, first.OperationID).Scan(&facts, &reclaimedAt, &state); err != nil {
 		t.Fatal(err)
 	}
-	if reclaimed.ClaimIncarnation != 1 {
-		t.Fatalf("reopened reclaim payload incarnation=%d, want 1", reclaimed.ClaimIncarnation)
+	if state != "reclaimed" || reclaimedAt == "" {
+		t.Fatalf("reclaimed entry state/time = %q/%q", state, reclaimedAt)
 	}
-	var releasePayload string
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, reopenedRelease).Scan(&releasePayload); err != nil {
+	wantReclaim := worktreeReclaimedPayload{ExpectedVersion: reopened.WorkVersion, ResultingVersion: reopened.WorkVersion + 1, SetID: WorktreeSetID(first.WorkID), ProjectID: first.ProjectID, ClaimOpID: first.OperationID, ClaimIncarnation: 1, RequestID: "reclaim-incarnation-reopened", GitFacts: json.RawMessage(facts)}
+	wantDigest, err := effectPayloadDigest(mustJSONValue(wantReclaim))
+	if err != nil || reclaimDigest != wantDigest {
+		t.Fatalf("reopened reclaim digest=%q, want exact incarnation payload %q, err=%v", reclaimDigest, wantDigest, err)
+	}
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=? AND kind='work.worktree_occupancy_released' AND subject_id=?`, reopenedRelease, first.WorkID).Scan(&releaseDigest); err != nil {
 		t.Fatalf("reopened incarnation release event: %v", err)
 	}
-	var released worktreeOccupancyReleasedPayload
-	if err := json.Unmarshal([]byte(releasePayload), &released); err != nil {
+	wantRelease := worktreeOccupancyReleasedPayload{SetID: WorktreeSetID(first.WorkID), ProjectID: first.ProjectID, ClaimOpID: first.OperationID, ClaimIncarnation: 1, SessionRef: "ses-reopened"}
+	wantDigest, err = effectPayloadDigest(mustJSONValue(wantRelease))
+	if err != nil || releaseDigest != wantDigest {
+		t.Fatalf("reopened release digest=%q, want exact session/incarnation payload %q, err=%v", releaseDigest, wantDigest, err)
+	}
+	var afterReceipt string
+	if err := s.db.QueryRow(`SELECT json_array(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts WHERE event_id=?`, legacyReclaim).Scan(&afterReceipt); err != nil {
 		t.Fatal(err)
 	}
-	if released.ClaimIncarnation != 1 || released.SessionRef != "ses-reopened" {
-		t.Fatalf("reopened release payload=%+v, want incarnation 1 releasing ses-reopened", released)
-	}
-	var afterID, afterPayload, afterOccurredAt string
-	if err := s.db.QueryRow(`SELECT event_id,payload,occurred_at FROM domain_events WHERE event_id=?`, legacyReclaim).Scan(&afterID, &afterPayload, &afterOccurredAt); err != nil {
-		t.Fatal(err)
-	}
-	if afterID != firstID || afterPayload != firstPayload || afterOccurredAt != firstOccurredAt {
+	if afterReceipt != firstReceipt {
 		t.Fatal("the reopen and the later reclaim must not touch the first incarnation's recorded reclaim row")
 	}
 
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatalf("replay of the reopened claim history: %v", err)
-	}
 }
 
 func TestBootstrapExistingWorktreeRefusesBootstrapIdentityOutsideScope(t *testing.T) {
@@ -1174,10 +1144,9 @@ func TestUnheldProjectRefusalMessageUnchanged(t *testing.T) {
 	defer s.Close()
 	seedBootstrapStoreAuthority(t, s, repo)
 	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "bootstrap-project-c", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-bootstrap-c", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"bootstrap-c"}`)},
-		{EventID: "bootstrap-membership-c", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-bootstrap", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-bootstrap","project_id":"project-bootstrap-c","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-bootstrap"): 2, VersionRef(SubjectProject, "project-bootstrap-c"): 0}}); err != nil {
+	if _, err := s.CreateProjectForProduct(ctx, ProjectCreation{
+		ProjectID: "project-bootstrap-c", DisplayName: "bootstrap-c", ProductID: "product-bootstrap", Role: "secondary", Reason: "fixture", ExpectedProductVersion: 2,
+	}); err != nil {
 		t.Fatal(err)
 	}
 

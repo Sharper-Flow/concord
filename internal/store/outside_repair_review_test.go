@@ -112,11 +112,11 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 	for _, target := range []string{"completed", "cancelled", "superseded", "in_progress"} {
 		event := workTransitionEvent("outside-writer-"+target, work, "needed", target, version, version+1)
 		err := s.Transact(context.Background(), func(tx *Transaction) error {
-			scope, err := beginFold(context.Background(), tx.tx)
+			scope, err := beginWrite(context.Background(), tx.tx)
 			if err != nil {
 				return err
 			}
-			// Merely owning the fold guard grants no reconciliation authority.
+			// Merely owning the write guard grants no reconciliation authority.
 			if err := updateWorkLifecycle(context.Background(), tx.tx, event, target, version, version+1, scope); err != nil {
 				return err
 			}
@@ -125,7 +125,7 @@ func TestOutsideRepairLifecycleWriterRequiresScopedAuthorization(t *testing.T) {
 		assertFailureKind(t, err, KindOutsideRepairActive)
 	}
 	err := s.Transact(context.Background(), func(tx *Transaction) error {
-		scope, err := beginFold(context.Background(), tx.tx)
+		scope, err := beginWrite(context.Background(), tx.tx)
 		if err != nil {
 			return err
 		}
@@ -165,11 +165,11 @@ func outsideRepairDispatchFixture(t *testing.T, label string) (*Store, cd0059Dis
 func TestOutsideRepairHoldRefusesOutstandingExecution(t *testing.T) {
 	for _, state := range []string{"in_flight", "dispatched"} {
 		t.Run(state, func(t *testing.T) {
-			s, seed, attempt, _ := outsideRepairDispatchFixture(t, "outside-live-"+state)
+			s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-live-"+state)
 			if state == "dispatched" {
 				lane := BuiltinLaneDefinitions()[0]
-				event := Event{EventID: "outside-running", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2,
-					Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+				event := Event{EventID: "outside-running", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+					Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 				if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
 					t.Fatal(err)
 				}
@@ -188,7 +188,7 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 	s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-unused-window")
 	// A stranded authorization closes through the existing lawful abandonment
 	// route. Its unused window remains in history; the hold must fence its use.
-	abandon := Event{EventID: "outside-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1,
+	abandon := Event{EventID: "outside-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "the host stopped before dispatch"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandon}}); err != nil {
 		t.Fatal(err)
@@ -206,14 +206,11 @@ func TestOutsideRepairUnusedAuthorizationCannotDispatchAfterHold(t *testing.T) {
 		return ValidateWorkerDispatchWindow(context.Background(), tx, seed.workID, "", attempt, digest)
 	}), KindOutsideRepairActive)
 	lane := BuiltinLaneDefinitions()[0]
-	event := Event{EventID: "outside-late-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 2,
-		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt-late", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	event := Event{EventID: "outside-late-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt-late", LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 	assertFailureKind(t, ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}), KindOutsideRepairActive)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("dispatch consumption while held changed the database")
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
 	}
 	assertWorkerAttemptState(t, s, seed.workID, attempt, "failed")
 }
@@ -267,11 +264,8 @@ func TestOutsideRepairConsumedTerminalWindowDoesNotBlockHold(t *testing.T) {
 	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, seed.workID, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
 		t.Fatal(err)
 	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
 	if after := workerProjectionSnapshot(t, s); after != workers {
-		t.Fatal("reconciliation/rebuild changed terminal worker evidence")
+		t.Fatal("reconciliation changed terminal worker evidence")
 	}
 }
 
@@ -284,11 +278,11 @@ func TestOutsideRepairReconcileRechecksOutstandingExecution(t *testing.T) {
 }
 
 func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) {
-	s, seed, attempt, _ := outsideRepairDispatchFixture(t, "outside-recheck-"+state)
+	s, seed, attempt, digest := outsideRepairDispatchFixture(t, "outside-recheck-"+state)
 	if state == "dispatched" {
 		lane := BuiltinLaneDefinitions()[0]
-		event := Event{EventID: "outside-recheck-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+		event := Event{EventID: "outside-recheck-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched),
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: digest})}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
 			t.Fatal(err)
 		}
@@ -301,24 +295,23 @@ func testOutsideRepairReconcileOutstandingExecution(t *testing.T, state string) 
 	if err := applyWorkEvent(t, s, claim, workVersion(seed.workID, version)); err != nil {
 		t.Fatal(err)
 	}
-	// A retained historical hold can coexist with an open attempt. Replay
-	// preserves it; fresh completion must still refuse to release its claims.
-	req := outsideRepairTestRequest(t, s, seed.workID, "historical-hold")
-	replay := workflowReplayContext(context.Background())
-	if err := s.TransactDurable(replay, func(tx *Transaction) error {
-		_, err := SetOutsideRepairDispositionTx(replay, tx, req)
-		return err
-	}); err != nil {
+	// Reconciliation must protect outstanding execution even when a hold
+	// already exists in the current rows.
+	hold := outsideRepairTestRequest(t, s, seed.workID, "hold")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
+		INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+		VALUES(?,?,'active','fixture with outstanding execution','{}','2026-10-23T00:00:00Z');
+		DELETE FROM write_guard`, seed.workID, hold.ApprovalRef); err != nil {
 		t.Fatal(err)
 	}
-	req = outsideRepairTestRequest(t, s, seed.workID, "reconcile")
+	req := outsideRepairTestRequest(t, s, seed.workID, "reconcile")
 	before := outsideRepairDatabaseSnapshot(t, s)
 	assertFailureKind(t, outsideRepairApply(t, s, req, WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()), KindNotTerminal)
 	if outsideRepairDatabaseSnapshot(t, s) != before {
 		t.Fatal("reconciliation with outstanding execution changed the database")
 	}
 	// Worker terminal evidence remains available, without managed advancement.
-	abandon := Event{EventID: "outside-recheck-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1,
+	abandon := Event{EventID: "outside-recheck-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: seed.workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerFailed),
 		Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, FailureKind: WorkerFailureAbandoned, Detail: "host ended without a report"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{abandon}}); err != nil {
 		t.Fatal(err)
@@ -342,7 +335,7 @@ func TestOutsideRepairContinuityDoesNotReadBrokenWorkflow(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := s.Transact(context.Background(), func(tx *Transaction) error {
-				scope, err := beginFold(context.Background(), tx.tx)
+				scope, err := beginWrite(context.Background(), tx.tx)
 				if err != nil {
 					return err
 				}

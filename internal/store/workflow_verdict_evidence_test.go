@@ -9,17 +9,6 @@ import (
 	"time"
 )
 
-// Issue #816: record_verdict mints evaluation_evidence refs it never bound,
-// so foldWorkflowCompleted clause 4 refused every agent-driven completion. A
-// defaulted verdict is now born bound, and the complete action late-binds
-// outstanding verdict refs for histories folded before the fix.
-
-// seedItemAtAcceptance drives one break-fix-shaped item through the real
-// action layer to its acceptance step, with a dispatched lane pinned as the
-// executing actor (CD-0109). Verdicts are then recordable. When prebind is
-// false the seeded evidence binds are skipped, so the verdict's own mint is
-// the only bound evidence.
-
 // seedComparisonObservation records the investigation artifact the operator
 // question gate requires: a current Domain ref and a different work item. When
 // the fixture Product holds no Domain registry yet, one is folded in first.
@@ -34,26 +23,27 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)`, workID+"-compared", "task", "Investigation comparison", "needed", 0, "2026-09-09T00:00:00Z", "2026-09-09T00:00:00Z"); err != nil {
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'secondary')`, workID+"-compared", "project"); err != nil {
-		_ = leaveFold(context.Background(), tx)
+		_ = leaveWrite(context.Background(), tx)
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+workID[len(workID)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
-		_ = leaveFold(context.Background(), tx)
+	observationKey := strings.Repeat("0", max(0, 12-len(workID))) + workID
+	if _, err := tx.Exec(`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, "obs:"+observationKey[len(observationKey)-12:]+"cmp0", workID, "investigation before question", `["`+domainRef+`","`+workID+`-compared"]`, `[]`, "2026-09-09T00:00:00Z"); err != nil {
+		_ = leaveWrite(context.Background(), tx)
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(context.Background(), tx); err != nil {
+	if err := leaveWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -61,9 +51,9 @@ func seedComparisonObservation(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 }
-func seedItemAtAcceptance(t *testing.T, workID string, prebind bool) (*Store, WorkflowActor, WorkflowActor) {
+func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
-	return seedItemAtAcceptanceRequiring(t, workID, prebind, []string{"verification"})
+	return seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification"})
 }
 
 // seedItemAtAcceptanceRequiring seeds the same item with a chosen
@@ -84,7 +74,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	lane := BuiltinLaneDefinitions()[0]
 	setup := []Event{
 		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
+		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
 		workflowActionCompletedFixture("proposal-"+workID, workID, ownerRef, 4, "proposal", "record_proposal"),
 		workflowActionCompletedFixture("discovery-"+workID, workID, ownerRef, 5, "discovery", "record_discovery"),
 		workflowActionCompletedFixture("design-"+workID, workID, ownerRef, 6, "design", "record_design"),
@@ -103,7 +93,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	}
 	attemptID := "attempt:" + workID
 	recordWorkerFixtureDispatchAuthorization(t, s, workID, attemptID, "execution", ownerRef)
-	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("e", 64)})}
+	dispatch := Event{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("e", 64)})}
 	var preparedEvents []Event
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		var err error
@@ -117,19 +107,18 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
 	attemptEpoch := latestStepStartEpoch(t, s, workID, "execution")
-	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID)})}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
-		t.Fatal(err)
-	}
+	completed := Event{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerDirectory: workerFixtureDirectory(t, s, workID), EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane)})}
+	terminalCtx := prepareWorkerTerminalDelivery(t, s, workID, attemptID, completed.EventID)
+	workerTerminalEventThroughSeamCtx(t, terminalCtx, s, completed)
 	if prebind {
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`), 0); err != nil {
+		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`)); err != nil {
 			t.Fatalf("bind verification evidence: %v", err)
 		}
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`), 0); err != nil {
+		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`)); err != nil {
 			t.Fatalf("bind review evidence: %v", err)
 		}
 	}
-	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch})), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "accept_worker_result", json.RawMessage(mustJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}))); err != nil {
 		t.Fatalf("accept worker result: %v", err)
 	}
 	return s, owner, reviewer
@@ -161,16 +150,14 @@ func actionEvidenceRefs(action string, payload json.RawMessage) []string {
 	return []string{fields.ImmutableSubjectRef}
 }
 
-func runVerdictAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64) error {
-	return runVerdictActionAs(t, s, workID, action, payload, version, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
+func runVerdictAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage) error {
+	return runVerdictActionAs(t, s, workID, action, payload, 0, WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
 }
 
-// runVerdictActionAs runs one action as a chosen actor. Verdict actions pass
-// the reviewer: the owner executed the delivery step, and independence
-// requires another actor for its evaluation.
-func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, runners ...GitRunner) error {
+// runVerdictActionAs runs one action under the supplied authenticated actor.
+func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
-	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action, runners...)
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {
 		return err
 	}
@@ -182,7 +169,7 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
@@ -192,187 +179,10 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 	return tx.Commit()
 }
 
-// A verdict recorded with no evaluation_evidence folds its own
-// workflow.evidence_bound event for the minted ref, so completion passes
-// clause 4 (issue #816).
-func TestRecordVerdictDefaultEvidenceIsBornBound(t *testing.T) {
-	const workID = "verdict-born-bound"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), readWorkVersion(t, s, workID), reviewer); err != nil {
-		t.Fatalf("record_verdict with default evidence refused: %v", err)
-	}
-	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref') LIKE 'evidence:record_verdict-%'`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
-		t.Fatal(err)
-	}
-	if bound == 0 {
-		t.Fatal("the minted evidence ref was not bound by the record_verdict operation")
-	}
-}
-
-// Issue #842: the born-bind mint hardcoded the review kind, so a contract
-// requiring verification failed completion clause 1 unless the operator
-// carried evidence_kind on the complete envelope. A defaulted verdict now
-// mints every contract-required kind, so clause 1 passes by construction
-// with no envelope kind.
-func TestRecordVerdictDefaultEvidenceSatisfiesContractRequiredKinds(t *testing.T) {
-	const workID = "verdict-born-bound-kinds"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, false)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), readWorkVersion(t, s, workID), reviewer); err != nil {
-		t.Fatalf("record_verdict with default evidence refused: %v", err)
-	}
-	var verification int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification'`, workID, WorkflowEvidenceBound).Scan(&verification); err != nil {
-		t.Fatal(err)
-	}
-	if verification == 0 {
-		t.Fatal("the defaulted verdict minted no verification-kind evidence")
-	}
-	operatorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/"+workID)
-	premiseVersion := readWorkVersion(t, s, workID)
-	operatorRecorded := workflowEvent("operator-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/" + workID, "actor_class": "operator"})
-	premise := workflowEventWithActor("premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
-	confirmCompleted := workflowActionCompletedFixture("premise-completed-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, confirmCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), readWorkVersion(t, s, workID)); err != nil {
-		t.Fatalf("completion clause 1 refused a verdict born bound under the contract kinds: %v", err)
-	}
-	var instanceState string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
-		t.Fatal(err)
-	}
-	if instanceState != "completed" {
-		t.Fatalf("instance_state=%s, want completed", instanceState)
-	}
-}
-
-// A history folded before the fix holds verdicts whose refs were never
-// bound. The complete action late-binds them, so clause 4 passes instead of
-// stranding the item (the live state of work-0ce535bc9d03c043ef8dddb1).
-func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
-	const workID = "verdict-late-bind"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
-	// The pre-fix fold: a verdict pinned to a minted, never-bound ref. The
-	// verdict actor is the reviewer, an agent that executed no step, as the
-	// corrected independence law requires (#801).
-	reviewerRef, err := WorkflowActorRef(reviewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedVersion := readWorkVersion(t, s, workID)
-	verdict := workflowEventWithActor("verdict-pre-fix-"+workID, WorkflowVerdictRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": seedVersion, "resulting_version": seedVersion + 1, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"evidence:workflow-pre-fix-unbound"}, "incomparable_with_approved": false})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): seedVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	operatorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/"+workID)
-	premiseVersion := readWorkVersion(t, s, workID)
-	operatorRecorded := workflowEvent("operator-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "actor_ref": operatorRef, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/" + workID, "actor_class": "operator"})
-	premise := workflowEventWithActor("premise-"+workID, WorkflowPremiseConfirmed, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": premiseVersion + 1, "resulting_version": premiseVersion + 2, "contract_version": 1, "confirming_actor_ref": operatorRef})
-	confirmCompleted := workflowActionCompletedFixture("premise-completed-"+workID, workID, operatorRef, premiseVersion+2, "acceptance", "confirm_premise")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{operatorRecorded, premise, confirmCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), readWorkVersion(t, s, workID)); err != nil {
-		t.Fatalf("late-bound verdict evidence still blocks completion: %v", err)
-	}
-	var instanceState string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
-		t.Fatal(err)
-	}
-	if instanceState != "completed" {
-		t.Fatalf("instance_state=%s, want completed", instanceState)
-	}
-	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')='evidence:workflow-pre-fix-unbound'`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
-		t.Fatal(err)
-	}
-	if bound == 0 {
-		t.Fatal("complete did not bind the outstanding verdict evidence ref")
-	}
-}
-
-// A contract requiring native_run records a verdict through the default
-// path: the mint binds the work's captured and verified native-run
-// observation under that kind, because the consumption gate resolves
-// evidence against the capture projections and no invented reference can
-// ever appear there.
-func TestRecordVerdictDefaultEvidenceBindsVerifiedNativeRunCapture(t *testing.T) {
-	const workID = "verdict-native-run-mint"
-	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
-	capture := seedVerifiedNativeRunCapture(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), readWorkVersion(t, s, workID), reviewer); err != nil {
-		t.Fatalf("a defaulted verdict under a native_run contract refused: %v", err)
-	}
-	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='native_run' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, capture).Scan(&bound); err != nil {
-		t.Fatal(err)
-	}
-	if bound == 0 {
-		t.Fatal("the mint did not bind the verified capture under the native_run kind")
-	}
-	// The verdict must name the capture, so completion's bound-evidence
-	// clause holds for a contract whose only required kind is native_run.
-	var named int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, workID, WorkflowVerdictRecorded, capture).Scan(&named); err != nil {
-		t.Fatal(err)
-	}
-	if named == 0 {
-		t.Fatal("the verdict's evaluation_evidence does not name the bound capture")
-	}
-}
-
-// A contract requiring verification and native_run mints every non-native
-// required kind onto the captured record itself: the defaulted call's mint
-// set is the operation-minted reference plus the contract's required verified
-// capture, so the capture carries its verification binding and the defaulted
-// verdict names both references. No other reference joins that set.
-func TestRecordVerdictDefaultEvidenceBindsCaptureUnderEveryMintedKind(t *testing.T) {
-	const workID = "verdict-native-run-kinds"
-	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification", "native_run"})
-	capture := seedVerifiedNativeRunCapture(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), readWorkVersion(t, s, workID), reviewer); err != nil {
-		t.Fatalf("a defaulted verdict under a verification and native_run contract refused: %v", err)
-	}
-	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, capture).Scan(&bound); err != nil {
-		t.Fatal(err)
-	}
-	if bound == 0 {
-		t.Fatal("the verified capture carries no verification binding; the mint skipped the enriched defaulted evidence")
-	}
-	var named int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, workID, WorkflowVerdictRecorded, capture).Scan(&named); err != nil {
-		t.Fatal(err)
-	}
-	if named == 0 {
-		t.Fatal("the verdict's evaluation_evidence does not name the bound capture")
-	}
-}
-
-// Without a verified capture the mint refuses rather than inventing a
-// native_run reference, because that evidence kind asserts a run happened.
-func TestRecordVerdictDefaultEvidenceRefusesNativeRunWithoutCapture(t *testing.T) {
-	const workID = "verdict-native-run-uncaptured"
-	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
-	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), readWorkVersion(t, s, workID), reviewer)
-	if err == nil {
-		t.Fatal("a defaulted verdict minted native_run evidence with no captured run")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
-		t.Fatalf("uncaptured native_run failure = %v, want %s", err, KindMissingEvidence)
-	}
-	if !strings.Contains(failure.Detail, "no verified native-run capture") {
-		t.Fatalf("uncaptured native_run detail = %q, want the capture instruction", failure.Detail)
-	}
-}
-
 // seedVerifiedNativeRunCapture records one native-run report on the work
 // through the real report and verification events, so the capture and its
 // verified state rebuild from the event log, and returns the observation
-// identity the consumption gate and the verdict mint resolve.
+// identity the consumption gate resolves.
 func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -390,7 +200,7 @@ func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string 
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{report}}, newFoldScope(tx)); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{report}}, newWriteScope(tx)); err != nil {
 		t.Fatalf("record native-run report: %v", err)
 	}
 	var observationID string
@@ -409,19 +219,4 @@ func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string 
 		t.Fatalf("verify the native-run capture: %v", err)
 	}
 	return observationID
-}
-
-// Explicit evaluation_evidence keeps the pre-fix contract: the refs must
-// already be bound when the verdict is recorded.
-func TestRecordVerdictExplicitEvidenceMustBePreBound(t *testing.T) {
-	const workID = "verdict-explicit-unbound"
-	s, _, reviewer := seedItemAtAcceptance(t, workID, true)
-	err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}`), readWorkVersion(t, s, workID), reviewer)
-	if err == nil {
-		t.Fatal("a verdict naming unbound explicit evidence must be refused")
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
-		t.Fatalf("explicit unbound evidence failure = %v, want %s", err, KindMissingEvidence)
-	}
 }

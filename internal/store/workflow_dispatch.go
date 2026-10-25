@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -39,10 +38,6 @@ type WorkflowActionExecutionRequest struct {
 	// It is never decoded from workflow action payload.
 	OperatorActor       *WorkflowActor
 	OperatorApprovalRef string
-	// FailedRetryApproved is set by the boundary after consuming the exact
-	// approval for a failed retry below the limit. It cannot open the
-	// convergence wall and is never decoded from request input.
-	FailedRetryApproved bool
 	// ApprovedTakeover names the held attempt whose exact approval the
 	// boundary consumed for this fenced start. It is never decoded from
 	// request input.
@@ -130,18 +125,10 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 func workflowRouteActionDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, entry RegisteredDefinition, workID, actionID string) (WorkflowActionDefinition, bool, error) {
 	switch actionID {
 	case "record_verdict":
-		var currentStep, state string
-		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
-			return WorkflowActionDefinition{}, false, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
-		}
-		lateVerdictRecovery, err := workflowLateVerdictRecoveryAvailable(ctx, s.db, workID, entry.Definition, currentStep)
-		if err != nil {
-			return WorkflowActionDefinition{}, false, err
-		}
-		if state != "completed" && state != "cancelled" && state != "superseded" && lateVerdictRecovery {
-			return currentActionDefinition("record_verdict", true), true, nil
-		}
-		return WorkflowActionDefinition{}, false, nil
+		// Discovery returns the same hold-mode declaration as ordinary
+		// association. Folded admission, not discovery, proves availability.
+		action, err := workflowDeclaredActionDefinition(entry.Definition, actionID)
+		return action, err == nil, err
 	case "supersede_contract":
 		action, err := workflowSupersedeContractDiscovery(ctx, s, registry, entry, workID)
 		return action, err == nil, err
@@ -265,21 +252,20 @@ func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, regist
 	if err != nil {
 		return WorkflowActionExecutionResult{}, err
 	}
-	scope := transaction.fold
+	scope := transaction.write
 	if scope == nil {
-		scope = newFoldScope(tx)
+		scope = newWriteScope(tx)
 	}
 	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
 }
 
-func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
-	ctx = withWorkflowDispatchHost(ctx, request.ActionID, request.Actor.SessionRef, request.SessionWorktree)
+func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if tx == nil {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "transaction is not open", false, "supply an active store transaction")
 	}
 	if scope == nil {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "fold scope is required", false, "open the fold scope with beginFold")
+		return result, newFailure(KindInvalidOperation, "workflow_action", "write scope is required", false, "open the write scope with beginWrite")
 	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -302,8 +288,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	// One admission derivation for the fold: the tx-scoped loader folds the
-	// instance history into the abstract admission state once, the request's
-	// consumed operator approval fills ordinary failed-retry approval, and the pure
+	// instance history into the abstract admission state once, and the pure
 	// workflowAdmit decides. Every refusal applies here except the review
 	// gate's own fresh-review refusal, whose ready-review carve-out is
 	// payload-bound, the operator-approval walls, and the closed-question
@@ -316,9 +301,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if admissionErr != nil {
 		return result, admissionErr
 	}
-	admission.FailedRetryApproved = request.FailedRetryApproved
+	if err := bindWorkflowReviewRequest(ctx, tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
+		return result, err
+	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
 		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
 	}
 	guards.admissionState = &admission
@@ -339,7 +326,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := guardWorkflowActionActor(guards, request); err != nil {
 		return result, err
 	}
-	payload, envelopeEvidenceRefs, defaultVerdictEvidence, err := prepareWorkflowActionEvidence(guards, &request)
+	payload, err := prepareWorkflowActionEvidence(guards, &request)
 	if err != nil {
 		return result, err
 	}
@@ -358,10 +345,8 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		entry: entry, request: request, currentStep: currentStep, step: step, payload: payload, evidenceRefs: evidenceRefs,
 		eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorRecordPrefix: guards.actorRecordPrefix, operatorNeedsRecord: guards.operatorNeedsRecord,
-		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
-		envelopeEvidenceRefs: envelopeEvidenceRefs,
-		admission:            guards.admissionState,
-		registry:             registry,
+		admission: guards.admissionState,
+		registry:  registry,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -415,6 +400,20 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	}
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}
 	resultMap := workflowActionResultMap(changedRef, request.OperationID, workerPacketDigest, resultMapRetryRecord, workerClaimedWorktree)
+	for _, event := range assembly.events {
+		if event.Kind == WorkflowActionCompleted {
+			var completed workflowActionCompletedPayload
+			if err := json.Unmarshal(event.Payload, &completed); err != nil {
+				return result, err
+			}
+			if completed.AssignmentGroup != nil {
+				resultMap["assignment_group"] = struct {
+					GroupID string                `json:"group_id"`
+					Members []workflowGroupMember `json:"members"`
+				}{completed.AssignmentGroup.GroupID, completed.AssignmentGroup.Members}
+			}
+		}
+	}
 	result.Result, _ = json.Marshal(resultMap)
 	durableChangedRef, _ := json.Marshal(changedRef)
 	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
@@ -443,7 +442,7 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 
 // appendRejectRetryDispatchTx records the combined rejection's retry dispatch
 // into result and returns the admitted retry record.
-func appendRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, rejectRetry *rejectRetryIntent, result *WorkflowActionExecutionResult) (retryDispatchRecord, error) {
+func appendRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *writeScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest, entry RegisteredDefinition, rejectRetry *rejectRetryIntent, result *WorkflowActionExecutionResult) (retryDispatchRecord, error) {
 	retryResult, retryRecord, err := applyRejectRetryDispatchTx(ctx, tx, scope, registry, request, entry, rejectRetry)
 	if err != nil {
 		return retryDispatchRecord{}, err
@@ -514,14 +513,6 @@ func prepareWorkflowActionIntents(guards *workflowActionGuardContext, request *W
 func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest, decision WorkflowAdmissionDecision) error {
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return err
-	} else if request.ActionID == "record_verdict" && !definitionStepAllows(guards.entry.Definition, guards.currentStep, request.ActionID) {
-		// Recovery admits the late timing only, and the guard's predicate is
-		// payload-bound: it checks the verdict entries the request names. The
-		// staleness boundary already held this action through the folded
-		// admission above.
-		if err := guardLateVerdictRecovery(guards); err != nil {
-			return err
-		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
 		return err
@@ -542,12 +533,11 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 	// The folded admission owns step legality (workflowAdmissionStepAllows),
 	// applied here — the engine's late position, after the payload and guard
 	// checks whose specific refusals precede the generic off-step one. The
-	// payload-bound recoveries refine it first: the late-verdict guard ran
-	// above for an off-step record_verdict, and the evidence-binding recovery
-	// binds the outstanding requirement the request's payload names.
+	// evidence-binding recovery first binds the outstanding requirement the
+	// request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
-		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action")
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition, guards.currentStep, request.Payload, "workflow_action", request.EvidenceKinds...)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -572,48 +562,33 @@ func guardWorkflowActionActor(guards *workflowActionGuardContext, request Workfl
 	if err := guardRecordedActorTuple(guards); err != nil {
 		return err
 	}
+	if err := guardWorkflowMemberAction(guards.ctx, guards.tx, request); err != nil {
+		return err
+	}
 	if err := guardOperatorPremiseActor(guards); err != nil {
 		return err
 	}
 	if action := workflowActionDefinitionByID(guards.entry.Definition, request.ActionID); WorkflowActionOpensHeldAttempt(action) {
-		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, request.ApprovedTakeover); err != nil {
+		if err := guardStartTakeover(guards.ctx, guards.tx, action, request.WorkID, actorRef, workflowDispatchAssignment(request.Payload), request.SessionWorktreeIdentity, request.ApprovedTakeover); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// prepareWorkflowActionEvidence normalizes the request and merges its
-// evidence references with the verdict defaults, including the work's native
-// run capture when a defaulted verdict binds one. It returns the defaulted
-// payload and the envelope's own references before the merge.
-func prepareWorkflowActionEvidence(guards *workflowActionGuardContext, request *WorkflowActionExecutionRequest) (payload json.RawMessage, envelopeEvidenceRefs []string, defaultVerdictEvidence bool, err error) {
+// prepareWorkflowActionEvidence normalizes references without creating proof.
+func prepareWorkflowActionEvidence(guards *workflowActionGuardContext, request *WorkflowActionExecutionRequest) (payload json.RawMessage, err error) {
 	payload = guards.defaultedPayload()
 	if err := normalizeWorkflowActionRequest(request); err != nil {
-		return nil, nil, false, err
+		return nil, err
 	}
-	// The envelope's own evidence references, before the verdict merge below
-	// extends them. The verdict constructor resolves each defaulted entry
-	// against this list, not against the merged set.
-	envelopeEvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)
-	evidenceRefs, defaultVerdictEvidence, err := workflowActionEvidenceRefs(*request, payload)
+	evidenceRefs, err := workflowActionEvidenceRefs(*request, payload)
 	if err != nil {
-		return nil, nil, false, err
-	}
-	if defaultVerdictEvidence {
-		// The mint binds the work's real native-run capture, so the durable
-		// operation must carry that reference as evidence authority too.
-		nativeRunRef, nativeErr := defaultVerdictNativeRunRef(guards.ctx, guards.tx, request.WorkID, guards.entry.Definition)
-		if nativeErr != nil {
-			return nil, nil, false, nativeErr
-		}
-		if nativeRunRef != "" && !slices.Contains(evidenceRefs, nativeRunRef) {
-			evidenceRefs = append(evidenceRefs, nativeRunRef)
-		}
+		return nil, err
 	}
 	request.EvidenceRefs = evidenceRefs
 	guards.request = *request
-	return payload, envelopeEvidenceRefs, defaultVerdictEvidence, nil
+	return payload, nil
 }
 
 // workflowActionResultMap builds the action's response envelope.
@@ -683,7 +658,7 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 		return "", "", wrapFailure(KindUnavailable, "workflow_action", "cannot read successor work item", true, "retry once the database is readable", err)
 	}
 	var pin WorkflowDefinitionPin
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, successorID).Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, successorID).Scan(&pin.Ref, &pin.Digest); err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", newFailure(KindInvalidRelation, "workflow_action", "successor has no workflow instance, so its family is undetermined", false, "select a workflow definition for the successor before linking it")
 		}
@@ -706,24 +681,24 @@ func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDef
 // result_evidence_refs records each subject once. Every derived ref below
 // merges through dedupeWorkflowRefs, so normalizing the request's own refs here
 // makes the whole merged list a set.
-func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload json.RawMessage) ([]string, bool, error) {
+func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload json.RawMessage) ([]string, error) {
 	request.EvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)
 	refs := append([]string(nil), request.EvidenceRefs...)
 	switch request.ActionID {
 	case "complete", "accept_worker_result", "accept_worker_evidence", "bind_evidence", "record_verdict":
 	default:
-		return refs, false, nil
+		return refs, nil
 	}
 	fields, err := workflowActionObject(payload)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	switch request.ActionID {
 	case "complete":
 		if len(refs) == 0 {
 			refs = dedupeWorkflowRefs(workflowFieldStrings(fields, "evidence_refs"))
 		}
-		return refs, false, nil
+		return refs, nil
 	case "accept_worker_result", "accept_worker_evidence":
 		// The accepted attempt is the evidence the acceptance certifies. Its id
 		// joins the operation's evidence refs so the evidence_bound fold finds
@@ -732,7 +707,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" {
 			refs = dedupeWorkflowRefs(append(refs, attemptID))
 		}
-		return refs, false, nil
+		return refs, nil
 	case "bind_evidence":
 		// fields.evidence_ref is the declared route for naming the immutable
 		// subject. An explicit immutable_subject_ref overrides that fallback.
@@ -741,48 +716,23 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		if reference != "" {
 			refs = dedupeWorkflowRefs(append(refs, reference))
 		}
-		return refs, false, nil
+		return refs, nil
 	}
-	return workflowVerdictEvidenceRefs(request.OperationID, request.EvidenceRefs, fields)
+	return workflowVerdictEvidenceRefs(fields)
 }
 
-// workflowVerdictEvidenceRefs resolves record_verdict's evidence authority
-// from the deduplicated envelope refs and the verdict fields. The boolean
-// reports whether the operation mints its born-bound reference.
-func workflowVerdictEvidenceRefs(operationID string, envelope []string, fields map[string]json.RawMessage) ([]string, bool, error) {
-	refs := append([]string(nil), envelope...)
-	if _, batchPresent := fields["verdicts"]; batchPresent {
-		// The batched form's evidence authority is the union of every entry's
-		// evaluation references with the envelope's own. One operation-minted
-		// born-bound reference joins the set when a defaulted entry needs it,
-		// so the durable operation names every reference the call resolves.
-		entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
-		if entriesErr != nil {
-			return nil, false, entriesErr
-		}
-		for _, entry := range entries {
-			refs = dedupeWorkflowRefs(append(refs, entry.EvaluationEvidence...))
-		}
-		mint := workflowVerdictEntriesMint(entries, envelope)
-		if mint {
-			refs = dedupeWorkflowRefs(append(refs, "evidence:"+operationID))
-		}
-		return refs, mint, nil
+// workflowVerdictEvidenceRefs retains only the receipts explicitly associated
+// with criteria. An envelope locator cannot substitute for a receipt.
+func workflowVerdictEvidenceRefs(fields map[string]json.RawMessage) ([]string, error) {
+	entries, err := normalizeWorkflowVerdictEntries(fields)
+	if err != nil {
+		return nil, err
 	}
-	if raw, present := fields["evaluation_evidence"]; present {
-		evaluation := workflowFieldStrings(fields, "evaluation_evidence")
-		if len(evaluation) == 0 {
-			return nil, false, newFailure(KindInvalidPayload, "workflow_action", "evaluation_evidence must contain at least one evidence reference", false, "supply the bound evaluation evidence")
-		}
-		if string(raw) == "null" {
-			return nil, false, newFailure(KindInvalidPayload, "workflow_action", "evaluation_evidence must be an array", false, "supply the bound evaluation evidence")
-		}
-		return dedupeWorkflowRefs(append(refs, evaluation...)), false, nil
+	var refs []string
+	for _, entry := range entries {
+		refs = append(refs, entry.EvaluationEvidence...)
 	}
-	if len(refs) != 0 {
-		return refs, false, nil
-	}
-	return []string{"evidence:" + operationID}, true, nil
+	return dedupeWorkflowRefs(refs), nil
 }
 
 // dedupeWorkflowRefs keeps the first occurrence of each reference and preserves
@@ -804,142 +754,28 @@ func dedupeWorkflowRefs(values []string) []string {
 	return out
 }
 
-// workflowSemanticActionEvents constructs only typed, foldable events. Empty
-// return means the action uses the ordinary action_completed event.
-// defaultVerdictEvidence marks a record_verdict whose evaluation evidence the
-// caller minted (issue #816): its refs are bound in this same event list.
-// bornBoundEvidenceKinds returns the evidence kinds a defaulted verdict's
-// minted evidence carries: the approved contract's required kinds in declared
-// order, then the definition's required kinds not already named. Completion
-// clause 1 demands every kind in that union, so the mint binds each
-// evaluation ref under each kind and a defaulted verdict satisfies the clause
-// by construction. A contract and definition that name no kind keep the
-// review default the fold historically minted.
-func bornBoundEvidenceKinds(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) ([]string, error) {
-	var required string
-	contractVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
-	if activeErr != nil {
-		return nil, activeErr
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&required); err != nil {
-		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the approved workflow contract", true, "retry once the database is readable", err)
-	}
-	var kinds []string
-	if err := json.Unmarshal([]byte(required), &kinds); err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract evidence kinds are malformed", false, "reread_entities")
-	}
-	for _, kind := range definition.RequiredEvidenceKinds {
-		if !slices.Contains(kinds, string(kind)) {
-			kinds = append(kinds, string(kind))
-		}
-	}
-	if len(kinds) == 0 {
-		kinds = []string{"review"}
-	}
-	return kinds, nil
-}
-
-// verifiedNativeRunRef returns the observation the work already captured for
-// a native run, once that capture is verified. The native_run consumption
-// gate resolves evidence against these two projections, so a minted
-// reference can never satisfy it and the real capture is the only ref that
-// can. Absence is reported as a missing capture, not as an empty string.
-// defaultVerdictNativeRunRef names the capture a defaulted verdict must bind
-// under the native_run kind, or the empty string when the approved contract
-// requires no native run. It is the one authority for that rule: the durable
-// operation's evidence authority and the minted bindings both consult it, so
-// the reference they record cannot diverge.
-func defaultVerdictNativeRunRef(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) (string, error) {
-	kinds, err := bornBoundEvidenceKinds(ctx, tx, workID, definition)
+// workflowDeclaresDocument checks the pinned payload against the required
+// document members owned by the action schema, not the definition's identity.
+func workflowDeclaresDocument(definition WorkflowDefinition, actionID string) (bool, error) {
+	action, err := workflowDeclaredActionDefinition(definition, actionID)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	if !slices.Contains(kinds, "native_run") {
-		return "", nil
+	for _, member := range builtinActionPolicies[actionID].Payload.Fields {
+		if member.Required && !slices.ContainsFunc(action.Payload.Fields, func(field WorkflowPayloadField) bool {
+			return field.Name == member.Name
+		}) {
+			return false, nil
+		}
 	}
-	return verifiedNativeRunRef(ctx, tx, workID)
+	return true, nil
 }
 
-func verifiedNativeRunRef(ctx context.Context, tx *sql.Tx, workID string) (string, error) {
-	var ref string
-	err := tx.QueryRowContext(ctx, `SELECT observation_id FROM workflow_native_runs WHERE work_id=? AND observation_id IS NOT NULL AND verification_state=? ORDER BY recorded_at DESC, run_id LIMIT 1`, workID, string(VerificationVerified)).Scan(&ref)
-	if err == nil {
-		return ref, nil
-	}
-	if err != sql.ErrNoRows {
-		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot read the work's native-run captures", true, "retry once the projection is readable", err)
-	}
-	err = tx.QueryRowContext(ctx, `SELECT observation_id FROM external_observations WHERE work_id=? AND subject_kind='native_run' AND verification_state=? ORDER BY captured_at DESC, observation_id LIMIT 1`, workID, string(VerificationVerified)).Scan(&ref)
-	if err == sql.ErrNoRows {
-		return "", newFailure(KindMissingEvidence, "workflow_action", "the approved contract requires native_run evidence and this work holds no verified native-run capture: record the run as an external observation and verify it, then name that observation in evaluation_evidence", false, "provide_evidence")
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot read the work's native-run captures", true, "retry once the projection is readable", err)
-	}
-	return ref, nil
-}
-
-// bornBoundEvidenceEvents mints the evidence rows a defaulted verdict is
-// born bound under: one row per (evaluation ref, required kind), each
-// consuming one expected sequence number starting at expected. The
-// native_run kind is the exception. Its consumption gate demands a captured
-// and verified record, so the mint binds the work's real capture under that
-// kind rather than a reference it invented. The effective evaluation
-// evidence is returned, because a contract requiring only native_run carries
-// the capture alone and the minted reference would otherwise stay unbound.
-func bornBoundEvidenceEvents(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor, eventID string, evidence []string, expected int64) ([]Event, []string, error) {
-	kinds, err := bornBoundEvidenceKinds(ctx, tx, workID, definition)
-	if err != nil {
-		return nil, nil, err
-	}
-	mintedKinds := make([]string, 0, len(kinds))
-	requiresNativeRun := false
-	for _, kind := range kinds {
-		if kind == "native_run" {
-			requiresNativeRun = true
-			continue
-		}
-		mintedKinds = append(mintedKinds, kind)
-	}
-	nativeRunRef := ""
-	if requiresNativeRun {
-		if nativeRunRef, err = verifiedNativeRunRef(ctx, tx, workID); err != nil {
-			return nil, nil, err
-		}
-	}
-	events := make([]Event, 0, len(evidence))
-	effective := make([]string, 0, len(evidence)+1)
-	appendBinding := func(kind, ref string) {
-		events = append(events, workflowTypedEvent(eventID+":evidence:"+fmt.Sprint(len(events)), WorkflowEvidenceBound, workID, actor, request.Now, expected+int64(len(events)), map[string]any{
-			"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": request.PrincipalRef,
-			"producer_run_ref": request.OperationID, "producer_watermark": request.RequestID,
-			"observed_at": request.Now.UTC().Format(time.RFC3339Nano),
-		}))
-	}
-	for _, ref := range evidence {
-		for _, kind := range mintedKinds {
-			appendBinding(kind, ref)
-		}
-		if len(mintedKinds) != 0 {
-			effective = append(effective, ref)
-		}
-	}
-	if requiresNativeRun {
-		appendBinding("native_run", nativeRunRef)
-		if !slices.Contains(effective, nativeRunRef) {
-			effective = append(effective, nativeRunRef)
-		}
-	}
-	return events, effective, nil
-}
-
-// workflowProposalRecordedEvents builds the typed proposal event for a
-// definition that declares the proposal document. A definition pinned before
-// the document keeps its generic completion and emits no typed event. An
-// omitted optional list stays absent, so it never reads back as an empty one.
+// workflowProposalRecordedEvents builds the typed proposal event. An omitted
+// optional list stays absent, so it never reads back as an empty one.
 func workflowProposalRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if definition.Version < 7 {
-		return nil, nil
+	if declared, err := workflowDeclaresDocument(definition, "record_proposal"); err != nil || !declared {
+		return nil, err
 	}
 	proposal, err := decodeWorkflowProposalContent(raw)
 	if err != nil {
@@ -958,7 +794,9 @@ func workflowProposalRecordedEvents(definition WorkflowDefinition, request Workf
 	return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool, envelopeEvidenceRefs []string) ([]Event, error) {
+// workflowSemanticActionEvents constructs typed events. An empty result uses
+// the ordinary action_completed event.
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err
@@ -972,7 +810,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "record_work_context":
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "record_design":
-		return workflowDesignRecordEvents(definition, request, actor, raw, eventID, expected)
+		return workflowDesignRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "record_proposal":
 		return workflowProposalRecordedEvents(definition, request, actor, raw, eventID, expected)
 	case "approve_contract":
@@ -986,13 +824,23 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "supersede_contract":
 		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
 	case "record_worker_job":
+		if workflowMemberVariant(fields) {
+			return nil, nil
+		}
 		return workflowRecordWorkerJobEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "accept_worker_result", "accept_worker_evidence":
 		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
-		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence, envelopeEvidenceRefs)
+		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
+		if err != nil {
+			return nil, err
+		}
+		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, stepID, fields); err != nil {
+			return nil, err
+		}
+		return events, nil
 	case "confirm_premise":
 		return workflowConfirmPremiseEvents(ctx, tx, definition, request, actor, fields, eventID, expected)
 	case "link_successor":
@@ -1064,7 +912,7 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 		}
 	}
 	var boundEvidence int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=?`, request.WorkID, WorkflowEvidenceBound).Scan(&boundEvidence); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, request.WorkID).Scan(&boundEvidence); err != nil {
 		return Event{}, wrapFailure(KindUnavailable, "complete_workflow", "cannot count the bound workflow evidence", true, "retry once the database is readable", err)
 	}
 	premiseConfirmed := false
@@ -1216,7 +1064,7 @@ func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID s
 	}
 	var questions []string
 	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "rebuild the workflow context projection")
+		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if len(questions) == 0 {
 		return nil
@@ -1360,15 +1208,10 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 			return nil
 		}
 	}
-	// A carried-forward instance keeps the exits it recorded under the
-	// definition pin in effect when each exit completed. The carry forward
-	// splices steps between a recorded exit and the verdict step, so the
-	// current graph alone cannot vouch for them.
-	satisfied, err := carriedExitSatisfiedItsPinnedDefinition(ctx, tx, workID, verdictStep, exits)
-	if err != nil {
-		return err
-	}
-	if satisfied {
+	// A carried-forward instance keeps each completion's family. Resolve
+	// that family's current graph when the instance graph cannot vouch for
+	// an exit that preceded the verdict step.
+	if carriedExitSatisfiedItsPinnedDefinition(verdictStep, exits) {
 		return nil
 	}
 	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
@@ -1425,9 +1268,10 @@ func advancingActionsBeforeStep(definition WorkflowDefinition, stepID string) ma
 	return advancingActions
 }
 
-// readWorkflowExits reads the work's completed workflow actions, newest first.
+// readWorkflowExits reads the latest completion per family/step/action class,
+// newest first. Held and local completions also witness these admission classes.
 func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workflowExitRecord, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),json_extract(payload,'$.action_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC`, SubjectWorkItem, workID, WorkflowActionCompleted)
+	rows, err := tx.QueryContext(ctx, `SELECT step_id,action_id,definition_ref,exit_seq FROM workflow_completed_exits WHERE work_id=? ORDER BY exit_seq DESC`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the workflow exits", true, "retry once the database is readable", err)
 	}
@@ -1435,7 +1279,7 @@ func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workfl
 	var exits []workflowExitRecord
 	for rows.Next() {
 		var exit workflowExitRecord
-		if err := rows.Scan(&exit.seq, &exit.stepID, &exit.actionID); err != nil {
+		if err := rows.Scan(&exit.stepID, &exit.actionID, &exit.definitionRef, &exit.seq); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the workflow exits", true, "retry once the database is readable", err)
 		}
 		exits = append(exits, exit)
@@ -1446,46 +1290,37 @@ func readWorkflowExits(ctx context.Context, tx *sql.Tx, workID string) ([]workfl
 	return exits, nil
 }
 
-// workflowExitRecord names one recorded workflow action completion: the
-// sequence it completed at and the step and action it recorded.
+// workflowExitRecord names one current completion class and its latest witness.
 type workflowExitRecord struct {
-	seq      int64
-	stepID   string
-	actionID string
+	seq           int64
+	stepID        string
+	actionID      string
+	definitionRef string
 }
 
 // carriedExitSatisfiedItsPinnedDefinition accepts a recorded exit that
 // advanced out of a step directly preceding the verdict step under the
-// definition pin in effect when that exit completed. Each exit resolves its
-// own pin (latest definition_selected at or before the exit sequence) in the
-// immutable registry; an exit no pinned definition satisfies is refused by
-// the caller.
-func carriedExitSatisfiedItsPinnedDefinition(ctx context.Context, tx *sql.Tx, workID, verdictStep string, exits []workflowExitRecord) (bool, error) {
-	historical := make(map[string]map[string]bool)
+// current definition of the family selected when it completed. An empty
+// family means no definition had been selected and contributes no fallback.
+func carriedExitSatisfiedItsPinnedDefinition(verdictStep string, exits []workflowExitRecord) bool {
+	byFamily := make(map[string]map[string]bool)
 	for _, exit := range exits {
-		var pinRef string
-		var pinVersion int64
-		err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.ref'),json_extract(payload,'$.version') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<=? ORDER BY seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowDefinitionSelected, exit.seq).Scan(&pinRef, &pinVersion)
-		if err == sql.ErrNoRows {
+		if exit.definitionRef == "" {
 			continue
 		}
-		if err != nil {
-			return false, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve the workflow pin in effect at an exit", true, "retry once the database is readable", err)
-		}
-		key := registryKey(pinRef, pinVersion)
-		advancing, resolved := historical[key]
+		advancing, resolved := byFamily[exit.definitionRef]
 		if !resolved {
 			advancing = nil
-			if entry, ok := BuiltinWorkflowRegistry().Lookup(pinRef, pinVersion); ok {
+			if entry, ok := BuiltinWorkflowRegistry().Current(exit.definitionRef); ok {
 				advancing = workflowVerdictPredecessorAdvancingExits(entry.Definition, verdictStep)
 			}
-			historical[key] = advancing
+			byFamily[exit.definitionRef] = advancing
 		}
 		if advancing[exit.stepID+"\x00"+exit.actionID] {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 // workflowVerdictPredecessorAdvancingExits returns the advancing exits out of

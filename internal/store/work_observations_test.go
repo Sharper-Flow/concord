@@ -18,7 +18,7 @@ func observationFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "w99-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"99","priority":1}`)},
+		{EventID: "w99-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"99","priority":1}`)},
 		{EventID: "w99-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr99","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-99"): 0}}); err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func observationFixture(t *testing.T) *Store {
 	return s
 }
 
-func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
+func TestObservationRecordsStayVisible(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
@@ -35,9 +35,6 @@ func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 		"refs": []string{"service:cards-a", "service:cards-b"}, "tags": []string{"systemic"},
 	})
 	if err := foldTestEvent(t, s, Event{EventID: "w99-obs-1", Kind: "work.observation_recorded", SubjectType: SubjectWorkItem, SubjectID: "work-99", Actor: "principal/agent", OccurredAt: now, PayloadVersion: 1, Payload: payload}); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
 	page, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 10})

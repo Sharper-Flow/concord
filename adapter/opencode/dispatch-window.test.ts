@@ -17,7 +17,6 @@ const packet = {
   schema_version: "1.0" as const,
   attempt_id: "attempt-1",
   lane_id: "implement",
-  lane_version: 1,
   lane_digest: "sha256:" + "a".repeat(64),
   work_id: "work-1",
   step_id: "step-1",
@@ -342,6 +341,27 @@ describe("dispatch authorization window", () => {
 })
 
 describe("in-flight retention across the host task call", () => {
+  for (const staleAction of ["finish", "refuse", "unclaim"] as const) {
+    test(`a stale ${staleAction} callback cannot change a replacement settlement`, async () => {
+      const windows = new DispatchWindows()
+      windows.open("session-a", packet, "", process.cwd())
+      await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), "reused-call", here, process.cwd())
+      const original = windows.claimSettlement("session-a", "reused-call")!
+      windows.finishSettlement("session-a", "reused-call", original)
+
+      windows.open("session-a", packet, "", process.cwd())
+      await windows.bind(TASK_TOOL_ID, "session-a", exactSelector(), "reused-call", here, process.cwd())
+      const replacement = windows.claimSettlement("session-a", "reused-call")!
+      if (staleAction === "finish") windows.finishSettlement("session-a", "reused-call", original)
+      if (staleAction === "refuse") windows.refuseSettlement("session-a", original)
+      if (staleAction === "unclaim") windows.unclaimSettlement("session-a", original)
+      expect(windows.inFlight("session-a", "reused-call")).toBe(replacement)
+      expect(windows.takeInFlight("session-a", "reused-call")).toBeNull()
+      windows.unclaimSettlement("session-a", replacement)
+      expect(windows.claimSettlement("session-a", "reused-call")).toBe(replacement)
+    })
+  }
+
   test("bind moves the record to in flight and completion takes it once", async () => {
     const windows = new DispatchWindows()
     windows.open("session-a", packet, "sha256:" + "c".repeat(64), process.cwd())
@@ -417,8 +437,9 @@ describe("retained attempt release", () => {
   test("a refused settlement blocks re-settle and completion but not the release", async () => {
     const windows = new DispatchWindows()
     await bindInFlight(windows)
-    expect(windows.claimSettlement("session-a", "call-cancel")).not.toBeNull()
-    windows.refuseSettlement("session-a")
+    const record = windows.claimSettlement("session-a", "call-cancel")!
+    expect(record).not.toBeNull()
+    windows.refuseSettlement("session-a", record)
     expect(windows.claimSettlement("session-a", "call-cancel")).toBeNull()
     expect(windows.takeInFlight("session-a")).toBeNull()
     expect(windows.inFlight("session-a", "call-cancel")).not.toBeNull()

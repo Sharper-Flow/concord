@@ -4,8 +4,10 @@
 - **Date:** 2026-09-19
 - **Scope:** Built-in implementation and break-fix workflow definitions, and the alignment projection
 - **Approval:** The operator approved this bounded workflow change.
-- **Related:** CD-0013, CD-0115, CD-0138
-- **Preserves:** Pinned workflow instances, worker fences, and relation authority
+- **Related:** CD-0013, CD-0138
+- **Preserves:** Worker fences, relation authority, and the definitions active
+  work derives from the canonical source
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D14)
 
 ## Context
 
@@ -40,8 +42,9 @@ before analysis effort is spent on it.
 
 ### D3. Explicit empty result
 
-`record_alignment` is internal_sqlite, approval none, execution mode advance,
-typed event. Its payload carries `searched` (required, the search performed and
+`record_alignment` is internal_sqlite, approval none, execution mode advance
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Its payload carries `searched` (required, the search performed and
 its scope), `outcome` (required enum `related_found` or `none_found`), and
 `related_ids` (1–64 work ids, present only when the outcome is
 `related_found`). A guard refuses `related_found` with no ids, and
@@ -49,11 +52,12 @@ its scope), `outcome` (required enum `related_found` or `none_found`), and
 nothing from never-checked; passing the step is the proof the search happened,
 and the enum records what it returned.
 
-### D4. A new fold-only projection table
+### D4. A dedicated alignment table
 
-The fold writes a new fold-only projection table, `workflow_backlog_alignment`,
+The mutation writes a dedicated `workflow_backlog_alignment` table,
 keyed by `work_id`, holding the declaration row and zero or more related-work
-rows. It does not reuse `workflow_candidate_sets`: that table's foreign key
+rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+It does not reuse `workflow_candidate_sets`: that table's foreign key
 binds to `workflow_contracts(work_id, contract_version)`, and the alignment
 step runs before planning approves a contract, so no parent row exists.
 
@@ -61,14 +65,6 @@ step runs before planning approves a contract, so no parent row exists.
 
 The action records the candidate set only. It creates no relation: the relation
 kind is a semantic judgement that stays with `resolve_overlap`.
-
-### D6. Frozen version chain
-
-New wrapper builders raise `workflow.implementation` from 12 to 13 and
-`workflow.break_fix` from 10 to 11, and the prior versions stay registered in
-`builtinWorkflowDefinitionsWithHistory`, so every pinned in-flight item replays
-its original graph unchanged. Two digest rows are appended to
-`workflowDefinitionVersionPins`.
 
 ### D7. Two workflow types only
 
@@ -87,10 +83,8 @@ collision refusal, or the other five workflow types.
 - `TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds` proves the
   guard refuses an inconsistent payload and a consistent one records and
   advances.
-- `TestPriorPinnedDefinitionVersionsReplayUnchanged` proves every pinned prior
-  version verifies and carries no alignment step.
 - `TestWorkRemovalClearsBacklogAlignmentAtBothEnds` proves work removal clears
   rows naming the removed item in either column. Both foreign keys are
   `RESTRICT`, so a projection delete covering only `work_id` would strand the
   related-item row and fail the final work-item delete.
-- The workflow contract documents the new event, table, and graphs.
+- The workflow contract documents the new action, table, and graphs.

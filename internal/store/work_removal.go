@@ -227,7 +227,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot begin removal preparation", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	stored, replayed, readErr := readStoredRemovalOperationTx(ctx, tx, req, requestedLinearJSON, digest)
@@ -250,7 +250,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared','',?,?)`, req.OperationID, req.IdempotencyKey, req.WorkID, req.ExpectedVersion, req.Reason, req.Actor, req.ProductID, linearJSON, string(handoffJSON), digest, now, now); err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot persist removal operation", true, "retry the same idempotency key", err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -294,7 +294,7 @@ func readStoredRemovalOperationTx(ctx context.Context, tx *sql.Tx, req WorkRemov
 			return WorkRemovalReceipt{}, false, err
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -386,14 +386,14 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	if err != nil {
 		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "handoff cannot be encoded", false, "supply a JSON-encodable handoff")
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared','',?,?)`, req.OperationID, req.IdempotencyKey, req.WorkID, req.ExpectedVersion, req.Reason, req.Actor, req.ProductID, linearJSON, string(handoffJSON), digest, now, now); err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot persist removal operation", true, "retry the same idempotency key", err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
 	return WorkRemovalReceipt{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, Actor: req.Actor, ProductID: req.ProductID, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: digest, State: "prepared"}, nil
@@ -581,7 +581,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		handoff, _ := json.Marshal(payload.Handoff)
 		linearJSON, _ := linearConfirmationJSON(payload.Linear)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_removal_operations(operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,event_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'committed',?,?,?)`, payload.OperationID, payload.IdempotencyKey, event.SubjectID, payload.ExpectedVersion, payload.Reason, payload.Actor, payload.ProductID, linearJSON, string(handoff), payload.HandoffDigest, event.EventID, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot preserve removal receipt", true, "repair the removal operation and rebuild", err)
+			return wrapFailure(KindUnavailable, "fold_event", "cannot preserve removal receipt", true, "restore a verified backup into a new path with concord restore, then swap", err)
 		}
 	}
 	return nil
@@ -599,6 +599,11 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	// foreign key, so removing either end must clear the row first.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
+	}
+	for _, table := range []string{"workflow_group_members", "workflow_member_groups"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID); err != nil { //nolint:gosec // closed source-owned table list.
+			return projectionDeleteFailure(table, err)
+		}
 	}
 	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_size_overrides", "work_size_assessments", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
@@ -659,6 +664,9 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_entries WHERE set_id=?`, WorktreeSetID(workID)); err != nil {
 		return projectionDeleteFailure("worktree_entries", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_claim_native_fences WHERE set_id=?`, WorktreeSetID(workID)); err != nil {
+		return projectionDeleteFailure("worktree_claim_native_fences", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_items WHERE id=?`, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the work item", false, "reconcile remaining foreign-key owners", err)
@@ -754,7 +762,7 @@ func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiv
 		return WorkLiveness{}, err
 	}
 	var latest sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT max(occurred_at) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind NOT IN ('work.message_sent','work.message_withdrawn','workflow.overlap_resolved')`, workID).Scan(&latest); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT max(NULLIF(last_progress_at,'')) FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
 		return WorkLiveness{}, err
 	}
 	return workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest), nil

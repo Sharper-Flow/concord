@@ -3,31 +3,35 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
+func TestContractReassessmentPreservesDesignUntilExplicitReplacement(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workOneVersion(t, s)
 	}
 	fields := workflowContractFieldsFixture()
-	fields["architecture_binding"] = workflowArchitectureBindingFixture()
-	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
+	fields["required_evidence"] = []string{"verification"}
+	fields["route_conventions"] = []string{}
+	fields["rigor_class"] = "prototype_internal"
+	approved, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
+	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "design-correction-design")
 	before, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +40,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 		t.Fatal("initial approved contract has no design record")
 	}
 	fields["contract_version"] = 2
-	fields["premise"] = "Use a replacement approach rather than the original design"
-	fields["required_evidence"] = []string{"verification"}
-	fields["route_conventions"] = []string{}
-	fields["rigor_class"] = "prototype_internal"
-	fields["supersede_reason"] = "the operator rejected the earlier approach"
+	fields["supersede_reason"] = "reassess the unchanged approved outcome and architecture"
 	fields["audit_evidence"] = []string{"evidence:design-correction"}
 	corrected, version := approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "supersede_contract", fields, "design-correction-supersede", map[string]any{"work": version, "contract": before.Contract.Version})
 	if corrected.Outcome != OutcomeOK {
@@ -53,53 +53,12 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if after.Contract == nil || after.Contract.Version != 2 {
 		t.Fatalf("corrected contract not current: %+v", after.Contract)
 	}
-	if after.DesignRecord != nil {
-		t.Fatalf("contract v2 still pins the obsolete design from work version %d", after.DesignRecord.WorkVersion)
-	}
-	if after.WorkPin == nil {
-		t.Fatal("continuity has no work pin")
-	}
-	for _, intent := range after.WorkPin.NextValidIntents {
-		if intent.ActionID == "dispatch_worker" {
-			t.Fatal("work pin advertises dispatch with an obsolete design")
-		}
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); got != 1 {
-		t.Fatalf("historical design records = %d, want 1", got)
-	}
-	dispatchEnv := workflowDispatchWorktreeFixture(t, s, env)
-	dispatch := func(version int64, key string) Envelope {
-		t.Helper()
-		var lane store.LaneDefinition
-		for _, candidate := range store.BuiltinLaneDefinitions() {
-			if candidate.ID == "verify" {
-				lane = candidate
-			}
-		}
-		payload, err := json.Marshal(map[string]any{
-			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": key,
-			"fields": map[string]any{"attempt_id": "attempt:" + key, "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:" + key, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "Verify the corrected design"},
-			})},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: payload}, dispatchEnv)
-	}
-	staleDispatch := dispatch(version, "design-stale-dispatch")
-	if staleDispatch.Outcome != OutcomeError || staleDispatch.Error == nil || staleDispatch.Error.Kind != "missing_evidence" || !strings.Contains(staleDispatch.Error.Message, "design") {
-		t.Fatalf("obsolete design did not block dispatch: %+v", staleDispatch.Error)
-	}
-	if workOneVersion(t, s) != version {
-		t.Fatal("refused dispatch changed work")
-	}
-	definition, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1")
-	if err != nil {
-		t.Fatal(err)
+	if !reflect.DeepEqual(after.DesignRecord, before.DesignRecord) {
+		t.Fatalf("contract-only reassessment changed the design: before=%+v after=%+v", before.DesignRecord, after.DesignRecord)
 	}
 	fields["contract_version"] = 3
+	fields["premise"] = "Use a replacement approach rather than the original design"
+	fields["supersede_reason"] = "replace the architecture explicitly with the corrected objective"
 	fields["design_record"] = map[string]any{
 		"approach":     "Use the replacement approach",
 		"decisions":    []map[string]any{{"id": "decision:replacement", "question": "Which approach?", "choice": "replacement", "rationale": "Matches the corrected objective", "rejected": []string{"original"}}},
@@ -116,23 +75,12 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if current.Contract == nil || current.Contract.Version != 3 || current.DesignRecord == nil || current.DesignRecord.Approach != "Use the replacement approach" {
 		t.Fatalf("replacement pair not current: contract=%+v design=%+v", current.Contract, current.DesignRecord)
 	}
-	if current.WorkPin == nil {
-		t.Fatal("corrected continuity has no work pin")
+	wantDecisions := []store.WorkflowDesignDecision{{ID: "decision:replacement", Question: "Which approach?", Choice: "replacement", Rationale: "Matches the corrected objective", Rejected: []string{"original"}}}
+	if !reflect.DeepEqual(current.DesignRecord.Decisions, wantDecisions) || !reflect.DeepEqual(current.DesignRecord.TouchedRefs, []string{"internal/store/workflow_design.go"}) || current.DesignRecord.WorkVersion <= after.DesignRecord.WorkVersion {
+		t.Fatalf("replacement content was not recorded: %+v", current.DesignRecord)
 	}
-	dispatchVisible := false
-	for _, intent := range current.WorkPin.NextValidIntents {
-		dispatchVisible = dispatchVisible || intent.ActionID == "dispatch_worker"
-	}
-	if !dispatchVisible {
-		t.Fatal("current design did not restore dispatch discovery")
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`); got != 2 {
-		t.Fatalf("replacement lost design history: got %d rows", got)
-	}
-	afterDefinition, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1")
-	if err != nil || afterDefinition.Digest != definition.Digest {
-		t.Fatalf("correction changed the pinned definition: %+v, %v", afterDefinition, err)
-	}
+	eventsBefore := workEventCount(t, s, "work-1")
+	designsBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`)
 	fields["contract_version"] = 4
 	fields["design_record"].(map[string]any)["decisions"].([]map[string]any)[0]["choice"] = strings.Repeat("x", 1025)
 	raw, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "supersede_contract", "fields": fields, "idempotency_key": "design-correction-invalid"})
@@ -146,16 +94,14 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if workOneVersion(t, s) != version {
 		t.Fatal("invalid replacement changed work version")
 	}
-	// The v2 worker-job revision was recorded under the now-superseded
-	// v2 contract; record a fresh ready revision under v3 (the active
-	// successor) so the dispatch finds a dispatch-ready job bound to the
-	// current parent authority (CD-0205). The verify lane is a
-	// verification capability class, so the recorded checks cannot
-	// be empty.
-	recordReadyRetryJobWithChecks(t, s, service, env, "job:design-correction-replace", 3, []string{"go test ./internal/store/"})
-	version = workOneVersion(t, s)
-	currentDispatch := dispatch(version, "design-current-dispatch")
-	if currentDispatch.Outcome != OutcomeOK {
-		t.Fatalf("current replacement did not restore dispatch admission: %+v", currentDispatch.Error)
+	unchanged, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(unchanged.Contract, current.Contract) || !reflect.DeepEqual(unchanged.DesignRecord, current.DesignRecord) {
+		t.Fatal("invalid replacement changed the current contract or design")
+	}
+	if workEventCount(t, s, "work-1") != eventsBefore || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`) != designsBefore {
+		t.Fatal("invalid replacement wrote an event or design")
 	}
 }

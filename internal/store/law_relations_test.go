@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func lawTestRecord(id, kind, status, path string, relations ...KnowledgeRelation) KnowledgeRecord {
@@ -60,7 +61,7 @@ func TestKnowledgeManifestRelationsRequireCurrentSchema(t *testing.T) {
 	}
 }
 
-func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t *testing.T) {
+func TestKnowledgeManifestRelationsRejectInvalidGraphs(t *testing.T) {
 	t.Parallel()
 	base := func(relations ...KnowledgeRelation) KnowledgeManifest {
 		return lawTestManifest(
@@ -83,10 +84,6 @@ func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t 
 		"mixed directed cycle": lawTestManifest(
 			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
 			lawTestRecord("b", "decision", "accepted", ".concord/docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
-		),
-		"supersession mismatch": lawTestManifest(
-			lawTestRecord("old", "decision", "superseded", ".concord/docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
-			lawTestRecord("new", "decision", "accepted", ".concord/docs/decisions/CD-0002-new.md"),
 		),
 		"lesson endpoint": lawTestManifest(
 			lawTestRecord("lesson", "lesson", "published", ".concord/docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
@@ -180,7 +177,7 @@ func TestRebuildRecordsTheDeclarerOfAConflictStoredInIDOrder(t *testing.T) {
 	if source, target, declarer := declared(); source != "law-b" || target != "law-z" || declarer.String != "law-z" {
 		t.Fatalf("projected conflict = %s -> %s declared by %v, want law-b -> law-z declared by law-z", source, target, declarer)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_relations SET declarer_law_id=NULL; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE law_relations SET declarer_law_id=NULL; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
@@ -195,7 +192,7 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 	t.Parallel()
 	s := openTemp(t)
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','a','conflicts_with','b','commit','a'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid,declarer_law_id) VALUES('p','l','a','conflicts_with','b','commit','a'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -221,7 +218,7 @@ func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	ids := make([]string, 32)
@@ -240,7 +237,7 @@ func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 			count++
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkMandatedLawsAtHome(ctx, s, "p", "l", ids, ids, true); err == nil {
@@ -250,7 +247,7 @@ func TestMandatedLawCheckFailsClosedOnConflictOverflow(t *testing.T) {
 	}
 }
 
-func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
+func TestLawBoundaryVersionGatesV22(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, workID string) (*Store, string) {
 		t.Helper()
@@ -267,40 +264,42 @@ func TestLawBoundaryVersionPreservesLegacyContractsAndGatesV22(t *testing.T) {
 		}
 		return s, actor
 	}
-	contract := func(workID, actor string, boundary int) Event {
-		payload := map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}
-		if boundary != 0 {
-			payload["law_boundary_version"] = boundary
+	approve := func(s *Store, workID, actor string) error {
+		ctx := context.Background()
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if err != nil {
+			return err
 		}
-		return workflowEventWithActor("law-boundary-contract-"+workID, WorkflowContractApproved, workID, actor, payload)
+		defer tx.Rollback()
+		fields, err := workflowActionObject(mustJSONValue(map[string]any{
+			"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "rigor_class": "prototype_internal",
+		}))
+		if err != nil {
+			return err
+		}
+		events, err := workflowApproveContractEvents(ctx, tx, workflowFixtureDefinition(t, 1).Definition, WorkflowActionExecutionRequest{WorkID: workID, Now: time.Unix(10, 0).UTC()}, actor, fields, "law-boundary-contract-"+workID, 4)
+		if err != nil {
+			return err
+		}
+		if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: workVersion(workID, 4)}, newWriteScope(tx)); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
-	t.Run("legacy 2.1 contract replays without law projection", func(t *testing.T) {
-		s, actor := setup(t, "law-boundary-legacy")
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract("law-boundary-legacy", actor, 0)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "law-boundary-legacy"): 4}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := RebuildFromLog(context.Background(), s); err != nil {
-			t.Fatalf("legacy contract did not replay: %v", err)
-		}
-		var boundary int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT law_boundary_version FROM workflow_contracts WHERE work_id='law-boundary-legacy'`).Scan(&boundary); err != nil || boundary != 0 {
-			t.Fatalf("legacy law boundary version=%d err=%v, want 0", boundary, err)
-		}
-	})
 	t.Run("2.2 contract fails unknown law before persistence", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-unknown")
 		seedWorkflowLaw(t, s)
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_subjects; DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
-		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract("law-boundary-unknown", actor, 1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "law-boundary-unknown"): 4}})
+		err := approve(s, "law-boundary-unknown", actor)
 		assertFailureKind(t, err, KindProjectionNotFound)
 		assertTableCount(t, s, "workflow_contracts", 0)
 	})
 	t.Run("2.2 contract passes accepted Git law projection", func(t *testing.T) {
 		s, actor := setup(t, "law-boundary-valid")
 		seedWorkflowLaw(t, s)
-		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{contract("law-boundary-valid", actor, 1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "law-boundary-valid"): 4}}); err != nil {
+		if err := approve(s, "law-boundary-valid", actor); err != nil {
 			t.Fatal(err)
 		}
 		var boundary int

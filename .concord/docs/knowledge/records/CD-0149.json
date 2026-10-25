@@ -30,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7f8607d518c5aa86854a0241d1881f35c4b034fde2f4c61bd38fc5e483f45ec6",
+  "sha256": "sha256:c41d27878af4912adfa9bfba6a480b583b288601b450d55e4404979f1acf94d9",
   "status": "accepted",
   "summary": "Adds an explore utility with a manifest-owned read-only tool allowance, a bounded Git command set, and a generator-owned body template. The utility returns plain text without a packet, report schema, evidence obligations, Concord state authority, or nested worker capability.",
   "tags": [

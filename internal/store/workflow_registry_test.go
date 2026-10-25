@@ -64,7 +64,7 @@ func TestWorkflowDefinitionValidationRequiresProductTruthClassification(t *testi
 		}
 	}
 
-	generic := builtinGenericOneOff(true)
+	generic := genericDefinitionFixture()
 	generic.ChangesProductTruth = workflowProductTruth(true)
 	if err := ValidateWorkflowDefinition(generic); err == nil {
 		t.Fatal("generic definition with product-truth authority passed validation")
@@ -85,7 +85,7 @@ func TestWorkflowDefinitionValidationEnforcesProductTruthMatrix(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			registered, ok := registry.Lookup(testCase.ref, 1)
+			registered, ok := registry.Current(testCase.ref)
 			if !ok {
 				t.Fatalf("%s is not registered", testCase.ref)
 			}
@@ -113,54 +113,19 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 		if definition.ChangesProductTruth == nil || *definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("built-in %s product truth=%v, want %t", definition.Ref, definition.ChangesProductTruth, want[definition.WorkKind])
 		}
-		registered, ok := registry.Lookup(definition.Ref, definition.Version)
+		registered, ok := registry.Current(definition.Ref)
 		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
 	}
 }
 
-func TestWorkflowDefinitionVerificationReplaysLegacyInputReferences(t *testing.T) {
+func TestWorkflowDefinitionRejectsFormFeedInputReference(t *testing.T) {
 	t.Parallel()
-	definition := builtinGenericOneOff(true)
+	definition := genericDefinitionFixture()
 	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
-	if err := validateWorkflowDefinitionWithReference(definition, replayValidReference); err != nil {
-		t.Fatalf("legacy pinned definition failed replay validation: %v", err)
-	}
 	if err := ValidateWorkflowDefinition(definition); err == nil {
 		t.Fatal("new definition admission accepted a form-feed reference")
-	}
-	digest, err := workflowDefinitionDigestWithReference(definition, replayValidReference)
-	if err != nil {
-		t.Fatalf("legacy pinned definition could not be digested for replay: %v", err)
-	}
-	registry := &workflowDefinitionRegistry{entries: map[string]RegisteredDefinition{
-		registryKey(definition.Ref, definition.Version): {Definition: definition, Digest: digest},
-	}}
-	if err := registry.Verify(definition.Ref, definition.Version, digest); err != nil {
-		t.Fatalf("legacy pinned definition failed digest verification: %v", err)
-	}
-}
-
-// A family holds exactly the versions the digest pins declare: the frozen
-// version-1 shapes where persisted instances pin them (#861), the shipped
-// shape, and nothing beyond. workflow_definition_version_pins_test.go holds
-// the pins; this guards the ceiling.
-func TestBuiltinWorkflowRegistryHoldsNoVersionBeyondThePins(t *testing.T) {
-	t.Parallel()
-	registry := NewBuiltinWorkflowRegistry()
-	highest := map[string]int64{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-		if definition.Version > highest[definition.Ref] {
-			highest[definition.Ref] = definition.Version
-		}
-	}
-	for ref, top := range highest {
-		for version := top + 1; version <= top+3; version++ {
-			if _, ok := registry.Lookup(ref, version); ok {
-				t.Fatalf("%s v%d is registered, want nothing above v%d", ref, version, top)
-			}
-		}
 	}
 }
 
@@ -171,7 +136,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 		if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
 			continue
 		}
-		registered, ok := registry.Lookup(definition.Ref, 1)
+		registered, ok := registry.Current(definition.Ref)
 		if !ok {
 			t.Fatalf("%s is not registered", definition.Ref)
 		}
@@ -190,7 +155,7 @@ func TestProductChangingDefinitionsHaveApprovalRoute(t *testing.T) {
 func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 	t.Parallel()
 	registry := NewBuiltinWorkflowRegistry()
-	registered, ok := registry.Lookup("workflow.implementation", 1)
+	registered, ok := registry.Current("workflow.implementation")
 	if !ok {
 		t.Fatal("implementation definition is not registered")
 	}
@@ -207,27 +172,5 @@ func TestWorkflowDefinitionCanonicalManifestCarriesProductTruth(t *testing.T) {
 	}
 	if value, ok := manifest["changes_product_truth"].(bool); !ok || !value {
 		t.Fatalf("product truth=%v, want boolean true", manifest["changes_product_truth"])
-	}
-}
-
-// TestRegistryKeyKeepsItsFormat pins the registry key to the ref, a NUL
-// byte, and the decimal version, the format every registry map and
-// composition table is keyed on.
-func TestRegistryKeyKeepsItsFormat(t *testing.T) {
-	for _, test := range []struct {
-		ref     string
-		version int64
-		want    string
-	}{
-		{"workflow.implementation", 1, "workflow.implementation\x001"},
-		{"workflow.implementation", 33, "workflow.implementation\x0033"},
-		{"workflow.break_fix", 30, "workflow.break_fix\x0030"},
-		{"workflow.research", 120, "workflow.research\x00120"},
-		{"workflow.ops_runbook", 9223372036854775807, "workflow.ops_runbook\x009223372036854775807"},
-		{"", 0, "\x000"},
-	} {
-		if got := registryKey(test.ref, test.version); got != test.want {
-			t.Errorf("registryKey(%q, %d) = %q, want %q", test.ref, test.version, got, test.want)
-		}
 	}
 }

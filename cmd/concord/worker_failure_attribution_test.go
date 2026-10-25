@@ -66,7 +66,7 @@ func attributionSignedV2Assertion(t *testing.T, key ed25519.PrivateKey, attemptI
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError,
 		Version:           agent.WorkerEvidenceAssertionVersion2,
 		ObservationDigest: observationDigest,
@@ -84,7 +84,7 @@ func attributionDispatchJSON(t *testing.T, key ed25519.PrivateKey, workID, attem
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel:        readback,
 		HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
 		PacketDigest:         "sha256:" + strings.Repeat("c", 64),
@@ -92,7 +92,7 @@ func attributionDispatchJSON(t *testing.T, key ed25519.PrivateKey, workID, attem
 	}
 	value := map[string]any{
 		"event_id": "dispatch-" + attemptID, "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion,
 		"report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest":         "sha256:" + strings.Repeat("c", 64),
@@ -134,7 +134,7 @@ func attributionStoredFailureAttribution(t *testing.T, dbPath, attemptID string)
 	s := mustOpenStore(t, dbPath)
 	defer s.Close()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.failure_attribution') FROM domain_events WHERE subject_type='work_item' AND kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerFailed, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(a.terminal_payload,'$.failure_attribution') FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.terminal_event_id AND r.effect_seq=a.terminal_seq WHERE r.subject_type='work_item' AND r.kind=? AND a.attempt_id=?`, store.WorkerFailed, attemptID).Scan(&raw); err != nil {
 		t.Fatalf("read the stored failure attribution: %v", err)
 	}
 	var block store.WorkerFailureAttribution
@@ -259,7 +259,7 @@ func TestWorkerFailAttributionV2AuthenticatesTheProducerObservation(t *testing.T
 				// plain released-format assertion and the nonce is untouched.
 				refused["assertion"] = signWorkerEvidence(t, key, agent.WorkerEvidenceAssertion{
 					Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
-					LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+					LaneID: lane.ID, LaneDigest: lane.Digest,
 					ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError, Nonce: testCase.nonce,
 				})
 			} else {
@@ -339,12 +339,6 @@ func TestWorkerFailAttributionHostAndWorkerReportKeepTypedBoundaries(t *testing.
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
-	for _, attemptID := range []string{"attempt-1", "attempt-2"} {
-		seedAuthorizedDispatchWindow(t, dbPath, "work-1", attemptID)
-		if code, errOut := runAttributionCLI(t, "worker-dispatch", attributionDispatchJSON(t, key, "work-1", attemptID, lane, readback, "nonce-con787-typed-seed-"+attemptID)); code != 0 {
-			t.Fatalf("seed dispatch %s exit=%d stderr=%q", attemptID, code, errOut)
-		}
-	}
 	routes := []struct {
 		name        string
 		attemptID   string
@@ -355,6 +349,10 @@ func TestWorkerFailAttributionHostAndWorkerReportKeepTypedBoundaries(t *testing.
 	}
 	digests := map[string]string{}
 	for _, route := range routes {
+		seedAuthorizedDispatchWindow(t, dbPath, "work-1", route.attemptID)
+		if code, errOut := runAttributionCLI(t, "worker-dispatch", attributionDispatchJSON(t, key, "work-1", route.attemptID, lane, readback, "nonce-con787-typed-seed-"+route.attemptID)); code != 0 {
+			t.Fatalf("seed dispatch %s exit=%d stderr=%q", route.attemptID, code, errOut)
+		}
 		digest, err := store.WorkerFailureObservationDigest(route.observation)
 		if err != nil {
 			t.Fatal(err)
@@ -438,7 +436,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	}
 	assertion := agent.WorkerEvidenceAssertion{
 		Verb: agent.WorkerEvidenceVerbDispatch, WorkID: workID, AttemptID: attemptID,
-		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
+		LaneID: lane.ID, LaneDigest: lane.Digest,
 		ReadbackModel:        "provider/executing-model",
 		FailureKind:          store.WorkerFailureModelIdentity,
 		HostProvenanceDigest: "sha256:" + strings.Repeat("a", 64),
@@ -449,7 +447,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	}
 	request := map[string]any{
 		"event_id": "born-failed-con787-readback", "work_id": workID, "attempt_id": attemptID,
-		"lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+		"lane_id": lane.ID, "lane_digest": lane.Digest,
 		"packet_schema_version": store.WorkerPacketSchemaVersion,
 		"report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest":         "sha256:" + strings.Repeat("c", 64),
@@ -471,7 +469,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 	s := mustOpenStore(t, dbPath)
 	defer s.Close()
 	var raw string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_type='work_item' AND kind=? AND json_extract(payload,'$.attempt_id')=?`, store.WorkerDispatched, attemptID).Scan(&raw); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT a.dispatch_payload FROM worker_attempts a JOIN effect_receipts r ON r.event_id=a.dispatch_event_id AND r.effect_seq=a.dispatch_seq WHERE r.subject_type='work_item' AND r.kind=? AND a.attempt_id=?`, store.WorkerDispatched, attemptID).Scan(&raw); err != nil {
 		t.Fatalf("read the born-failed dispatch: %v", err)
 	}
 	var payload store.WorkerDispatchedPayload

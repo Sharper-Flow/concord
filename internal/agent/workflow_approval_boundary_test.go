@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,7 +61,6 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			local.Ref = "workflow.consent-local"
-			local.Version = 1
 			local.ApprovalPolicy = vector.approvalPolicy
 			mutated := 0
 			for index := range local.ActionDefinitions {
@@ -121,18 +121,37 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				if challenges != 0 || approvals != 0 {
 					t.Fatalf("routine record_proposal minted consent state: challenges=%d approvals=%d, want none", challenges, approvals)
 				}
-				if versionAfter != version+1 {
-					t.Fatalf("routine record_proposal work version=%d, want %d after its advance-mode completion", versionAfter, version+1)
+				if versionAfter != version+2 {
+					t.Fatalf("routine record_proposal work version=%d, want %d after proposal and advance-mode completion", versionAfter, version+2)
+				}
+				rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq`, store.WorkflowProposalRecorded, store.WorkflowActionCompleted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var effects []string
+				for rows.Next() {
+					var effect string
+					if err := rows.Scan(&effect); err != nil {
+						t.Fatal(err)
+					}
+					effects = append(effects, effect)
+				}
+				if err := rows.Err(); err != nil {
+					t.Fatal(err)
+				}
+				rows.Close()
+				if want := []string{store.WorkflowProposalRecorded, store.WorkflowActionCompleted}; !slices.Equal(effects, want) {
+					t.Fatalf("routine record_proposal effects=%v, want exactly %v", effects, want)
 				}
 				var started int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
 					t.Fatal(err)
 				}
 				if started != 0 {
 					t.Fatalf("advance-mode proposal recorded %d fenced starts, want none", started)
 				}
 				var actor string
-				if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&actor); err != nil {
+				if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id='work-1' AND kind=? ORDER BY effect_seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&actor); err != nil {
 					t.Fatal(err)
 				}
 				wantActor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
@@ -160,7 +179,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				t.Fatalf("legacy challenge moved the work version from %d to %d, want it held", version, versionAfter)
 			}
 			var started, completed int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events WHERE kind=?),(SELECT count(*) FROM domain_events WHERE kind=?)`, store.WorkflowActionStarted, store.WorkflowActionCompleted).Scan(&started, &completed); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE kind=?),(SELECT count(*) FROM effect_receipts WHERE kind=?)`, store.WorkflowActionStarted, store.WorkflowActionCompleted).Scan(&started, &completed); err != nil {
 				t.Fatal(err)
 			}
 			if started != 0 || completed != 0 {
@@ -173,14 +192,13 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 	t.Parallel()
 	base := store.WorkflowApprovalBoundaryState{
-		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test", Version: 1}, Digest: "digest-1"},
+		Definition:             store.RegisteredDefinition{Definition: store.WorkflowDefinition{Ref: "workflow.test"}, Digest: "digest-1"},
 		WorkVersion:            3,
 		ContractVersion:        2,
 		ActiveContractVersions: []int64{1, 2},
 		DecisionDomainsPresent: true,
 		DecisionDomains:        []string{"product"},
 		EvaluatorAuthority:     store.WorkflowIndependentEvaluator,
-		RetryBinding:           &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 2},
 		Policy:                 store.WorkflowApprovalPolicyResult{Policy: store.WorkflowApprovalPolicyConsequenceV1, Class: store.WorkflowApprovalClassRoutine, Consent: store.WorkflowConsentNone, Reason: "routine"},
 	}
 	if workflowApprovalBoundaryChanged(base, base) {
@@ -202,23 +220,12 @@ func TestWorkflowApprovalBoundaryChangedFacts(t *testing.T) {
 		mutate func(*store.WorkflowApprovalBoundaryState)
 	}{
 		{"definition pin digest", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Digest = "digest-2" }},
-		{"definition pin version", func(s *store.WorkflowApprovalBoundaryState) { s.Definition.Definition.Version = 2 }},
 		{"work version", func(s *store.WorkflowApprovalBoundaryState) { s.WorkVersion = 4 }},
 		{"contract version", func(s *store.WorkflowApprovalBoundaryState) { s.ContractVersion = 3 }},
 		{"active contract versions", func(s *store.WorkflowApprovalBoundaryState) { s.ActiveContractVersions = []int64{1, 2, 3} }},
 		{"decision-domain presence", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomainsPresent = false }},
 		{"decision domains", func(s *store.WorkflowApprovalBoundaryState) { s.DecisionDomains = []string{"preference"} }},
 		{"evaluator authority", func(s *store.WorkflowApprovalBoundaryState) { s.EvaluatorAuthority = store.WorkflowOperatorRequired }},
-		{"failed-retry binding presence", func(s *store.WorkflowApprovalBoundaryState) { s.RetryBinding = nil }},
-		{"failed-retry binding attempt", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-2", FailedAttemptEpoch: 2, ContractVersion: 2}
-		}},
-		{"failed-retry binding epoch", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 3, ContractVersion: 2}
-		}},
-		{"failed-retry binding contract", func(s *store.WorkflowApprovalBoundaryState) {
-			s.RetryBinding = &store.WorkflowRetryApprovalBinding{FailedAttemptID: "attempt-1", FailedAttemptEpoch: 2, ContractVersion: 3}
-		}},
 		{"classification", func(s *store.WorkflowApprovalBoundaryState) { s.Policy.Consent = store.WorkflowConsentRequired }},
 	} {
 		t.Run(vector.name, func(t *testing.T) {

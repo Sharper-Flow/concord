@@ -6,22 +6,15 @@
   repair session entry
 - **Related:** CD-0122, CD-0183, CD-0111, CD-0104, CD-0189,
   [Concord (CON) issue 869](https://linear.app/sharper-flow/issue/CON-869)
-- **Amends:** CD-0183 D4 only for the explicit outside-repair reconciliation
-- **Extends:** CD-0122 D2 with typed entry and reconciliation routes
 - **Preserves:** CD-0122 D1 and D3, ordinary managed completion gates,
   repository review and merge evidence, and host-owned permissions and roles
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
   delivery evidence. This repair creates no managed workflow approval record.
-- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the operator repair command and
-  its launcher, states the repair setup as host obligations, and re-scopes
-  session entry as host-owned, under the Snowball coordinator's
-  operator-delegated approval. D1 and D2 are unchanged.
+- **Approval:** Concord (CON) issue CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated approval.
 
-**Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
+Operator consent for outside-repair hold and reconciliation follows [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary).
+Other admission, safety, and evidence requirements remain required.
 
 ## Context
 
@@ -186,13 +179,14 @@ No release installation or session restart belongs to this decision's delivery.
 ## Verification
 
 - `internal/store.TestOutsideRepairTypedHoldBaseReproduction` proves the
-  missing typed disposition on the base and its accepted fold on this branch.
+  missing typed disposition on the base and its accepted hold on this branch
+  (CD-0242 D3).
 - `internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence`
-  proves approval binding, suppression, and log rebuild.
+  proves approval binding and suppression across recovery (CD-0242 D2).
 - `internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses`
   proves managed admission remains held.
-- `internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay` proves
-  atomic closure, unchanged history, and replay agreement.
+- `internal/store.TestOutsideRepairReconcileBothLiveLifecycles` proves atomic
+  closure from both live lifecycles.
 - `internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold`
   proves resume without changing the workflow step.
 - `internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion` preserves

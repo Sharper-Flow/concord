@@ -95,8 +95,7 @@ func researchContextRequireRefusal(t *testing.T, err error, wantKind string) {
 func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, packIDs []string) {
 	t.Helper()
 	var stepID, workflowRef, workflowDigest string
-	var definitionVersion int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest,definition_version FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&stepID, &workflowRef, &workflowDigest, &definitionVersion); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&stepID, &workflowRef, &workflowDigest); err != nil {
 		t.Fatal(err)
 	}
 	var attemptEpoch int64
@@ -113,7 +112,7 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 		"step_id": stepID, "attempt_epoch": attemptEpoch,
 		"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
 		"research_finding_refs": selections,
-		"workflow_ref":          workflowRef, "workflow_definition_version": definitionVersion, "workflow_definition_digest": workflowDigest,
+		"workflow_ref":          workflowRef, "workflow_definition_digest": workflowDigest,
 		"actor_ref":  store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1"),
 		"request_id": "request:research-context-retained",
 	}
@@ -121,9 +120,23 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"sc-rc-declare-retained", store.WorkflowWorkContextRecorded, string(store.SubjectWorkItem), researchScopeConsumer, "operator", fixedTime().UTC().Format(time.RFC3339Nano), 1, raw); err != nil {
-		t.Fatalf("retained declaration fixture refused: %v", err)
+	tx, err := f.store.DatabaseForTesting().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	seq := agentSeedReceipt(t, tx, "sc-rc-declare-retained", store.WorkflowWorkContextRecorded, researchScopeConsumer, "operator", 1, raw)
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_context_state(work_id,source_frontier,declaration_seq,declaration_id,declaration_payload) VALUES(?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET source_frontier=excluded.source_frontier,declaration_seq=excluded.declaration_seq,declaration_id=excluded.declaration_id,declaration_payload=excluded.declaration_payload`, researchScopeConsumer, seq, seq, "sc-rc-declare-retained", string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -180,7 +193,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 			// A missing membership is corrupt retained state, not a legal
 			// work creation: isolate the fault after the fixture passes
 			// admission, exactly as the retained scope suite does.
-			if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM fold_guard`); err != nil {
+			if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			err := researchContextAuthorizeTx(t, f, rt, inv, nil, researchContextSelection(pack))

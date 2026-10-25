@@ -526,12 +526,18 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 
 	results = run("payload_compatibility")
 	addPayloadProfiles(&report, results)
-	if countOutcome(results, outcomeAccepted) != 7 || countOutcome(results, outcomeUnsupportedPayload) != 3 {
-		t.Fatalf("payload compatibility = %+v, want seven accepted legacy and current and three rejected newer; results=%+v", report.Scenarios["payload_compatibility"], results)
+	if countOutcome(results, outcomeAccepted) != 2 || countOutcome(results, outcomeUnsupportedPayload) != 8 {
+		t.Fatalf("payload compatibility = %+v, want two current accepted and eight non-current refused; results=%+v", report.Scenarios["payload_compatibility"], results)
 	}
 	for _, result := range results {
-		if result.Profile == "newer" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
-			t.Fatalf("newer payload worker %d mutated the event log", result.Worker)
+		if result.Profile != "current" {
+			count, err := countEffectReceipts(s, fmt.Sprintf("compat-%d-work", result.Worker))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("non-current payload worker %d (%s) wrote an effect receipt", result.Worker, result.Profile)
+			}
 		}
 	}
 
@@ -1254,7 +1260,7 @@ func assertLifecycleRelationEffects(ctx context.Context, s *Store) error {
 	for worker := 0; worker < 10; worker++ {
 		prefix := fmt.Sprintf("lifecycle-%d", worker)
 		var events int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts WHERE event_id LIKE ?`, prefix+"-%").Scan(&events); err != nil {
 			return err
 		}
 		if events != 9 {
@@ -1446,7 +1452,9 @@ func killBeforeCommitAndRetry(ctx context.Context, path string, s *Store) error 
 	if err := cmd.Wait(); err == nil {
 		return errors.New("kill worker unexpectedly committed")
 	}
-	if got := countDomainEvents(s, "kill-membership"); got != 0 {
+	if got, err := countEffectReceipts(s, "kill-membership"); err != nil {
+		return err
+	} else if got != 0 {
 		return fmt.Errorf("killed transaction left %d membership events", got)
 	}
 	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation("kill-conformance", "kill-membership")); err != nil {
@@ -1508,7 +1516,7 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	if verified.SourceSnapshot.SchemaVersion != manifest.SchemaVersion || verified.RestoredDatabase.EventWatermark != manifest.EventWatermark {
 		return fmt.Errorf("restored manifest = %+v, want schema=%d watermark=%d", verified, manifest.SchemaVersion, manifest.EventWatermark)
 	}
-	if got, err := maxEventSeqAtPath(ctx, restoredPath); err != nil || got != manifest.EventWatermark {
+	if got, err := storeRevisionAtPath(ctx, restoredPath); err != nil || got != manifest.EventWatermark {
 		return fmt.Errorf("restored watermark = %d, want %d (err=%v)", got, manifest.EventWatermark, err)
 	}
 	restoredStore, err := Open(ctx, restoredPath)
@@ -1526,25 +1534,16 @@ func verifyRestoredBackup(t *testing.T, ctx context.Context, backupPath string, 
 	if err := validateMembershipInvariants(ctx, restoredStore.DatabaseForTesting()); err != nil {
 		return err
 	}
-	before := projectionSnapshot(t, restoredStore)
-	if err := RebuildFromLog(ctx, restoredStore); err != nil {
-		return err
-	}
-	if after := projectionSnapshot(t, restoredStore); after != before {
-		return fmt.Errorf("restored rebuild changed projections")
-	}
 	return nil
 }
 
-func maxEventSeqAtPath(ctx context.Context, path string) (int64, error) {
+func storeRevisionAtPath(ctx context.Context, path string) (int64, error) {
 	db, err := sqlOpenReadOnly(ctx, path)
 	if err != nil {
 		return 0, err
 	}
 	defer db.Close()
-	var seq int64
-	err = db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events`).Scan(&seq)
-	return seq, err
+	return storeRevision(ctx, db)
 }
 
 func sqlOpenReadOnly(_ context.Context, path string) (*sql.DB, error) {
@@ -1571,10 +1570,12 @@ func dbIdentity(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func countDomainEvents(s *Store, eventID string) int {
+func countEffectReceipts(s *Store, eventID string) (int, error) {
 	var count int
-	_ = s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE event_id=?`, eventID).Scan(&count)
-	return count
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, eventID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("read effect receipt %s: %w", eventID, err)
+	}
+	return count, nil
 }
 
 func maxAttemptEpoch(t *testing.T, s *Store, opID string) int64 {

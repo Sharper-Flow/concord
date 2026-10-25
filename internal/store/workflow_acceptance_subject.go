@@ -7,13 +7,9 @@ import (
 )
 
 // workflowAcceptanceSubjectCurrent compares immutable evidence with the native
-// pin on the caller's connection. Historical evidence stays readable; only a
-// live acceptance consumes this check. Replay reconstructs recorded decisions,
-// not acceptance against the worktree that happens to exist during replay.
+// pin on the caller's connection. Historical evidence stays readable; only an
+// acceptance consumes this check.
 func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID string, reviewAttempts, evidenceRefs []string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	var subjects []string
 	if prepared := workerDispatchPreparationFrom(ctx); prepared != nil && prepared.proof.acceptance && prepared.proof.pinReceipt != nil {
 		if prepared.proof.workID != workID || prepared.proof.observation == nil || prepared.proof.observation.State != "clean" {
@@ -22,22 +18,28 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		subjects = append(subjects, prepared.proof.observation.Commit, strings.TrimPrefix(prepared.proof.pinReceipt.SubjectRef, "commit:"))
 	}
 	for _, attempt := range reviewAttempts {
-		var subject string
-		err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events
- WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'
- AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attempt).Scan(&subject)
-		if err != nil && err != sql.ErrNoRows {
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot read the review subject", true, "retry once the database is readable", err)
+		_, result, err := readReviewAttempt(ctx, q, workID, attempt)
+		if err != nil {
+			return err
 		}
-		if subject != "" {
-			subjects = append(subjects, subject)
+		if result.Review == nil {
+			return reviewFailure(KindMissingEvidence, "accepted Review has no output candidate", "obtain and accept the current candidate's exact Review report")
 		}
+		subjects = append(subjects, result.Review.OutputCandidate.Commit)
 	}
 	for _, ref := range evidenceRefs {
+		receipt, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
+		if err != nil {
+			return err
+		}
+		if receipt != nil {
+			subjects = append(subjects, strings.TrimPrefix(receipt.SubjectRef, "commit:"))
+			continue
+		}
 		// Resolve the bound producer, not a commit claimed by the caller or a
 		// locator that merely looks like a native operation reference.
-		rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM domain_events
- WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, ref)
+		rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings
+ WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "workflow_action", "cannot read the bound verdict producers", true, "retry once the database is readable", err)
 		}
@@ -89,9 +91,6 @@ func WorkflowActionRequiresSubjectFreshness(actionID string) bool {
 }
 
 func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
 	subject, err := readCurrentOracleSubject(ctx, tx, workID)
 	if err != nil || subject == "" {
 		return err
@@ -109,49 +108,16 @@ func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID
 	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, nil)
 }
 
-// workflowAcceptedSubjectCurrent reads current per-predicate verdicts and
-// accepted reviews that CD-0206 D3 has not retired. Review staleness uses the
-// same owner as review acceptance, without rewriting historical evidence.
+// Only the current accepted report contributes readiness. Finishing an older
+// report later does not replace that report or its integrated candidate.
 func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID string) error {
-	if isWorkflowReplay(ctx) {
-		return nil
-	}
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT a.attempt_id
- FROM domain_events acc JOIN worker_attempts a ON a.work_id=acc.subject_id
- AND a.attempt_id=json_extract(acc.payload,'$.worker_attempt_id') AND a.capability_class='review'
- JOIN domain_events auth ON auth.subject_type=acc.subject_type AND auth.subject_id=acc.subject_id
- AND auth.kind=? AND json_extract(auth.payload,'$.action_id')='dispatch_worker'
- AND json_extract(auth.payload,'$.worker_attempt_id')=a.attempt_id AND auth.seq<acc.seq
- WHERE acc.subject_type='work_item' AND acc.subject_id=? AND acc.kind=?
- AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')`, WorkflowActionCompleted, workID, WorkflowActionCompleted)
+	state, err := loadWorkflowReviewState(ctx, q, workID)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted review subjects", true, "retry once the database is readable", err)
-	}
-	var candidates []string
-	for rows.Next() {
-		var attempt string
-		if err := rows.Scan(&attempt); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot scan accepted reviews", true, "retry once the database is readable", err)
-		}
-		candidates = append(candidates, attempt)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate accepted reviews", true, "retry once the database is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot close accepted reviews", true, "retry once the database is readable", err)
+		return err
 	}
 	var attempts []string
-	for _, attempt := range candidates {
-		stale, err := workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attempt, "workflow_action", 0)
-		if err != nil {
-			return err
-		}
-		if !stale {
-			attempts = append(attempts, attempt)
-		}
+	if state.Accepted != nil {
+		attempts = append(attempts, state.Accepted.AttemptID)
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {

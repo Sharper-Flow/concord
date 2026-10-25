@@ -59,9 +59,21 @@ func approvalRouteDefinition(t *testing.T) WorkflowDefinition {
 // transaction is the store's own Transact scope and the action commits or
 // rolls back as one unit. It returns the refusal so negative callers can
 // assert it.
+//
+// A terminal action consumes the sealed subject preparation of the item's
+// active claimed worktree, the same preparation the host seals before the
+// boundary call.
 func runApprovalActionTx(t *testing.T, s *Store, registry DefinitionRegistry, workID, actionID string, actor WorkflowActor, operator *WorkflowActor, choice, digest, payload string) error {
 	t.Helper()
 	ctx := context.Background()
+	var worktree string
+	if WorkflowActionRequiresSubjectFreshness(actionID) && s.DatabaseForTesting().QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' LIMIT 1`, WorktreeSetID(workID)).Scan(&worktree) == nil {
+		prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: worktree})
+		if err != nil {
+			return err
+		}
+		ctx = WithWorkerDispatchPreparation(ctx, prepared)
+	}
 	version := readWorkVersion(t, s, workID)
 	request := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: actionID,
@@ -101,7 +113,7 @@ func approvalChallengeCount(t *testing.T, s *Store) int {
 func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='approval'`, workID, WorkflowEvidenceBound).Scan(&bound); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='approval'`, workID).Scan(&bound); err != nil {
 		t.Fatalf("read approval-kind evidence: %v", err)
 	}
 	return bound
@@ -155,43 +167,31 @@ func approvalOperatorQuestionProjection(t *testing.T, s *Store, registry Definit
 	if err != nil {
 		t.Fatal(err)
 	}
-	readDefinition := WorkflowReadDefinition{Ref: definition.Ref, Version: definition.Version, Digest: digest}
+	readDefinition := WorkflowReadDefinition{Ref: definition.Ref, Digest: digest}
 	if err := workPinReadContractTx(ctx, tx, workID, &pin, readDefinition, definition, "running", activeVersion, state); err != nil {
 		t.Fatalf("the work pin's operator-question projection refused: %v", err)
 	}
 	return pin.PendingOperatorDecision, pin.WithheldOperatorDecision
 }
 
-// recordApprovalVerdict records the independent evaluator's ok verdict through
-// the public action route, so the evaluator's admitted route is exercised, not
-// assumed.
-func recordApprovalVerdict(t *testing.T, s *Store, registry DefinitionRegistry, workID string, reviewer WorkflowActor) error {
+func assertApprovalConfirmationReceipt(t *testing.T, s *Store, workID, confirmingActor, authority string, contractVersion, expectedVersion int64) {
 	t.Helper()
-	payload := `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`
-	return runApprovalActionTx(t, s, registry, workID, "record_verdict", reviewer, nil, "", "", payload)
-}
-
-// latestApprovalEventPayload reads the latest event of one kind for one work
-// item and decodes its payload into a generic map for attribution assertions.
-func latestApprovalEventPayload(t *testing.T, s *Store, workID, kind string) map[string]any {
-	t.Helper()
-	var raw []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, kind).Scan(&raw); err != nil {
-		t.Fatalf("read latest %s event: %v", kind, err)
+	var got string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, WorkflowPremiseConfirmed).Scan(&got); err != nil {
+		t.Fatalf("read confirmation receipt: %v", err)
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("decode %s payload: %v", kind, err)
+	want, err := effectPayloadDigest(mustJSONValue(map[string]any{"work_id": workID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1, "contract_version": contractVersion, "confirming_actor_ref": confirmingActor, "confirmation_authority": authority}))
+	if err != nil || got != want {
+		t.Fatalf("confirmation digest=%q, want exact actor/authority payload %q with no approval or operator fields: %v", got, want, err)
 	}
-	return payload
 }
 
 // latestApprovalEventActor reads the latest event of one kind's recorded
-// actor, the attribution the event log carries beside its payload.
+// actor from its immutable receipt header.
 func latestApprovalEventActor(t *testing.T, s *Store, workID, kind string) string {
 	t.Helper()
 	var actor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, kind).Scan(&actor); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, kind).Scan(&actor); err != nil {
 		t.Fatalf("read latest %s actor: %v", kind, err)
 	}
 	return actor
@@ -233,7 +233,7 @@ func approvalWorkAndInstanceState(t *testing.T, s *Store, workID string) (lifecy
 func approvalEventCount(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&events); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
 	return events
@@ -263,21 +263,16 @@ func recordApprovalActors(t *testing.T, s *Store, workID string) reviewerOperato
 	}
 }
 
-// seedApprovalItemAtAcceptance seeds the local consequence_v1 pin through the
-// constructor/fold path up to the acceptance step, records the actor triple,
-// and records the investigation observation. domains is the contract's
-// explicit decision fact. The owner it returns is the executing coordinator
-// the seeded start and delivery history name.
+// seedApprovalItemAtAcceptance parks a builtin workflow.implementation item at
+// acceptance through rAcceptance, with Main's criterion association and the
+// recorded investigation, then records the actor triple. domains is the
+// active contract's decision fact. The owner it returns is the executing
+// coordinator.
 func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string) (*Store, DefinitionRegistry, WorkflowDefinition, WorkflowActor, reviewerOperatorCoordinator) {
 	t.Helper()
-	definition := approvalRouteDefinition(t)
-	registry, registered := newResolutionRegistry(t, definition)
-	s, owner := seedResolutionSelection(t, workID, registry, registered)
-	actors := recordApprovalActors(t, s, workID)
-	advanceResolutionToExecution(t, s, registry, workID, owner, domains)
-	advanceResolutionDelivery(t, s, registry, workID, owner)
-	seedResolutionInvestigation(t, s, workID)
-	return s, registry, definition, owner, actors
+	f := rAcceptance(t, workID, domains, true, true)
+	actors := recordApprovalActors(t, f.store, workID)
+	return f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner, actors
 }
 
 // seedApprovalAbsentFactAtAcceptance seeds the consequence_v1 pin to the
@@ -285,10 +280,12 @@ func seedApprovalItemAtAcceptance(t *testing.T, workID string, domains []string)
 // legacy absence shape. The absent contract is authored under a registered
 // synthetic legacy twin of the route definition, the same ref at
 // definition.Version with the legacy approval policy, so the contract write
-// keeps its legacy-shape absence. The investigation observation is recorded
-// through its real fold. A real WorkflowDefinitionSelected event then carries
-// the instance forward through the registered fold to the higher same-ref
-// consequence_v1 version, registered for its actual digest: the carry forward
+// keeps its legacy-shape absence; the legacy twin is the registry's only, and
+// so current, registration while the item selects it and records its history.
+// The investigation observation is recorded through its real fold. The higher
+// same-ref consequence_v1 version is then registered for its actual digest, and
+// a real WorkflowDefinitionSelected event carries the instance forward through
+// the registered fold to it: the carry forward
 // keeps the acceptance step, keeps the NULL historical contract authoritative
 // with its recorded bytes, and keeps the owner as the executing actor. The
 // seed asserts each preserved state, so a carry forward that rewrote history
@@ -301,28 +298,23 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	legacy := definition
 	legacy.ApprovalPolicy = ""
 	higher := definition
-	higher.Version = definition.Version + 1
 	registry, legacyRegistered := newResolutionRegistry(t, legacy)
-	higherRegistered, err := registry.Register(higher)
-	if err != nil {
-		t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
-	}
 	s, owner := seedResolutionSelection(t, workID, registry, legacyRegistered)
 	recordApprovalActors(t, s, workID)
 	ownerRef := ownerRefForTest(t, owner)
 	version := readWorkVersion(t, s, workID)
+	contractEvent := resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
+		"contract_version": 1, "premise": "deliver the checked change",
+		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			workflowActionCompletedFixture("approval-absent-proposal-"+workID, workID, ownerRef, version, "proposal", "record_proposal"),
 			workflowActionCompletedFixture("approval-absent-discovery-"+workID, workID, ownerRef, version+1, "discovery", "record_discovery"),
 			workflowActionCompletedFixture("approval-absent-design-"+workID, workID, ownerRef, version+2, "design", "record_design"),
-			resolutionEvent("approval-absent-contract-"+workID, WorkflowContractApproved, workID, ownerRef, version+3, map[string]any{
-				"contract_version": 1, "premise": "deliver the checked change",
-				"outcome_kind":      "check",
-				"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-				"required_evidence": []string{"verification"}, "route_conventions": []string{},
-				"spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-			}),
+			contractEvent,
 			workflowActionCompletedFixture("approval-absent-planning-"+workID, workID, ownerRef, version+4, "planning", "approve_contract"),
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
@@ -337,18 +329,25 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if err := s.DatabaseForTesting().QueryRow(`SELECT premise,decision_domains IS NULL FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&premise, &domainsAbsent); err != nil {
 		t.Fatal(err)
 	}
-	var contractPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&contractPayload); err != nil {
+	var contractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&contractDigest); err != nil {
 		t.Fatalf("read the absent contract event: %v", err)
 	}
-	if domainsAbsent != 1 || strings.Contains(string(contractPayload), "decision_domains") {
-		t.Fatalf("the legacy contract recorded fact-present bytes (NULL %d, payload %s), want the absent shape", domainsAbsent, contractPayload)
+	wantDigest, err := effectPayloadDigest(contractEvent.Payload)
+	if err != nil || domainsAbsent != 1 || strings.Contains(string(contractEvent.Payload), "decision_domains") || contractDigest != wantDigest {
+		t.Fatalf("the legacy contract NULL=%d digest=%q, want the exact absent-fact payload %q: %v", domainsAbsent, contractDigest, wantDigest, err)
+	}
+	// The higher version arrives after the legacy history, as an upgrade
+	// does: the legacy definition was current when the item selected it.
+	higherRegistered, err := registry.Register(higher)
+	if err != nil {
+		t.Fatalf("the higher consequence_v1 definition refused registration: %v", err)
 	}
 	carryVersion := readWorkVersion(t, s, workID)
 	appendWorkflowEventsWithRegistry(t, s, registry, Operation{
 		Events: []Event{
 			resolutionEvent("approval-absent-carry-"+workID, WorkflowDefinitionSelected, workID, ownerRef, carryVersion, map[string]any{
-				"ref": higherRegistered.Definition.Ref, "version": higherRegistered.Definition.Version, "digest": higherRegistered.Digest,
+				"ref": higherRegistered.Definition.Ref, "digest": higherRegistered.Digest,
 				"work_kind": string(higherRegistered.Definition.WorkKind),
 			}),
 		},
@@ -358,12 +357,11 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	// contract authoritative with its recorded bytes, and the executing
 	// owner, and moved the pin to the registered higher version and digest.
 	var carriedRef, carriedDigest, step string
-	var carriedVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedVersion, &carriedDigest, &step); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedDigest, &step); err != nil {
 		t.Fatal(err)
 	}
-	if carriedRef != higherRegistered.Definition.Ref || carriedVersion != higherRegistered.Definition.Version || carriedDigest != higherRegistered.Digest {
-		t.Fatalf("the carry forward pinned %s@%d %s, want the registered %s@%d %s", carriedRef, carriedVersion, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Definition.Version, higherRegistered.Digest)
+	if carriedRef != higherRegistered.Definition.Ref || carriedDigest != higherRegistered.Digest {
+		t.Fatalf("the carry forward pinned %s %s, want the registered %s %s", carriedRef, carriedDigest, higherRegistered.Definition.Ref, higherRegistered.Digest)
 	}
 	if step != "acceptance" {
 		t.Fatalf("the carry forward moved the step to %q, want acceptance", step)
@@ -379,12 +377,12 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 	if active != 1 {
 		t.Fatalf("the carry forward left %d active contracts, want the absent-fact contract kept authoritative", active)
 	}
-	var carriedPayload []byte
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowContractApproved).Scan(&carriedPayload); err != nil {
+	var carriedContractDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=? AND event_id=?`, workID, WorkflowContractApproved, contractEvent.EventID).Scan(&carriedContractDigest); err != nil {
 		t.Fatalf("reread the absent contract event: %v", err)
 	}
-	if string(carriedPayload) != string(contractPayload) {
-		t.Fatalf("the carry forward rewrote the absent contract event to %s, want %s preserved", carriedPayload, contractPayload)
+	if carriedContractDigest != contractDigest {
+		t.Fatalf("the carry forward rewrote the absent contract digest to %q, want %q preserved", carriedContractDigest, contractDigest)
 	}
 	if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
 		t.Fatalf("the carry forward moved the execution actor to %q, want the owner %s", executionActor, ownerRef)
@@ -394,7 +392,7 @@ func seedApprovalAbsentFactAtAcceptance(t *testing.T, workID string) (*Store, De
 
 // assertNoApprovalEffect holds the refusal invariant: the work version and the
 // work item's event count did not move, no confirmation row appeared, and no
-// fold guard row survived.
+// write guard row survived.
 func assertNoApprovalEffect(t *testing.T, s *Store, workID string, baselineVersion, baselineEvents int64) {
 	t.Helper()
 	if version := readWorkVersion(t, s, workID); version != baselineVersion {
@@ -422,7 +420,7 @@ func approvalDecisionDigest(t *testing.T, s *Store, workID string) string {
 	defer tx.Rollback()
 	var workVersion int64
 	var definition WorkflowReadDefinition
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &workVersion); err != nil {
 		t.Fatal(err)
 	}
 	contractVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_approval_terminal_test")
@@ -496,25 +494,16 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 	t.Run("engineering completes through the public action route with zero consent challenges", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering"
-		s, registry, definition, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
+		s, registry, definition, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		ownerRef := ownerRefForTest(t, owner)
 
-		// The independent authenticated evaluator records its verdict through
-		// the public action route under its own identity.
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's admitted record_verdict route refused: %v", err)
-		}
-		verdict := latestApprovalEventPayload(t, s, workID, WorkflowVerdictRecorded)
-		if verdict["verdict_actor_ref"] != actors.reviewerRef {
-			t.Fatalf("verdict attribution = %v, want the independent evaluator %s", verdict["verdict_actor_ref"], actors.reviewerRef)
-		}
 		if kind := approvalKindEvidenceCount(t, s, workID); kind != 0 {
 			t.Fatalf("the witness recorded %d approval-kind evidence bindings; none is fabricated", kind)
 		}
 
 		// The projected operator question is absent for engineering work: no
 		// open question and no withheld reason.
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question != nil || withheld != nil {
 			t.Fatalf("engineering work projects question %+v withheld %+v, want neither", question, withheld)
 		}
@@ -522,7 +511,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// The model and the fold agree on the confirmation class: engineering
 		// holds no pending human question, and the coordinator confirmation is
 		// a real exit that does not stand behind one.
-		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, verdict: "ok", artifact: true, engineering: true}, "engineering at acceptance")
+		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(true), "engineering at acceptance")
 		state := foldedApprovalAdmission(t, s, registry, definition, workID)
 		if decision := workflowAdmit(definition, state, "confirm_premise"); !decision.Admitted {
 			t.Fatalf("engineering confirm_premise refused at admission: %v", decision.Failure)
@@ -533,6 +522,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 
 		// The executing coordinator confirms through the public action: no
 		// operator actor, no human digest, the closed confirm choice.
+		confirmationVersion := readWorkVersion(t, s, workID)
 		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`); err != nil {
 			t.Fatalf("engineering coordinator confirmation refused through the public action: %v", err)
 		}
@@ -543,16 +533,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowPremiseConfirmed); eventActor != ownerRef {
 			t.Fatalf("confirmation event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
 		}
-		confirmedEvent := latestApprovalEventPayload(t, s, workID, WorkflowPremiseConfirmed)
-		if confirmedEvent["confirmation_authority"] != "coordinator" || confirmedEvent["confirming_actor_ref"] != ownerRef {
-			t.Fatalf("engineering confirmation event = %v/%v, want coordinator authority by the executing coordinator", confirmedEvent["confirmation_authority"], confirmedEvent["confirming_actor_ref"])
-		}
-		if _, consumed := confirmedEvent["approval_ref"]; consumed {
-			t.Fatalf("engineering confirmation consumed an approval binding: %v", confirmedEvent["approval_ref"])
-		}
-		if _, operatorRecorded := confirmedEvent["operator_actor_ref"]; operatorRecorded {
-			t.Fatalf("engineering confirmation fabricated operator attribution: %v", confirmedEvent["operator_actor_ref"])
-		}
+		assertApprovalConfirmationReceipt(t, s, workID, ownerRef, "coordinator", 1, confirmationVersion)
 		if challenges := approvalChallengeCount(t, s); challenges != 0 {
 			t.Fatalf("engineering witness opened %d persisted consent challenges at confirmation", challenges)
 		}
@@ -560,6 +541,7 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		// The executing coordinator completes through the real public complete
 		// store action; the registered terminal fold and the lifecycle fold
 		// close both projections under the same actor.
+		bindCompletionClosure(t, s, workID, owner)
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for engineering work: %v", err)
 		}
@@ -569,13 +551,6 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 		}
 		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowCompleted); eventActor != ownerRef {
 			t.Fatalf("completion event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
-		}
-		if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
-			t.Fatalf("recorded execution actor = %q, want the completing coordinator %s", executionActor, ownerRef)
-		}
-		completion := latestApprovalEventPayload(t, s, workID, WorkflowCompleted)
-		if completion["verdict_actor_ref"] != actors.reviewerRef {
-			t.Fatalf("completion attribution = %v, want the independent evaluator %s", completion["verdict_actor_ref"], actors.reviewerRef)
 		}
 		if challenges := approvalChallengeCount(t, s); challenges != 0 {
 			t.Fatalf("engineering witness left %d persisted consent challenges", challenges)
@@ -589,15 +564,8 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 	t.Run("engineering confirmation refuses on the recorded investigation without a question-shaped refusal", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-investigation"
-		definition := approvalRouteDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		actors := recordApprovalActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("independent verdict refused: %v", err)
-		}
+		f := rAcceptance(t, workID, []string{}, true, false)
+		s, registry, definition, owner := f.store, BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition, f.owner
 		// No investigation observation is recorded: the engineering
 		// confirmation still requires the recorded investigation, and the
 		// refusal is that requirement's typed failure — never the operator
@@ -625,45 +593,29 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 	t.Run("engineering confirmation refuses on missing acceptance deliverables", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-deliverables"
-		registry, registered := newResolutionRegistry(t, approvalRouteDefinition(t))
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		seedResolutionInvestigation(t, s, workID)
-		// No independent verdict is recorded: the deliverables gate refuses.
+		f := rAcceptance(t, workID, []string{}, false, true)
+		s, registry, owner := f.store, BuiltinWorkflowRegistry(), f.owner
+		// Main has not associated the accepted Review with the criteria: the
+		// deliverables gate refuses.
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
-			t.Fatalf("engineering confirmation without the recorded verdict returned %v, want the missing-evidence refusal", err)
+			t.Fatalf("engineering confirmation without the criterion association returned %v, want the missing-evidence refusal", err)
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
 	})
 
-	t.Run("a worker identity cannot confirm engineering work and independence holds", func(t *testing.T) {
+	t.Run("a worker identity cannot confirm engineering work", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-worker"
-		definition := approvalRouteDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		actors := recordApprovalActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		seedResolutionInvestigation(t, s, workID)
-		// A valid independent verdict exists first, so the worker refusal
-		// below is the authority boundary, not a missing deliverable.
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused: %v", err)
-		}
-		// Keep the dispatched worker distinct from the evaluator so verdict
-		// independence does not mask the worker-authority check.
+		s, registry, _, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
 		lane := BuiltinLaneDefinitions()[0]
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-			EventID: "approval-worker-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
-			Actor: actors.coordinatorRef, OccurredAt: time.Unix(12, 45).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: actors.coordinatorRef}),
-		}}}); err != nil {
+		dispatch := workerDispatchEvent(workID, "approval-worker-dispatch-"+workID, lane, map[string]any{"attempt_id": "attempt:" + workID, "lane_actor_ref": actors.coordinatorRef})
+		dispatch.Actor = actors.coordinatorRef
+		dispatch.OccurredAt = time.Unix(12, 45).UTC()
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}}); err != nil {
 			t.Fatalf("seed worker dispatch: %v", err)
 		}
 		baselineVersion := readWorkVersion(t, s, workID)
@@ -676,69 +628,26 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 			t.Fatalf("the worker-authority confirmation returned %v, want the worker authority refusal", err)
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-		// The verdict's required independence still holds: the executing
-		// actor cannot evaluate its own delivery, through an ordinary valid
-		// verdict payload — not a schema-rejected one.
-		err = runApprovalActionTx(t, s, registry, workID, "record_verdict", owner, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`)
-		var selfFailure *Failure
-		if err == nil || !failureAs(err, &selfFailure) || selfFailure.Kind != KindUnauthorized || !strings.Contains(selfFailure.Detail, "executing actor cannot evaluate its own delivery") {
-			t.Fatalf("the executing actor's self-verdict returned %v, want the independence refusal", err)
-		}
-		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
-			t.Fatalf("refused actions closed the work: lifecycle=%q instance=%q", lifecycle, instanceState)
-		}
 		assertNoFoldGuardRows(t, s)
 	})
 
-	t.Run("engineering confirmation refuses a failed independent evaluation", func(t *testing.T) {
+	t.Run("engineering completion cannot bypass the unconfirmed acceptance step", func(t *testing.T) {
 		t.Parallel()
-		const workID = "approval-terminal-engineering-failed-evaluation"
-		s, registry, _, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused: %v", err)
-		}
-		// Completion cannot bypass the acceptance step the confirmation
-		// advances through.
+		const workID = "approval-terminal-engineering-unconfirmed"
+		s, registry, _, owner, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err == nil {
 			t.Fatal("engineering completion bypassed the unconfirmed acceptance step")
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-		// The evaluator's fresh verdict fails the delivered outcome at the
-		// verdict step: the failed evaluation is recorded, and it stales the
-		// judged artifact — the confirmation refuses until fresh production
-		// at the route target, and the work never completes on it.
-		if err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:operator-verdict"],"incomparable_with_approved":true}`); err != nil {
-			t.Fatalf("the failed independent evaluation verdict refused: %v", err)
-		}
-		failed := latestApprovalEventPayload(t, s, workID, WorkflowVerdictRecorded)
-		if failed["verdict_kind"] != "outcome_mismatch" {
-			t.Fatalf("the failed evaluation verdict = %v, want the recorded outcome mismatch", failed["verdict_kind"])
-		}
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, nil, "confirm", "", `{"selected_choice":"confirm"}`)
-		var staleFailure *Failure
-		if err == nil || !failureAs(err, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview {
-			t.Fatalf("the confirmation behind a failed evaluation folded %v, want the artifact-staleness refusal", err)
-		}
-		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
-			t.Fatalf("the failed evaluation closed the work: lifecycle=%q instance=%q", lifecycle, instanceState)
-		}
-		assertNoFoldGuardRows(t, s)
 	})
 
 	t.Run("engineering fold preserves an earlier staleness behind a missing investigation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-engineering-stale-subject"
-		definition := approvalRouteDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		actors := recordApprovalActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("independent verdict refused: %v", err)
-		}
+		f := rAcceptance(t, workID, []string{}, true, false)
+		s, definition := f.store, mustBuiltinDefinition(t, "workflow.implementation").Definition
 		// No investigation observation is recorded, and the acceptance
 		// subject staleness folded first. Direct state over the real seed:
 		// the engineering gate must preserve the earlier typed failure, not
@@ -767,29 +676,15 @@ func TestApprovalPolicyTerminalEngineering(t *testing.T) {
 			t.Fatalf("the confirmation behind the preserved staleness folded %v, want the stale-requires-review refusal", decision.Failure)
 		}
 	})
-
-	t.Run("unbound evaluation evidence refuses at the verdict boundary", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-engineering-unbound"
-		s, registry, _, _, actors := seedApprovalItemAtAcceptance(t, workID, []string{})
-		baselineVersion := readWorkVersion(t, s, workID)
-		baselineEvents := int64(approvalEventCount(t, s, workID))
-		err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}`)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
-			t.Fatalf("the unbound evaluation evidence returned %v, want the missing-evidence refusal", err)
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-	})
 }
 
 // registeredDigest reads the registered entry's digest for the local
 // resolution definition family from the caller registry.
-func registeredDigest(t *testing.T, registry DefinitionRegistry) string {
+func registeredDigest(t *testing.T, registry DefinitionRegistry, definition WorkflowDefinition) string {
 	t.Helper()
-	entry, ok := registry.Lookup(resolutionWorkflowRef, 1)
+	entry, ok := registry.Current(definition.Ref)
 	if !ok {
-		t.Fatalf("the caller registry does not hold %s v1", resolutionWorkflowRef)
+		t.Fatalf("the caller registry does not hold %s", definition.Ref)
 	}
 	return entry.Digest
 }
@@ -805,18 +700,12 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 
 		// The model and the fold agree: the decision contract keeps the open
 		// human question the exact choice/digest/operator chain answers.
-		conformanceCheckpoint(t, s, registry, workID, definition, admissionModelState{step: "acceptance", contracts: 1, artifact: true}, "decision at acceptance")
-
-		// The independent evaluator's verdict exists before anything terminal;
-		// the acceptance deliverables stand, so the digest chain is reachable.
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused: %v", err)
-		}
+		conformanceCheckpoint(t, s, registry, workID, definition, rAcceptanceModel(false), "decision at acceptance")
 
 		// The projected question is real: it carries the exact verified
 		// digest, and no withheld reason stands beside it.
 		digest := approvalDecisionDigest(t, s, workID)
-		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry), workID)
+		question, withheld := approvalOperatorQuestionProjection(t, s, registry, definition, registeredDigest(t, registry, definition), workID)
 		if question == nil || withheld != nil {
 			t.Fatalf("decision work projects question %+v withheld %+v, want the open question without a withheld reason", question, withheld)
 		}
@@ -868,23 +757,23 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		// The exact verified operator choice and digest confirm through the
 		// public action; the operator and the executing coordinator stay
 		// distinct identities.
+		confirmationVersion := readWorkVersion(t, s, workID)
 		if err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`); err != nil {
 			t.Fatalf("decision confirmation with the verified operator refused: %v", err)
 		}
-		confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 1)
+		// The decision fact rides contract 2, the reclassified successor.
+		confirmed, ok := approvalPremiseConfirmationRow(t, s, workID, 2)
 		if !ok || confirmed != actors.operatorRef {
 			t.Fatalf("decision confirmation row = %q (present %v), want the verified operator %s", confirmed, ok, actors.operatorRef)
 		}
 		if actors.operatorRef == ownerRef {
 			t.Fatalf("the operator and the executing coordinator collapsed into one actor: %s", ownerRef)
 		}
-		confirmedEvent := latestApprovalEventPayload(t, s, workID, WorkflowPremiseConfirmed)
-		if confirmedEvent["confirmation_authority"] != "operator" || confirmedEvent["confirming_actor_ref"] != actors.operatorRef {
-			t.Fatalf("decision confirmation event = %v/%v, want operator authority by the verified operator", confirmedEvent["confirmation_authority"], confirmedEvent["confirming_actor_ref"])
-		}
+		assertApprovalConfirmationReceipt(t, s, workID, actors.operatorRef, "operator", 2, confirmationVersion)
 
 		// Real completion reaches the same two terminal projections under the
 		// executing coordinator.
+		bindCompletionClosure(t, s, workID, owner)
 		if err := runApprovalActionTx(t, s, registry, workID, "complete", owner, nil, "", "", `{"impact_verdict":"non-breaking"}`); err != nil {
 			t.Fatalf("public complete action refused for decision work: %v", err)
 		}
@@ -895,67 +784,23 @@ func TestApprovalPolicyTerminalDecision(t *testing.T) {
 		if eventActor := latestApprovalEventActor(t, s, workID, WorkflowCompleted); eventActor != ownerRef {
 			t.Fatalf("completion event actor = %q, want the executing coordinator %s", eventActor, ownerRef)
 		}
-		if executionActor := approvalExecutionActor(t, s, workID); executionActor != ownerRef {
-			t.Fatalf("recorded execution actor = %q, want the completing coordinator %s", executionActor, ownerRef)
-		}
-		completion := latestApprovalEventPayload(t, s, workID, WorkflowCompleted)
-		if completion["verdict_actor_ref"] != actors.reviewerRef {
-			t.Fatalf("completion attribution = %v, want the independent evaluator %s", completion["verdict_actor_ref"], actors.reviewerRef)
-		}
 		assertNoFoldGuardRows(t, s)
 	})
 
-	t.Run("decision confirmation refuses without its investigation or a bound verdict", func(t *testing.T) {
+	t.Run("decision confirmation refuses without its investigation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "approval-terminal-decision-prerequisites"
-		registry, registered := newResolutionRegistry(t, approvalRouteDefinition(t))
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		actors := recordApprovalActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{"product"})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		// No investigation observation and no verdict: the confirmation
-		// refuses with the first unmet prerequisite's typed failure.
+		f := rAcceptance(t, workID, []string{"product"}, true, false)
+		s, registry, owner := f.store, BuiltinWorkflowRegistry(), f.owner
 		baselineVersion := readWorkVersion(t, s, workID)
 		baselineEvents := int64(approvalEventCount(t, s, workID))
-		digest := approvalDecisionDigest(t, s, workID)
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`)
+		// The store action route defers the closed-question wall to the
+		// selection chain; the preflight is the store-owned refusal.
+		err := approvalPreflightSelection(t, s, registry, workID, owner, "confirm", approvalDecisionDigest(t, s, workID))
 		var failure *Failure
-		if err == nil || !failureAs(err, &failure) {
-			t.Fatalf("decision confirmation without investigation or verdict returned %v, want a typed refusal", err)
+		if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "investigation") {
+			t.Fatalf("decision confirmation without the investigation returned %v, want missing_evidence naming the investigation", err)
 		}
 		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-		// A verdict whose evaluation evidence is unbound refuses at the
-		// verdict boundary: the deliverable stays missing.
-		unboundErr := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:never-bound"]}`)
-		var unboundFailure *Failure
-		if unboundErr == nil || !failureAs(unboundErr, &unboundFailure) || unboundFailure.Kind != KindMissingEvidence {
-			t.Fatalf("the unbound evaluation evidence returned %v, want the missing-evidence refusal", unboundErr)
-		}
-		assertNoApprovalEffect(t, s, workID, baselineVersion, baselineEvents)
-	})
-
-	t.Run("decision confirmation refuses a failed independent evaluation", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-terminal-decision-failed-evaluation"
-		s, registry, _, owner, actors := seedApprovalItemAtAcceptance(t, workID, []string{"product"})
-		if err := recordApprovalVerdict(t, s, registry, workID, actors.reviewer); err != nil {
-			t.Fatalf("the independent evaluator's verdict refused: %v", err)
-		}
-		// The evaluator's fresh verdict fails the delivered outcome at the
-		// verdict step: the failed evaluation stales the judged artifact and
-		// the confirmation refuses until fresh production at the route target.
-		if err := runApprovalActionTx(t, s, registry, workID, "record_verdict", actors.reviewer, nil, "", "", `{"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:operator-verdict"],"incomparable_with_approved":true}`); err != nil {
-			t.Fatalf("the failed independent evaluation verdict refused: %v", err)
-		}
-		digest := approvalDecisionDigest(t, s, workID)
-		err := runApprovalActionTx(t, s, registry, workID, "confirm_premise", owner, &actors.operator, "confirm", digest, `{"selected_choice":"confirm"}`)
-		var staleFailure *Failure
-		if err == nil || !failureAs(err, &staleFailure) || staleFailure.Kind != KindStaleRequiresReview {
-			t.Fatalf("the confirmation behind a failed evaluation folded %v, want the artifact-staleness refusal", err)
-		}
-		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); instanceState == "completed" {
-			t.Fatalf("the failed evaluation closed the work: lifecycle=%q instance=%q", lifecycle, instanceState)
-		}
-		assertNoFoldGuardRows(t, s)
 	})
 }

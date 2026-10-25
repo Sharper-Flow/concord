@@ -32,7 +32,7 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		}
 		for _, intent := range pin.NextValidIntents {
 			decision := workflowAdmit(registered.Definition, state, intent.ActionID)
-			if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired && !decision.FreshReviewRequired {
+			if !decision.Admitted {
 				return fmt.Errorf("%s step %s advertises unadmitted action %s: %+v", pin.WorkflowType, pin.Step, intent.ActionID, decision)
 			}
 			if intent.Tool != "concord_work_transition" || intent.Operation != "workflow_action" || intent.ExpectedVersion != pin.Version {
@@ -65,7 +65,7 @@ func TestWorkPinIntentsAreAdmittedAtEveryBuiltinStep(t *testing.T) {
 			}
 			for _, step := range definition.StepGraph.Steps {
 				t.Run(step.ID, func(t *testing.T) {
-					if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM fold_guard`, step.ID, workID); err != nil {
+					if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM write_guard`, step.ID, workID); err != nil {
 						t.Fatal(err)
 					}
 					count += assertWorkPinIntentsAdmitted(t, s, workID)
@@ -88,20 +88,6 @@ func TestWorkPinRecoveryIntentsAreAdmittedAtTheirWalls(t *testing.T) {
 		seedTerminalInstanceForTesting(t, f.store, f.workID, "cancelled")
 		if assertWorkPinIntentsAdmitted(t, f.store, f.workID) != 0 {
 			t.Fatal("terminal work offered an intent")
-		}
-	})
-	t.Run("convergence", func(t *testing.T) {
-		const workID = "pin-admission-convergence"
-		s, owner, _ := seedIssue1013EscalatedCorrection(t, workID)
-		defer s.Close()
-		if assertWorkPinIntentsAdmitted(t, s, workID) == 0 {
-			t.Fatal("convergence wall offered no intent")
-		}
-		if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
-			t.Fatal(err)
-		}
-		if assertWorkPinIntentsAdmitted(t, s, workID) == 0 {
-			t.Fatal("recorded convergence offered no intent")
 		}
 	})
 }

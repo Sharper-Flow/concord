@@ -19,7 +19,7 @@ func TestScopeAndFullListReadsCarryTheRecordedIntent(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "intent-read-work")
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE work_items SET priority=-7, urgency='expedite', intent_json=json_set(intent_json,
@@ -30,7 +30,7 @@ func TestScopeAndFullListReadsCarryTheRecordedIntent(t *testing.T) {
 		'$.external_ref', 'linear:CON-835-9') WHERE id=?`, "intent-read-work"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,13 +89,13 @@ func TestScopeReadPreservesAbsentAndEmptyIntentStates(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "intent-empty-work")
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE work_items SET intent_json=json_set(intent_json, '$.tags', json_array()) WHERE id=?`, "intent-empty-work"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 

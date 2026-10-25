@@ -24,8 +24,8 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import { agentLanes } from "./generated-agent-lanes"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
-import { dbRows, dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, type JSONRecord } from "./end-to-end.fixture"
-import { jobSizeFields, reportedProductionSize } from "./job-size.fixture"
+import { dbValue, fixturePrivateKey, fixturePublicKeyBase64, git, nativeTaskSelector, reportText, reportWorkerJob, requiredFields, routeDeclaration, runJSON, runProcess, workerEffects, type JSONRecord } from "./end-to-end.fixture"
+
 import { createWorkerCapabilityGuard } from "./lane_capabilities"
 import { canonicalWorkerControl, workerCheckTool } from "./worker_control"
 
@@ -421,7 +421,6 @@ async function driveToReadyJob(
     ready: true,
     readiness_evidence: [preparationRef],
     acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] },
-    ...jobSizeFields(owner, TARGET_ROOT, subjectCommit),
   })
   expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
   const jobRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
@@ -437,7 +436,6 @@ function nativeWorkerReport(lane: (typeof agentLanes)[number], packet: JSONRecor
     readback_model: READBACK_MODEL,
     status: "completed",
     worker_job: reportWorkerJob(packet),
-    ...reportedProductionSize(packet, subjectCommit),
     evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
       obligation,
       detail: `verified ${obligation} on commit:${subjectCommit}`,
@@ -705,7 +703,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
     expect(attempt.lifecycle_state).toBe("completed")
     expect(attempt.readback_model).toBe(READBACK_MODEL)
-    const completedEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE subject_id='${workID}' AND kind='worker.completed' AND json_extract(payload,'$.attempt_id')='${packet.attempt_id}'`)
+    const completedEvent = workerEffects(dbPath, workID).filter((row) => row.kind === "worker.completed" && JSON.parse(row.payload).attempt_id === packet.attempt_id)
     expect(completedEvent).toHaveLength(1)
     const completedPayload = JSON.parse(completedEvent[0].payload as string)
     expect(completedPayload.worker_job).toEqual(reportWorkerJob(packet))
@@ -717,7 +715,7 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     // assertion, and the digest the core recorded at authorization.
     const workerDispatch = calls.find((call) => call.argv[1] === "worker-dispatch")?.input
     const workerComplete = calls.find((call) => call.argv[1] === "worker-complete")?.input
-    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
+    requiredFields(workerDispatch ?? {}, ["event_id", "work_id", "attempt_id", "lane_id", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "assertion"])
     requiredFields(workerComplete ?? {}, ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin", "evidence", "assertion"])
     expect(workerDispatch!.attempt_id).toBe(packet.attempt_id)
     expect(workerDispatch!.packet_digest).toBe(packetDigest)

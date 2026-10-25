@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -54,7 +57,7 @@ func conflictSizedWorkEvent(t *testing.T, eventID, workID string) store.Event {
 	if err != nil {
 		t.Fatalf("encode the size event: %v", err)
 	}
-	return store.Event{EventID: eventID, Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}
+	return store.Event{EventID: eventID, Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkSized), Payload: payload}
 }
 
 // createConflictWork seeds one plain task work item with a primary membership
@@ -62,7 +65,7 @@ func conflictSizedWorkEvent(t *testing.T, eventID, workID string) store.Event {
 func createConflictWork(t *testing.T, ctx context.Context, s *store.Store, id, projectID string) {
 	t.Helper()
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"` + id + `","priority":1}`)},
+		{EventID: id + "-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"task","title":"` + id + `","priority":1}`)},
 		{EventID: id + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: id, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"` + projectID + `","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, id): 0}}); err != nil {
 		t.Fatal(err)
@@ -119,48 +122,30 @@ func conflictCrossProductFixture(t *testing.T) (*store.Store, *Service, Authorit
 
 func conflictEventCount(t *testing.T, s *store.Store) int {
 	t.Helper()
-	return scalarRow(t, s, `SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkConflictApplied)
+	return scalarRow(t, s, `SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkConflictApplied)
 }
 
 // conflictApplicationRecord reads the conflict application rows recorded for
 // one work item and fails unless the whole store holds exactly want of them.
-func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, want int) (string, store.ConflictApplication, map[string]any) {
+func conflictApplicationRecord(t *testing.T, s *store.Store, workID string, want int, expected conflictSettlement) (string, store.ConflictApplication, map[string]any) {
 	t.Helper()
 	if got := conflictEventCount(t, s); got != want {
-		t.Fatalf("domain_events holds %d conflict application events, want %d", got, want)
+		t.Fatalf("effect_receipts holds %d conflict applications, want %d", got, want)
 	}
-	rows, err := s.DatabaseForTesting().Query(`SELECT actor, payload FROM domain_events WHERE kind=? AND subject_id=? ORDER BY event_id`, store.WorkConflictApplied, workID)
+	rows := conflictSettlementRows(t, s, workID, expected)
+	if len(rows) != 1 {
+		t.Fatalf("work %s carries %d conflict applications, want one", workID, len(rows))
+	}
+	record := rows[0].Application
+	payload, err := json.Marshal(record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
-	var actor string
-	var payload []byte
-	for rows.Next() {
-		if actor != "" {
-			t.Fatalf("work %s carries more than one conflict application row", workID)
-		}
-		if err := rows.Scan(&actor, &payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := rows.Err(); err != nil {
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if want == 1 && actor == "" {
-		t.Fatalf("work %s carries no conflict application row", workID)
-	}
-	var record store.ConflictApplication
-	var fields map[string]any
-	if actor != "" {
-		if err := json.Unmarshal(payload, &record); err != nil {
-			t.Fatalf("recorded conflict application does not decode: %v", err)
-		}
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			t.Fatalf("recorded conflict application is not an object: %v", err)
-		}
-	}
-	return actor, record, fields
+	return rows[0].Actor, record, fields
 }
 
 func dispatchConflictObservation(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion string, input map[string]any) (Envelope, error) {
@@ -198,7 +183,7 @@ func TestConflictObservationRecordsOneSettlementTrio(t *testing.T) {
 	if err != nil || response.Error != nil || response.Outcome != OutcomeOK || response.Replayed {
 		t.Fatalf("conflict observation_record = %+v err = %v, want a first ok settlement", response, err)
 	}
-	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", 1)
+	actor, record, fields := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-settle-1", "R1", "settled: rule R1 applied, the slice stays out of scope", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("conflict application actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -323,13 +308,13 @@ func TestConflictObservationReplaysFromCacheAndRefusesDivergence(t *testing.T) {
 		t.Fatalf("conflict replay = %+v err = %v, want a cached replay", replay, err)
 	}
 	if got := conflictEventCount(t, s); got != 1 {
-		t.Fatalf("domain_events holds %d conflict application events after the replay, want the original 1", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after the replay, want the original 1", got)
 	}
 	divergent, err := dispatchConflictObservation(t, s, service, grant, scopeVersion, map[string]any{"work_id": "work-sized", "idempotency_key": "conflict-replay-1", "conflict": map[string]any{"rule_id": "A2-3", "outcome": "settled: a changed outcome"}})
 	if err != nil || divergent.Error == nil || divergent.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("divergent same-key conflict = %+v err = %v, want idempotency_conflict", divergent, err)
 	}
-	_, record, _ := conflictApplicationRecord(t, s, "work-sized", 1)
+	_, record, _ := conflictApplicationRecord(t, s, "work-sized", 1, expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-replay-1", "A2-3", "settled: A2-3 recorded", 1))
 	if record.Outcome != "settled: A2-3 recorded" {
 		t.Fatalf("divergent retry rewrote the recorded outcome to %q", record.Outcome)
 	}
@@ -391,7 +376,7 @@ func TestConflictObservationCrossProductConsentAndExactBinding(t *testing.T) {
 	if dispatchErr != nil || approved.Error != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved conflict settlement = %+v err = %v, want ok", approved, dispatchErr)
 	}
-	actor, record, _ := conflictApplicationRecord(t, s, "work-2", 1)
+	actor, record, _ := conflictApplicationRecord(t, s, "work-2", 1, expectedConflictSettlement(t, s, "work-2", grant.PrincipalRef, "cross-conflict-1", "A2-1", "settled: cross-Product conflict recorded", 1))
 	if actor != grant.PrincipalRef {
 		t.Fatalf("approved settlement actor %q, want the authenticated principal %q", actor, grant.PrincipalRef)
 	}
@@ -412,22 +397,39 @@ type conflictSettlement struct {
 
 // conflictSettlementRows reads every settlement recorded for one work item in
 // write order, without asserting the total.
-func conflictSettlementRows(t *testing.T, s *store.Store, workID string) []conflictSettlement {
+func conflictSettlementRows(t *testing.T, s *store.Store, workID string, expected ...conflictSettlement) []conflictSettlement {
 	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT actor, payload FROM domain_events WHERE kind=? AND subject_id=? ORDER BY seq`, store.WorkConflictApplied, workID)
+	rows, err := s.DatabaseForTesting().Query(`SELECT event_id,actor,payload_version,payload_digest FROM effect_receipts WHERE kind=? AND subject_type='work_item' AND subject_id=? ORDER BY effect_seq`, store.WorkConflictApplied, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	var out []conflictSettlement
 	for rows.Next() {
-		var row conflictSettlement
-		var payload []byte
-		if err := rows.Scan(&row.Actor, &payload); err != nil {
+		var id, actor, digest string
+		var version int
+		if err := rows.Scan(&id, &actor, &version, &digest); err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal(payload, &row.Application); err != nil {
-			t.Fatalf("recorded conflict application does not decode: %v", err)
+		if len(out) >= len(expected) {
+			t.Fatal("unexpected conflict receipt")
+		}
+		row := expected[len(out)]
+		identity, _ := json.Marshal([]any{"conflict-identity", row.Actor, workID, row.Application.SettlementRef, row.Application.RuleID, row.Application.SizeAssessmentSequence})
+		payload, err := json.Marshal(row.Application)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != fmt.Sprintf("conflict-%x", sha256.Sum256(identity)) || actor != row.Actor || version != 2 || digest != fmt.Sprintf("sha256:%x", sha256.Sum256(canonical)) {
+			t.Fatalf("conflict receipt does not bind the exact actor, rule, size, outcome and settlement: id=%s actor=%s version=%d digest=%s expected=%s", id, actor, version, digest, canonical)
 		}
 		out = append(out, row)
 	}
@@ -435,6 +437,30 @@ func conflictSettlementRows(t *testing.T, s *store.Store, workID string) []confl
 		t.Fatal(err)
 	}
 	return out
+}
+
+// The receipt hashes all eight fields; the expected content comes from the
+// authored request, checked rule table and retained size assessment, not a log.
+func expectedConflictSettlement(t *testing.T, s *store.Store, workID, actor, key, rule, outcome string, sequence int) conflictSettlement {
+	t.Helper()
+	raw, err := os.ReadFile("../../contracts/conflict-rules.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		CatalogGeneration int `json:"catalog_generation"`
+		Source            struct {
+			Hash string `json:"sha256"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(raw, &table); err != nil {
+		t.Fatal(err)
+	}
+	application := store.ConflictApplication{RuleID: rule, Outcome: outcome, RuleSourceHash: table.Source.Hash, CatalogGeneration: table.CatalogGeneration, SizeAssessmentSequence: sequence, SettlementRef: conflictSettlementRef(actor, "concord_work_define", "observation_record", key)}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT model_version,size_class FROM work_size_assessments WHERE work_id=? AND sequence=?`, workID, sequence).Scan(&application.ModelVersion, &application.Size); err != nil {
+		t.Fatal(err)
+	}
+	return conflictSettlement{Actor: actor, Application: application}
 }
 
 // conflictLaterAssessment records one synthetic model-owned reassessment
@@ -471,7 +497,7 @@ func conflictLaterAssessment(t *testing.T, s *store.Store, workID string) {
 	if err != nil {
 		t.Fatalf("encode the later assessment event: %v", err)
 	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: workID + "-size-later", Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}}}); err != nil {
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{EventID: workID + "-size-later", Kind: store.WorkSized, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkSized), Payload: payload}}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -492,9 +518,11 @@ func TestConflictObservationFreshKeyRecordsASecondSettlement(t *testing.T) {
 		t.Fatalf("fresh-key settlement = %+v err = %v, want a recorded second settlement, not a digest-ID duplicate", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
-		t.Fatalf("domain_events holds %d conflict application events after a fresh-key settlement of the same intent, want 2", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after a fresh-key settlement of the same intent, want 2", got)
 	}
-	rows := conflictSettlementRows(t, s, "work-sized")
+	rows := conflictSettlementRows(t, s, "work-sized",
+		expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-fresh-key-1", "R1", "settled: the same declared intent", 1),
+		expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-fresh-key-2", "R1", "settled: the same declared intent", 1))
 	if len(rows) != 2 {
 		t.Fatalf("work-sized carries %d settlement row(s), want 2", len(rows))
 	}
@@ -526,9 +554,11 @@ func TestConflictObservationAnotherPrincipalRecordsItsOwnSettlement(t *testing.T
 		t.Fatalf("second principal settlement = %+v err = %v, want a recorded own settlement, not a digest-ID duplicate", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
-		t.Fatalf("domain_events holds %d conflict application events after two principals settled the same intent, want 2", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after two principals settled the same intent, want 2", got)
 	}
-	rows := conflictSettlementRows(t, s, "work-sized")
+	rows := conflictSettlementRows(t, s, "work-sized",
+		expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-shared-key", "A2-3", "settled: one rule, two principals", 1),
+		expectedConflictSettlement(t, s, "work-sized", otherGrant.PrincipalRef, "conflict-shared-key", "A2-3", "settled: one rule, two principals", 1))
 	if len(rows) != 2 {
 		t.Fatalf("work-sized carries %d settlement row(s), want one per authenticated principal", len(rows))
 	}
@@ -562,9 +592,11 @@ func TestConflictObservationFreshKeyAfterLaterAssessmentRecordsAtTheNewSequence(
 		t.Fatalf("fresh-key settlement after the later assessment = %+v err = %v, want a second settlement at the new stored sequence, not a digest-ID collision refusal", second, err)
 	}
 	if got := conflictEventCount(t, s); got != 2 {
-		t.Fatalf("domain_events holds %d conflict application events after the later assessment, want 2", got)
+		t.Fatalf("effect_receipts holds %d conflict applications after the later assessment, want 2", got)
 	}
-	rows := conflictSettlementRows(t, s, "work-sized")
+	rows := conflictSettlementRows(t, s, "work-sized",
+		expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-seq-1", "P3", "settled: one rule across two assessments", 1),
+		expectedConflictSettlement(t, s, "work-sized", grant.PrincipalRef, "conflict-seq-2", "P3", "settled: one rule across two assessments", 2))
 	if len(rows) != 2 {
 		t.Fatalf("work-sized carries %d settlement row(s), want 2", len(rows))
 	}

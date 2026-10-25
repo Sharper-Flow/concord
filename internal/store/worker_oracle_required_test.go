@@ -19,7 +19,7 @@ func TestOwnerOracleRequiredOnOracleCapablePin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !workflowWorkerJobsActive(registered.Definition) {
-		t.Fatalf("the newest break-fix definition %d lost the worker-job lifecycle", registered.Definition.Version)
+		t.Fatalf("the current break-fix definition %s lost the worker-job lifecycle", registered.Digest)
 	}
 	err = recordWorkerJobActionForTest(t, fixture.store, workID, fixture.owner, map[string]any{
 		"job_id":             "job:oracle-required",
@@ -28,6 +28,6 @@ func TestOwnerOracleRequiredOnOracleCapablePin(t *testing.T) {
 		"ready":              false,
 	})
 	if err == nil {
-		t.Fatalf("record_worker_job accepted an oracle-free job on break-fix version %d; the oracle-capable pin must require the acceptance oracle", registered.Definition.Version)
+		t.Fatalf("record_worker_job accepted an oracle-free job on break-fix digest %s; the oracle-capable pin must require the acceptance oracle", registered.Digest)
 	}
 }

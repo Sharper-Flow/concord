@@ -235,7 +235,7 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, workflowRef, actorNam
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func firstCallApproveContract(t *testing.T, s *Store, workID string, version int
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: stepFixtureActor(),
 		AcceptedInputsDigest: "sha256:first-call", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: stepFixtureActor().PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
@@ -328,7 +328,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// Advance to the planning step through the same real action owners the
 	// semantic-event test uses; these calls are scaffolding, not the surface
 	// under proof.
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-"+action, actor)
 	}
 
@@ -344,7 +344,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned definition declares no obligations; the fixture cannot prove declared-obligation membership")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned definition identity does not verify: %v", err)
 	}
 	pinnedObligation := (*pin.Obligations)[0]
@@ -508,7 +508,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned break-fix definition declares no obligations")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
@@ -550,7 +550,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)

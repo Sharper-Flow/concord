@@ -10,15 +10,11 @@ import (
 	"time"
 )
 
-func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string, runners ...GitRunner) (context.Context, error) {
+func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string) (context.Context, error) {
 	if !WorkflowActionRequiresSubjectFreshness(action) {
 		return ctx, nil
 	}
-	var runner GitRunner
-	if len(runners) > 0 {
-		runner = runners[0]
-	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, Runner: runner})
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID})
 	if err != nil {
 		return ctx, err
 	}
@@ -35,13 +31,10 @@ func TestManagedCandidateTerminalFreshness(t *testing.T) {
 						t.Fatalf("advance clean A to complete: %v", err)
 					}
 				}
-				payload := mustJSONValue(map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:work-context", "verdict_kind": "ok", "evaluation_evidence": []string{j.runA.OperationRef}}}})
-				actor, operator := j.reviewer, (*WorkflowActor)(nil)
+				payload := criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context")
 				if action == "confirm_premise" {
-					actor, operator = j.fixture.owner, &j.fixture.operator
 					payload = json.RawMessage(`{"contract_version":1}`)
 				} else if action == "complete" {
-					actor, operator = j.fixture.owner, &j.fixture.operator
 					payload = json.RawMessage(`{"impact_verdict":"non-breaking"}`)
 				}
 				if shape == "dirty" {
@@ -52,7 +45,7 @@ func TestManagedCandidateTerminalFreshness(t *testing.T) {
 					j.commitB(t)
 				}
 				before := j.effects(t)
-				if err := j.terminalAction(t, action, payload, actor, operator); failureKind(err) != KindStaleRequiresReview {
+				if err := j.terminalAction(t, action, payload, j.fixture.owner); failureKind(err) != KindStaleRequiresReview {
 					t.Errorf("%s with %s = %v, want stale_requires_review", action, shape, err)
 				}
 				if after := j.effects(t); after != before {
@@ -133,12 +126,13 @@ func TestWorkflowTerminalPreparedPinDriftRefuses(t *testing.T) {
 // Post-observation movement at a terminal action is bound at delivery, not here.
 func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *testing.T) {
 	j := journeyThroughA(t, "terminal-unobserved-after-preparation", true)
-	if err := j.action(t, "record_verdict", map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:work-context", "verdict_kind": "ok", "evaluation_evidence": []string{j.runA.OperationRef}}}}, j.reviewer); err != nil {
+	if err := j.action(t, "record_verdict", criterionAssociationPayload(j.runA.OperationRef, "predicate:work-context"), j.fixture.owner); err != nil {
 		t.Fatalf("record the immutable A run in the completion verdict: %v", err)
 	}
 	if err := j.confirmPremise(t); err != nil {
 		t.Fatalf("confirm clean A: %v", err)
 	}
+	bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
 	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +142,7 @@ func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *
 		t.Fatal("fixture must preserve pin A while live HEAD moves to B")
 	}
 	ctx := WithWorkerDispatchPreparation(context.Background(), prepared)
-	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, &j.fixture.operator)
+	err = j.terminalActionContext(t, ctx, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), j.fixture.owner, nil)
 	if err != nil {
 		t.Fatalf("complete over sealed A observation: %v", err)
 	}

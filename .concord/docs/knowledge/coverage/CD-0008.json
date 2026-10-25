@@ -6,11 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestNewerPayloadVersionReplayRefusesBeforeMutation"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestPayloadVersionsDeclareClass"
+      "value": "internal/store.TestApplyRejectsNewerPayloadBeforeMutation"
     }
   ],
   "id": "CD-0008",

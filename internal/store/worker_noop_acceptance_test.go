@@ -29,7 +29,7 @@ func TestAcceptWorkerResultNoChangeProvesDeclaredOutcomeAndReachesReview(t *test
 	review := "attempt:confirmed-review"
 	reviewJob := recordOracleJobRevision(t, f.store, workID, f.owner, "job:confirmed-review", twoPathOracleFields(t, f.store, workID, nil))
 	lane := reviewGateLane(t, "review")
-	packet := joinPacketFor(t, f.store, workID, "repair", review, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, f.store, workID, "repair", review, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, f.store, workID, reviewJob, lane.ID)
 	if err := dispatchJobPacketForTest(t, f.store, workID, review, f.owner, "dispatch-confirmed-review", packet); err != nil {
 		t.Fatalf("review after accepted confirmation: %v", err)
@@ -52,7 +52,7 @@ func TestAcceptWorkerResultNoChangeRequiresCompleteFreshOutcomeProof(t *testing.
 			if name == "self-produced-independent" {
 				req := verifyRequest(f.git, "self-confirm-"+workID, oracleGoArgv("path-b"), func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
 				req.WorkID, req.ProjectID = workID, "project"
-				if err := f.store.db.QueryRow(`SELECT a.principal_ref,a.client_ref,a.agent_ref,a.session_ref FROM workflow_actors a JOIN domain_events e ON a.actor_ref=json_extract(e.payload,'$.lane_actor_ref') WHERE e.subject_id=? AND e.kind=? AND json_extract(e.payload,'$.attempt_id')=?`, workID, WorkerDispatched, attempt).Scan(&req.PrincipalRef, &req.Owner.ClientRef, &req.Owner.AgentRef, &req.Owner.SessionRef); err != nil {
+				if err := f.store.db.QueryRow(`SELECT a.principal_ref,a.client_ref,a.agent_ref,a.session_ref FROM workflow_actors a JOIN worker_attempts w ON a.actor_ref=json_extract(w.dispatch_payload,'$.lane_actor_ref') WHERE w.work_id=? AND w.attempt_id=?`, workID, attempt).Scan(&req.PrincipalRef, &req.Owner.ClientRef, &req.Owner.AgentRef, &req.Owner.SessionRef); err != nil {
 					t.Fatal(err)
 				}
 				self, err := f.store.VerifyWorktree(context.Background(), req)
@@ -170,11 +170,15 @@ func TestAcceptWorkerResultRefusesNoOpLaneReport(t *testing.T) {
 	}
 }
 
-func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt string, job WorkerJobBinding) string {
+func dispatchChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID, attempt string, job WorkerJobBinding, capability ...string) string {
 	t.Helper()
 	s := f.store
-	lane := reviewGateLane(t, "implementation")
-	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Version, lane.Digest)
+	class := "implementation"
+	if len(capability) != 0 {
+		class = capability[0]
+	}
+	lane := reviewGateLane(t, class)
+	packet := joinPacketFor(t, s, workID, "repair", attempt, lane.ID, lane.Digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, lane.ID)
 	view, err := readWorkContextView(context.Background(), s.db, workID)
 	if err != nil {
@@ -195,6 +199,7 @@ func completeChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	t.Helper()
 	s := f.store
 	completion := oracleCompletionEvent(t, s, workID, attempt, "noop-completion", func(p *WorkerCompletedPayload) {
+		p.Review = nil
 		for _, build := range builds {
 			build(p)
 		}
@@ -207,7 +212,7 @@ func completeChangeAcceptanceAttempt(t *testing.T, f oracleRepairFixture, workID
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
 	var raw []byte
-	if err := s.db.QueryRow(`SELECT payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerCompleted, attempt).Scan(&raw); err != nil {
+	if err := s.db.QueryRow(`SELECT terminal_payload FROM worker_attempts WHERE work_id=? AND attempt_id=? AND terminal_kind=? AND terminal_event_id=?`, workID, attempt, WorkerCompleted, completion.EventID).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
 	var completed WorkerCompletedPayload

@@ -162,9 +162,9 @@ func foldProjectHandoffRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 		return err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO project_handoffs
-		(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recorded',?)`,
-		p.HandoffID, event.SubjectID, p.ContractVersion, p.SourceProjectID, p.TargetProjectID, p.SourceSessionRef, p.BoundedJob, changes, verification, artifactRefs, blockers, p.NextAction, p.RecordedAt)
+		(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at,recorded_seq)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recorded',?,?)`,
+		p.HandoffID, event.SubjectID, p.ContractVersion, p.SourceProjectID, p.TargetProjectID, p.SourceSessionRef, p.BoundedJob, changes, verification, artifactRefs, blockers, p.NextAction, p.RecordedAt, event.Seq)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "project handoff id is already recorded", false, "record the handoff with a new deterministic id")
@@ -238,13 +238,9 @@ type ProjectHandoffResult struct {
 // rendering sort a whole-second timestamp ahead of a later fractional one
 // ("...T00:00:40Z" sorts after "...T00:00:40.000000001Z"), so the boot
 // frontier, the admission gate, the consume resolution, the continuity read,
-// and the retirement facts all order on the event log's seq instead. Each
-// handoff row folds from exactly one recorded event, so the correlate always
-// resolves; the scalar reads NULL only for a row no event produced, and NULL
-// sorts last under DESC.
-const projectHandoffEventOrder = `(SELECT l.seq FROM domain_events l
-		WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=project_handoffs.work_id
-		AND json_extract(l.payload,'$.handoff_id')=project_handoffs.handoff_id) DESC`
+// and the retirement facts all order on the recording event's seq instead,
+// which the recording fold stamps on the row.
+const projectHandoffEventOrder = `project_handoffs.recorded_seq DESC`
 
 // projectHandoffIdentity derives the deterministic handoff id from the
 // recorded content: a replay of the same addressed handoff resolves to the
@@ -355,7 +351,7 @@ func recordProjectHandoffCore(ctx context.Context, tx *sql.Tx, req RecordProject
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: handoffID + ":recorded", Kind: "work.project_handoff_recorded", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.SourceSessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	out.HandoffID = handoffID
@@ -645,7 +641,7 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	}
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: req.HandoffID + ":consumed", Kind: "work.project_handoff_consumed", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.ConsumerSessionRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
-	}}}, newFoldScope(tx), false); err != nil {
+	}}}, newWriteScope(tx), false); err != nil {
 		return out, err
 	}
 	out.HandoffID = req.HandoffID
@@ -665,7 +661,7 @@ func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID stri
 	}
 	decode := func(raw string, target *[]string) error {
 		if json.Unmarshal([]byte(raw), target) != nil {
-			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "project_handoff", "the handoff projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		return nil
 	}
@@ -701,11 +697,9 @@ func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionR
 		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		WHERE o.session_ref=? AND c.work_id=?
-		  AND EXISTS (SELECT 1 FROM domain_events l
-		              WHERE l.kind='work.session_claim_landed' AND l.subject_id=c.work_id
-		                AND json_extract(l.payload,'$.session_ref')=o.session_ref
-		                AND json_extract(l.payload,'$.project_id')=c.project_id
-		                AND json_extract(l.payload,'$.claim_op_id')=e.claim_op_id)`,
+		  AND EXISTS (SELECT 1 FROM session_claim_landings l
+		              WHERE l.work_id=c.work_id AND l.session_ref=o.session_ref
+		                AND l.project_id=c.project_id AND l.claim_op_id=e.claim_op_id)`,
 		sessionRef, workID).Scan(&projectID)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -981,6 +975,9 @@ type projectRetirementHandoffFacts struct {
 // the fact reads as unrecorded with the stale contract named, and
 // readiness fails closed.
 func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, facts *projectRetirementHandoffFacts) error {
+	if err := publishedWorkAbsenceInScopeQ(ctx, q, workID, "", projectID, "project_retirement"); err != nil {
+		return err
+	}
 	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
 	switch {
 	case contractErr == sql.ErrNoRows:
@@ -1013,7 +1010,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projec
 				facts.recorded = true
 				facts.handoffID = handoffID
 				if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {
-					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "rebuild projections from the event log")
+					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "restore a verified backup into a new path with concord restore, then swap")
 				}
 			}
 		}
@@ -1142,12 +1139,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 		// only core ownership evidence: read the authorizing actor from the
 		// dispatch_worker completion, then resolve its authenticated session
 		// through workflow_actors.
-		var actorRef string
-		scanErr := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
-			WHERE kind='workflow.action_completed' AND subject_id=?
-			AND json_extract(payload,'$.action_id')='dispatch_worker'
-			AND json_extract(payload,'$.worker_attempt_id')=?
-			ORDER BY seq DESC LIMIT 1`, workID, attemptID).Scan(&actorRef)
+		actorRef, scanErr := workerAuthorizationActorTx(ctx, q, workID, attemptID)
 		if scanErr == sql.ErrNoRows {
 			return false, nil
 		}
@@ -1175,16 +1167,9 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 	// epoch has no later completed or failed event is still open, whoever
 	// else acted on the work since.
 	var open int
-	err = q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
-		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
-		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND (?='' OR a.session_ref=?)
-		  AND NOT EXISTS (
-		    SELECT 1 FROM domain_events c
-		    WHERE c.subject_id=f.subject_id AND c.kind IN ('workflow.action_completed','workflow.action_failed')
-		      AND c.seq>f.seq
-		      AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
-		      AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
-		  )`, workID, sessionRef, sessionRef).Scan(&open)
+	err = q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_action_obligations f
+		LEFT JOIN workflow_actors a ON a.actor_ref=f.actor_ref
+		WHERE f.state='started' AND f.work_id=? AND (?='' OR a.session_ref=?)`, workID, sessionRef, sessionRef).Scan(&open)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's nonterminal workflow actions", true, "retry once the database is readable", err)
 	}
@@ -1197,10 +1182,10 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 // AND the session holds no occupancy rows on this work now. A recorded
 // landing released the rows its request's claim held, so rows that stand
 // after it belong to a later claim, and the old landing proves nothing about
-// this retirement. A pending request, a version 1 release, no request at
-// all, or renewed occupancy reports the blocker text instead.
+// this retirement. A pending request, no request at all, or renewed
+// occupancy reports the blocker text instead.
 func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
-	_, seq, version, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
+	latest, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
 	if err != nil {
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
@@ -1208,14 +1193,7 @@ func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, session
 		}
 		return false, "", err
 	}
-	if version != 2 {
-		return false, "the recorded session vacate predates the landing-verified release and cannot prove this session's landing", nil
-	}
-	landed, err := sessionVacateLandedAfterTx(ctx, q, workID, sessionRef, seq)
-	if err != nil {
-		return false, "", err
-	}
-	if !landed {
+	if !latest.Landed {
 		return false, "the committed session vacate still waits for its verified landing", nil
 	}
 	var occupied int

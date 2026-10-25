@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -72,21 +71,14 @@ func TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence(t *testing.T) {
 	for _, failure := range []string{"destination", "verification"} {
 		t.Run(failure, func(t *testing.T) {
 			path, root, before := snapshotUpgradeFixture(t)
+			var failures []string
 			if failure == "destination" {
 				if err := os.WriteFile(filepath.Join(root, "backups"), []byte("not a directory"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
-				if err != nil {
-					t.Fatal(err)
-				}
 				// Readiness accepts the schema, but backup verification rejects its foreign keys.
-				_, err = db.Exec(`PRAGMA foreign_keys=OFF; INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missing-project','primary'); DELETE FROM fold_guard;`)
-				if closeErr := db.Close(); err != nil || closeErr != nil {
-					t.Fatalf("cannot prepare corrupt source: %v %v", err, closeErr)
-				}
+				failures = seedSnapshotForeignKeyCorruption(t, path, "fold_guard")
 			}
 			code, _, errOut := runUpgradeStdin(t, `{}`)
 			if code != 1 {
@@ -94,6 +86,10 @@ INSERT INTO work_projects(work_id,project_id,role) VALUES('missing-work','missin
 			}
 			if !strings.Contains(errOut, "snapshot") || !strings.Contains(errOut, filepath.Join(root, "backups", "pre-upgrade-")) {
 				t.Errorf("refusal must name the snapshot cause and path: %s", errOut)
+			}
+			if failure == "verification" {
+				assertSnapshotIntegrityAttribution(t, errOut, failures)
+				assertNoQualifiedSnapshot(t, root)
 			}
 			after, err := store.PlanUpgradeReadiness(context.Background(), path)
 			if err != nil || !reflect.DeepEqual(after.AppliedVersions, before.AppliedVersions) {

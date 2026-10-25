@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,19 +49,35 @@ func completedDeliveryAgentFixture(t *testing.T, s *store.Store, grant Authority
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		assertionEventID, store.WorkflowActionCompleted, string(store.SubjectWorkItem), "work-1", actorRef, fixedTime().Format(time.RFC3339Nano), 2, assertionPayload); err != nil {
+	// Seed the current assertion and its exact receipt in the migrated store.
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET instance_state='completed' WHERE work_id='work-1';
-		UPDATE work_items SET lifecycle='completed' WHERE id='work-1';
-		DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
+	defer tx.Rollback()
 	var targetSeq int64
+	if err := tx.QueryRowContext(ctx, `UPDATE store_sequences SET last=last+1 WHERE name='effect' RETURNING last`).Scan(&targetSeq); err != nil {
+		t.Fatal(err)
+	}
+	// Marshal of the fixture map supplies the canonical JSON the receipt hashes.
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(assertionPayload))
+	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion)
+		VALUES(?,?,'workflow.action_completed','work_item','work-1',?,2,?,1)`, assertionEventID, targetSeq, actorRef, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
+		INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload)
+			VALUES('work-1',?,?,?, ?,2,?);
+		UPDATE workflow_instances SET instance_state='completed' WHERE work_id='work-1';
+		UPDATE work_items SET lifecycle='completed',effect_seq=? WHERE id='work-1';
+		DELETE FROM write_guard`, targetSeq, assertionEventID, actorRef, fixedTime().Format(time.RFC3339Nano), string(assertionPayload), targetSeq); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	var targetPayloadVersion int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT seq,payload_version FROM domain_events WHERE event_id=?`, assertionEventID).Scan(&targetSeq, &targetPayloadVersion); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT effect_seq,payload_version FROM effect_receipts WHERE event_id=?`, assertionEventID).Scan(&targetSeq, &targetPayloadVersion); err != nil {
 		t.Fatal(err)
 	}
 	version := workVersion(t, s, "work-1")
@@ -71,7 +89,7 @@ func completedDeliveryAgentFixture(t *testing.T, s *store.Store, grant Authority
 func agentDeliveryCorrectionEvents(t *testing.T, s *store.Store) int {
 	t.Helper()
 	var corrections int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&corrections); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&corrections); err != nil {
 		t.Fatal(err)
 	}
 	return corrections
@@ -145,7 +163,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// The original assertion bytes are captured before any effect, so a
 		// writer that rewrote the assertion could not escape the comparison.
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
 		// The clean fixture holds no challenge or approval row before the
@@ -188,7 +206,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		var eventActor string
 		var payloadVersion int
 		var payloadApprovalRef string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT actor,payload_version,COALESCE(json_extract(payload,'$.approval_ref'),'') FROM domain_events WHERE kind=? AND subject_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
 			t.Fatal(err)
 		}
 		if eventActor != grantActorRef {
@@ -198,7 +216,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 			t.Fatalf("correction event payload version %d approval claim %q, want version 2 with no claim", payloadVersion, payloadApprovalRef)
 		}
 		var operatorActors int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.actor_class')='operator'`, store.WorkflowActorRecorded).Scan(&operatorActors); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors a JOIN effect_receipts r ON r.actor=a.actor_ref WHERE r.subject_id='work-1' AND r.kind=? AND a.actor_class='operator'`, store.WorkflowActorRecorded).Scan(&operatorActors); err != nil {
 			t.Fatal(err)
 		}
 		if operatorActors != 0 {
@@ -231,7 +249,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 
 		// The original assertion bytes are untouched.
 		var replayedPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != replayedPayload {
@@ -398,7 +416,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// The original assertion bytes are captured before any effect, so a
 		// writer that rewrote the assertion could not escape the comparison.
 		var originalPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 			t.Fatal(err)
 		}
 
@@ -415,14 +433,14 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		// authenticated tuple, and the recorded actor class stays agent: no
 		// operator substitute, no copied projection row.
 		var prefixCount int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.actor_ref')=?`, store.WorkflowActorRecorded, freshActorRef).Scan(&prefixCount); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id='work-1' AND actor=?`, store.WorkflowActorRecorded, freshActorRef).Scan(&prefixCount); err != nil {
 			t.Fatal(err)
 		}
 		if prefixCount != 1 {
 			t.Fatalf("the fresh session recorded %d actor-prefix events, want exactly one", prefixCount)
 		}
 		var prefixPrincipal, prefixClient, prefixAgent, prefixSession, prefixClass string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.principal_ref'),json_extract(payload,'$.client_ref'),json_extract(payload,'$.agent_ref'),json_extract(payload,'$.session_ref'),json_extract(payload,'$.actor_class') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.actor_ref')=?`, store.WorkflowActorRecorded, freshActorRef).Scan(&prefixPrincipal, &prefixClient, &prefixAgent, &prefixSession, &prefixClass); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT a.principal_ref,a.client_ref,a.agent_ref,a.session_ref,a.actor_class FROM workflow_actors a JOIN effect_receipts r ON r.actor=a.actor_ref WHERE r.kind=? AND r.subject_id='work-1' AND a.actor_ref=?`, store.WorkflowActorRecorded, freshActorRef).Scan(&prefixPrincipal, &prefixClient, &prefixAgent, &prefixSession, &prefixClass); err != nil {
 			t.Fatal(err)
 		}
 		if prefixPrincipal != freshGrant.PrincipalRef || prefixClient != freshGrant.ClientRef || prefixAgent != freshGrant.AgentRef || prefixSession != freshGrant.SessionRef || prefixClass != string(store.ActorAgent) {
@@ -441,7 +459,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 		var eventActor string
 		var payloadVersion int
 		var payloadApprovalRef string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT actor,payload_version,COALESCE(json_extract(payload,'$.approval_ref'),'') FROM domain_events WHERE kind=? AND subject_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
 			t.Fatal(err)
 		}
 		if eventActor != freshActorRef {
@@ -477,7 +495,7 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 			t.Fatalf("correction moved the closed work to instance %q lifecycle %q", instanceState, lifecycle)
 		}
 		var replayedPayload string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
 			t.Fatal(err)
 		}
 		if originalPayload != replayedPayload {
@@ -600,14 +618,14 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	// The original assertion bytes are captured before any effect, so a
 	// writer that rewrote the assertion could not escape the comparison.
 	var originalPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&originalPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&originalPayload); err != nil {
 		t.Fatal(err)
 	}
 	// The workflow seed already records the caller's actor tuple, so the
 	// seeded actor event population is the baseline the approved correction
 	// must leave unchanged: no fresh recording, no operator substitute.
 	var baselineActors int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&baselineActors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&baselineActors); err != nil {
 		t.Fatal(err)
 	}
 
@@ -667,7 +685,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 	var eventActor string
 	var payloadVersion int
 	var payloadApprovalRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT actor,payload_version,COALESCE(json_extract(payload,'$.approval_ref'),'') FROM domain_events WHERE kind=? AND subject_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT r.actor,r.payload_version,COALESCE(json_extract(d.correction_payload,'$.approval_ref'),'') FROM workflow_delivery_state d JOIN effect_receipts r ON r.event_id=d.correction_id WHERE r.kind=? AND d.work_id='work-1'`, store.WorkflowDeliveryCorrected).Scan(&eventActor, &payloadVersion, &payloadApprovalRef); err != nil {
 		t.Fatal(err)
 	}
 	if eventActor != grantActorRef {
@@ -677,7 +695,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 		t.Fatalf("correction event payload version %d approval claim %q, want version 2 with no claim", payloadVersion, payloadApprovalRef)
 	}
 	var correctedActors int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&correctedActors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&correctedActors); err != nil {
 		t.Fatal(err)
 	}
 	if correctedActors != baselineActors {
@@ -712,7 +730,7 @@ func TestDeliveryCorrectionCrossProductBoundarySettlesThroughAConsumedHostApprov
 
 	// The original assertion bytes are untouched.
 	var replayedPayload string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_delivery_state WHERE assertion_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
 		t.Fatal(err)
 	}
 	if originalPayload != replayedPayload {
@@ -872,9 +890,9 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	if baselineCorrections != 1 {
 		t.Fatalf("the unsigned correction left %d correction events, want one", baselineCorrections)
 	}
-	baselineEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	baselineEvents := agentCurrentEffects(t, s)
 	var baselineActors int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&baselineActors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&baselineActors); err != nil {
 		t.Fatal(err)
 	}
 	baselineChallenges, baselineApprovals := agentApprovalRowCounts(t, s)
@@ -900,11 +918,11 @@ func TestDeliveryCorrectionCachedReplayPreservesOriginalResultWithoutNewEffects(
 	if got := agentDeliveryCorrectionEvents(t, s); got != baselineCorrections {
 		t.Errorf("the claim replay left %d correction events, want the baseline %d", got, baselineCorrections)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); got != baselineEvents {
-		t.Errorf("the claim replay left %d domain events, want the baseline %d", got, baselineEvents)
+	if got := agentCurrentEffects(t, s); got != baselineEvents {
+		t.Errorf("the claim replay changed current rows or receipts: got=%s baseline=%s", got, baselineEvents)
 	}
 	var afterActors int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&afterActors); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, store.WorkflowActorRecorded).Scan(&afterActors); err != nil {
 		t.Fatal(err)
 	}
 	if afterActors != baselineActors {

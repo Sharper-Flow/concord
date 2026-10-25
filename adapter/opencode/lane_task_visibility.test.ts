@@ -35,7 +35,6 @@ const packet = {
   schema_version: "1.0" as const,
   attempt_id: "attempt-lane-visibility",
   lane_id: lane.id,
-  lane_version: lane.version,
   lane_digest: lane.digest,
   work_id: "work-lane-visibility",
   step_id: "step-1",

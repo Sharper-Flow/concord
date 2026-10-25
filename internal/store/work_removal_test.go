@@ -47,7 +47,7 @@ func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
 	assertFailureKind(t, validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req), KindInvalidRelation)
 }
 
-func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
+func TestWorkRemovalDeletesExecutionAndRetriesIdempotently(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "remove-work-1")
@@ -66,15 +66,6 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("removed work rows = %d, want 0", count)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, "remove-work-1").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("replayed work rows = %d, want 0", count)
 	}
 	audit, err := s.readWorkRemovalAuditByOperation(ctx, req.OperationID)
 	if err != nil {
@@ -119,10 +110,10 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 		t.Fatalf("receipt = %+v", receipt)
 	}
 	var removed, transitioned int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, req.WorkID, WorkRemoved).Scan(&removed); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, req.WorkID, WorkRemoved).Scan(&removed); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind='work.transitioned'`, req.WorkID).Scan(&transitioned); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind='work.transitioned'`, req.WorkID).Scan(&transitioned); err != nil {
 		t.Fatal(err)
 	}
 	if removed != 1 || transitioned != 0 {
@@ -152,7 +143,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 	seedWork(t, s, "research-owner")
 	seedWork(t, s, "research-consumer")
 	err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterFold(ctx, tx.tx); err != nil {
+		if err := enterWrite(ctx, tx.tx); err != nil {
 			return err
 		}
 		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('pack-owner','research-owner',1,'current',2,'now','now')`); err != nil {
@@ -164,7 +155,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES('pack-owner',1,'research-consumer','context',1,'now')`); err != nil {
 			return err
 		}
-		return leaveFold(ctx, tx.tx)
+		return leaveWrite(ctx, tx.tx)
 	})
 	if err != nil {
 		t.Fatal(err)

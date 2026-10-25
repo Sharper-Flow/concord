@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). A new worker completion must prove its directory.
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append). A new completion proves its original Project's claim.
+- **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160).
+- **Approval:** 2026-10-17. Coordinator approval under the operator's delegation for [Concord (CON) issue 1095](https://linear.app/sharper-flow/issue/CON-1095/worker-evidence-authority-gaps-generic-applyoperation-may-append).
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
@@ -16,20 +16,9 @@
   [Concord (CON) issue 1274](https://linear.app/sharper-flow/issue/CON-1274).
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
   CD-0154, CD-0176, CD-0213
-- **Amendment reason:** Concord needs no release train engineer; a user may
-  choose one to sequence independent work-item sessions.
-- **Revision choice:** In-place amendment under CD-0036. Repository-local
-  execution, native dispatch, handoffs, and worktree occupancy stay unchanged.
 - **P12:** Serious: the named primary agent and its permission boundary change.
-- **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
-  CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
   within-repository move of CD-0098
-- **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
-  session count, through CON-850. Concord (CON) issue CON-910 settles this
-  record's Verification citation of the removed launch surface; the decision
-  sections are unchanged. [CD-0239](CD-0239-a-later-process-claim-permits-one-bounded-host-recovery-attempt.md)
-  D3 amends the replacement-host landing rule of D3.
 
 ## Context
 
@@ -76,21 +65,21 @@ repositories.
 
 ### D1. A lane worker is a native subagent in its coordinator's directory
 
-A lane worker runs through the host `task` tool, as CD-0102 states. Its
-directory is the directory of the coordinator session that dispatches it.
+A lane worker runs through the host `task` tool, as CD-0102 states. Its directory is the claimed worktree its assignment names: the dispatching
+coordinator's worktree, or a member worktree of a concurrent group
+([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)).
 Concord creates no worker session through the host session API, and Concord
 registers no plugin tool named `task`.
 
-Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the work item's active claimed worktree before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Rebuilding recorded events never requires a live filesystem check. An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
+Every new authenticated worker completion carries the nonempty worker directory the host observed. The live worker-evidence ingest checks that directory against the claimed worktree its assignment names before appending completion. An omitted or empty directory provides no proof and refuses without recording completion. Recovery of recorded completions repeats no live directory check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment of recorded completion appends nothing and does not repeat the directory check.
 
-A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Rebuilding recorded events does not check the live filesystem. An exact acknowledgment appends no new completion and does not repeat this check.
+A new worker completion proves the active claimed worktree of the Project that the attempt's original dispatch authorization identifies. An active claim for another Project of the same work item is not proof. If the original Project or its active claim cannot be established, the completion refuses without recording a terminal outcome. Recovery and readback of recorded completions repeat no live check ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). An exact acknowledgment appends no new completion and does not repeat this check.
 
 ### D2. One coordinator session per repository
 
-**Amended by [CD-0182](CD-0182-session-opener.md) (CON-850):** The exclusive
-session count widens to every coordinator session with a verified landing
-in the receiving Project. Each such session may use the shared handoff
-bind and dispatch under it. Repository-local execution and the refusal
+Every coordinator session with a verified landing in the receiving Project
+may use the shared handoff bind and dispatch under it
+([CD-0182](CD-0182-session-opener.md)). Repository-local execution and the refusal
 of a move into another repository stay unchanged.
 
 A work item that touches two repositories has one coordinator session in each
@@ -130,8 +119,7 @@ and control procedures belong to the host's instructions, not the RTE profile.
 ### D3. Occupancy is one row per session, and it ends with its host process
 
 Concord records occupancy as a fact it owns: the session that claimed or
-landed in a worktree through a Concord operation. CD-0104 D1 is amended to
-admit this record. The session's working directory is still read from the
+landed in a worktree through a Concord operation. The session's working directory is read from the
 host per call, and no operation resolves a directory from an occupancy row.
 
 A worktree has one occupancy row for each session that landed in it. A
@@ -142,7 +130,7 @@ recorded it. The host lease of CD-0111 reads the same identity through
 `internal/hostlease`.
 
 A same-session landing with a different core-checked process identity, or
-with a legacy row lacking process identity, appends a new landing event and
+with a legacy row lacking process identity, records a new landing and
 refreshes that row (CD-0239 D3). The session-to-process association remains
 caller-supplied. A replay from the same recorded process remains idempotent.
 
@@ -150,8 +138,7 @@ A row is released by `session_vacate`, by a verified landing of the same
 session in another worktree of the same work item, or by the end of its host
 process. The kernel proves whether a process is alive, for every host process
 on the machine. The caller-supplied session observation is not an input to
-release or to removal, and the `observed_session_directories` input is
-removed from the removal operations.
+release or to removal.
 
 A worktree with a live occupancy row is not removed by a reclaim or by an
 audit pass. A destructive removal with operator approval under CD-0096 D3

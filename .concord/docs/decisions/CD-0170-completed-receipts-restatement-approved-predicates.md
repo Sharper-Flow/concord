@@ -31,16 +31,16 @@ only repair route. Cancelled and superseded pins also omit the field.
 
 ### D3. The adapter renders bounded typed labels
 
-The completed closure box prints one `✓` line per verified predicate. An
+The Go-rendered Markdown receipt prints one `✓` row per verified predicate. An
 `exists` or `absent` line uses the outcome kind, first subject, and surface. An
 `outcome` line uses the first allowed token. A `check` line uses the check ref
-and expected result. Each value is bounded by the existing closure cell width.
+and expected result. Each label is bounded by CD-0169 D2's sixty-four-code-point limit.
 
 ## Verification
 
 - Store pin tests prove the completed projection carries the approved criteria,
   while non-completed and ambiguous projections omit them.
-- Adapter golden tests prove completed boxes list typed checkmarked lines and
-  cancelled or superseded boxes do not.
+- Go receipt golden tests prove completed receipts list typed checkmarked rows.
+  Adapter delegation tests prove cancelled or superseded closures queue no notice.
 - The agent contract generator regenerates the payload schema and Go and
   TypeScript projections.

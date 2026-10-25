@@ -27,65 +27,11 @@ type workCreatedPayload struct {
 	ExternalRef      string        `json:"external_ref,omitempty"`
 	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
 	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
-	// ResizeOf names the predecessor a resize successor replaces (v4).
-	ResizeOf string `json:"resize_of,omitempty"`
 }
 
-// validateWorkCreatedPayload holds the payload-version-local semantics of
-// work.created. A payload recorded at the current version must satisfy the
-// defect intake kind rules: a bug classifies, a research capture may carry the
-// record as its cluster identity, every other kind refuses it, and so does a
-// v3 payload, which carried the same record. Payloads upcast from v1 or v2 are
-// historical captures that predate the record and stay unclassified by design.
+// validateWorkCreatedPayload enforces the defect intake kind rules.
 func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
-	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 3 {
-		return nil
-	}
 	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)
-}
-
-type workCreatedV1Payload struct {
-	Kind     string `json:"kind"`
-	Title    string `json:"title"`
-	Priority *int64 `json:"priority"`
-}
-
-func upcastWorkCreatedV1(event Event) (Event, error) {
-	var payload workCreatedV1Payload
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event",
-			"work.created v1 payload is not valid", false,
-			"repair the stored work.created v1 payload", err)
-	}
-	if payload.Kind == "" || payload.Title == "" || payload.Priority == nil {
-		return Event{}, newFailure(KindInvalidPayload, "upcast_event",
-			"work.created v1 payload is missing kind, title, or priority", false,
-			"supply work kind, title, and priority")
-	}
-	encoded, err := json.Marshal(workCreatedPayload{
-		WorkKind: payload.Kind, Title: payload.Title, Priority: payload.Priority,
-	})
-	if err != nil {
-		return Event{}, wrapFailure(KindInvalidPayload, "upcast_event",
-			"cannot encode work.created v2 payload", false,
-			"repair the stored work.created v1 payload", err)
-	}
-	event.PayloadVersion = 2
-	event.Payload = encoded
-	return event, nil
-}
-
-// upcastWorkCreatedV2 carries a v2 payload forward unchanged: v3 adds only the
-// optional defect_intake member, and a historical capture holds none.
-func upcastWorkCreatedV2(event Event) (Event, error) {
-	event.PayloadVersion = 3
-	return event, nil
-}
-
-// upcastWorkCreatedV3 reads an ordinary capture: it names no predecessor.
-func upcastWorkCreatedV3(event Event) (Event, error) {
-	event.PayloadVersion = 4
-	return event, nil
 }
 
 type workTransitionPayload struct {
@@ -263,24 +209,11 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
 			"supply raised_from_work_id only when acknowledging a live external reference conflict")
 	}
-	// The live-owner check refuses a fresh append that claims an external
-	// reference a live work item already owns. A replay cannot run it: the
-	// work_items rows mid-replay are the log's own prefix, and events recorded
-	// before this check existed hold external references history resolved
-	// later, so the log's ordering is the replay's only authority.
-	var resizedIntent string
-	if payload.ResizeOf != "" {
-		intent, err := checkResizeOriginCreatedTx(ctx, tx, event, payload)
-		if err != nil {
-			return err
-		}
-		resizedIntent = intent
-	}
-	// A resize successor takes the reference over from the predecessor the
-	// same resize supersedes, so the predecessor is no rival owner.
-	if payload.ExternalRef != "" && !isWorkflowReplay(ctx) {
+	// Refuse an external reference a live work item already owns unless the
+	// capture acknowledges that owner.
+	if payload.ExternalRef != "" {
 		var existingWorkID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL AND id<>? LIMIT 1`, payload.ExternalRef, payload.ResizeOf).Scan(&existingWorkID)
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
 				"retry once the database is readable", err)
@@ -315,13 +248,10 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
 	}
-	if resizedIntent != "" {
-		intent = []byte(resizedIntent)
-	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json)
-		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?)`,
-		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent))
+		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json, transition_actor, transition_seq)
+		VALUES (?, ?, ?, 'needed', ?, ?, 1, ?, ?, NULL, ?, ?, ?)`,
+		event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, urgency, now, now, string(intent), event.Actor, event.Seq)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return newFailure(KindProjectionConflict, "fold_event", "work item already exists", false,
@@ -382,7 +312,7 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(current.intentJSON), &intent); err != nil {
 		return wrapFailure(KindInvariantViolation, "fold_event", "stored work intent is not readable", false,
-			"rebuild the work item projection from its event log", err)
+			"restore the current rows from a verified snapshot", err)
 	}
 	// A live revision cannot change the kind of an item that carries a
 	// captured defect classification: a research item converting to bug
@@ -390,10 +320,8 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	// hide a prior defect from the sibling matching query, which reads the
 	// stored kind. An unclassified item still cannot convert INTO the bug
 	// kind, because revise_intent carries no intake and the conversion would
-	// bypass capture admission entirely. Replay keeps accepting historical
-	// kind changes: the guard is a live admission rule, and the log stays
-	// the replay's authority.
-	if !isWorkflowReplay(ctx) && payload.Kind != current.kind {
+	// bypass capture admission entirely.
+	if payload.Kind != current.kind {
 		if intent.Defect != nil {
 			return newFailure(KindInvalidPayload, "fold_event", "work intent kind is immutable while the item carries a captured defect classification", false,
 				"capture a new work item of the target kind instead of converting this one")
@@ -481,16 +409,9 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	// capture paths share where Product scope is known, so the defect intake
 	// admission owner runs here, inside the capture's own transaction: a
 	// refusal rolls the capture back before any durable or native effect.
-	// A resize successor keeps its predecessor's admitted classification.
 	if payload.ExpectedVersion == 1 {
-		origin, err := workResizeOriginTx(ctx, tx, event.SubjectID)
-		if err != nil {
+		if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
 			return err
-		}
-		if origin == "" {
-			if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
-				return err
-			}
 		}
 	}
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
@@ -499,7 +420,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *foldScope) error {
+func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -521,44 +442,36 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *f
 		return err
 	}
 	if payload.From != current.lifecycle || !ordinaryTransitions[payload.From][payload.To] {
-		// A replay judges the transition by the mid-replay lifecycle: a fold
-		// that runs before this event, such as the execution-start lifecycle
-		// move, may have advanced the item past the state the payload's from
-		// field recorded, and the log's ordering is the replay's authority.
-		// An item already resting on the target state affirms the move.
-		if !isWorkflowReplay(ctx) || (current.lifecycle != payload.To && !ordinaryTransitions[current.lifecycle][payload.To]) {
-			return illegalTransition(payload.From, payload.To)
-		}
+		return illegalTransition(payload.From, payload.To)
 	}
 	if payload.To == "completed" {
 		if err := refuseUnreconciledDelivery(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
 			return err
 		}
-		// CD-0183 D4: the live path refuses a completed target while the
+		// CD-0183 D4: refuse a completed target while the
 		// item's workflow instance has not reached a terminal state, so the
-		// lifecycle cannot bypass the workflow's completion gate. Replay
-		// binds only the log: historical rows recorded before this gate
-		// existed are folded as they stand and are not rewritten. An absent
+		// lifecycle cannot bypass the workflow's completion gate. An absent
 		// instance is an imported item, and a terminal instance admits the
 		// repair of a stranded item.
-		if !isWorkflowReplay(ctx) {
-			if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, event.SubjectID); err != nil {
-				return err
-			}
+		if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, event.SubjectID); err != nil {
+			return err
 		}
 		var pin WorkflowDefinitionPin
 		var instanceState string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &instanceState)
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Digest, &instanceState)
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
 		var definition WorkflowDefinition
 		if definitionErr == nil {
-			registered, err := verifyWorkflowDefinitionPinForFold(ctx, scopeDefinitionRegistry(scope), pin)
+			registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), pin)
 			if err != nil {
 				return err
 			}
 			definition = registered.Definition
+			if err := requireReviewedClosureQ(ctx, tx, event.SubjectID); err != nil {
+				return err
+			}
 		}
 		// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
 		// row on the lifecycle path. A completed instance proves the ordered
@@ -574,10 +487,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *f
 			}
 		}
 	}
-	if payload.To == "in_progress" && !isWorkflowReplay(ctx) {
-		// The staleness boundary consults the current Git-derived law state,
-		// which the log never carried. Replay reconstructs projections from
-		// the log, so only the live path runs the boundary here.
+	if payload.To == "in_progress" {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}
@@ -620,13 +530,13 @@ func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string
 func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
 	var pin WorkflowDefinitionPin
 	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Version, &pin.Digest, &currentStep); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest, &currentStep); err != nil {
 		if err == sql.ErrNoRows {
 			return nil
 		}
 		return workflowProjectionError(err, "cannot read workflow delivery state")
 	}
-	registered, err := verifyWorkflowDefinitionPinForFold(ctx, registry, pin)
+	registered, err := verifyWorkflowDefinitionPinForFold(registry, pin)
 	if err != nil {
 		return err
 	}
@@ -637,21 +547,8 @@ func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry Defini
 	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record the delivery with record_delivery, then complete the workflow with the workflow_action complete action")
 }
 
-// refuseResizeLineageReopenTx keeps a resize's supersession final: no
-// operation reopens work, and stored reopen events predate the lineage.
-func refuseResizeLineageReopenTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	member, err := workInResizeLineageTx(ctx, tx, workID)
-	if err != nil || !member {
-		return err
-	}
-	return newFailure(KindInvalidTransition, "fold_event", "a resized work item or its successor is never reopened", false, "revise the size of the current successor")
-}
-
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	var payload workReopenedPayload
@@ -766,9 +663,6 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
-	if err := refuseResizeLineageReopenTx(ctx, tx, event.SubjectID); err != nil {
-		return err
-	}
 	var payload workReopenedFromSupersededPayload
 	if err := decodePayload(event, &payload); err != nil {
 		return err
@@ -795,7 +689,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	) ORDER BY precedence LIMIT 1`, event.SubjectID, event.SubjectID).Scan(&successor, &successorKind)
 	if err == sql.ErrNoRows {
 		return newFailure(KindRelationNotFound, "fold_event", "superseded work has no active supersession edge", false,
-			"repair the projection from its event log before reopening")
+			"restore the current rows from a verified snapshot before reopening")
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect the active supersession edge", true,
@@ -1066,7 +960,7 @@ func validateWorkVersion(subjectID string, current, expected, resulting int64) e
 	return nil
 }
 
-func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *foldScope) error {
+func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *writeScope) error {
 	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, lifecycle, scope); err != nil {
 		return err
 	}
@@ -1075,10 +969,25 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 	if isTerminalLifecycle(lifecycle) {
 		terminalTime = now
 	}
+	var metadata struct {
+		Reason       string   `json:"reason"`
+		EvidenceRefs []string `json:"evidence_refs"`
+	}
+	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot decode lifecycle transition metadata", false, "supply typed transition metadata", err)
+	}
+	if metadata.EvidenceRefs == nil {
+		metadata.EvidenceRefs = []string{}
+	}
+	evidence, err := json.Marshal(metadata.EvidenceRefs)
+	if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE work_items
-		SET lifecycle = ?, version = ?, updated_at = ?, terminal_time = ?
-		WHERE id = ? AND version = ?`, lifecycle, resulting, now, terminalTime, event.SubjectID, current)
+		SET transition_from=lifecycle, transition_reason=?, transition_actor=?, transition_evidence_refs=?, transition_seq=?, transition_version=?,
+		lifecycle = ?, version = ?, updated_at = ?, terminal_time = ?
+		WHERE id = ? AND version = ?`, metadata.Reason, event.Actor, string(evidence), event.Seq, resulting, lifecycle, resulting, now, terminalTime, event.SubjectID, current)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot update work item projection", true,
 			"retry once the database is writable", err)
@@ -1100,8 +1009,8 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 	return nil
 }
 
-func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *foldScope) error {
-	if isWorkflowReplay(ctx) || scope.permitsOutsideRepairLifecycle(tx, event, lifecycle) {
+func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *writeScope) error {
+	if scope.permitsOutsideRepairLifecycle(tx, event, lifecycle) {
 		return nil
 	}
 	return requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event")
@@ -1209,9 +1118,8 @@ func relationWouldCycle(ctx context.Context, tx *sql.Tx, from, to, kind string) 
 }
 
 func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relationPayload) error {
-	// AUTOINCREMENT IDs are part of the projection snapshot. Deriving the ID
-	// from the ordered relation-creating event count reproduces gaps left by
-	// removed historical edges. Replay maintains that count in memory.
+	// The effect's reserved relation position preserves gaps from removed
+	// edges and counted effects that do not insert an edge.
 	relationID, err := relationIdentity(ctx, tx, event)
 	if err != nil {
 		return err
@@ -1220,9 +1128,25 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if event.Kind == WorkflowOverlapResolved {
 		resolutionID = event.EventID
 	}
+	var metadata struct {
+		ResultingVersion int64  `json:"resulting_version"`
+		Reason           string `json:"reason"`
+	}
+	if err := json.Unmarshal(event.Payload, &metadata); err != nil {
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot decode relation metadata", false, "supply typed relation metadata", err)
+	}
+	if metadata.ResultingVersion == 0 && event.Kind == "work.created" {
+		metadata.ResultingVersion = 1
+	}
+	if metadata.ResultingVersion < 1 {
+		return newFailure(KindInvariantViolation, "fold_event", "relation effect has no work version", false, "supply the writing work version")
+	}
+	if payload.Reason == "" {
+		payload.Reason = metadata.Reason
+	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id)
-		VALUES (?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID)
+		INSERT INTO relations (id, work_id_from, work_id_to, kind, created_at, resolution_id, reason, record_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, relationID, payload.From, payload.To, payload.Kind, event.OccurredAt.UTC().Format(time.RFC3339Nano), resolutionID, payload.Reason, metadata.ResultingVersion)
 	if err == nil {
 		return nil
 	}
@@ -1239,28 +1163,14 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 }
 
 func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, error) {
-	if relationID, replay := workflowReplayRelationIdentity(ctx); replay {
-		if relationID < 1 {
-			return 0, newFailure(KindInvalidEvent, "fold_event", "relation identity replay state was not advanced", false,
-				"repair the relation event vocabulary before replaying the log")
-		}
-		return relationID, nil
+	var relationID sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT relation_seq FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&relationID); err != nil {
+		return 0, wrapFailure(KindInvariantViolation, "fold_event", "relation effect has no assigned identity", false, "restore the effect receipt state", err)
 	}
-	var relationID int64
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(relationIdentityEventKinds)), ",")
-	args := []any{event.EventID}
-	for _, kind := range relationIdentityEventKinds {
-		args = append(args, kind)
+	if !relationID.Valid || relationID.Int64 <= 0 {
+		return 0, newFailure(KindInvariantViolation, "fold_event", "relation effect has no assigned identity", false, "restore the effect receipt state")
 	}
-	query := `
-		SELECT count(*) FROM domain_events
-		WHERE seq <= (SELECT seq FROM domain_events WHERE event_id = ?)
-		AND (kind IN (` + placeholders + `) OR (kind = 'work.created' AND json_extract(payload, '$.raised_from_work_id') <> ''))`
-	if err := tx.QueryRowContext(ctx, query, args...).Scan(&relationID); err != nil {
-		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot assign a deterministic relation identity", true,
-			"retry once the event log is readable", err)
-	}
-	return relationID, nil
+	return relationID.Int64, nil
 }
 
 func readWorkKind(ctx context.Context, tx *sql.Tx, id string) (string, error) {

@@ -11,18 +11,18 @@ import (
 func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-approval"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, workID, workID); err != nil {
+DELETE FROM write_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,11 +38,11 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
 	err = foldWorkflowContractApproved(context.Background(), tx, event, nil)
-	_ = leaveFold(context.Background(), tx)
+	_ = leaveWrite(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil || !strings.Contains(err.Error(), "requires no active workflow contract") {
 		t.Fatalf("duplicate active approval error = %v", err)
@@ -59,31 +59,14 @@ DELETE FROM fold_guard`, workID, workID); err != nil {
 func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-recovery"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
+	s, owner, _ := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
+	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	version := readWorkVersion(t, s, workID)
-	legacyApproval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "legacy duplicate approval", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"legacy-duplicate-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, legacyApproval); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	version = readWorkVersion(t, s, workID)
 	if _, action, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
 		t.Fatalf("duplicate recovery action = %q, error = %v", action.ID, err)
 	}
@@ -184,158 +167,6 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 		t.Fatalf("recovery projection active=%d successor=%d superseded=%d", active, successor, superseded)
 	}
 }
-func TestReplayPreservesLegacyApprovalBeforeSupersession(t *testing.T) {
-	const workID = "legacy-approval-before-supersession"
-	s, owner, _ := seedItemAtAcceptance(t, workID, false)
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db := s.DatabaseForTesting()
-	version := readWorkVersion(t, s, workID)
-	approval, marshalErr := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 2, "premise": "legacy replacement contract", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:legacy", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	})
-	if marshalErr != nil {
-		t.Fatal(marshalErr)
-	}
-	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"legacy-approval", WorkflowContractApproved, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", 2, approval); err != nil {
-		t.Fatal(err)
-	}
-	supersession, err := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2,
-		"previous_contract_version": 1, "new_contract_version": 2,
-		"supersede_reason": "replay the recorded replacement", "audit_evidence": []string{"evidence:legacy-replacement"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-		"legacy-supersession", WorkflowContractSuperseded, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:01Z", 1, supersession); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatal(err)
-	}
-	var instanceRef, contractRef, successorRef string
-	var instanceVersion, contractVersion, successorVersion int64
-	var instanceDigest, contractDigest, successorDigest string
-	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceRef, &instanceVersion, &instanceDigest); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&contractRef, &contractVersion, &contractDigest); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&successorRef, &successorVersion, &successorDigest); err != nil {
-		t.Fatal(err)
-	}
-	if contractRef != instanceRef || contractVersion != instanceVersion || contractDigest != instanceDigest || successorRef != instanceRef || successorVersion != instanceVersion || successorDigest != instanceDigest {
-		t.Fatalf("legacy supersession pins do not carry the recorded definition: instance=%q/%d/%q predecessor=%q/%d/%q successor=%q/%d/%q", instanceRef, instanceVersion, instanceDigest, contractRef, contractVersion, contractDigest, successorRef, successorVersion, successorDigest)
-	}
-	var active, v1Superseded, v2 int
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=1 AND superseded_by=2`, workID).Scan(&v1Superseded); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=2 AND superseded_by IS NULL`, workID).Scan(&v2); err != nil {
-		t.Fatal(err)
-	}
-	if active != 1 || v1Superseded != 1 || v2 != 1 {
-		t.Fatalf("legacy replay active=%d v1_superseded=%d v2_active=%d", active, v1Superseded, v2)
-	}
-}
-
-func TestReplayAdmitsRecordedDefinitionChangeBetweenContractApprovals(t *testing.T) {
-	const workID = "legacy-definition-change-between-approvals"
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial := workflowFixtureDefinition(t, 2)
-	setup := []Event{
-		workflowEvent("legacy-definition-owner", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("legacy-definition-v1", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": initial.Definition.Ref, "version": initial.Definition.Version, "digest": initial.Digest, "work_kind": workflowFixtureWorkKind}),
-		workflowActionCompletedFixture("legacy-definition-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("legacy-definition-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("legacy-definition-design", workID, ownerRef, 6, "design", "record_design"),
-		workflowEventWithActor("legacy-definition-contract-v1", WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 7, "resulting_version": 8, "contract_version": 1, "premise": "the original approved premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:original", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	changed := workflowFixtureDefinition(t, 1)
-	changedDefinition, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "ref": changed.Definition.Ref, "version": changed.Definition.Version, "digest": changed.Digest, "work_kind": workflowFixtureWorkKind})
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondApproval, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "contract_version": 2, "premise": "the recorded replacement premise", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:replacement", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	db := s.DatabaseForTesting()
-	for _, event := range []struct {
-		id      string
-		kind    string
-		version int
-		payload []byte
-	}{
-		{id: "legacy-definition-v2", kind: WorkflowDefinitionSelected, version: 1, payload: changedDefinition},
-		{id: "legacy-definition-contract-v2", kind: WorkflowContractApproved, version: 2, payload: secondApproval},
-	} {
-		if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.id, event.kind, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:00Z", event.version, event.payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay definition change and duplicate approval: %v", err)
-	}
-	var active int
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
-		t.Fatal(err)
-	}
-	if active != 2 {
-		t.Fatalf("replayed definition-change history active contracts=%d, want 2 for typed recovery diagnosis", active)
-	}
-	verdict, err := json.Marshal(map[string]any{
-		"work_id": workID, "expected_version": 10, "resulting_version": 11,
-		"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok",
-		"verdict_actor_ref": ownerRef, "evaluation_evidence": []string{"evidence:legacy-verdict"},
-		"incomparable_with_approved": false,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "legacy-definition-verdict", WorkflowVerdictRecorded, SubjectWorkItem, workID, ownerRef, "2026-09-10T00:00:02Z", 2, verdict); err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(context.Background(), s); err != nil {
-		t.Fatalf("replay legacy verdict: %v", err)
-	}
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verdicts, err := latestWorkflowVerdicts(context.Background(), tx, workID, 2)
-	_ = tx.Rollback()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(verdicts) != 0 {
-		t.Fatalf("legacy verdict inherited across a definition change: %+v", verdicts)
-	}
-}
-
 func TestContractImpactNoticesAreInvariantToPredecessorOrder(t *testing.T) {
 	collect := func(t *testing.T, predecessors []int64) []string {
 		t.Helper()
@@ -344,36 +175,51 @@ func TestContractImpactNoticesAreInvariantToPredecessorOrder(t *testing.T) {
 		dependentID := workID + "-dependent"
 		seedImpactDependent(t, s, dependentID, workID, "hard")
 		db := s.DatabaseForTesting()
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, dependentID, dependentID); err != nil {
+DELETE FROM write_guard`, dependentID, dependentID); err != nil {
 			t.Fatal(err)
 		}
 		var version int64
 		if err := db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 			t.Fatal(err)
 		}
+		frontierWriteOnlyLog(t, s)
 		tx, err := db.BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := enterFold(context.Background(), tx); err != nil {
+		if err := enterWrite(context.Background(), tx); err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
 		payload := workflowContractSupersededPayload{PreviousContractVersion: 1, NewContractVersion: 3, PredecessorContractVersions: predecessors}
 		event := Event{EventID: "impact-predecessor-order-parent", Kind: WorkflowContractSuperseded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: completion.Actor, OccurredAt: completion.OccurredAt}
-		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version)
-		_ = leaveFold(context.Background(), tx)
+		scope := newWriteScope(tx)
+		err = appendWorkflowContractImpactNoticesTx(context.Background(), tx, event, payload, version, scope)
+		_ = leaveWrite(context.Background(), tx)
 		if err != nil {
 			_ = tx.Rollback()
 			t.Fatal(err)
 		}
+		if len(scope.eventIDs) != len(predecessors) {
+			t.Fatalf("derived operation IDs = %v; want %d", scope.eventIDs, len(predecessors))
+		}
+		for index, id := range scope.eventIDs {
+			var position int64
+			if err := tx.QueryRow(`SELECT effect_seq-(SELECT min(effect_seq) FROM effect_receipts WHERE kind=? AND subject_id=?) FROM effect_receipts WHERE event_id=?`, WorkflowImpactNoticeRecorded, workID, id).Scan(&position); err != nil || position != int64(index) {
+				t.Fatalf("derived receipt order at %d = %d, %v", index, position, err)
+			}
+		}
 		if err := tx.Commit(); err != nil {
 			t.Fatal(err)
+		}
+		var receipts int
+		if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkflowImpactNoticeRecorded, workID).Scan(&receipts); err != nil || receipts != len(predecessors) {
+			t.Fatalf("derived notice receipts = %d, %v; want %d", receipts, err, len(predecessors))
 		}
 		rows, err := db.Query(`SELECT entity_ref,severity FROM workflow_impact_notices WHERE source_work_id=? ORDER BY entity_ref`, workID)
 		if err != nil {

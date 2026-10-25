@@ -34,8 +34,8 @@ never an inferred coverage state — the author declares the CD-0047
 reason, issue, or evidence, and that declaration commits beside the record.
 A merged commit is not by itself a published lesson: the lesson is published
 when the pull request merges and a knowledge read verifies the record.
-The manifest — not a parallel event stream — remains the lesson's durable
-backing (CD-0020): no new event kind, no new projection table.
+The manifest remains the lesson's durable
+backing (CD-0020); no new store surface is added.
 Canonical knowledge reads make no publication claim before the merge.
 After the merge, `resolve_note` (PM1.Q10) verifies the record against the
 manifest, and search (PM1.Q9) picks it up at the next index rebuild. The
@@ -63,8 +63,7 @@ instead of drifting silently. This is deliberately structural — file
 reachability, not semantic verification. Semantic drift checking is analysis
 tooling, which the capability placement assigns to external native authority;
 Concord's contract is that recorded law names its implementation evidence and
-the validator keeps that naming honest. The ten decisions implemented this
-session carry evidence mappings; coverage grows as records gain evidence.
+the validator keeps that naming honest.
 
 ## Rejected alternatives
 
@@ -86,7 +85,7 @@ publication destination.
 - The knowledge manifest gains an optional `evidence` field; both the Go
   strict parser and the offline validator accept and bound it.
 - A lesson pull request commits the record shard and the coverage shard; the
-  PR review carries the authority the operator approval carried before.
+  PR review authorizes publication.
 - After a lesson merges into the canonical knowledge home, `resolve_note`
   verifies the record. Search picks it up after the next index rebuild; that
   window is reconciliation, not loss. Before merge, neither canonical read

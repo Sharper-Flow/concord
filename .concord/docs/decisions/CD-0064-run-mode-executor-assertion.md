@@ -11,13 +11,8 @@
   CD-0063 (central agent definitions)
 - **Preserves:** the closed lane registry and its digests; `agent-lane-packet.v1`
   and `agent-lane-report.v1`; CD-0058 D1 in full
-- **Supersedes:** nothing
-- **Amendment reason:** Native Task dispatch resolves subagent-only lanes;
-  worker definitions need no primary-session or CLI-run selection.
-- **Revision choice:** In-place amendment under CD-0036. D1 changes lane mode;
-  executor identity checks, nesting denials, registry pins, and schemas retain
-  their meaning.
-- **P12:** Serious: generated lanes cease to be primary-capable agents.
+- **P12:** Serious: generated execution lanes are subagent-only native Task
+  targets, not primary-capable agents.
 
 ## Context
 
@@ -84,10 +79,6 @@ CD-0058 D1, D3 through D5 are untouched.
 
 ## Verification
 
-- `adapter/opencode/evals/native-lane.native.case.ts` runs all five hidden
-  subagent identities through the native Task executor on OpenCode 1.18.35,
-  with a fixture model and exact child assistant-agent readback. It proves
-  host mode compatibility, not managed worker-report acceptance.
 - The adapter test suite covers the substituted-executor case: typed
   `agent_identity_mismatch`, no worker evidence verbs.
 - `scripts/generate-agent-lanes.py --check` passes with `mode: subagent`

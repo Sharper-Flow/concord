@@ -22,8 +22,8 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 	f := newNativeOracleFixture(t)
 	packet := mustJSONValue(map[string]any{"work_id": f.work, "attempt_id": f.a.AttemptID, "job": f.a.WorkerJobBinding.Digest, "subject_commit": f.head})
 	if dispatched {
-		lv, ld := implementLaneIdentity()
-		lane, err := LookupLane("implement", lv, ld)
+		ld := implementLaneIdentity()
+		lane, err := LookupLane("implement", ld)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +31,7 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 			"packet_digest": f.a.WorkerPacketDigest, "worker_job": f.a.WorkerJobBinding,
 			"host_provenance": histDeclaredHostProvenance(),
 		})
-		event.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerDispatched)
+		event.PayloadVersion = CurrentEventPayloadVersion(WorkerDispatched)
 		if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
 			events, err := PrepareLaneActorDispatch(context.Background(), tx, event, f.actor.PrincipalRef, f.actor.ClientRef)
 			if err != nil {
@@ -49,7 +49,7 @@ func workerControlFixture(t *testing.T, dispatched bool) (*nativeOracleFixture, 
 func TestResolveWorkerControlUsesRecordedProducerBindingWithoutActorImpersonation(t *testing.T) {
 	f, req := workerControlFixture(t, true)
 	var eventsBefore, leasesBefore int
-	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leasesBefore); err != nil {
@@ -63,7 +63,7 @@ func TestResolveWorkerControlUsesRecordedProducerBindingWithoutActorImpersonatio
 		t.Fatalf("plan = %+v, want the exact recorded oracle request and raw subject", plan)
 	}
 	var eventsAfter, leasesAfter int
-	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases`).Scan(&leasesAfter); err != nil {
@@ -103,9 +103,9 @@ func TestResolveWorkerControlRefusesUnboundSelectors(t *testing.T) {
 func TestResolveWorkerControlRefusesBrokenAuthorizedLaneJoin(t *testing.T) {
 	f, req := workerControlFixture(t, false)
 	if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		mustTxExec(t, tx, `UPDATE worker_attempts SET lane_id='research' WHERE work_id=? AND attempt_id=?`, req.WorkID, req.AttemptID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestResolveWorkerControlDuringLiveTaskBeforeTerminalReadback(t *testing.T) 
 		t.Fatalf("live Task control required terminal-only dispatch evidence: %+v %v", plan, err)
 	}
 	var dispatches int
-	if err := f.s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind=? AND subject_id=?`, WorkerDispatched, req.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=? AND subject_id=?`, WorkerDispatched, req.WorkID).Scan(&dispatches); err != nil || dispatches != 0 {
 		t.Fatalf("control resolution wrote early dispatch evidence: %d %v", dispatches, err)
 	}
 	f.assertNoLaunch(t)
@@ -133,9 +133,9 @@ func TestResolveWorkerControlDuringLiveTaskBeforeTerminalReadback(t *testing.T) 
 func TestResolveWorkerControlRefusesRetiredAttempt(t *testing.T) {
 	f, req := workerControlFixture(t, true)
 	if err := f.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, req.WorkID, req.AttemptID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

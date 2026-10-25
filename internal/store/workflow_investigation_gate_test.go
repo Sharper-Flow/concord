@@ -68,7 +68,7 @@ func TestPendingQuestionsRequireBoundResearchRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = BindResearchRelianceTx(context.Background(), tx, workID, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC))
-	leaveErr := leaveFold(context.Background(), tx)
+	leaveErr := leaveWrite(context.Background(), tx)
 	if err == nil {
 		err = leaveErr
 	}
@@ -107,7 +107,7 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "same-action-"+action, actor)
 	}
 	version, err = continuityAction(t, s, workID, version, "checkpoint_context", "same-action-checkpoint", map[string]any{
@@ -132,6 +132,12 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("pending-question refusal=%v, want missing evidence", err)
 		}
+		if failure.Detail != "contract approval requires a research pack revision for recorded pending questions" || !strings.Contains(failure.RecoveryAction, "add research_bindings to the approving action") {
+			t.Fatalf("planning exit did not name its missing requirement and admitted recovery: %+v", failure)
+		}
+		if readWorkVersion(t, s, workID) != version || readInstanceStep(t, s, workID) != "planning" {
+			t.Fatal("missing research advanced the planning exit")
+		}
 	}
 	if err := applyInvestigationGateApproval(t, s, workID, version, "same-action-approval", actor, approval, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}); err != nil {
 		t.Fatalf("approve_contract with same-action research_bindings refused: %v", err)
@@ -143,6 +149,9 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	if consumers != 1 {
 		t.Fatalf("same-action research binding count=%d, want 1", consumers)
 	}
+	if readInstanceStep(t, s, workID) != "design" {
+		t.Fatal("the refusal's same-action research recovery did not admit the planning exit")
+	}
 }
 
 func applyInvestigationGateApproval(t *testing.T, s *Store, workID string, version int64, operationID string, actor WorkflowActor, payload json.RawMessage, bindings []ResearchBindingDeclaration) error {
@@ -152,13 +161,13 @@ func applyInvestigationGateApproval(t *testing.T, s *Store, workID string, versi
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:investigation-gate", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC), ResearchBindings: bindings,
 	})
-	if leaveErr := leaveFold(context.Background(), tx); actionErr == nil {
+	if leaveErr := leaveWrite(context.Background(), tx); actionErr == nil {
 		actionErr = leaveErr
 	}
 	if actionErr != nil {
@@ -178,12 +187,12 @@ func insertInvestigationGateObservation(t *testing.T, s *Store, workID, observat
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(context.Background(), tx); err != nil {
+	if err := enterWrite(context.Background(), tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	_, err = tx.ExecContext(context.Background(), `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`, observationID, workID, "technical investigation", string(encoded), `[]`, time.Now().UTC().Format(time.RFC3339Nano))
-	leaveErr := leaveFold(context.Background(), tx)
+	leaveErr := leaveWrite(context.Background(), tx)
 	if err == nil {
 		err = leaveErr
 	}
@@ -216,7 +225,7 @@ func TestOperatorQuestionWithheldForAnyApprovalRequiredAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Version: registered.Definition.Version, Digest: digest}
+	definition := WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: digest}
 	if q, _, err := workflowOperatorQuestionTx(ctx, s.DatabaseForTesting(), workID, "verify", 1, definition, WorkflowReadContract{}); err != nil {
 		t.Fatalf("question read failed: %v", err)
 	} else if q != nil {

@@ -18,9 +18,9 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 	t.Parallel()
 	q := store.Q7Result{
 		ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
-		Events: []store.TimelineEvent{
-			{EventID: "evt-created", Seq: 1, Kind: "work.created", OccurredAt: "2026-08-24T00:00:00Z", EvidenceRefs: nil},
-			{EventID: "evt-declined", Seq: 2, Kind: "work.transitioned", Actor: "actor:operator", OccurredAt: "2026-08-24T00:00:01Z", Reason: "declined by operator", EvidenceRefs: []string{"evidence-1"}},
+		Entries: []store.HistoryEntry{
+			{EntryID: "lifecycle:created", EntryKind: "lifecycle", Position: store.HistoryPosition{EffectSeq: 1, Basis: "effect"}, Version: 1, VersionWorkID: "created", Lifecycle: "needed", EvidenceRefs: []string{}},
+			{EntryID: "lifecycle:declined", EntryKind: "lifecycle", Position: store.HistoryPosition{EffectSeq: 2, Basis: "effect"}, Version: 2, VersionWorkID: "declined", Lifecycle: "cancelled", Actor: "actor:operator", Reason: "declined by operator", EvidenceRefs: []string{"evidence-1"}},
 		},
 	}
 	envelope, err := (runtime{}).q7(NewBase("reasonless", "concord_work_trace", "history"), q)
@@ -31,7 +31,7 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 		t.Fatalf("outcome = %q, want ok", envelope.Outcome)
 	}
 	var page struct {
-		Events []map[string]any `json:"events"`
+		Events []map[string]any `json:"entries"`
 	}
 	if err := json.Unmarshal(envelope.Result, &page); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 	if declined["reason"] != "declined by operator" || declined["actor"] != "actor:operator" {
 		t.Fatalf("reasoned event lost its optional fields: %v", declined)
 	}
-	if !strings.Contains(string(envelope.Result), `"evidence"`) {
+	if !strings.Contains(string(envelope.Result), `"evidence_refs"`) {
 		t.Fatal("evidence array missing from the rendered page")
 	}
 	var whole map[string]any
@@ -62,6 +62,26 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 	}
 }
 
+func TestTraceHistoryPageAcceptsStoredProducerReferences(t *testing.T) {
+	t.Parallel()
+	for _, producer := range []string{"principal/owner", "ses_1a2b-msg_3c4d", "request with spaces", "é"} {
+		t.Run(producer, func(t *testing.T) {
+			q := store.Q7Result{
+				ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
+				Entries: []store.HistoryEntry{{
+					EntryID: "evidence_binding:bind-1", EntryKind: "evidence_binding", Position: store.HistoryPosition{EffectSeq: 3, Basis: "effect"},
+					Version: 3, VersionWorkID: "work-1", Actor: "actor:owner", EvidenceRefs: []string{"commit:abc"}, BindingID: "bind-1", EvidenceKind: "commit", ImmutableSubjectRef: "commit:abc",
+					ProducerID: producer, ProducerRunRef: producer, ProducerWatermark: producer, ObservedAt: "2026-10-24T00:00:00Z",
+				}},
+			}
+			envelope, err := (runtime{}).q7(NewBase("producer", "concord_work_trace", "history"), q)
+			if err != nil || envelope.Outcome != OutcomeOK {
+				t.Fatalf("history page refused stored producer %q: %v %+v", producer, err, envelope.Error)
+			}
+		})
+	}
+}
+
 // A history page for work with a workflow instance carries the published
 // workflow_read subset: the delivery assertion with the target_payload_version
 // a correction admission consumes and the effective artifact the correction
@@ -70,7 +90,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	t.Parallel()
 	workflow := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + strings.Repeat("a", 64)},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + strings.Repeat("a", 64)},
 		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
 			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
 			Artifact: "file:internal/store/impl.go", State: "asserted",
@@ -94,7 +114,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	}
 	envelope, err := (runtime{}).q7(NewBase("workflow-page", "concord_work_trace", "history"), store.Q7Result{
 		ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
-		Events:     []store.TimelineEvent{},
+		Entries:    []store.HistoryEntry{},
 		Workflow:   &workflow,
 	})
 	if err != nil {
@@ -158,7 +178,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "history-selector-"+actionID)
 		version = workOneVersion(t, s)
 	}
@@ -167,7 +187,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 	}
 
 	history := func(contractVersion int) Envelope {
-		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "event_kinds": []string{store.WorkflowContractApproved}, "contract_version": contractVersion})
+		raw, err := json.Marshal(map[string]any{"work_id": "work-1", "record_kinds": []string{"lifecycle"}, "contract_version": contractVersion})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,10 +198,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 		t.Fatalf("history contract_version 1 = %+v", selected.Error)
 	}
 	var page struct {
-		Events []struct {
-			Kind            string `json:"kind"`
-			ContractVersion int    `json:"contract_version"`
-		} `json:"events"`
+		Entries  []store.HistoryEntry `json:"entries"`
 		Workflow struct {
 			Contract struct {
 				Version int `json:"version"`
@@ -191,7 +208,7 @@ func TestTraceHistoryBindsTheContractVersionSelector(t *testing.T) {
 	if err := json.Unmarshal(selected.Result, &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Workflow.Contract.Version != 1 || len(page.Events) != 1 || page.Events[0].ContractVersion != 1 {
+	if page.Workflow.Contract.Version != 1 || len(page.Entries) != 1 || page.Entries[0].EntryKind != "lifecycle" {
 		t.Fatalf("selected history = %s", selected.Result)
 	}
 	refused := history(9)

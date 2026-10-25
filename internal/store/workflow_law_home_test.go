@@ -12,14 +12,14 @@ import (
 // cross-Product shape a set_memberships call creates.
 func seedSecondaryProductMembership(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-secondary','Secondary','prototype','operator_only',1,'now','now');
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-secondary','Secondary',1,'now','now');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES('product-secondary','project-secondary','primary');
 		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('secondary-locator','project-secondary','canonical_path','/test/secondary','/test/secondary','now','now');
 		INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product-secondary','project-secondary','secondary-locator');
 		INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'project-secondary','secondary');
-		DELETE FROM fold_guard`, workID); err != nil {
+		DELETE FROM write_guard`, workID); err != nil {
 		t.Fatalf("seed secondary Product membership: %v", err)
 	}
 }
@@ -83,9 +83,9 @@ func TestWorkflowLawHomeRefusesAnAmbiguousPrimaryHomeWithCandidates(t *testing.T
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedSecondaryProductMembership(t, s, workID)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO product_projects(product_id,project_id,role) VALUES('product-secondary','project','secondary');
-		DELETE FROM fold_guard`); err != nil {
+		DELETE FROM write_guard`); err != nil {
 		t.Fatalf("seed the ambiguous primary home: %v", err)
 	}
 
@@ -115,7 +115,6 @@ func TestCrossProductWorkRecordsContractApproval(t *testing.T) {
 	event := workflowEventWithActor("cross-product-approval-event", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "record across Products", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:cross-product", "immutable_subject_ref": "commit:cross-product", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{}, "law_revisions": nil, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
-	event.PayloadVersion = 3
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, 4)}); err != nil {
 		t.Fatalf("cross-Product contract approval refused: %v", err)
 	}

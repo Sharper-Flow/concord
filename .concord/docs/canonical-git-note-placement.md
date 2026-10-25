@@ -13,13 +13,6 @@
 > **Related accepted boundaries:** PM8 excludes WIP-byte CAS and generic screenshot
 > requirements; PM9 rejects a separate process-exhaust receipt. **Does not decide:** PM10
 > backup/restore, C15 resources, agent tools, or exact implementation.
-> **Amended by CD-0222:** `domain_ids` replace `component_ids` in new note
-> front matter; legacy notes upcast during the bounded Domain migration.
-
-**Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain unchanged.
 
 ## Context
 
@@ -29,9 +22,15 @@ membership semantics, CD-0002 invariants I1 through I6, and the compaction
 design. This record fixes canonical note placement: one eligible git home
 selected deterministically from accepted membership, in-tree markdown notes
 with bounded front matter, a typed five-field locator, and the ordered
-publish protocol with its recovery seam. CD-0222 replaces component with
-Domain identifiers in new note front matter.
+publish protocol with its recovery seam. New note front matter uses `domain_ids`
+under CD-0222.
 ## Contract
+
+The store keeps current state and finite verified snapshots; no event log or replay exists
+([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+Operator consent follows [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
+throughout this record, including tables and acceptance criteria.
+Other admission, safety, evidence, and historical-pin requirements remain required.
 
 Routine canonical-note publication and proof-backed reconciliation require no operator consent under CD-0013 D11. The accepted durable publication intent, rather than an approval reference, freezes exact content, digest, home, locator, and work version until SQLite linkage. Existing terminal eligibility, salvage, Git commit verification, deterministic home selection, no-second-effect replay, and reconciliation proof remain required. This route grants no remote push, release, deletion, or legislative authority.
 
@@ -75,12 +74,12 @@ knowledge home. This is a typed reference governed by PM6, not a copied repo pat
 The Project need not be a member of every work item in the Product; it is a Product-
 level cross-cutting knowledge home.
 
-Amended 2026-10-01 by CD-0200 D1: the designated home stays the Product's single
+Under CD-0200 D1, the designated home is the Product's single
 shared-law home and is always a knowledge source. The operator may additionally
 register member Project canonical-path locators as knowledge sources; registration
 is explicit typed configuration, never discovery. Placement of each Project's own
 canonical notes and knowledge stays in that Project's `.concord/` tree, and the
-one-note-per-work-item rule is unchanged.
+one-note-per-work-item rule applies.
 
 ## 3. Deterministic selection rule
 
@@ -184,22 +183,23 @@ Git and SQLite cannot share one atomic transaction. PM6 therefore defines a
 monotonic publish protocol rather than pretending cross-store atomicity:
 
 1. resolve one eligible home using §3;
-2. draft note; operator approves exact content/home;
+2. draft note; salvage and evidence review fix its exact content and home (PM9);
 3. commit the note to git;
 4. verify `commit_oid:note_path` exists, contains the expected `concord_work_id`, and
    hashes to `content_hash`;
-5. only then, in one SQLite transaction, append the compaction-link event and write
+5. only then, in one SQLite transaction, record the compaction-link row and write
    the derived `archived_work` locator/index state;
 6. Accepted compaction-retention-policy may later prune only verified eligible projections through a bounded
-   lazy operation; it retains `domain_events` and the git-rebuildable historical index.
+   lazy operation; it keeps current rows and the git-rebuildable historical index
+   ([CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 PM6 proves durable linkage; compaction-retention-policy owns the bounded lazy pruning transition.
 
-Failure before step 3 leaves only a draft. Failure after git commit but before step 5
-leaves an orphan canonical-looking note; a retry finds and verifies the same note by
-work ID rather than creating another. Failure before/inside step 5 leaves SQLite
-`not_compacted` because no compaction-link event committed, even if an approved git
-note exists in the orphan window. SQLite never commits a locator before git proof.
+Failure before the Git commit leaves only a draft.
+Failure after the commit but before the SQLite publication step settles leaves an incomplete publication operation; reconciliation finds and verifies the same note by work ID rather than creating another.
+A committed note whose identity and content proof verify may already be indexed and discovered as canonical during that interval.
+Canonical discovery does not prove that the publication operation settled or that the closure judgement was accepted, and it does not grant cleanup eligibility.
+SQLite never records a canonical locator before verifying its Git proof.
 
 Rebuild scans canonical note directories, validates unique `concord_work_id`, and
 reconstructs `archived_work`. Two valid notes claiming one work ID are typed
@@ -230,7 +230,7 @@ verified is `missing` or `degraded`, never authoritative.
   authority coverage is complete and the object is absent; PM10 may recover from
   another clone/backup by commit OID and verify content hash.
 - **Home removal:** Product/Project home designation cannot be removed while it is
-  locked from operator approval (step 2) through SQLite linkage (step 5). Existing
+  locked from content review (step 2) through SQLite linkage (step 5). Existing
   note locators remain valid historical references even if the Project later leaves
   Product membership.
 
@@ -254,7 +254,7 @@ note.
 | Outcome | Meaning |
 |---|---|
 | canonical locator | one verified note proof exists and index watermark is complete |
-| `not_compacted` | publish protocol is incomplete; no compaction-link event is recorded |
+| not_compacted | retained work has no verified canonical note in the applicable index; an incomplete publication operation alone does not prevent discovery of a verified note |
 | `ambiguous` | home selection failed or multiple notes claim the work ID |
 | `missing` | recorded/candidate git object cannot be found after required authorities were checked |
 
@@ -356,8 +356,9 @@ operator choice, and the falsifiers above remain controlling.
 
 - Given a publish that committed to git but not yet to SQLite
   When Q10 resolves the work item
-  Then the answer is `not_compacted`, because SQLite never records a locator
-  before git proof.
+  Then a verified note resolves `canonical`, and the unsettled publication
+  makes nothing eligible for cleanup. Work with no verified note resolves
+  `not_compacted`.
 
 - Given an orphan canonical-looking note from an interrupted publish
   When a retry runs
@@ -378,11 +379,12 @@ operator choice, and the falsifiers above remain controlling.
 - Criterion 1 is proved by the bound `AJ6-compact-terminal-work` scenario of
   `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
   (`internal/agent/agent_jobs_corpus_test.go`).
-- Criterion 2 is proved by the bound `Q10-not-compacted` scenario of
+- Criterion 2 is proved by
+  `TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag`
+  (`internal/store/knowledge_index_test.go`) and, for work with no verified
+  note, by the bound `Q10-not-compacted` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`), and by
-  `TestQ10OrphanWorkNoteRemainsNotCompacted`
-  (`internal/store/knowledge_index_test.go`).
+  `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
 - Criterion 3 is proved by
   `TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes`
   (`internal/store/knowledge_index_test.go`) and

@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// Recovery of an already pinned, nonterminal work item parked on a released
-// closed-gate delivery step with an outstanding post-rejection review. The
-// released definition content and the recorded event history stay untouched;
-// the evidence-bearing corrective return is the only route off the gate.
+// Delivery-gate correction support shared with the Review correction suite.
+// The current gate's corrective return answers to an accepted Review that no
+// longer covers the current candidate or depended-on revisions; an applicable
+// accepted Review opens none.
 
 // reviewGateSeedAcceptAtRefine replays the refine-crossing route: it records an
 // accepted implement repair whose accept advances the refinement step into
-// the delivery gate with the post-rejection review debt outstanding.
+// the delivery gate before any Review covers the repaired candidate.
 func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
@@ -39,20 +39,20 @@ func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID stri
 func reviewGateCountDeliveries(t *testing.T, s *Store, workID string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=1`, workID, WorkflowActionCompleted).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
 }
 
-func reviewGateInstancePin(t *testing.T, s *Store, workID string) (int64, string) {
+func reviewGateInstancePin(t *testing.T, s *Store, workID string) (string, string) {
 	t.Helper()
-	var version int64
+	var ref string
 	var digest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&version, &digest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &digest); err != nil {
 		t.Fatal(err)
 	}
-	return version, digest
+	return ref, digest
 }
 
 func reviewGateCorrectionPayload(evidence string) json.RawMessage {
@@ -62,32 +62,22 @@ func reviewGateCorrectionPayload(evidence string) json.RawMessage {
 func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	const workID = "pinned-delivery-recovery"
 	ctx := context.Background()
-	released, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
-	if !ok {
-		t.Fatal("workflow.break_fix v13 is not registered")
-	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, released, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
+	c := acceptDeliveryCandidateAt(t, workID, "workflow.break_fix", "repair", false)
+	fixture := workflowReturnRouteFixture{store: c.f.store, owner: c.f.owner, operator: c.f.operator}
 	s := fixture.store
-
-	at := int64(100)
-	reviewGateDriveRejection(t, fixture, workID, &at)
-	repairedAttempt := "attempt:" + workID + ":repair-1"
-	ownerRef, ownerErr := WorkflowActorRef(fixture.owner)
-	if ownerErr != nil {
-		t.Fatal(ownerErr)
-	}
-	repairedEpoch := reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", reviewGateLane(t, "implementation"), ownerRef, at)
-
-	// The historical crossing replays unchanged: the accept advances the
-	// pinned instance into the gate with the review debt outstanding.
-	reviewGateSeedAcceptAtRefine(t, s, workID, repairedAttempt, repairedEpoch, reviewGateAcceptor(workID))
+	parkWorkflowInstanceAt(t, s, workID, "refine")
+	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+	c.j.bindVerification(t, c.early)
+	acceptCurrentReviewForTest(t, c.f, c.j.repo, "continue")
+	seedAcceptedImplementationDeliveryAt(t, s, workID, fixture.owner, "refine")
+	// Exercise gate recovery after the repair changed the reviewed candidate. A plain result
+	// disposition cannot itself assert delivery or move refine (CD-0242 D5).
+	parkWorkflowInstanceAt(t, s, workID, "delivery")
 	reviewGateRequireStep(t, s, workID, "delivery")
 
-	// Released definition content is unchanged: the instance stays pinned to
-	// the closed-gate version it shipped on.
-	pinnedVersion, pinnedDigest := reviewGateInstancePin(t, s, workID)
-	if pinnedVersion != 13 || pinnedDigest != released.Digest {
-		t.Fatalf("pinned definition = v%d %s, want v13 %s", pinnedVersion, pinnedDigest, released.Digest)
+	pinnedRef, pinnedDigest := reviewGateInstancePin(t, s, workID)
+	if pinnedRef != c.definition.Definition.Ref || pinnedDigest != c.definition.Digest {
+		t.Fatalf("pinned definition = %s %s, want %s %s", pinnedRef, pinnedDigest, c.definition.Definition.Ref, c.definition.Digest)
 	}
 
 	// No delivery assertion exists: the parked change never claimed a merge.
@@ -121,20 +111,15 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	}
 
 	// Stale evidence: the return names a reference nothing durably bound.
-	stale := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:not-bound"), fixture.owner, fixture.operator)
+	stale := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:not-bound"), 0, fixture.owner)
 	var staleFailure *Failure
 	if stale == nil || !failureAs(stale, &staleFailure) || staleFailure.Kind != KindMissingEvidence {
 		t.Fatalf("unbound-evidence return = %v, want a missing-evidence refusal", stale)
 	}
 
-	// Unauthenticated: without the operator identity the return refuses.
-	if err := runCorrectionActionWithoutOperator(s, workID, fixture.owner, reviewGateCorrectionPayload("evidence:return-route-verification")); err == nil {
-		t.Fatal("correction return without an operator identity was admitted")
-	}
-
 	// The evidence-bearing corrective return returns the pinned instance to
 	// the repair step for a fresh review.
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload(c.early.OperationRef), 0, fixture.owner); err != nil {
 		t.Fatalf("evidence-bearing corrective return: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "repair")
@@ -146,7 +131,7 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 
 	// The consumed gate correction does not re-fire: without a non-ok
 	// verdict, the correction request at the repair step is unsupported.
-	repeat := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
+	repeat := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload(c.early.OperationRef), 0, fixture.owner)
 	if repeat == nil || !strings.Contains(repeat.Error(), "non-ok verification verdict") {
 		t.Fatalf("repeat return = %v, want an unsupported-correction refusal", repeat)
 	}
@@ -163,43 +148,25 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	terminal := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
+	terminal := runVerdictActionAs(t, s, workID, "request_correction", reviewGateCorrectionPayload(c.early.OperationRef), 0, fixture.owner)
 	if terminal == nil || !strings.Contains(terminal.Error(), "terminal workflow instance is immutable") {
 		t.Fatalf("terminal return = %v, want the terminal refusal", terminal)
 	}
 }
 
 // TestDeliveryGateCorrectionNeedsOutstandingReview proves the gate correction
-// is unsupported without the post-rejection shape: a normally reviewed change
-// parked on the gate offers record_delivery, not a corrective return.
+// is unsupported while Main's accepted Review still covers the delivered
+// candidate: the reviewed change parked on the gate offers its delivery exit,
+// not a corrective return.
 func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	const workID = "pinned-delivery-no-debt"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := refineProofCandidateFixture(t, workID, "workflow.break_fix")
 	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	review := reviewGateLane(t, "review")
-	at := int64(100)
-
-	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	repairAttempt := "attempt:" + workID + ":repair"
-	repairEpoch := reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", reviewGateLane(t, "implementation"), ownerRef, at)
-	at += 2
-	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
-		t.Fatalf("accept repair: %v", err)
-	}
-
-	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	reviewAttempt := "attempt:" + workID + ":review"
-	reviewEpoch := reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", review, ownerRef, at)
-	// The reviewed change exits refine through the combined accept the
-	// current version admits (CD-0198 D4), which asserts the delivery and
-	// advances into the gate with no review debt outstanding.
-	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
-		t.Fatalf("accept review: %v", err)
+	refineProofStartRefine(t, fixture, workID)
+	refineProofAcceptReadyReview(t, fixture, workID)
+	refineProofCandidateRun(t, s, workID, "gate", refineProofCandidate(t, s, workID), []string{"go", "vet", "./..."})
+	if err := refineProofDelivery(t, s, workID, nil); err != nil {
+		t.Fatalf("record_delivery with the reviewed candidate: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
 
@@ -209,13 +176,13 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	}
 	for _, intent := range pin.NextValidIntents {
 		if intent.ActionID == "request_correction" {
-			t.Fatalf("gate without a post-rejection review offered request_correction: %#v", pin.NextValidIntents)
+			t.Fatalf("gate under an applicable Review offered request_correction: %#v", pin.NextValidIntents)
 		}
 	}
 	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("reviewed gate lost its delivery exit: %#v", pin.NextValidIntents)
 	}
-	err = runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
+	err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator)
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "outstanding post-rejection review") {
 		t.Fatalf("unsupported gate return = %v, want the outstanding-review refusal", err)

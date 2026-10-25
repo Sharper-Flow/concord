@@ -34,7 +34,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, seedTx); err != nil {
+	if err := enterWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, seedTx); err != nil {
+	if err := leaveWrite(ctx, seedTx); err != nil {
 		seedTx.Rollback()
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	definition, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
 	if !ok {
 		t.Fatal("latest implementation definition missing")
 	}
@@ -96,7 +96,7 @@ func approveLawContextContract(t *testing.T, s *Store, workID string, mandate, m
 	event := workflowEventWithActor("law-context-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-context", "immutable_subject_ref": "commit:law-context", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": modifies, "law_revisions": revisions, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
-	event.PayloadVersion = 3
+	event = pOverlapContractFacts(t, s, event)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatalf("bound approval rejected: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 	workID := "law-context-constitution"
 	seedLawContextFixture(t, s, workID)
 	constitutionHash := "sha256:" + strings.Repeat("c", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM write_guard`, constitutionHash, constitutionHash); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowLawFixtureRepo(t, s), ".concord", "docs", "constitution.md"), []byte("# Synthetic constitution\n"), 0o600); err != nil {
@@ -251,10 +251,9 @@ func TestContinuityContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 	}
 }
 
-// Projection drift between approval and dispatch must fail closed. A law the
-// contract mandates and modifies whose law_subjects row later disappears would
-// otherwise reach the packet as a bare ID, so the continuity read refuses.
-func TestContinuityRefusesModifiedLawMissingFromProjection(t *testing.T) {
+// Deleting a pinned modified law stops mutation, not read-only inspection
+// (CD-0036 D3/D6). Continuity must still expose the contract and its stale pin.
+func TestContinuityKeepsDeletedModifiedLawInspectable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -262,16 +261,23 @@ func TestContinuityRefusesModifiedLawMissingFromProjection(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	assertLawContextDrift(t, err, "spec:one", "rebuild the accepted Git law projection")
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatalf("read-only continuity of deleted modified law: %v", err)
+	}
+	if snapshot.Contract == nil || snapshot.Contract.Version != 1 {
+		t.Fatalf("continuity lost active contract: %+v", snapshot.Contract)
+	}
+	if snapshot.StaleLawRevision == nil || snapshot.StaleLawRevision.OldLawID != "spec:one" || snapshot.StaleLawRevision.OldContentHash != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("deleted modified law diagnosis = %+v", snapshot.StaleLawRevision)
+	}
 }
 
-// A verification obligation binds a pinned law by ID, so a law carrying the
-// obligation role whose subject later disappears refuses the same way.
-func TestContinuityRefusesObligationLawMissingFromProjection(t *testing.T) {
+// An obligation's deleted law remains inspectable with the same stale pin.
+func TestContinuityKeepsDeletedObligationLawInspectable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -279,13 +285,18 @@ func TestContinuityRefusesObligationLawMissingFromProjection(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE law_id='spec:one'; DELETE FROM law_subjects WHERE law_id='spec:one'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" || failure.RecoveryAction != "rebuild the accepted Git law projection" {
-		t.Fatalf("missing obligation law diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatalf("read-only continuity of deleted obligation law: %v", err)
+	}
+	if snapshot.Contract == nil || snapshot.Contract.Version != 1 {
+		t.Fatalf("continuity lost active contract: %+v", snapshot.Contract)
+	}
+	if snapshot.StaleLawRevision == nil || snapshot.StaleLawRevision.OldLawID != "spec:one" || snapshot.StaleLawRevision.OldContentHash != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("deleted obligation law diagnosis = %+v", snapshot.StaleLawRevision)
 	}
 }
 
@@ -305,7 +316,7 @@ func TestContinuityLawContextCarriesThisWorkPredicateCriteria(t *testing.T) {
 		`{"criterion":1,"work_id":"` + workID + `","predicate_id":"predicate:beta"},` +
 		`{"criterion":3,"work_id":"` + otherWork + `","predicate_id":"predicate:gamma"},` +
 		`{"criterion":4,"scenario":"scenario-one"}]`
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET criterion_bindings=? WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM fold_guard`, bindings); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE law_subjects SET criterion_bindings=? WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM write_guard`, bindings); err != nil {
 		t.Fatal(err)
 	}
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
@@ -334,7 +345,7 @@ func TestContinuityRefusesDomainMissingFromRegistry(t *testing.T) {
 	seedLawContextFixture(t, s, workID)
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE domain_id='child'; DELETE FROM domains WHERE domain_id='child'; DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM law_domain_homes WHERE domain_id='child'; DELETE FROM domains WHERE domain_id='child'; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})

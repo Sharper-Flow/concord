@@ -8,10 +8,8 @@
   the launcher serves one operator's setup against general use, and selected this
   record as the next launcher move. The pull request is the public record.
 - **Related:** C18 (§§5, 6, 7), CD-0014, CD-0021, CD-0031, CD-0008 (D1), CD-0219
-- **Amended:** CD-0219 (2026-10-09) retires the interactive launcher TUI; D1
-  through D3 re-home to the session entry route. Concord (CON) issue CON-910 (2026-10-13) removes
-  the session entry route, the host-registered opener, and every Concord
-  launch and resume duty under the Snowball coordinator's operator-delegated
+- **Approval:** Host-owned session start and resume: Concord (CON) issue
+  CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated
   approval.
 - **Preserves:** C18 §6's exclusion of external-system execution, C18 §7's
   per-instance ambient Product, CD-0014's no-renderer rule, CD-0031's
@@ -82,9 +80,8 @@ shape the predecessor postmortem names as a recurring root cause.
   Its discovery, pins, and tab naming need no Concord awareness.
 - Two Products at once costs the operator a second terminal surface, which the
   host already knows how to produce.
-- `ResolveProject` answers "which Project owns this directory" through the agent
-  envelope only, so a host that wants that answer has no operator-level read
-  path. This record does not open one. It names the gap for a separate issue.
+- A host resolves directory ownership through the read-only `project-resolve`
+  CLI (CD-0079 D1).
 
 ## Rejected alternatives
 

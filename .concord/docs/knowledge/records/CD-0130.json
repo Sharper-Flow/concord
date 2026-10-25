@@ -12,8 +12,7 @@
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow.go",
     "internal/store/workpin.go",
-    "internal/store/worker_failure_recovery_test.go",
-    "internal/store/workflow_definition_version_pins_test.go"
+    "internal/store/worker_failure_recovery_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0130",
@@ -22,10 +21,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0112"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0115"
     }
   ],
   "path": ".concord/docs/decisions/CD-0130-failed-worker-attempt-recovery-under-a-historical-definition-pin.md",
@@ -36,9 +31,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7ebeacfb13b82f7ac9f713c5448a8167e39df515363461ff7fd63a114a0b3fa9",
+  "sha256": "sha256:0af1de900bc6776ee7ce1056aea7787b0e3bee90ab0813ec8ace12daf8e2a6e8",
   "status": "accepted",
-  "summary": "Makes failed-attempt closure an engine-owned recovery action for historical workflow pins, preserves released definition digests, and keeps current payload, identity, epoch, authorization, and failed-state checks.",
+  "summary": "Makes failed-attempt closure an engine-owned recovery action, keeps current payload, identity, epoch, authorization, and failed-state checks, and retains no released definition version for history.",
   "tags": [
     "workflow",
     "worker",
@@ -46,5 +41,5 @@
     "definition",
     "law"
   ],
-  "title": "Failed worker attempt recovery under a historical definition pin"
+  "title": "Failed worker attempt recovery"
 }

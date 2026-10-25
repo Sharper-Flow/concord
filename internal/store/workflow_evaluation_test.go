@@ -6,62 +6,58 @@ import (
 	"testing"
 )
 
-func TestWorkflowEvaluationAuthoritySurvivesLeaseRotation(t *testing.T) {
+func TestMainAuthorityPreservesWorkerBoundaryWithoutExecutorExclusion(t *testing.T) {
 	t.Parallel()
-	const workID = "evaluation-authority"
-	s, owner, _ := seedItemAtAcceptance(t, workID, true)
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
+	db, _ := correctionHistoryFixture(t)
+	const workID = "main-authority"
+	const owner = "actor:main"
+	const worker = "actor:worker"
+	for _, statement := range []string{
+		`CREATE TABLE workflow_worker_actors(actor_ref TEXT PRIMARY KEY,first_dispatch_seq INTEGER NOT NULL)`,
+		`CREATE TABLE workflow_member_callers(actor_ref TEXT PRIMARY KEY,work_id TEXT,project_id TEXT,group_id TEXT,member_id TEXT)`,
+		`CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,execution_actor_ref TEXT)`,
+		`ALTER TABLE domain_events RENAME TO domain_events_unavailable`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_worker_actors VALUES(?,?)`, worker, 3); err != nil {
 		t.Fatal(err)
 	}
-	var laneRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&laneRef); err != nil {
+	// Mutable execution ownership cannot turn a dispatched worker into Main,
+	// nor exclude Main because it started execution or accepted a result.
+	if _, err := db.Exec(`INSERT INTO workflow_instances VALUES(?,?)`, workID, owner); err != nil {
 		t.Fatal(err)
 	}
-	if laneRef == ownerRef {
-		t.Fatal("fixture did not rotate the lease")
+	if _, err := db.Exec(`PRAGMA query_only=ON`); err != nil {
+		t.Fatal(err)
+	}
+	var changesBefore int
+	if err := db.QueryRow(`SELECT total_changes()`).Scan(&changesBefore); err != nil {
+		t.Fatal(err)
 	}
 	for _, tc := range []struct {
 		actor string
-		want  WorkflowEvaluationAuthority
+		want  bool
 	}{
-		{ownerRef, WorkflowOperatorRequired},
-		{laneRef, WorkflowWorkerEvaluator},
-		{DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/independent", "session/independent"), WorkflowIndependentEvaluator},
+		{owner, true},
+		{worker, false},
+		{"actor:resumed-main", true},
 	} {
-		t.Run(string(tc.want), func(t *testing.T) {
-			var got WorkflowEvaluationAuthority
-			err := s.readSnapshot(context.Background(), func(q queryer) error {
-				var innerErr error
-				got, innerErr = workflowEvaluationAuthority(context.Background(), q, workID, tc.actor)
-				return innerErr
-			})
-			if err != nil || got != tc.want {
-				t.Fatalf("authority=%q err=%v, want %q", got, err, tc.want)
+		t.Run(tc.actor, func(t *testing.T) {
+			err := workflowRequireMain(t.Context(), db, workID, tc.actor)
+			if (err == nil) != tc.want {
+				t.Fatalf("Main authority admitted=%v, want %v: %v", err == nil, tc.want, err)
+			}
+			if !tc.want && (!hasFailureKind(err, KindUnauthorized) || !strings.Contains(err.Error(), "a worker cannot accept results")) {
+				t.Fatalf("worker refusal lost its authority boundary: %v", err)
 			}
 		})
 	}
-	worker := workflowActorForRef(t, s, laneRef)
-	version := readWorkVersion(t, s, workID)
-	if err := runOperatorVerdict(t, s, workID, worker, operatorVerdictActor(t, workID)); err == nil || !strings.Contains(err.Error(), "worker actors cannot submit operator decisions") {
-		t.Fatalf("worker submitted operator verdict: %v", err)
-	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("refused worker verdict changed version: %d -> %d", version, got)
-	}
-	for _, action := range []string{"record_verdict", "confirm_premise", "complete"} {
-		t.Run("worker_"+action, func(t *testing.T) {
-			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			operator := operatorVerdictActor(t, workID)
-			g := workflowActionGuardContext{ctx: context.Background(), tx: tx, actorRef: laneRef, request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: action, Actor: worker, OperatorActor: &operator}}
-			if err := guardOperatorPremiseActor(&g); err == nil || !strings.Contains(err.Error(), "worker actors cannot submit operator decisions") {
-				t.Fatalf("worker submitted %s: %v", action, err)
-			}
-		})
+	var changesAfter int
+	if err := db.QueryRow(`SELECT total_changes()`).Scan(&changesAfter); err != nil || changesAfter != changesBefore {
+		t.Fatalf("authority checks changed recorded facts: changes before=%d, after=%d, err=%v", changesBefore, changesAfter, err)
 	}
 }
 
@@ -75,5 +71,8 @@ func TestWorkflowEvaluationAuthorityReadFailureIsNotIndependent(t *testing.T) {
 	authority, err := workflowEvaluationAuthority(context.Background(), s.db, "work-unavailable", "actor-unavailable")
 	if err == nil || authority != "" {
 		t.Fatalf("unreadable authority=%q err=%v", authority, err)
+	}
+	if err := workflowRequireMain(t.Context(), s.db, "work-unavailable", "actor-unavailable"); !hasFailureKind(err, KindUnavailable) {
+		t.Fatalf("unreadable Main authority did not fail closed: %v", err)
 	}
 }

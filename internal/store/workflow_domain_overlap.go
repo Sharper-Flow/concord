@@ -384,18 +384,7 @@ func readWorkflowOverlapJudgedContent(ctx context.Context, q queryer, workID str
 	return content, workflowOverlapResolutionProjectionError(rows.Err())
 }
 
-// workflowContractSupersededJudgedContentPayloadVersion is the
-// workflow.contract_superseded payload version that introduced judged-content
-// comparison in the supersession fold. Recorded versions below it invalidated
-// unconditionally and keep that semantic on replay.
-const workflowContractSupersededJudgedContentPayloadVersion = 3
-
 func invalidateWorkflowOverlapForContractRevisionTx(ctx context.Context, tx *sql.Tx, event Event, predecessors []int64, successor int64) error {
-	// Upcast pre-v3 events retain their recorded invalidation semantics;
-	// v3 and current compare judged content.
-	if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowContractSupersededJudgedContentPayloadVersion {
-		return invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID)
-	}
 	next, err := readWorkflowOverlapJudgedContent(ctx, tx, event.SubjectID, successor)
 	if err != nil {
 		return err
@@ -768,7 +757,7 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
-	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: eventKindRegistry[WorkflowOverlapResolved].CurrentVersion, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, newFoldScope(sqlTx), true)
+	return applyOperationTx(ctx, sqlTx, Operation{Events: []Event{{EventID: request.EventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: request.FromWorkID, Actor: request.Actor, OccurredAt: request.OccurredAt.UTC(), PayloadVersion: eventKindRegistry[WorkflowOverlapResolved].CurrentVersion, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.FromWorkID): request.FromExpectedVersion, VersionRef(SubjectWorkItem, request.ToWorkID): request.ToExpectedVersion}}, newWriteScope(sqlTx), true)
 }
 
 func validateWorkflowOverlapResolutionKind(kind string) bool {
@@ -969,8 +958,8 @@ func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, 
 
 func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE event_id=?`, eventID).Scan(&seq); err != nil {
-		return 0, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read authoritative event sequence", true, "retry once the event log is readable", err)
+	if err := tx.QueryRowContext(ctx, `SELECT effect_seq FROM effect_receipts WHERE event_id=?`, eventID).Scan(&seq); err != nil {
+		return 0, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read authoritative effect sequence", true, "retry once the effect receipt is readable", err)
 	}
 	return seq, nil
 }
@@ -990,37 +979,19 @@ func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event
 	return nil
 }
 
-// workflowOverlapReplayProductID resolves the Product a replayed resolution
-// records, from the item's contract bindings. The active-version footprint is
-// the live surface; replay only needs the Product identity the log carries.
-func workflowOverlapReplayProductID(ctx context.Context, tx *sql.Tx, workID string) string {
-	var productID string
-	_ = tx.QueryRowContext(ctx, `SELECT product_id FROM workflow_architecture_bindings WHERE work_id=? ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&productID)
-	return productID
-}
-
 func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var payload workflowOverlapResolvedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
 		return err
 	}
-	// A payload recorded at source version 1 replays under its source rules:
-	// every kind except depends_on required the plan layer's ref-only
-	// approval reference. The current v2 classes replace that mandate: the
-	// routine kinds settle without any approval claim, and the destructive
-	// kinds carry the binding the live row verification admitted.
-	sourceV1 := event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < 2
-	approvalRefRequired := sourceV1 && payload.ResolutionKind != ResolutionDependsOn
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) || (approvalRefRequired && payload.ApprovalRef == "") {
+	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) {
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
 	}
-	if !sourceV1 {
-		if err := workflowOverlapResolutionBindingAdmission(event, payload); err != nil {
-			return err
-		}
+	if err := workflowOverlapResolutionBindingAdmission(event, payload); err != nil {
+		return err
 	}
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
@@ -1032,35 +1003,23 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	overlap, ok := workflowDomainOverlapPair(left, right)
-	if !ok && !isWorkflowReplay(ctx) {
+	if !ok {
 		return newFailure(KindInvalidOperation, "workflow_domain_overlap", "overlap resolution names a pair with no current derived overlap", false, "reread the active Domain footprints")
 	}
 	resolutionFromWorkID, resolutionToWorkID := event.SubjectID, payload.ToWorkID
 	resolutionFromContractVersion, resolutionToContractVersion := payload.FromContractVersion, payload.ToContractVersion
 	if payload.ResolutionKind == ResolutionCompatibleWith {
-		if ok {
-			resolutionFromWorkID, resolutionToWorkID = overlap.FromWorkID, overlap.ToWorkID
-			resolutionFromContractVersion, resolutionToContractVersion = overlap.FromContractVersion, overlap.ToContractVersion
-		} else if payload.ToWorkID < event.SubjectID {
-			// The pair no longer derives under the current overlap rule, so
-			// replay records the resolution from its payload in the sorted
-			// pair order every recorded compatible_with resolution carries.
-			resolutionFromWorkID, resolutionToWorkID = payload.ToWorkID, event.SubjectID
-			resolutionFromContractVersion, resolutionToContractVersion = payload.ToContractVersion, payload.FromContractVersion
-		}
+		resolutionFromWorkID, resolutionToWorkID = overlap.FromWorkID, overlap.ToWorkID
+		resolutionFromContractVersion, resolutionToContractVersion = overlap.FromContractVersion, overlap.ToContractVersion
 	}
 	// The registry comparison pins the event against the current Git-derived
 	// registry. The declarer's own stale pin still refuses the recording, so
 	// the marker's named subject re-pins its own contract first (CD-0222 D7).
 	// The peer's stale pin does not veto the recording: resolve_overlap is
 	// the D7-exempt recovery route, and the peer's stale pin opens the peer's
-	// recovery route, not a veto over this pair. A replay re-derives the
-	// recorded resolution from the log, so the current registry, which the
-	// log never carries, is not its authority.
-	if !isWorkflowReplay(ctx) {
-		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, left); err != nil {
-			return err
-		}
+	// recovery route, not a veto over this pair.
+	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, left); err != nil {
+		return err
 	}
 	if err := invalidateWorkflowOverlapResolutionPairTx(ctx, tx, event.EventID, event.SubjectID, payload.ToWorkID); err != nil {
 		return err
@@ -1101,8 +1060,7 @@ func readWorkflowOverlapResolutionWorks(ctx context.Context, tx *sql.Tx, event E
 }
 
 // readWorkflowOverlapResolutionFootprints reads both endpoints' contract
-// footprints. Live, both must pin the same Product's current contract
-// versions; replay resolves each Product from the item's contract bindings.
+// footprints. Both must pin the same Product's current contract versions.
 func readWorkflowOverlapResolutionFootprints(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload) (workflowOverlapFootprint, workflowOverlapFootprint, error) {
 	left, err := readWorkflowOverlapFootprintTx(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -1112,21 +1070,8 @@ func readWorkflowOverlapResolutionFootprints(ctx context.Context, tx *sql.Tx, ev
 	if err != nil {
 		return workflowOverlapFootprint{}, workflowOverlapFootprint{}, err
 	}
-	// The version pin is a live-path freshness guard: mid-replay the contract
-	// projections are the log's own prefix, and supersessions still to fold
-	// can leave the active versions ambiguous. Replay resolves the Product
-	// from the item's contract bindings instead.
-	if !isWorkflowReplay(ctx) {
-		if left.ProductID == "" || right.ProductID == "" || left.ProductID != right.ProductID || left.ContractVersion != payload.FromContractVersion || right.ContractVersion != payload.ToContractVersion {
-			return workflowOverlapFootprint{}, workflowOverlapFootprint{}, overlapResolutionFailure("overlap resolution is not pinned to both current Product contract versions")
-		}
-		return left, right, nil
-	}
-	if left.ProductID == "" {
-		left.ProductID = workflowOverlapReplayProductID(ctx, tx, event.SubjectID)
-	}
-	if right.ProductID == "" {
-		right.ProductID = workflowOverlapReplayProductID(ctx, tx, payload.ToWorkID)
+	if left.ProductID == "" || right.ProductID == "" || left.ProductID != right.ProductID || left.ContractVersion != payload.FromContractVersion || right.ContractVersion != payload.ToContractVersion {
+		return workflowOverlapFootprint{}, workflowOverlapFootprint{}, overlapResolutionFailure("overlap resolution is not pinned to both current Product contract versions")
 	}
 	return left, right, nil
 }

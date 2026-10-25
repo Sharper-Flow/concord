@@ -14,7 +14,7 @@ import (
 // production: any growth in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 86143425
+const derivedRequestWireMaxBytes = 33517457
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -32,6 +32,37 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
 	if defs == nil {
 		t.Fatal("the generated payload contract carries no $defs")
+	}
+	// Keep the optional Review input's contribution visible beside the wire
+	// pin. The walker includes optional members and uses 2+6*maxLength even
+	// for hex patterns; it does not narrow objects by conditional oneOf arms.
+	// Candidate: 770+386+386 string bytes + 33 syntax bytes = 1575.
+	// Criterion: 770+428 string bytes + 35 syntax bytes = 1233;
+	// criteria: 8*1233 + 2 brackets + 7 commas = 9873.
+	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
+	// Descriptor: 1575+10373 value bytes + 36 syntax bytes = 11984.
+	// Its inputs member adds 14 key bytes, a colon, and a comma: 12000.
+	dependencies := defs["worker_packet_review_dependencies"].(map[string]any)["properties"].(map[string]any)
+	criteria := dependencies["criteria"].(map[string]any)
+	for _, row := range []struct {
+		name string
+		node any
+		want int
+	}{
+		{"candidate", defs["worker_packet_review_candidate"], 1575},
+		{"criterion", criteria["items"], 1233},
+		{"criteria", criteria, 9873},
+		{"dependencies", defs["worker_packet_review_dependencies"], 10373},
+		{"descriptor", defs["worker_packet_review_input"], 11984},
+	} {
+		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != row.want {
+			t.Fatalf("Review %s = %d bytes, want the member-derived %d", row.name, got, row.want)
+		}
+		t.Logf("Review %s = %d bytes", row.name, got)
 	}
 	input, _ := defs["work_transition_action_input"].(map[string]any)
 	anyOf, _ := input["anyOf"].([]any)
@@ -55,7 +86,7 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	// proof uses, and the union of writer-owned member bounds carries each
 	// variant's prefix, so one options set serves every variant's walk.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	packet2, packet3, packet4, packet5 := derivedPacketFigures(t, defs, findingRefMax)
+	packet := derivedPacketFigure(t, defs, findingRefMax)
 	digestWire := 2 + len("sha256:") + 64
 	commitOIDWire := 2 + 64
 	const recordJob = "work_transition_action_variant_record_worker_job"
@@ -66,19 +97,12 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		RefBounds: map[string]int{
 			"worker_acceptance_oracle":   store.OracleCombinedMaxBytes,
 			"worker_failure_observation": store.WorkerFailureAttributionMaxBlockBytes,
-			"worker_packet2":             packet2 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet3":             packet3 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet4":             packet4 + store.DispatchContextAggregateMaxBytes - 1,
-			"worker_packet5":             packet5 + store.DispatchContextAggregateMaxBytes - 1,
+			"worker_packet":              packet + store.DispatchContextAggregateMaxBytes - 1,
 		},
 		PathBounds: map[string]int{
-			recordJob + "/fields/oneOf/measurement_basis/worker_job_measurement_basis/base_commit":                                                                     commitOIDWire,
-			recordJob + "/fields/oneOf" + lawSourceHash:                                                                                                                digestWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/predecessor/digest":                                                                                     digestWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor/measurement_basis/worker_job_measurement_basis/base_commit": commitOIDWire,
-			recordJob + "/fields/oneOf/split/worker_job_split2/successors/items/worker_job_split_successor" + lawSourceHash:                                            digestWire,
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid":                  commitOIDWire,
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":                      digestWire,
+			recordJob + "/fields/oneOf" + lawSourceHash: digestWire,
+			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
+			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,
 		},
 		FindingRefMax: findingRefMax,
 	}

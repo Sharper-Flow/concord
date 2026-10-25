@@ -17,7 +17,7 @@ func testDigest(value string) string {
 }
 
 func testClaim(opID, key string) ClaimRequest {
-	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", WorkflowTypeVersion: 1, StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest}
+	return ClaimRequest{OpID: opID, WorkID: "work-1", WorkflowTypeRef: "implementation", StepID: "step-1", StepKind: StepExternalEffect, AcceptedInputsDigest: testDigest("inputs"), AcceptedScopeSnapshot: `{"work_id":"work-1"}`, PrincipalRef: "agent-1", Tool: "execute", IdempotencyKey: key, RequestID: "request-" + key, ObservedAt: time.Unix(1, 0).UTC(), ContractDigest: testManifestDigest}
 }
 
 func countRows(t *testing.T, s *Store, table string) int {
@@ -124,7 +124,7 @@ func TestFenceCommitHookRollsBackAllWrites(t *testing.T) {
 	if err == nil {
 		t.Fatal("commit hook unexpectedly succeeded")
 	}
-	if got := countRows(t, s, "domain_events"); got != 0 {
+	if got := countRows(t, s, "effect_receipts"); got != 0 {
 		t.Fatalf("events after hook rollback = %d", got)
 	}
 	if got := countRows(t, s, "products"); got != 0 {

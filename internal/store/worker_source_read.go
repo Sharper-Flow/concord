@@ -63,22 +63,24 @@ func sampleWorkerReading(ctx context.Context, q queryer, req WorkerReadingReques
 		return err
 	}
 	var packet struct {
-		LaneID      string `json:"lane_id"`
-		LaneVersion int64  `json:"lane_version"`
-		LaneDigest  string `json:"lane_digest"`
-		Inputs      struct {
+		LaneID     string `json:"lane_id"`
+		LaneDigest string `json:"lane_digest"`
+		Inputs     struct {
 			WorkContext *WorkContextView `json:"work_context"`
 		} `json:"inputs"`
 	}
 	if err := json.Unmarshal(req.Packet, &packet); err != nil {
 		return workerReadingUnauthorized()
 	}
-	lane, err := LookupLane(packet.LaneID, packet.LaneVersion, packet.LaneDigest)
-	if err != nil || !slices.Contains(lane.Capabilities, "read_repository") {
+	lane, err := LookupLane(packet.LaneID, packet.LaneDigest)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(lane.Capabilities, "read_repository") {
 		return workerReadingUnauthorized()
 	}
 	var active bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND attempt_id=? AND lane_id=? AND lane_version=? AND lane_digest=? AND capability_class=? AND lifecycle_state IN ('in_flight','dispatched'))`, req.WorkID, req.AttemptID, packet.LaneID, packet.LaneVersion, packet.LaneDigest, lane.CapabilityClass).Scan(&active); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts WHERE work_id=? AND attempt_id=? AND lane_id=? AND lane_digest=? AND capability_class=? AND lifecycle_state IN ('in_flight','dispatched'))`, req.WorkID, req.AttemptID, packet.LaneID, packet.LaneDigest, lane.CapabilityClass).Scan(&active); err != nil {
 		return wrapFailure(KindUnavailable, workerReadingOp, "cannot read worker attempt liveness", true, "retry once the store is readable", err)
 	}
 	if !active {

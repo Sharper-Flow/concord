@@ -40,7 +40,7 @@ const (
 // prefixes, so an owner, case, or control identity stays stable within one
 // work item and can never collide with a predicate or job identity.
 var (
-	oracleOwnerIDPattern   = regexp.MustCompile(`^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
+	oracleOwnerIDPattern   = regexp.MustCompile(`^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,121}$`)
 	oracleCaseIDPattern    = regexp.MustCompile(`^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
 	oracleControlIDPattern = regexp.MustCompile(`^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$`)
 )
@@ -772,18 +772,12 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 	return nil
 }
 
-// readWorkerJobOraclesTx is the one tx-scoped reader of recorded oracles:
-// it scans the work item's worker.job_recorded events once, in log order,
-// and maps each recorded revision binding onto the oracle its event
-// retained (nil when the revision predates the oracle). The recorded digest
-// travels with the event, so the map's keys carry the digest the recording
-// derived. The read uses the queryer already in hand — never a *Store reach
-// through the pool inside a transaction — and issues no nested query while
-// rows are open.
+// readWorkerJobOraclesTx maps current revision bindings to their retained
+// oracles (nil when absent), without nested queries while rows are open.
 func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[WorkerJobBinding]*AcceptanceOracle, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.job_id'), json_extract(payload,'$.revision'), json_extract(payload,'$.digest'), json_extract(payload,'$.acceptance_oracle') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=?`, string(SubjectWorkItem), workID, WorkerJobRecorded)
+	rows, err := q.QueryContext(ctx, `SELECT job_id,revision,digest,json_extract(recorded_payload,'$.acceptance_oracle') FROM worker_job_revisions WHERE work_id=? AND recorded_payload IS NOT NULL`, workID)
 	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot read recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 	}
 	oracles := map[WorkerJobBinding]*AcceptanceOracle{}
 	for rows.Next() {
@@ -792,7 +786,7 @@ func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[
 		var rawOracle sql.NullString
 		if err := rows.Scan(&jobID, &revision, &digest, &rawOracle); err != nil {
 			_ = rows.Close()
-			return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the event log is readable", err)
+			return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 		}
 		binding := WorkerJobBinding{JobID: jobID, Revision: revision, Digest: digest}
 		if !rawOracle.Valid || rawOracle.String == "null" || strings.TrimSpace(rawOracle.String) == "" {
@@ -802,16 +796,16 @@ func readWorkerJobOraclesTx(ctx context.Context, q queryer, workID string) (map[
 		oracle, decodeErr := decodeAcceptanceOracle(json.RawMessage(rawOracle.String))
 		if decodeErr != nil {
 			_ = rows.Close()
-			return nil, newFailure(KindInvariantViolation, "worker_oracle", "a recorded worker-job revision carries an acceptance oracle that is not one closed object", false, "rebuild the worker-job events from the authoritative log")
+			return nil, newFailure(KindInvariantViolation, "worker_oracle", "a recorded worker-job revision carries an acceptance oracle that is not one closed object", false, "reconcile the invalid retained worker-job descriptor before retrying")
 		}
 		oracles[binding] = oracle
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot scan recorded acceptance oracles", true, "retry once the worker-job descriptors are readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot close the recorded acceptance oracle read", true, "retry once the event log is readable", err)
+		return nil, wrapFailure(KindUnavailable, "worker_oracle", "cannot close the recorded acceptance oracle read", true, "retry once the worker-job descriptors are readable", err)
 	}
 	return oracles, nil
 }

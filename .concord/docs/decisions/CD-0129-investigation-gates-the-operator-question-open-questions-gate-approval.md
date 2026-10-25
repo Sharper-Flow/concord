@@ -9,22 +9,15 @@
   work-ef019d2c52d7241977e90ef1 on 2026-09-09, and chose the operator
   question as the obligated surface.
 - **Related:** CD-0030, CD-0113, CD-0117, and issues #903, #1010
-- **Amends:** Nothing. This record adds the obligation the earlier
-  investigation contract omitted.
 - **Preserves:** Contract authority, architecture binding at approval,
-  event history, evidence provenance, and released definition pins
+  evidence provenance, and the recorded facts the store keeps
+  ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
 
 ## Context
 
-A coordinator could spend an operator decision on a question its own
-investigation should have settled. No workflow surface obligated that
-investigation. The first attempt at this law gated `approve_contract` on a
-recorded investigation artifact, and its ref grammar matched nothing in the
-Product: it demanded refs prefixed `domain:` while Domain registry ids are
-bare, and it demanded the item's own work id while the observation query is
-already keyed by it (issue #1010). Architecture was already mandatory at
-approval for Product-changing work, so a second approval gate refused every
-contract in the Product without adding an investigation.
+A coordinator can spend an operator decision on a question its own
+investigation should settle. An operator question must not spend a decision
+on an investigation the agent can settle.
 
 ## Decision
 

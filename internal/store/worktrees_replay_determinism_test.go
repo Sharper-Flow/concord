@@ -8,16 +8,6 @@ import (
 	"testing"
 )
 
-// CD-0212 D4 replay-determinism coverage.
-// The durable per-ref outcome rows are fold projections of the settlement
-// event log: a live settlement may never mutate a row's phase, tip, reason,
-// or recorded time under an old historical event, because RebuildFromLog
-// replays only the events. A transition the current durable row admits is
-// appended as a fresh chronological settlement event — its identity derived
-// from the durable predecessor and the per-ref event sequence — while an
-// equivalent same-phase settlement converges with no new event and no
-// mutation at all. Every case runs against real git.
-
 // con829RefOutcomeRow is one durable per-ref outcome row snapshot.
 type con829RefOutcomeRow struct {
 	phase  string
@@ -26,7 +16,7 @@ type con829RefOutcomeRow struct {
 }
 
 // refOutcomeSnapshot reads every durable per-ref outcome row the store
-// holds, keyed by branch, so a rebuild comparison sees the whole table.
+// holds, keyed by branch.
 func refOutcomeSnapshot(t *testing.T, f *con829Fixture) map[string]con829RefOutcomeRow {
 	t.Helper()
 	rows, err := f.s.db.Query(`SELECT branch,phase,tip,reason FROM worktree_ref_outcomes ORDER BY branch`)
@@ -49,41 +39,7 @@ func refOutcomeSnapshot(t *testing.T, f *con829Fixture) map[string]con829RefOutc
 	return out
 }
 
-// assertRefOutcomesRebuiltFromLog rebuilds every projection from the event
-// log alone and requires the per-ref outcome rows to survive byte for byte:
-// same phases, same pinned tips, same recorded reasons.
-func assertRefOutcomesRebuiltFromLog(t *testing.T, f *con829Fixture, before map[string]con829RefOutcomeRow, branch, wantPhase string) {
-	t.Helper()
-	if err := RebuildFromLog(context.Background(), f.s); err != nil {
-		t.Fatalf("the settlement log must rebuild deterministically, got %v", err)
-	}
-	after := refOutcomeSnapshot(t, f)
-	if len(after) != len(before) {
-		t.Fatalf("rebuild changed the row set: before %+v after %+v", before, after)
-	}
-	for branchName, want := range before {
-		got, ok := after[branchName]
-		if !ok {
-			t.Fatalf("rebuild lost the outcome row for %s", branchName)
-		}
-		if got != want {
-			t.Fatalf("rebuild diverged for %s: before %+v after %+v", branchName, want, got)
-		}
-	}
-	if phase, _ := f.refOutcomeKind(t, branch); phase != wantPhase {
-		t.Fatalf("phase after rebuild=%s, want %s", phase, wantPhase)
-	}
-}
-
-// TestReclaimRefOutcomeRowsSurviveLogRebuild drives the restored-replay
-// fixture through a full second cycle: the first attempt restores the raced
-// ref (checkout_proven_absent, deleted, restoration_owed, restored events),
-// the healthy replay re-authorizes and converges to settled. Every phase
-// move of that second cycle must be a fresh chronological settlement event,
-// so rebuilding the projections from the log alone reproduces the exact
-// durable rows — phase, tip, and reason — instead of refusing on an event
-// order the live row never followed.
-func TestReclaimRefOutcomeRowsSurviveLogRebuild(t *testing.T) {
+func TestReclaimRefOutcomeSettlesAfterRestoration(t *testing.T) {
 	f := con829FixtureNew(t)
 	workID := "work-rebuild-settled"
 	_, branch := f.claimWork(workID)
@@ -107,17 +63,15 @@ func TestReclaimRefOutcomeRowsSurviveLogRebuild(t *testing.T) {
 	}
 	before := refOutcomeSnapshot(t, f)
 	if row, ok := before[branch]; !ok || row.phase != WorktreeRefPhaseSettled || row.tip != pinned || row.reason == "" {
-		t.Fatalf("live row before rebuild: %+v", before)
+		t.Fatalf("settled row: %+v", before)
 	}
-	assertRefOutcomesRebuiltFromLog(t, f, before, branch, WorktreeRefPhaseSettled)
 }
 
 // TestReclaimThreeRestorationCyclesLogEveryTransition pins the settlement
 // identity owner across repeated restoration/deletion cycles whose failed
 // observation reasons change: every cycle's transitions are fresh
 // chronological settlement events — the per-ref event count rises by exactly
-// the transitions each cycle records — and the event log alone rebuilds the
-// exact final phase, tip, and reason. A sequence derived from a prefix that
+// the transitions each cycle records. A sequence derived from a prefix that
 // matches no stored event leaves later cycles appending nothing.
 func TestReclaimThreeRestorationCyclesLogEveryTransition(t *testing.T) {
 	f := con829FixtureNew(t)
@@ -130,7 +84,7 @@ func TestReclaimThreeRestorationCyclesLogEveryTransition(t *testing.T) {
 	settlementCount := func() int {
 		t.Helper()
 		var count int
-		if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM domain_events WHERE kind='work.worktree_removal_settled' AND subject_id=?`, workID).Scan(&count); err != nil {
+		if err := f.s.db.QueryRow(`SELECT COUNT(*) FROM effect_receipts WHERE kind='work.worktree_removal_settled' AND subject_id=?`, workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -205,19 +159,11 @@ func TestReclaimThreeRestorationCyclesLogEveryTransition(t *testing.T) {
 
 	before := refOutcomeSnapshot(t, f)
 	if row, ok := before[branch]; !ok || row.phase != WorktreeRefPhaseSettled || row.tip != pinned {
-		t.Fatalf("live row before rebuild: %+v", before)
+		t.Fatalf("settled row: %+v", before)
 	}
-	assertRefOutcomesRebuiltFromLog(t, f, before, branch, WorktreeRefPhaseSettled)
 }
 
-// TestReclaimInterruptedRestorationDebtSurvivesLogRebuild pins the
-// interrupted repeat restoration cycle: after a first attempt restored the
-// raced ref, a second attempt deletes it and loses its post-deletion
-// observation, so the durable row must hold restoration_owed while the ref
-// is missing. That debt is a logged transition, not a mutation under the
-// first attempt's events: the log rebuild retains it, and a healthy replay
-// afterwards still resolves it by restoring the ref a checkout names.
-func TestReclaimInterruptedRestorationDebtSurvivesLogRebuild(t *testing.T) {
+func TestReclaimInterruptedRestorationDebtResolvesAtPinnedTip(t *testing.T) {
 	f := con829FixtureNew(t)
 	workID := "work-rebuild-debt"
 	_, branch := f.claimWork(workID)
@@ -231,8 +177,7 @@ func TestReclaimInterruptedRestorationDebtSurvivesLogRebuild(t *testing.T) {
 	}
 	f.git(other, "checkout", "-q", "--detach")
 	// The repeat cycle deletes the ref and loses the post-deletion
-	// observation: the run must leave durable restoration debt the event
-	// log alone can rebuild.
+	// observation: the run must leave durable restoration debt.
 	req := f.reclaimRequest(workID, "rebuild-debt-repeat")
 	req.Runner = &con829NativePhaseRunner{failInventory: "after"}
 	if _, err := f.s.ReclaimWorktree(context.Background(), req); err == nil {
@@ -244,19 +189,17 @@ func TestReclaimInterruptedRestorationDebtSurvivesLogRebuild(t *testing.T) {
 	if phase, _ := f.refOutcomeKind(t, branch); phase != WorktreeRefPhaseRestorationOwed {
 		t.Fatalf("the repeat cycle must leave restoration debt, got %s", phase)
 	}
-	before := refOutcomeSnapshot(t, f)
-	assertRefOutcomesRebuiltFromLog(t, f, before, branch, WorktreeRefPhaseRestorationOwed)
-	// The rebuilt debt is live: a checkout that names the missing branch
+	// A checkout that names the missing branch
 	// still gets its restoration at the immutable pinned tip, reported as
 	// the restored protection beside the converged removal.
 	f.git(other, "symbolic-ref", "HEAD", "refs/heads/"+branch)
 	_, resolveErr := f.s.ReclaimWorktree(context.Background(), f.reclaimRequest(workID, "rebuild-debt-resolve"))
 	var failure *Failure
 	if !errors.As(resolveErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "restored at its pinned tip") {
-		t.Fatalf("the healthy replay must resolve the rebuilt debt and report the restored protection, got %v", resolveErr)
+		t.Fatalf("the retry must resolve the debt and report the restored protection, got %v", resolveErr)
 	}
 	if !f.refExists(branch) || f.refTip(branch) != pinned {
-		t.Fatalf("the rebuilt debt must restore the ref at the pinned tip %s", pinned)
+		t.Fatalf("the debt must restore the ref at the pinned tip %s", pinned)
 	}
 	if phase, _ := f.refOutcomeKind(t, branch); phase != WorktreeRefPhaseRestored {
 		t.Fatalf("the resolved debt must settle as restored, got %s", phase)

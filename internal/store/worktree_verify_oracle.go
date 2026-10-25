@@ -132,6 +132,7 @@ type nativeOraclePlan struct {
 	Stages           []NativeOracleStage       `json:"stages"`
 	StreamLimit      int                       `json:"stream_limit"`
 	CachePolicy      string                    `json:"cache_policy"`
+	ReviewRepair     *nativeReviewRepair       `json:"review_repair,omitempty"`
 }
 
 // nativePlanEnvironment returns the family-owned environment identity the
@@ -284,7 +285,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 		return refuse()
 	}
 	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, req.WorkID, WorkflowActionStarted, dispatch.StepID, auth.Seq).Scan(&auth.StartSeq, &epoch)
+	err = q.QueryRowContext(ctx, `SELECT start_seq,json_extract(start_payload,'$.attempt_epoch') FROM worker_authorizations WHERE work_id=? AND attempt_id=? AND start_seq>0 AND start_seq<seq AND json_extract(start_payload,'$.action_id')='dispatch_worker' AND json_extract(start_payload,'$.step_id')=?`, req.WorkID, o.AttemptID, dispatch.StepID).Scan(&auth.StartSeq, &epoch)
 	if err == sql.ErrNoRows {
 		return refuse()
 	}
@@ -295,7 +296,7 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 		return refuse()
 	}
 	var jobRaw []byte
-	err = q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=? ORDER BY seq DESC LIMIT 1`, req.WorkID, WorkerJobRecorded, auth.Seq, o.WorkerJobBinding.JobID, o.WorkerJobBinding.Revision, o.WorkerJobBinding.Digest).Scan(&jobRaw)
+	err = q.QueryRowContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=? AND recorded_seq>0 AND recorded_seq<? AND job_id=? AND revision=? AND digest=?`, req.WorkID, auth.Seq, o.WorkerJobBinding.JobID, o.WorkerJobBinding.Revision, o.WorkerJobBinding.Digest).Scan(&jobRaw)
 	if err == sql.ErrNoRows {
 		return refuse()
 	}
@@ -313,20 +314,17 @@ func readNativeOracleDispatchBundleTx(ctx context.Context, q queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if dispatch.WorkerSubjectCommit != observedHead {
+	if dispatch.WorkerSubjectCommit != observedHead && !workerLaneRepairs(dispatch.WorkerLaneID, dispatch.WorkerLaneDigest) {
 		return b, version, auth, nativeOracleSubjectMoved(dispatch.WorkerSubjectCommit, observedHead)
 	}
 	return b, job.ContractVersion, auth, nil
 }
 
-// nativeOracleSubjectMoved refuses a genuine attempt binding whose dispatch
-// subject is not HEAD (CD-0067 D2). An editing attempt cannot grade its own
-// later commit; a fresh dispatch on that commit can. It is the only route
-// failure the dispatch join returns, and it is admitted only after the
-// control and preparation joins also pass.
+// A non-repairing assignment keeps its exact input subject. A repairing pass
+// has its own producer-observed ancestry and containment admission.
 func nativeOracleSubjectMoved(subject, head string) error {
 	return newRouteFailure(KindUnauthorizedDispatch, "worker_oracle",
-		"native oracle execution grades only this attempt's dispatch subject "+subject+", and HEAD is "+head+"; no attempt grades a later commit, including its own edit. After this attempt ends, pin the clean HEAD with a worktree_verify command, prepare that subject, record a ready job revision with the new preparation, dispatch an evaluator lane, and execute under its attempt",
+		"native oracle execution requires this assignment's subject "+subject+", and HEAD is "+head+"; restore the assigned candidate or finish this attempt and authorize a scoped repairing Review on the clean candidate",
 		false, "worktree_verify", "record_worker_job", "dispatch_worker")
 }
 
@@ -342,9 +340,9 @@ func readNativeOracleDispatchBindingTx(ctx context.Context, q queryer, workID, a
 	var dispatch workflowActionCompletedPayload
 	var auth nativeOracleAuthorization
 	var payload []byte
-	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM domain_events d JOIN worker_attempts a ON a.work_id=d.subject_id AND a.attempt_id=json_extract(d.payload,'$.worker_attempt_id')
- AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_version=json_extract(d.payload,'$.worker_lane_version') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
- WHERE d.subject_type='work_item' AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? AND a.lifecycle_state IN ('in_flight','dispatched') ORDER BY d.seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
+	err := q.QueryRowContext(ctx, `SELECT d.event_id,d.seq,d.payload FROM worker_authorizations d JOIN worker_attempts a ON a.work_id=d.work_id AND a.attempt_id=d.attempt_id
+ AND a.lane_id=json_extract(d.payload,'$.worker_lane_id') AND a.lane_digest=json_extract(d.payload,'$.worker_lane_digest') AND a.capability_class=json_extract(d.payload,'$.worker_capability_class')
+	 WHERE d.work_id=? AND d.attempt_id=? AND a.lifecycle_state IN ('in_flight','dispatched')`, workID, attemptID).Scan(&auth.EventID, &auth.Seq, &payload)
 	if err == sql.ErrNoRows || err == nil && json.Unmarshal(payload, &dispatch) != nil {
 		return dispatch, auth, oracleFailure(KindUnauthorizedDispatch, "native oracle execution lacks the exact live dispatch and candidate binding", "authorize a fresh exact job/packet/candidate before execution")
 	}
@@ -376,17 +374,33 @@ func readNativeOracleAuthorizationTx(ctx context.Context, tx queryer, req Worktr
 	if err != nil {
 		return b, version, auth, err
 	}
-	if core == "" || core != observed.head {
+	repair := nativeReviewRepairFrom(ctx)
+	preparationSubject := observed.head
+	if repair != nil {
+		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, tx, req.WorkID, req.Oracle.AttemptID)
+		if err != nil {
+			return b, version, auth, err
+		}
+		if repair.Commit != observed.head || validateNativeReviewRepairTx(ctx, tx, req.WorkID, dispatch, repair) != nil {
+			return refuse()
+		}
+		preparationSubject = repair.Base
+	}
+	if core == "" || (core != observed.head && (repair == nil || core != repair.Base)) {
 		return refuse()
 	}
-	if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+	if repair == nil {
+		if err := requireWorkerJobRevisionReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
+			return b, version, auth, err
+		}
+	} else if err := requireWorkerJobRevisionStateReadyTx(ctx, tx, req.WorkID, *req.Oracle.WorkerJobBinding); err != nil {
 		return b, version, auth, err
 	}
 	preparation, err := readOraclePreparationReceiptTx(ctx, tx, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
 	if err != nil {
 		return b, version, auth, err
 	}
-	if preparation == nil || preparation.ContractVersion != version || preparation.SubjectCommit != observed.head || preparation.SubjectCommit != core || preparation.BundleDigest != nativeBundleDigest(b) {
+	if preparation == nil || preparation.ContractVersion != version || preparation.SubjectCommit != preparationSubject || preparation.BundleDigest != nativeBundleDigest(b) {
 		return refuse()
 	}
 	return b, version, auth, nil
@@ -583,7 +597,7 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 		return b, version, auth, err
 	}
 	defer tx.Rollback()
-	live, err := activeWorktreeEntryForProject(ctx, tx, "worktree_verify", req.WorkID, req.ProjectID)
+	live, err := worktreeVerifyEntry(ctx, tx, req)
 	if err != nil {
 		return b, version, auth, err
 	}
@@ -737,7 +751,7 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	entry, err := activeWorktreeEntryForProject(ctx, s.db, "worktree_verify", req.WorkID, req.ProjectID)
+	entry, err := worktreeVerifyEntry(ctx, s.db, req)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
@@ -757,10 +771,31 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	var repair *nativeReviewRepair
+	if req.Oracle.Phase == "execute" {
+		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, s.db, req.WorkID, req.Oracle.AttemptID)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		// The SQL sample is closed before Git; no queryer enters the probe.
+		repair, err = observeNativeReviewRepair(ctx, runner, dispatch, entry, before)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
+		}
+		if repair != nil {
+			if err := validateNativeReviewRepairTx(ctx, s.db, req.WorkID, dispatch, repair); err != nil {
+				return WorktreeVerifyResult{}, err
+			}
+		}
+	}
+	if repair != nil {
+		ctx = context.WithValue(ctx, nativeReviewRepairKey{}, repair)
+	}
 	plan, err := normalizeNativeOraclePlan(ctx, runner, entry, req, bundle, version, before.head, identity, auth)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	plan.ReviewRepair = repair
 	if req.Oracle.Phase == "execute" {
 		prep, err := readOraclePreparationReceiptTx(ctx, s.db, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
 		if err != nil {
@@ -925,17 +960,17 @@ func readNativeOracleReleaseStamp(ctx context.Context, q queryer, req WorktreeVe
 		job = *req.Oracle.WorkerJobBinding
 	}
 	err := q.QueryRowContext(ctx, `SELECT
-		coalesce((SELECT max(seq) FROM domain_events WHERE subject_type='work_item' AND subject_id=?),0),
+		coalesce((SELECT effect_seq FROM work_items WHERE id=?),0),
 		coalesce((`+oracleCurrentVerifyReceiptSQL+`),''),
-		coalesce((SELECT json_array(lane_id,lane_version,lane_digest,capability_class,lifecycle_state)
+		coalesce((SELECT json_array(lane_id,lane_digest,capability_class,lifecycle_state)
 			FROM worker_attempts WHERE work_id=? AND attempt_id=?),''),
 		(SELECT json_group_array(json_array(lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,stdout_length,stderr_length))
 		 FROM (SELECT lease_id,state,outcome,result_json,native_plan_json,native_plan_sha256,length(stdout_blob) stdout_length,length(stderr_blob) stderr_length
 			FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND json_extract(result_json,'$.operation_ref') IN
-			(SELECT refs.value FROM domain_events j,json_each(j.payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
-			 WHERE j.subject_type='work_item' AND j.subject_id=? AND j.kind=? AND json_extract(j.payload,'$.job_id')=? AND json_extract(j.payload,'$.revision')=? AND json_extract(j.payload,'$.digest')=?)
+			(SELECT refs.value FROM worker_job_revisions j,json_each(j.recorded_payload,'$.acceptance_oracle.controls') controls,json_each(controls.value,'$.readiness_evidence_refs') refs
+			 WHERE j.work_id=? AND j.job_id=? AND j.revision=? AND j.digest=? AND j.recorded_payload IS NOT NULL)
 			ORDER BY lease_id))`, req.WorkID, req.WorkID, WorktreeSetID(req.WorkID), req.WorkID, req.Oracle.AttemptID,
-		req.WorkID, req.ProjectID, req.WorkID, WorkerJobRecorded, job.JobID, job.Revision, job.Digest).
+		req.WorkID, req.ProjectID, req.WorkID, job.JobID, job.Revision, job.Digest).
 		Scan(&stamp.Frontier, &stamp.CoreReceipt, &stamp.Attempt, &stamp.Preparations)
 	return stamp, err
 }
@@ -966,7 +1001,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 		return result, err
 	}
 	defer tx.Rollback()
-	live, scopeErr := activeWorktreeEntryForProject(ctx, tx, "worktree_verify", req.WorkID, req.ProjectID)
+	live, scopeErr := worktreeVerifyEntry(ctx, tx, req)
 	current, err := readNativeOracleReleaseStamp(ctx, tx, req)
 	if err != nil {
 		return result, err

@@ -2,7 +2,6 @@
 """Negative tests for the native-run status closure checker."""
 from __future__ import annotations
 
-import copy
 import importlib.util
 import shutil
 import tempfile
@@ -19,16 +18,6 @@ SPEC.loader.exec_module(checker)
 
 
 class NativeRunStatusesFixture(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        # Acquire the real compiled projection once: the loader's default
-        # path is the real projection command against this checkout, and
-        # every fixture below isolates a deep copy of that result.
-        findings: list[str] = []
-        cls.native_statuses = checker.load_native_statuses(REPO_ROOT, findings)
-        if cls.native_statuses is None:
-            raise AssertionError(f"the real compiled projection did not load: {findings}")
-
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory(prefix="native-run-statuses-")
         self.root = Path(self.tempdir.name)
@@ -49,18 +38,8 @@ class NativeRunStatusesFixture(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def mocked_loader(self, statuses: list[str]):
-        def loader(root: Path, findings: list[str]) -> list[str]:
-            return copy.deepcopy(statuses)
-        return loader
-
-    def findings(self, statuses: list[str] | None = None, loader=None) -> list[str]:
-        if loader is None:
-            loader = self.mocked_loader(self.native_statuses if statuses is None else statuses)
-        return checker.check(self.root, load_statuses=loader)
-
-    def without(self, status: str) -> list[str]:
-        return [item for item in self.native_statuses if item != status]
+    def findings(self) -> list[str]:
+        return checker.check(self.root)
 
     def test_clean_fixture_passes(self) -> None:
         self.assertEqual(self.findings(), [])
@@ -85,37 +64,6 @@ class NativeRunStatusesFixture(unittest.TestCase):
                 text = before + replacement + sql + "`" + after
                 source.write_text(text, encoding="utf-8")
                 self.assertEqual(self.findings(), [])
-
-    def drift_finding(self, findings: list[str]) -> str:
-        drift = [item for item in findings if item.startswith("status-union-closure:")]
-        self.assertEqual(len(drift), 1, findings)
-        expected_part, got_part = drift[0].split(", got ")
-        return expected_part + "|" + got_part
-
-    def test_missing_status_union_drift_is_reported(self) -> None:
-        expected_part, got_part = self.drift_finding(self.findings(self.without("degraded"))).split("|")
-        self.assertIn("'degraded'", expected_part)
-        self.assertNotIn("'degraded'", got_part)
-
-    def test_extra_status_union_drift_is_reported(self) -> None:
-        expected_part, got_part = self.drift_finding(self.findings(self.native_statuses + ["reinvented_status"])).split("|")
-        self.assertNotIn("'reinvented_status'", expected_part)
-        self.assertIn("'reinvented_status'", got_part)
-
-    def test_unavailable_projection_reports_without_a_closure_claim(self) -> None:
-        def unavailable(root: Path, findings: list[str]) -> None:
-            findings.append("native-status-projection: simulated unavailable projection")
-            return None
-        findings = self.findings(loader=unavailable)
-        self.assertEqual(findings, ["native-status-projection: simulated unavailable projection"])
-
-    def test_real_loader_reports_projection_failure(self) -> None:
-        # The fixture root carries no Go module, so the real loader must
-        # fail closed with a finding instead of raising or returning [].
-        findings: list[str] = []
-        self.assertIsNone(checker.load_native_statuses(self.root, findings))
-        self.assertEqual(len(findings), 1)
-        self.assertTrue(findings[0].startswith("native-status-projection:"))
 
     def test_migration_row_drift_is_reported(self) -> None:
         source = self.root / "internal/store/schema.go"

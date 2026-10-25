@@ -5,7 +5,6 @@
 - **Scope:** Worktree claim identity and active claim uniqueness
 - **Approval:** The operator approved this law in the existing-work bootstrap plan.
 - **Related:** CD-0008, CD-0119
-- **Amends:** CD-0119 D2 at the existing-item bootstrap claim route
 
 ## Context
 
@@ -21,6 +20,11 @@ validated caller input instead of making divergent identity unrepresentable.
 work identity. The branch is `work/<work_id>`. The path is
 `<data-root>/worktrees/<project_id>/<work_id>`. The claim request carries no
 caller-supplied branch or path.
+
+A member claim under CD-0242 D5 derives its branch as `work/<work_id>--<member_id>` and its path as
+`<data-root>/worktrees/<project_id>/<work_id>--<member_id>`, where the core derives `<member_id>` from the
+recorded group member. The integration claim keeps the branch and path above. The claim request still
+carries no caller-supplied branch, path, or member identity.
 
 ### D2. Active native identity is unique
 

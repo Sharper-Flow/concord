@@ -41,7 +41,6 @@ type manifestFixture struct {
 	Summary           string
 	Tags              []string
 	Scopes            KnowledgeRecordScopes
-	Successor         string
 	Evidence          []string
 	Content           string
 	CriterionBindings []KnowledgeCriterionBinding
@@ -96,7 +95,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,
 			Date: fixture.Date, Title: fixture.Title, Summary: fixture.Summary, Tags: append([]string{}, fixture.Tags...),
 			Authority: authority,
-			Scopes:    scopes, Successor: fixture.Successor, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
+			Scopes:    scopes, Evidence: append([]string{}, fixture.Evidence...), SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 			CriterionBindings: append([]KnowledgeCriterionBinding{}, fixture.CriterionBindings...),
 		}
 		if manifestLawBearingKinds[record.Kind] && record.Status == "accepted" && record.HomeDomainID == "" {
@@ -161,12 +160,12 @@ func manifestFixtureFromFile(t *testing.T, repo string, id, kind, path, status, 
 
 func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, home.HomeProjectID, home.HomeProjectID); err != nil {
@@ -187,12 +186,12 @@ func authorizeKnowledgeLocator(t *testing.T, s *Store, home KnowledgeHome) {
 func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, home KnowledgeHome, membershipProjects ...string) {
 	t.Helper()
 	authorizeKnowledgeLocator(t, s, home)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {
@@ -201,11 +200,11 @@ func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, hom
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?, ?, ?)`, productID, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	for _, projectID := range membershipProjects {
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO projects(id,display_name,version,created_at,updated_at) VALUES(?, ?, 1, 'now', 'now')`, projectID, projectID); err != nil {
@@ -214,7 +213,7 @@ func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, hom
 		if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO product_projects(product_id,project_id,role) VALUES(?, ?, 'secondary')`, productID, projectID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -223,12 +222,12 @@ func authorizeKnowledgeProductHome(t *testing.T, s *Store, productID string, hom
 func authorizeKnowledgeProductMembership(t *testing.T, s *Store, productID, projectID string) {
 	t.Helper()
 	authorizeKnowledgeLocator(t, s, KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: "membership-" + projectID, RepoPath: t.TempDir()})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES(?, ?, 'prototype', 'operator_only', 1, 'now', 'now')`, productID, productID); err != nil {

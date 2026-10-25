@@ -160,6 +160,31 @@ expect_evaluate(
     breaking=[109],
 )
 
+expect_evaluate(
+    "advance table declared breaking passes",
+    check.migrations(
+        fold_source(entry(109, "CREATE TABLE receipts (id TEXT PRIMARY KEY);", fold="advance", breaking=True))
+    ),
+    failures=0,
+    breaking=[109],
+)
+expect_evaluate(
+    "advance table without Breaking fails",
+    check.migrations(
+        fold_source(entry(109, "CREATE TABLE receipts (id TEXT PRIMARY KEY);", fold="advance"))
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "origin declaration on a new table is refused",
+    check.migrations(
+        fold_source(entry(109, "CREATE TABLE receipts (id TEXT PRIMARY KEY);", fold="origin"))
+    ),
+    failures=1,
+    breaking=[],
+)
+
 # Rule (c): a declaration without the SQL shape it describes is refused.
 expect_evaluate(
     "declaration on a migration that adds no column",
@@ -4607,10 +4632,21 @@ finally:
     connection.close()
 
 
-# The overlap routine-resolution CHECK rebuild (134) sets the live
-# compatibility floor. Remote locator identity v2 (128), the worker-attempt
-# CHECK rebuild (126), and native lease plan-pair triggers (125) also
-# constrain older binaries. The
+# Member-scoped claims and sole group admission ownership (155) set the live
+# compatibility floor; current writers no longer use the dropped job columns.
+# Native claim generations (154) also require current writers.
+# Terminal execution cleanup (153) also requires current writers.
+# Workflow content identity (152) also requires current writers.
+# Q7 current-state metadata (150) also requires current writers.
+# Admission facts (149), effect sequences and version-action retention (146),
+# per-effect receipt and observation tables (145), and
+# session relocation facts (141) also require current writers.
+# The worker current-facts columns (139), which the store advances as later
+# writes apply, also constrain older binaries. The work-size retirement
+# (136) and the overlap routine-resolution CHECK rebuild (134) also
+# constrain older binaries. Remote locator identity v2
+# (128), the worker-attempt CHECK rebuild (126), and native lease plan-pair
+# triggers (125) also constrain older binaries. The
 # planning retirement (124) also constrains older binaries. The
 # research retirement delete guard (123) constrains older binaries' writes
 # to active_research_packs. Initiative maintenance triggers (120) and the
@@ -4621,7 +4657,7 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")

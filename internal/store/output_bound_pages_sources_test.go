@@ -847,7 +847,7 @@ func pkOutsideRepairURLBound(which string) outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		const (
 			file         = "internal/store/outside_repair.go"
-			validator    = "validateOutsideRepairEvidenceShapeWithReference"
+			validator    = "validateOutsideRepairEvidenceShape"
 			schemeHost   = int64(8 + 10) // "https://" + "github.com", enforced by the live equality literals
 			pathSlash    = int64(1)      // the "/" separator in the live path join
 			int64Digits  = int64(19)     // a positive int64 renders in at most 19 decimal digits
@@ -1142,18 +1142,18 @@ func init() {
 
 	registerOutputBound("/$defs/outside_repair_evidence/properties/observed_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "ObservedAt"))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/published_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairEvidence", "PublishedAt"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "len(e.PullRequests)", boundItems))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/pull_requests/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(e.PullRequests)", boundItems))
 	registerOutputBound("/$defs/outside_repair_evidence/properties/release_url/maxLength", pkOutsideRepairURLBound("release"))
-	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "e.Repository", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_evidence/properties/repository/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.Repository", 1, boundBytes))
 
 	registerOutputBound("/$defs/outside_repair_git_sha/maxLength", pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"))
 
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairPullRequestEvidence", "MergedAt"))
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "len(pr.RequiredChecks)", boundItems))
+	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(pr.RequiredChecks)", boundItems))
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/url/maxLength", pkOutsideRepairURLBound("pull"))
 
-	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "e.ReleaseTag", 1, boundBytes))
-	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShapeWithReference", "workflowString", "check.URL", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.ReleaseTag", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "check.URL", 1, boundBytes))
 
 	registerOutputBound("/$defs/product_context/properties/candidates/maxItems", maxBound(
 		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems),
@@ -1221,18 +1221,17 @@ func init() {
 	))
 	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"))
 
-	// The timeline fold copies the payload's evidence_refs verbatim and no
-	// store fold guards the count; the workflow action input admission bounds
-	// the agent surface only, and the correction paths append input unions.
-	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/evidence/maxItems", unboundedOutput("internal/store/query.go:decodeTimelineEvent copies the payload evidence_refs verbatim and no store fold guards the count; the correction record path appends field unions (internal/store/workflow_correction.go), so the stored evidence list is byte-ceiling only", "internal/agent/runtime.go:readSizeRefusal"))
-	// decodeTimelineEvent refuses a conflict application that fails the frozen
-	// v1 validator, so its byte guards bound the history output.
-	for _, unit := range []string{"maxLength", "x-maxBytes"} {
-		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/outcome/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.Outcome)", boundBytes))
-		registerOutputBound("/$defs/work_event_page/properties/events/items/properties/conflict_application/properties/settlement_ref/"+unit, goInlineBound("internal/store/conflict_application.go", "validateWorkConflictAppliedPayload", "len(p.SettlementRef)", boundBytes))
-	}
-	registerOutputBound("/$defs/work_event_page/properties/events/items/properties/occurred_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_event_page/properties/events/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
+	// CD-0242 D2 retires the event trace and frozen conflict payload. Current
+	// transition refs and proof observations keep their producer's actual bounds.
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/evidence_refs/maxItems", unboundedOutput("internal/store/lifecycle.go:updateWorkLifecycle preserves transition evidence_refs without a count guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/immutable_subject_ref/maxLength", goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_id/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerID", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_run_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerRunRef", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_watermark/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerWatermark", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/created_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "insertRelation", "time.RFC3339Nano"))
+	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
 	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/body/maxLength", goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes))
 	registerOutputBound("/$defs/work_messages_page/properties/messages/items/properties/message_id/maxLength", goPatternBound("internal/store/work_messages.go", "messageIDPattern"))
@@ -1275,7 +1274,9 @@ func init() {
 
 	registerOutputBound("/$defs/work_scope/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/work_scope/properties/memberships/maxItems", unboundedOutput("internal/store/query.go:readWorkProjects reads every work_projects row with no LIMIT and the membership folds enforce only unique edges and a single primary, never a per-work count", "internal/agent/runtime.go:readSizeRefusal"))
-	registerOutputBound("/$defs/work_scope/properties/verdict/properties/completed_at/maxLength", pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"))
+	// ReadWorkflowVerdict copies workflow_instances.completion_occurred_at
+	// to CompletedAt; foldWorkflowCompleted formats that current-row value.
+	registerOutputBound("/$defs/work_scope/properties/verdict/properties/completed_at/maxLength", pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_scope/properties/verdict/properties/verdict_actor_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowVerdictRecorded", "workflowString", "p.VerdictActorRef", 1, boundBytes))
 
 	registerOutputBound("/$defs/work_summary/properties/narrative/maxLength", unboundedOutput("the narrative writer is retired (initiative.narrative_revised registers under EventAppendAuthorityRetired, internal/store/operation.go:249) and retained work_items.narrative rows project verbatim (internal/store/query.go:1323, internal/store/worker_packet_binding.go:108) with only CHECK(length(narrative) <= 16384), a NUL-terminated prefix count that bounds no complete string; no full-string guard exists on any current writer", "internal/agent/runtime.go:readSizeRefusal"))
@@ -2591,6 +2592,8 @@ func TestPkDerivations(t *testing.T) {
 	wantFailure("time layout mutation", err, "absent or mixed")
 	_, err = evaluate("pk_time3.go", preamble+"import \"time\"\n\nfunc site(now time.Time) string {\n\treturn now.Format(time.RFC3339Nano) + now.Format(time.RFC3339)\n}\n", pkTimeLayoutWidthBound("pk_time3.go", "site", "time.RFC3339Nano"))
 	wantFailure("time layout mix", err, "absent or mixed")
+	_, err = evaluate("pk_time5.go", preamble+"func site() string {\n\treturn \"\"\n}\n", pkTimeLayoutWidthBound("pk_time5.go", "site", "time.RFC3339Nano"))
+	wantFailure("time layout absent", err, "absent or mixed")
 
 	evaluated, err = evaluate("pk_stop.go", preamble+"func site(ids []string) []string {\n\tvar kept []string\n\tfor _, id := range ids {\n\t\tif len(kept) < 100 {\n\t\t\tkept = append(kept, id)\n\t\t}\n\t}\n\treturn kept\n}\n", pkCollectStopBound("pk_stop.go", "site", "len(kept)"))
 	firstValue("collect stop", evaluated, err, 100)
@@ -2702,7 +2705,8 @@ func TestPkDerivations(t *testing.T) {
 		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),
-		"event time":     pkTimeLayoutWidthBound("internal/store/events.go", "appendEvent", "time.RFC3339Nano"),
+		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),
+		"verdict time":   pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"),
 		"claim intents":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 	}
 	for name, source := range realSites {

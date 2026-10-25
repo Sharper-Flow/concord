@@ -85,12 +85,6 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "repair" {
 		return runRepairCommand(args[1:], in, out, errOut)
 	}
-	// Fold-guard recovery is offline and store-refusing by definition: Open
-	// refuses a stranded fold_guard row, so the recovery verb routes around
-	// the store open like the release verbs.
-	if len(args) > 0 && args[0] == "recover-fold-guard" {
-		return runRecoverFoldGuardCommand(args[1:], in, out, errOut)
-	}
 	// ci-wait is store-free (CD-0160): it queries GitHub through gh and a
 	// state file, never Concord authority, so it routes around the database
 	// open like the release verbs and consumes its JSON body directly.
@@ -154,8 +148,8 @@ func invokeOperationEnums() string {
 // transport contracts.
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
-	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) — born-failed terminal records only, and the assertion must be version 2 signing its canonical observation digest", Enums: "none"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory — required on a new completion, base_comparison, review, worker_job — required on a job-bound attempt, production_size — required on a capped implementation job, direct_caller_repairs[] (at most 8), evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
+	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) — born-failed terminal records only, and the assertion must be version 2 signing its canonical observation digest", Enums: "none"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory — required on a new completion, base_comparison, review, worker_job — required on a job-bound attempt, direct_caller_repairs[] (at most 8), evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review.disposition: continue | correction_required | revision_required | ready_for_final_proof, findings severity P0-P3, confidence low | medium | high; blocking dispositions remain valid reports; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "worker-read", RequiredFields: requiredFields(field("work_id"), field("attempt_id"), field("worktree_identity"), field("packet"), field("ordinal"), field("offset"), field("length")), Optional: "none", Enums: "read-only host capability; original authorized packet only; ordinal and offset nonnegative; length 1-4096 raw bytes; data is base64; no path, ref, command, or workflow mutation"},
@@ -188,7 +182,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), size_inputs (paths and/or behavior, security, user_visible, blast_radius, estimated_production_lines; the model decides the size), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
-	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
+	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id")), Optional: "exactly one of work_id or issue_key (unique locally recorded Linear key); session_ref; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
@@ -243,7 +237,6 @@ var verbUsages = []struct {
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
 	{"repair", []string{"repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)"}},
-	{"recover-fold-guard", []string{"recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log"}},
 	{"ci-wait", []string{"ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)"}},
 }
 
@@ -444,6 +437,33 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		writeDiagnostic(errOut, diagnosticText(err))
 		return 1
 	}
+	// Restore must remain available when the live store refuses to open.
+	if command == "restore" {
+		var request struct {
+			Source      string `json:"source"`
+			Destination string `json:"destination"`
+		}
+		if err := decodeObject(raw, &request); err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		if request.Destination == path {
+			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
+			return 1
+		}
+		release, err := lockManagedSnapshotRestore(request.Source)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		defer release()
+		report, err := store.RestoreBackup(context.Background(), request.Source, request.Destination)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			return 1
+		}
+		return writeJSON(out, report, errOut)
+	}
 	s, err := openStoreForCommand(context.Background(), path)
 	if err != nil {
 		writeDiagnostic(errOut, diagnosticText(err))
@@ -521,7 +541,6 @@ type workerDispatchRequest struct {
 	WorkID              string          `json:"work_id"`
 	AttemptID           string          `json:"attempt_id"`
 	LaneID              string          `json:"lane_id"`
-	LaneVersion         int64           `json:"lane_version"`
 	LaneDigest          string          `json:"lane_digest"`
 	PacketSchemaVersion string          `json:"packet_schema_version"`
 	ReportSchemaVersion string          `json:"report_schema_version"`
@@ -596,10 +615,8 @@ type workerCompleteRequest struct {
 	// obligation vocabulary, and the CLI carries them into the terminal
 	// payload beside the evidence the same authenticated request supplied.
 	ContextFindings []store.WorkerContextFinding `json:"context_findings,omitempty"`
-	// ProductionSize and DirectCallerRepairs are the report's size members
-	// (CD-0225 D2, CD-0227 D2). The fold binds them to the dispatched job's
-	// recorded base and the sealed observed tree.
-	ProductionSize      *store.WorkerProductionSize      `json:"production_size,omitempty"`
+	// DirectCallerRepairs are the evidenced direct-caller repairs the
+	// worker made under the dispatched job's allowance (CD-0227 D2).
 	DirectCallerRepairs []store.WorkerDirectCallerRepair `json:"direct_caller_repairs,omitempty"`
 }
 
@@ -687,7 +704,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
 		}
-		lane, err := store.LookupLane(request.LaneID, request.LaneVersion, request.LaneDigest)
+		lane, err := store.LookupLane(request.LaneID, request.LaneDigest)
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 			return 1
@@ -716,7 +733,6 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			WorkID:               request.WorkID,
 			AttemptID:            request.AttemptID,
 			LaneID:               request.LaneID,
-			LaneVersion:          request.LaneVersion,
 			LaneDigest:           request.LaneDigest,
 			ReadbackModel:        request.ReadbackModel,
 			FailureKind:          request.TerminalFailureKind,
@@ -744,7 +760,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		binding.Version = attributionVersion
 		binding.ObservationDigest = attributionDigest
-		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
+		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		if len(request.AuthorizedPacket) != 0 {
 			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
 				writeOperatorDiagnostic(errOut, command, diagnosticText(err))
@@ -752,7 +768,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 				return 1
 			}
 		}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -769,8 +785,8 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			AttemptID:     request.AttemptID,
 			ReadbackModel: request.ReadbackModel,
 		}
-		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison, Review: request.Review, WorkerJob: request.WorkerJob, ContextFindings: request.ContextFindings, ProductionSize: request.ProductionSize, DirectCallerRepairs: request.DirectCallerRepairs}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: mustMarshalWorkerPayload(payload)}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison, Review: request.Review, WorkerJob: request.WorkerJob, ContextFindings: request.ContextFindings, DirectCallerRepairs: request.DirectCallerRepairs}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerCompleted), Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest
@@ -793,7 +809,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ObservationDigest: attributionDigest,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail, ContextFindings: request.ContextFindings, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-abandon":
 		var request workerAbandonRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -814,7 +830,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			ObservationDigest: attributionDigest,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	}
 	writeOperatorDiagnostic(errOut, command, "unsupported command")
@@ -872,7 +888,6 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 				return errors.New("worker attempt already reached a terminal outcome")
 			}
 			binding.LaneID = attempt.LaneID
-			binding.LaneVersion = attempt.LaneVersion
 			binding.LaneDigest = attempt.LaneDigest
 		}
 		if binding.Verb == agent.WorkerEvidenceVerbDispatch && !found {
@@ -1469,25 +1484,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectResolve(raw, s, out, errOut)
 	case "cd-reservations":
 		return runCDReservations(raw, s, out, errOut)
-	case "restore":
-		var request struct {
-			Source      string `json:"source"`
-			Destination string `json:"destination"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if request.Destination == s.Path() {
-			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
-			return 1
-		}
-		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeJSON(out, report, errOut)
 	case "predecessor-import":
 		return runPredecessorImport(raw, s, out, errOut)
 	default:

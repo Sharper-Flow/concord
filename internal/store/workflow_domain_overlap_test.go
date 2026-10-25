@@ -19,7 +19,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	ctx := context.Background()
 	s, _, _, _, _, hash := architectureValidationFixture(t, left)
 	seedWork(t, s, right)
-	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	pinned, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}
@@ -27,7 +27,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -87,7 +87,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -390,27 +390,37 @@ func TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry(t *testing.T) {
 	}
 }
 
-// historicalSourceV1OverlapResolution records one destructive overlap
-// resolution as an explicit historical source-payload-v1 event. The v1
-// source rules required only the plan layer's approval reference on every
-// kind except depends_on, so the named bare reference carries the recorded
-// historical effect. Only the explicit historical effect controls call this
-// helper: every routine path and unsigned refusal stays on the live writer's
-// v2 classes, no kind-based fallback selects it, and the live writer's
-// consumed-approval admission is never overridden.
-func historicalSourceV1OverlapResolution(t *testing.T, s *Store, eventID, fromWorkID, toWorkID string, fromExpected, toExpected int64, kind, reason, approvalRef, actor string) error {
+// resolveApprovedOverlap drives the live writer with an exact consumed
+// one-use approval so graph and terminal-effect guards remain reachable.
+func resolveApprovedOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkID string, fromExpected, toExpected int64, kind, reason, actor string) error {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{
-		"work_id": fromWorkID, "expected_version": fromExpected, "resulting_version": fromExpected + 1,
-		"to_work_id": toWorkID, "to_expected_version": toExpected, "to_resulting_version": toExpected + 1,
+	input, err := json.Marshal(map[string]any{
+		"from_work_id": fromWorkID, "from_expected_version": fromExpected,
+		"to_work_id": toWorkID, "to_expected_version": toExpected,
 		"from_contract_version": int64(1), "to_contract_version": int64(1),
-		"resolution_kind": kind, "reason": reason, "approval_ref": approvalRef,
+		"resolution_kind": kind, "reason": reason,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: eventID, Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: fromWorkID, Actor: actor, OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: 1, Payload: payload}
-	return applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(fromWorkID, fromExpected)})
+	digest := AgentMutationDigest("concord_work_relate", "resolve_overlap", "product", "project", input)
+	scope := string(mustJSONValue(map[string]any{"product_id": "product", "project_ids": []string{"project"}, "work_ids": []string{fromWorkID, toWorkID}}))
+	versions := string(mustJSONValue(workflowOverlapApprovalVersions{From: fromExpected, To: toExpected, FromContract: 1, ToContract: 1}))
+	ref := strings.TrimPrefix(digest, "sha256:")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/overlap-guard','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z');
+INSERT INTO agent_approvals(approval_ref,operation_digest,scope_json,version_json,consequence,human_principal_ref,client_ref,session_ref,issued_at,expires_at,max_uses,used_count,protected_evidence_ref,protected_evidence_digest) VALUES(?,?,?,?,?,'principal/operator','client/overlap-guard','session/overlap-guard','2026-09-10T00:00:00Z','2026-09-11T00:00:00Z',1,1,'approval-evidence',?)`, ref, digest, scope, versions, "recovery", "sha256:"+strings.Repeat("b", 64)); err != nil {
+		t.Fatal(err)
+	}
+	return s.Transact(context.Background(), func(tx *Transaction) error {
+		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
+			EventID: eventID, FromWorkID: fromWorkID, ToWorkID: toWorkID,
+			FromExpectedVersion: fromExpected, ToExpectedVersion: toExpected,
+			FromContractVersion: 1, ToContractVersion: 1, ResolutionKind: kind, Reason: reason, Actor: actor,
+			ApprovalRef: ref, ApprovalOperationDigest: digest, ApprovalScopeJSON: scope,
+			ApprovalVersionsJSON: versions, ApprovalConsequence: "recovery", OccurredAt: time.Unix(41, 0).UTC(),
+		})
+		return err
+	})
 }
 
 func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *testing.T) {
@@ -428,7 +438,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := enterFold(ctx, tx); err != nil {
+			if err := enterWrite(ctx, tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
@@ -436,20 +446,14 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 				tx.Rollback()
 				t.Fatal(err)
 			}
-			if err := leaveFold(ctx, tx); err != nil {
+			if err := leaveWrite(ctx, tx); err != nil {
 				tx.Rollback()
 				t.Fatal(err)
 			}
 			if err := tx.Commit(); err != nil {
 				t.Fatal(err)
 			}
-			// Historical source-v1 effect control: the composite terminal
-			// effect below was first admitted under the v1 rules, whose only
-			// approval mandate was the plan layer's bare reference. The
-			// explicit v1 event keeps those assertions against their original
-			// source shape; the live v2 destructive class is covered by the
-			// consumed-approval boundary elsewhere.
-			if err := historicalSourceV1OverlapResolution(t, s, "terminal-"+testCase.kind, "terminal-source", "terminal-target", 2, 2, testCase.kind, "operator terminal resolution", "approval:"+testCase.kind, actor); err != nil {
+			if err := resolveApprovedOverlap(t, s, "terminal-"+testCase.kind, "terminal-source", "terminal-target", 2, 2, testCase.kind, "operator terminal resolution", actor); err != nil {
 				t.Fatalf("terminal resolution: %v", err)
 			}
 			var lifecycle, claimState string
@@ -477,7 +481,7 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
 	if !ok {
 		t.Fatal("workflow.break_fix v9 is unavailable")
 	}
@@ -497,44 +501,39 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The retained break-fix graph records execution start in the log, so
-	// rebuilding derives the same active claim.
-	for i, action := range []struct{ step, id string }{
-		{"reproduce", "record_reproduction"},
-		{"diagnose", "record_root_cause"},
-		{"planning", "approve_contract"},
-	} {
-		event := workflowActionCompletedFixture("overlap-phase-"+action.step+"-"+workID, workID, actorRef, int64(4+i), action.step, action.id)
-		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): int64(4 + i)}}); err != nil {
-			t.Fatalf("advance onto repair: %v", err)
-		}
+	// The current graph records diagnosis and the derived execution start in
+	// the log, so rebuilding derives the same active overlap claim.
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", actorRef); err != nil {
+		t.Fatalf("advance onto repair: %v", err)
 	}
+	version := readWorkVersion(t, s, workID)
 	started := workflowEventWithActor("overlap-start-execution-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(7), "resulting_version": int64(8),
-		"step_id": "repair", "action_id": "start_repair", "attempt_epoch": int64(1),
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": int64(1),
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "overlap-start-" + workID,
 		"actor_ref": actorRef,
 	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 7}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatalf("record the execution start: %v", err)
 	}
+	version = readWorkVersion(t, s, workID)
 	mandate := []string{"spec:one"}
 	for _, addition := range binding.LawAdditions {
 		mandate = append(mandate, addition.LawID)
 	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(8), "resulting_version": int64(9), "contract_version": int64(1),
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1),
 		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
-	contract.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 8}}); err != nil {
+	contract = pOverlapContractFacts(t, s, contract)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatal(err)
 	}
-	return actor, 9
+	return actor, readWorkVersion(t, s, workID)
 }
 
 // setWorkLifecycleForTesting places a work item in a lifecycle without moving
@@ -547,7 +546,7 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -555,7 +554,7 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -580,15 +579,15 @@ func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, starte
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -610,7 +609,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -622,7 +621,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -631,7 +630,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 	}
 }
 
-func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *testing.T) {
+func TestWorkflowDomainOverlapContractRevisionStalesResolution(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, binding, _, _, _ := architectureValidationFixture(t, "revision-left")
@@ -661,13 +660,14 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
 	}
+	revisionVersion := readWorkVersion(t, s, "revision-left")
 	supersede := workflowEventWithActor("revision-contract-v2", WorkflowContractSuperseded, "revision-left", leftActorRef, map[string]any{
-		"work_id": "revision-left", "expected_version": int64(10), "resulting_version": int64(11),
+		"work_id": "revision-left", "expected_version": revisionVersion, "resulting_version": revisionVersion + 1,
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "scope revision",
 		"audit_evidence": []string{"audit:revision-v2"}, "successor_contract": successor,
 	})
-	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 10}}); err != nil {
+	supersede = pOverlapContractFacts(t, s, supersede)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: workVersion("revision-left", revisionVersion)}); err != nil {
 		t.Fatalf("contract revision: %v", err)
 	}
 	err = InspectWorkflowDomainOverlap(ctx, s, "revision-left")
@@ -682,20 +682,6 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 	var relationCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE resolution_id='revision-compatible'`).Scan(&relationCount); err != nil || relationCount != 0 {
 		t.Fatalf("stale resolution relation count=%d err=%v", relationCount, err)
-	}
-	before, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	after, err := WorkflowProjectionHash(ctx, s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("overlap projection rebuild drift: before=%s after=%s", before, after)
 	}
 }
 
@@ -714,7 +700,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	if err := enterWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -747,7 +733,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 			t.Fatal(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := leaveWrite(ctx, tx); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -768,7 +754,7 @@ func TestWorkflowDomainOverlapBlocksWorkerResultAcceptanceWithoutKillingReads(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, raw, newWriteScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 		Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "overlap-result-accept", OperationID: "overlap-result-accept",
@@ -898,7 +884,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newWriteScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
 			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("TEST_CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 2}), Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "overlap-race-accept", OperationID: "overlap-race-accept",

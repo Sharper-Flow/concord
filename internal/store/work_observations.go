@@ -89,8 +89,8 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if isTerminalLifecycle(lifecycle) {
 		return newFailure(KindNotTerminal, "fold_event", "terminal work cannot record observations", false, "promote the observation through capture instead")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,?)`,
-		p.ObservationID, event.SubjectID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags), event.OccurredAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at,recorded_seq) VALUES(?,?,?,?,?,?,?)`,
+		p.ObservationID, event.SubjectID, p.Statement, marshalStrings(p.Refs), marshalStrings(p.Tags), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Seq); err != nil {
 		// Only a duplicate id is a conflict. Reporting every insert failure as
 		// one told a caller its observation id collided when the real cause was
 		// a violated column constraint.
@@ -122,10 +122,10 @@ func observationReadLimit(limit int) int {
 func decodeObservationColumns(refs, tags string) ([]string, []string, error) {
 	var outRefs, outTags []string
 	if err := json.Unmarshal([]byte(refs), &outRefs); err != nil {
-		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation refs are not readable", false, "repair the live projection from its event log", err)
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation refs are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	if err := json.Unmarshal([]byte(tags), &outTags); err != nil {
-		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation tags are not readable", false, "repair the live projection from its event log", err)
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation tags are not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	return outRefs, outTags, nil
 }
@@ -206,6 +206,9 @@ func (s *Store) ReadWorkObservations(ctx context.Context, req WorkObservationsRe
 // the result envelope metadata, so this core composes inside any
 // transaction.
 func observationsPageForWork(ctx context.Context, q queryer, req WorkObservationsRequest) (WorkObservationPage, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, req.WorkID, "work_observations"); err != nil {
+		return WorkObservationPage{}, err
+	}
 	limit := observationReadLimit(req.Limit)
 	cursor, err := decodeWorkCollectionCursor(req.Cursor, req.WorkID, workObservationsCollection)
 	if err != nil {

@@ -21,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fe6174b56a8a9a0331e0bfbfcd640f4498f1255e24a20bd9c2ee32d4bbbb7152",
+  "sha256": "sha256:c7ac681201fd89ac865746c7561332f3dc07c84c07f9f7ec3419654a2bf7b1ac",
   "status": "accepted",
-  "summary": "A dispatch-pinned review report carries ship or no_ship and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical event-sequence/ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Ship refuses P0 or classified blockers; an outside-scope P0 follow-up remains retained no_ship without becoming repair debt. Worker.completed v6 carries oracle members; worker.failed remains v2 and historical upcasts invent nothing. The shared context exposes reported content without granting workflow verdict or acceptance authority.",
+  "summary": "A dispatch-pinned review report names one CD-0242 D5 disposition and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Main records acceptance of the disposition, and an open in-scope blocking finding blocks a new assignment and leaving execution. The report grants no workflow verdict or acceptance authority.",
   "tags": [
     "agent-surface",
     "lanes",

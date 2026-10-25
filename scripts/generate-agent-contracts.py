@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
-HISTORICAL_DECODER = ROOT / "contracts/workflow-historical-decoder.schema.json"
 LANE_PACKET = ROOT / "contracts/agent-lane-packet.schema.json"
+LANE_REPORT = ROOT / "contracts/agent-lane-report.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
@@ -164,28 +164,6 @@ export function actionFieldsBranches(actionInput: unknown): any[] {
 
 ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
 
-# The closed set of published actions CD-0218 D1/D2 retires from live
-# authoring: the 22 retired-family action IDs and the 6 ceremony/derived
-# IDs. The projection derives their absence from this published set — there
-# is no special case that re-admits a retired shape, and a stale projected
-# def for one is a generation failure.
-RETIRED_PUBLISHED_ACTIONS = frozenset({
-    # Retired with the four families (CD-0218 D1).
-    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
-    "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
-    "cleanup_run", "declare_scope", "discard_poc", "frame_question",
-    "record_decision", "record_health", "record_option", "record_research",
-    "resolve_condition", "rollback_run", "run_analysis", "start_action",
-    "start_poc", "start_run",
-    # Retired by the derived diagnosis/starts/failure/retry forms (CD-0218 D2).
-    "record_reproduction", "record_root_cause", "start_repair", "start_refine",
-    "record_worker_failure", "record_discovery",
-})
-# The approved live public action target: 58 prior public IDs − 28 retired
-# published IDs + record_diagnosis.
-LIVE_ACTION_TARGET = 31
-
-
 def require_delivery_rule_teaching(defs: dict) -> None:
     """CD-0184: the projected authoring schema must teach that acceptance is
     decidable at delivery, so generation fails before any artifact lands when
@@ -193,9 +171,8 @@ def require_delivery_rule_teaching(defs: dict) -> None:
 
     The rule's live owner is the outcome_predicates array shared by
     approve_contract and supersede_contract. The wait-rule teaching retired
-    with add_condition (CD-0218 D1): the wait variant's absence is derived
-    from the retired published actions, so a projected def for it is a stale
-    copy the projection must refuse, never a silently skipped check.
+    with add_condition (CD-0218 D1), so a projected def for its variants is
+    a stale copy the projection must refuse, never a silently skipped check.
     """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
@@ -205,7 +182,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     if stale:
         fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
-SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
+SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes", "x-maxArrayBytes"}
 
 # The store counts workflow string bounds in UTF-8 bytes
 # (validateWorkflowPayloadValue); JSON Schema minLength/maxLength count
@@ -349,9 +326,9 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
-    if set(schema_refs) != {"current", "historical"}:
+    if set(schema_refs) != {"current"}:
         fail("workflow action contract projection carries no schema-ref classes")
-    for side in ("current", "historical"):
+    for side in ("current",):
         refs = schema_refs[side]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
@@ -364,12 +341,6 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
-    live_ids = [action.get("id") for action in actions]
-    retired = sorted(set(live_ids) & RETIRED_PUBLISHED_ACTIONS)
-    if retired:
-        fail(f"retired published actions remain authorable in the live projection (CD-0218 D1/D2): {', '.join(retired)}")
-    if len(live_ids) != LIVE_ACTION_TARGET:
-        fail(f"the live action projection carries {len(live_ids)} actions, want the approved target {LIVE_ACTION_TARGET}")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
@@ -460,86 +431,8 @@ def schema_ref_closure(defs: dict, roots: list[str]) -> list[str]:
     return sorted(seen)
 
 
-def freeze_historical_decoder(schema_refs: dict) -> int:
-    """Freeze or union-extend the historical decoder document.
-
-    The decoder document is the engine's frozen baseline closure over the
-    public authoring document: every schema ref any registered workflow
-    definition declares resolves inside it, and the engine resolves retained
-    registry pins' payload validation against it independently of later
-    public authoring changes. Existing frozen definitions are
-    never rewritten: a re-freeze only adds the closure definitions the
-    registry newly declares, so the frozen baseline can never silently
-    re-derive from a changed public document. The closure resolves each name
-    through the frozen bytes when they exist — narrowing live authoring
-    may retire a name from the public document while
-    retained pins still declare it — and through the current document only
-    for names the freeze newly adds.
-    """
-    payload_defs = json.loads(PAYLOAD.read_text()).get("$defs", {})
-    frozen: dict = {}
-    if HISTORICAL_DECODER.is_file():
-        frozen = json.loads(HISTORICAL_DECODER.read_text())
-        if not isinstance(frozen.get("$defs"), dict):
-            fail("historical decoder document carries no $defs object")
-    existing = frozen.setdefault("$defs", {})
-    resolution = {**payload_defs, **existing}
-    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
-    closure = schema_ref_closure(resolution, union)
-    added = [name for name in closure if name not in existing]
-    for name in added:
-        existing[name] = resolution[name]
-    if not existing:
-        fail("the historical decoder freeze would be empty")
-    # The document stays keyword-pure: its provenance is the freeze evidence
-    # and the baseline-equality test against the manifest's pinned payload
-    # digest, not metadata keys the schema keyword validator would refuse.
-    frozen.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
-    HISTORICAL_DECODER.write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n")
-    print(f"historical decoder freeze: {len(existing)} definitions, {len(added)} added")
-    return 0
-
-
-def validate_historical_decoder(schema_refs: dict, payload_defs: dict) -> None:
-    """The frozen decoder owns historical resolution.
-
-    Every schema ref any registered definition declares must resolve inside
-    the frozen decoder, and the decoder must stay internally closed. Current
-    refs must additionally resolve in the public authoring document, whose
-    published variants stay the authoring owner.
-    """
-    if not HISTORICAL_DECODER.is_file():
-        fail("the frozen historical decoder document is missing; freeze it with --freeze-historical-decoder")
-    frozen = json.loads(HISTORICAL_DECODER.read_text())
-    frozen_defs = frozen.get("$defs")
-    if not isinstance(frozen_defs, dict) or not frozen_defs:
-        fail("the frozen historical decoder document carries no $defs object")
-    check_schema_keywords(frozen, "historical-decoder")
-    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
-    for ref in union:
-        if ref not in frozen_defs:
-            fail(f"declared payload schema ref {ref} resolves in neither the frozen historical decoder nor generation; re-freeze with --freeze-historical-decoder")
-    for name, schema in frozen_defs.items():
-        if not isinstance(schema, dict):
-            fail(f"frozen historical decoder definition {name} is not an object")
-    internal: list[str] = []
-
-    def collect_internal_refs(node: object) -> None:
-        if isinstance(node, dict):
-            ref = node.get("$ref")
-            if isinstance(ref, str) and ref.startswith("#/$defs/"):
-                internal.append(ref.removeprefix("#/$defs/"))
-            for value in node.values():
-                collect_internal_refs(value)
-        elif isinstance(node, list):
-            for entry in node:
-                collect_internal_refs(entry)
-
-    collect_internal_refs(frozen_defs)
-    for name in sorted(set(internal)):
-        if name not in frozen_defs:
-            fail(f"the frozen historical decoder carries a dangling internal reference {name}")
-    for ref in schema_refs["current"]:
+def validate_current_schema_refs(schema_refs: dict, payload_defs: dict) -> None:
+    for ref in schema_ref_closure(payload_defs, schema_refs["current"]):
         if ref not in payload_defs:
             fail(f"current payload schema ref {ref} does not resolve in the public authoring document")
 
@@ -1488,6 +1381,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     )}
     defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}
+    defs["worktree_verify_result"]["properties"]["branch"]["maxLength"] = 256
     page_properties = {
         "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
         "stream": {"type": "string", "enum": ["stdout", "stderr"]},
@@ -1505,6 +1399,7 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
               "properties": {name: copy.deepcopy(result["properties"][name]) for name in
                              ("work_id", "project_id", "branch", "path", "mode", "content", "truncated")}}
     legacy["required"] = list(legacy["properties"])
+    legacy["properties"]["branch"]["maxLength"] = 256
     legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
     output_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items()}
     output_properties["mode"] = {"type": "string", "const": "oracle_output"}
@@ -1666,20 +1561,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
-    # CD-0198 D1: one record_verdict call may carry a verdict per judged
-    # predicate through the fields.verdicts array. Each item names one
-    # approved predicate of the call's contract version and carries its own
-    # verdict kind, evaluation evidence, and incomparable flag. The store
-    # refuses a call that carries fields.predicate_id beside the array, or
-    # neither form, and refuses an entry-level field beside the batch.
+    # Main associates accepted criteria with captured producer receipts. A
+    # caller verdict, missing receipt, or operation-minted ref is not proof.
     defs["workflow_verdict_batch_entry"] = {
         "type": "object", "additionalProperties": False,
-        "required": ["predicate_id", "verdict_kind"],
+        "required": ["predicate_id", "receipt_refs"],
         "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"], "description": "Explicit verdict for this predicate. Missing verdict_kind refuses the whole action before any write; no verdict kind is inferred."},
-            "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
-            "incomparable_with_approved": {"type": "boolean"},
+            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Captured passing producer receipts covering this criterion on the current candidate. Main associates proof; it supplies no verdict or replacement subject."},
         },
     }
     # CD-0230 D4: a serious law change pins the exact text the operator
@@ -1728,16 +1617,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
     outer_properties["fields"] = {}
 
-    # Projection starts from the previous document, so the retirement drops
-    # are explicit: a stale def would keep satisfying checks that read it
-    # while no validation path consumes it. Retired published actions keep
-    # no authoring variant, the legacy input union is gone entirely, and the
-    # retired decision/wait authoring defs lose their last owners
-    # (CD-0218 D1/D2). Historical layouts replay through the
-    # frozen historical decoder, never through this document.
-    for action_id in RETIRED_PUBLISHED_ACTIONS:
-        defs.pop("work_transition_action_variant_" + action_id, None)
-        defs.pop("work_transition_action_public_variant_" + action_id, None)
+    # Remove variants with no compiled owner (CD-0218 D1/D2, CD-0242 D14).
+    # Preserve existing live slots so generation does not reorder the source.
+    live_prefixes = tuple(prefix + action["id"] for action in actions for prefix in
+                          ("work_transition_action_variant_", "work_transition_action_public_variant_"))
+    for name in list(defs):
+        if name.startswith(("work_transition_action_variant_", "work_transition_action_public_variant_")) and not any(
+                name == prefix or name.startswith(prefix + "_fields_member_") for prefix in live_prefixes):
+            del defs[name]
     for stale in ("work_transition_action_legacy_input", "decision_record_text", "native_report_timestamp"):
         defs.pop(stale, None)
 
@@ -1819,6 +1706,7 @@ WORKER_PACKET_INPUT_ALIASES = {
     "binding": "worker_packet_binding",
     "correction": "workflow_correction_context",
     "worker_job": "worker_packet_worker_job",
+    "review_input": "worker_packet_review_input",
     "law_context": "workflow_law_context",
     "design_record": "workflow_design_record",
     "proposal_record": "workflow_proposal_record",
@@ -1853,23 +1741,60 @@ def contains_schema_ref(node: object) -> bool:
 
 
 def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
-    """Derive the unversioned packet's inputs from the canonical lane packet.
+    """Project the current packet and its job from the canonical lane input.
 
-    The canonical contract owns the field set and the required set; the
-    payloads schema owns the shared def aliases the aliased fields anchor
-    to. A canonical inputs change either lands here on regeneration or
-    fails --check, so the published surface cannot again omit a wire field
-    the dispatcher sends. Published versioned identities stay authored as
-    frozen inputs: canonical changes cannot rewrite the packet or context
-    identities that retained pins record and replay.
+    Shared record aliases keep their own published bounds. Packet identity,
+    Review provenance and the worker-job field set have one owner.
     """
     inputs = lane_packet.get("properties", {}).get("inputs")
     if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
         fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
     doc_defs = payload.get("$defs", {})
-    packet = doc_defs.get("worker_packet")
-    if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
-        fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
+    packet_aliases = {
+        "lane_review_input": "worker_packet_review_input",
+        "review_candidate": "worker_packet_review_candidate",
+        "review_dependencies": "worker_packet_review_dependencies",
+        "lane_packet_worker_job": "worker_packet_worker_job",
+    }
+    imported = set(packet_aliases)
+    refs = {f"#/$defs/{source}": f"#/$defs/{alias}" for source, alias in packet_aliases.items()}
+    for source in lane_packet["$defs"]:
+        shared = source.removeprefix("lane_")
+        if shared in doc_defs:
+            refs.setdefault("#/$defs/" + source, "#/$defs/" + shared)
+
+    def review_alias(node):
+        if isinstance(node, dict):
+            result = {key: review_alias(value) for key, value in node.items()}
+            if "$ref" in result:
+                ref = result["$ref"]
+                if ref not in refs:
+                    if not ref.startswith("#/$defs/"):
+                        fail(f"lane packet carries a non-local reference {ref}")
+                    source = ref.removeprefix("#/$defs/")
+                    if source not in lane_packet["$defs"]:
+                        fail(f"lane packet references unknown definition {source}")
+                    alias = "worker_packet_" + source.removeprefix("lane_")
+                    refs[ref] = "#/$defs/" + alias
+                    if source not in imported:
+                        imported.add(source)
+                        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
+                result["$ref"] = refs[ref]
+            if "enum" in result and "type" not in result:
+                result["type"] = "string"
+            return result
+        if isinstance(node, list):
+            return [review_alias(value) for value in node]
+        return node
+
+    for source, alias in packet_aliases.items():
+        doc_defs[alias] = review_alias(lane_packet["$defs"][source])
+    packet = {key: copy.deepcopy(lane_packet[key]) for key in ("type", "additionalProperties", "required")}
+    packet["description"] = "CD-0067 D1: current closed worker packet, projected from contracts/agent-lane-packet.schema.json."
+    packet["properties"] = {name: review_alias(schema) for name, schema in lane_packet["properties"].items() if name != "inputs"}
+    # Live dispatch admits only the canonical format's current identity.
+    packet["properties"]["schema_version"]["enum"] = [lane_packet["properties"]["schema_version"]["enum"][-1]]
+    doc_defs["worker_packet"] = packet
     properties = {}
     for name, schema in inputs.get("properties", {}).items():
         alias = WORKER_PACKET_INPUT_ALIASES.get(name)
@@ -1890,6 +1815,42 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     if required:
         projected["required"] = required
     packet["properties"]["inputs"] = projected
+
+
+def project_review_report_types(payload: dict, lane_report: dict) -> None:
+    """Expose the canonical report shape in current-state reads, not a copy."""
+    source = lane_report["$defs"]
+    target = payload["$defs"]
+    imported: set[str] = set()
+
+    def import_definition(name: str) -> str:
+        alias = "lane_report_" + name
+        if name not in imported:
+            imported.add(name)
+            if name not in source:
+                fail(f"lane report references unknown definition {name}")
+            target[alias] = rewrite(copy.deepcopy(source[name]))
+        return alias
+
+    def rewrite(node: object) -> object:
+        if isinstance(node, list):
+            return [rewrite(value) for value in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: rewrite(value) for key, value in node.items()}
+        if "$ref" in result:
+            ref = result["$ref"]
+            if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
+                fail(f"lane report carries a non-local reference {ref}")
+            result["$ref"] = "#/$defs/" + import_definition(ref.removeprefix("#/$defs/"))
+        if "enum" in result and "type" not in result:
+            if not all(isinstance(value, str) for value in result["enum"]):
+                fail("lane report enum needs an explicit type")
+            result["type"] = "string"
+        return result
+
+    for name in ("review_candidate", "review_block", "review_finding"):
+        import_definition(name)
 
 
 def check_schema_keywords(node, path="schema"):
@@ -2125,8 +2086,9 @@ def validate_work_start_host_tool(tool: dict) -> None:
     # published capture surface is pinned in exactly the contract's own
     # (lexicographic) property order.
     capture = ["defect_intake", "external_ref", "governing_requirements", "idempotency_key", "kind", "priority", "raised_from_work_id", "ref", "size_inputs", "tags", "task", "title", "urgency", "value_statement", "workflow_type_ref"]
-    resume_required = ["work_id"]
-    resume_properties = ["work_id"]
+    # Resume names exactly one selector; the core alone resolves an issue key.
+    resume_properties = ["issue_key", "work_id"]
+    resume_selectors = [{"required": ["work_id"]}, {"required": ["issue_key"]}]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
         fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
@@ -2134,8 +2096,12 @@ def validate_work_start_host_tool(tool: dict) -> None:
         fail("concord_work_start capture branch has an unexpected argument surface")
     if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
         fail("concord_work_start branches must close their argument surface")
-    if branches[1].get("required") != resume_required or list(branches[1].get("properties", {})) != resume_properties:
-        fail("concord_work_start resume branch must carry exactly work_id")
+    resume = branches[1]
+    if resume.get("oneOf") != resume_selectors or list(resume.get("properties", {})) != resume_properties or set(resume) != {"additionalProperties", "properties", "oneOf"}:
+        fail("concord_work_start resume branch must carry exactly one of work_id or issue_key")
+    issue_key = resume["properties"]["issue_key"]
+    if issue_key.get("type") != "string" or issue_key.get("minLength") != 3 or issue_key.get("maxLength") != 64 or issue_key.get("pattern") != "^[A-Z][A-Z0-9]*-[1-9][0-9]*$":
+        fail("concord_work_start issue_key must pin the recorded Linear issue key bounds")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
         if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")
@@ -2378,22 +2344,6 @@ def go_payload_schema_projection() -> str:
     document = json.dumps(json.loads(PAYLOAD.read_text()), ensure_ascii=False, sort_keys=True, indent=2)
     return "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage payloadschema\n\nconst GeneratedPayloadSchemaDocument = `" + document + "`\n"
 
-def go_historical_schema_projection() -> str:
-    document = json.dumps(json.loads(HISTORICAL_DECODER.read_text()), ensure_ascii=False, sort_keys=True, indent=2)
-    if "`" in document:
-        fail("historical decoder document contains a Go raw-string delimiter")
-    return (
-        "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\n"
-        "package payloadschema\n\n"
-        "// GeneratedHistoricalSchemaDocument is the frozen historical decoder\n"
-        "// document, contracts/workflow-historical-decoder.schema.json, projected\n"
-        "// beside the public authoring document. The engine resolves retained\n"
-        "// workflow definitions' declared payload schemas against this frozen\n"
-        "// baseline closure, so a public authoring change cannot break historical\n"
-        "// payload validation.\n"
-        "const GeneratedHistoricalSchemaDocument = `" + document + "`\n"
-    )
-
 def go_envelope_schema_projection() -> str:
     document = json.dumps(json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text()), ensure_ascii=False, sort_keys=True, indent=2)
     if "`" in document:
@@ -2557,6 +2507,7 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
     for (const [keyword, exceeds] of [["minProperties", Object.keys(object).length < schema.minProperties], ["maxProperties", Object.keys(object).length > schema.maxProperties]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
   }}
   if (Array.isArray(value)) {{
+    if (schema["x-maxArrayBytes"] !== undefined && Buffer.byteLength(JSON.stringify(value), "utf8") > schema["x-maxArrayBytes"]) return fail(path || "<root>", `x-maxArrayBytes bound ${{schema["x-maxArrayBytes"]}} UTF-8 bytes`);
     for (const [keyword, exceeds] of [["minItems", value.length < schema.minItems], ["maxItems", value.length > schema.maxItems]] as const) if (exceeds) return fail(path || "<root>", `${{keyword}} bound ${{schema[keyword]}}`);
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail(path || "<root>");
     if (schema.items) for (let index = 0; index < value.length; index++) {{ const result = validateSchema(schema.items, value[index], root, path + "[" + index + "]"); if (!result.valid) return result; }}
@@ -2638,24 +2589,38 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--check", action="store_true",
                         help="fail on generated contract drift instead of writing projections")
-    parser.add_argument("--freeze-historical-decoder", action="store_true",
-                        help="freeze or union-extend the historical decoder document, then exit")
     args = parser.parse_args()
     try:
         check = args.check
-        freeze = args.freeze_historical_decoder
         manifest = json.loads(MANIFEST.read_text())
+        fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
+        fixture_text = fixture_path.read_text()
+        first_case = json.loads(fixture_text)["cases"][0]
+        if first_case["schema"] != "workflow-definition.schema.json" or first_case["valid"] is not True:
+            fail("the first workflow engine fixture must be a valid workflow definition")
+        instance_start = fixture_text.index("{", fixture_text.index('"instance":'))
+        instance, instance_length = json.JSONDecoder().raw_decode(fixture_text[instance_start:])
+        canonical_fixture = subprocess.run(
+            ["go", "run", "./scripts/workflow-action-contracts", "--canonical-definition"],
+            cwd=ROOT, input=json.dumps(instance), text=True, capture_output=True,
+            timeout=300, check=True,
+        )
+        instance_text = json.dumps(json.loads(canonical_fixture.stdout), ensure_ascii=False, indent=2).replace("\n", "\n      ")
+        expected_fixture = fixture_text[:instance_start] + instance_text + fixture_text[instance_start + instance_length:]
+        if expected_fixture != fixture_text:
+            if check:
+                fail("generated definition fixture drift: contracts/workflow-engine.fixtures.json")
+            fixture_path.write_text(expected_fixture)
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
         actions, workflows, teaching, schema_refs = load_workflow_action_contracts()
-        if freeze:
-            return freeze_historical_decoder(schema_refs)
         bun = shutil.which("bun")
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
-        validate_historical_decoder(schema_refs, payload.get("$defs", {}))
+        validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
+        project_review_report_types(projected_payload, json.loads(LANE_REPORT.read_text()))
         # The adapter publishes public action variants, never the core-owned
         # dispatch packet in the internal workflow_action input union.
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
@@ -2707,7 +2672,6 @@ def main() -> int:
             ROOT / ".concord/docs/generated-agent-tool-surface.md": docs_projection(manifest),
             ROOT / "adapter/opencode/generated-contract-tests.ts": ts_validator_projection(manifest),
             ROOT / "internal/payloadschema/generated_schemas.go": go_payload_schema_projection(),
-            ROOT / "internal/payloadschema/generated_historical_schemas.go": go_historical_schema_projection(),
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,
             ROOT / "internal/store/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
         }

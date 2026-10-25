@@ -43,7 +43,7 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			}
 			lane := reviewGateLane(t, "verification")
 			attemptID := "attempt:" + workID
-			packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Version, lane.Digest)
+			packet := joinPacketFor(t, s, workID, "repair", attemptID, lane.ID, lane.Digest)
 			packet["inputs"].(map[string]any)["worker_job"] = packetJobFromView(ready[0])
 			version := readWorkVersion(t, s, workID)
 			err = dispatchJobPacketForTest(t, s, workID, attemptID, fixture.owner, "dispatch-"+workID, packet)
@@ -101,7 +101,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 			definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 			attemptID := "attempt:" + workID
-			packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+			packet := joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Digest)
 			if err := dispatchJobPacketForTest(t, s, workID, attemptID, fixture.owner, "unbound-"+workID, packet); err == nil || !strings.Contains(err.Error(), "carries no inputs.worker_job") {
 				t.Fatalf("unbound %s dispatch error = %v, want missing-job refusal", lane.ID, err)
 			}
@@ -113,7 +113,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 				// seeded delivery carries its own job, so this lane's
 				// recorded revision stays ready.
 				seedAcceptedImplementationDelivery(t, s, workID, fixture.owner)
-				packet = joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Version, lane.Digest)
+				packet = joinPacketFor(t, s, workID, stepID, attemptID, lane.ID, lane.Digest)
 				packet["inputs"].(map[string]any)["worker_job"] = recorded
 				packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 			}
@@ -144,7 +144,7 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 				t.Fatalf("%s dispatch bound %#v, found=%v, error=%v, want %#v", lane.ID, bound, found, err, job)
 			}
 			var laneID, capabilityClass string
-			if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_lane_id'),json_extract(payload,'$.worker_capability_class') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&laneID, &capabilityClass); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_lane_id'),json_extract(payload,'$.worker_capability_class') FROM worker_authorizations WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &capabilityClass); err != nil {
 				t.Fatal(err)
 			}
 			if laneID != lane.ID || capabilityClass != lane.CapabilityClass {
@@ -156,11 +156,6 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			}
 			if oracleCapablePinForWork(t, s, workID) {
 				unreadyFields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
-			}
-			if sizeCapablePinForWork(t, s, workID) {
-				for member, value := range workerJobSizeMembersForTest(t, s, workID, unreadyFields) {
-					unreadyFields[member] = value
-				}
 			}
 			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, unreadyFields); err != nil {
 				t.Fatal(err)
@@ -186,32 +181,24 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 	}
 }
 
-func TestWorkerJobLegacyPinsNeverRequireOrSynthesizeJobs(t *testing.T) {
-	for _, pin := range []struct {
-		ref     string
-		version int64
-	}{
-		{"workflow.implementation", 23},
-		{"workflow.break_fix", 20},
-	} {
-		t.Run(pin.ref, func(t *testing.T) {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(pin.ref, pin.version)
-			if !ok {
-				t.Fatalf("historical pin %s@%d is missing", pin.ref, pin.version)
-			}
-			for _, lane := range BuiltinLaneDefinitions() {
-				// Legacy admission needs no job projection read. Parent prose
-				// cannot become a recorded job, even for a verification lane.
-				packet := map[string]any{"inputs": map[string]any{"task": "Run all parent integration checks"}}
-				bound, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet))
-				if err != nil || bound != nil {
-					t.Fatalf("legacy %s dispatch job = %#v, error = %v, want no binding", lane.ID, bound, err)
-				}
-				packet["inputs"].(map[string]any)["worker_job"] = map[string]any{"job_id": "job:forbidden"}
-				if _, _, err := validateWorkerPacketJob(context.Background(), nil, registered.Definition, "legacy-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
-					t.Fatalf("legacy %s bound-job error = %v, want refusal", lane.ID, err)
-				}
-			}
-		})
+// TestJobIncapableDefinitionNeverRequiresOrSynthesizesJobs holds the
+// job-incapable side of worker admission on the live research family, whose
+// parts declare no worker-job capability: admission reads no job projection,
+// parent prose never becomes a recorded job, and a bound job refuses.
+func TestJobIncapableDefinitionNeverRequiresOrSynthesizesJobs(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.research").Definition
+	if workflowWorkerJobsActive(definition) {
+		t.Fatal("workflow.research declares the worker-job capability; this witness needs a job-incapable live family")
+	}
+	for _, lane := range BuiltinLaneDefinitions() {
+		packet := map[string]any{"inputs": map[string]any{"task": "Run all parent integration checks"}}
+		bound, _, err := validateWorkerPacketJob(context.Background(), nil, definition, "job-incapable-work", lane, mustJSONValue(packet))
+		if err != nil || bound != nil {
+			t.Fatalf("job-incapable %s dispatch job = %#v, error = %v, want no binding", lane.ID, bound, err)
+		}
+		packet["inputs"].(map[string]any)["worker_job"] = map[string]any{"job_id": "job:forbidden"}
+		if _, _, err := validateWorkerPacketJob(context.Background(), nil, definition, "job-incapable-work", lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "does not admit") {
+			t.Fatalf("job-incapable %s bound-job error = %v, want refusal", lane.ID, err)
+		}
 	}
 }

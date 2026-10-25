@@ -6,7 +6,6 @@
   overlap-resolution rows
 - **Approval:** The operator approved this amendment on 2026-09-15.
 - **Related:** CD-0036, CD-0222 D5–D7, CD-0144, CD-0145, and [PR 1084](https://github.com/Sharper-Flow/concord/pull/1084)
-- **Amends:** CD-0222 D6's rule for staleness after a contract revision
 - **Preserves:** D6's closed resolution-kind set and operator approval;
   D7's seven action classes; CD-0036 breaking-law cutovers; and the
   execution-start claim boundary from PR 1084
@@ -43,17 +42,13 @@ A revision that leaves all four fields unchanged leaves the resolution current.
 The recorded contract versions remain the audit record of the approved inputs,
 but a version change alone does not make the resolution stale.
 
-### D2. Existing resolution rows remain preserved history
+### D2. Existing resolution rows stay counted
 
-An earlier count cites 2,179 existing resolutions. The store currently contains
-2,513 rows in the overlap-resolution table. This amendment therefore treats
-2,513 rows as the counted population and does not claim that every row is active
-or current.
-
-The amendment preserves all 2,513 rows as history. It does not bulk invalidate,
+The store keeps all 2,513 recorded rows as current state
+([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+It does not bulk invalidate,
 rewrite, or migrate them. An invalidation recorded before judged-content
-comparison took effect stays invalidated. Replay reproduces that invalidation
-from the event's original payload version. A content-neutral revision after that
+comparison took effect stays invalidated. A content-neutral revision after that
 leaves a non-invalidated resolution current.
 
 ### D3. The execution-start boundary remains independent
@@ -76,14 +71,12 @@ blocking, and pure dependency answers require no consent. All answers retain
 both work versions, contract pins, and judged-content freshness. A dependency
 answer grants no standing Domain compatibility waiver.
 D7's seven consequential action classes remain unchanged. CD-0036 remains the
-authority for breaking law cutovers and its strict quiescence rule.
+authority for breaking law cutovers; a law edit triggers reassessment only of the obligations whose meaning it changes ([CD-0242 D10](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d10-knowledge-is-an-input-and-a-law-edit-changes-only-what-it-changes)).
 
 ## Consequences
 
-- Unrelated contract revisions no longer discard a valid overlap judgment.
+- A revision that does not change judged content leaves a resolution applicable.
 - Changes to judged architecture content still require a fresh resolution.
-- The 2,513-row store population is explicit, while the earlier 2,179 count is
-  not treated as a complete population.
 - Execution admission remains governed by the execution-start boundary from PR
   1084.
 

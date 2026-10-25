@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func workerDiffRefusalShape(t *testing.T, err error, wantDetail string) {
@@ -25,8 +25,13 @@ func workerDiffRefusalShape(t *testing.T, err error, wantDetail string) {
 	}
 }
 
-func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) string {
+// A corrective Review produces the change and Main integrates its result;
+// an unrecorded HEAD change cannot become the next Review input (CD-0242 D5).
+func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string, edits ...func()) string {
 	t.Helper()
+	attempt := "integrate-" + id
+	job := workerDiffJob(t, j, attempt)
+	workerDiffDispatchJob(t, j, attempt, job)
 	dir := filepath.Join(j.repo, "internal", "store")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -34,10 +39,35 @@ func workerDiffCommit(t *testing.T, j *candidateJourney, id, content string) str
 	if err := os.WriteFile(filepath.Join(dir, "change.txt"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return descendantCommit(t, j, id)
+	for _, edit := range edits {
+		edit()
+	}
+	head := j.commit(t, "reviewer@example.invalid", id)
+	report := currentReviewBlockForTest(t, j.s, j.workID, attempt, "continue")
+	report.OutputCandidate = WorkerReviewCandidate{ProjectID: report.InputCandidate.ProjectID, Commit: head, Tree: reviewObservedTree(t, j.repo, head)}
+	j.completeReview(t, attempt, job, report)
+	if err := j.acceptEvidence(t, attempt); err != nil {
+		t.Fatalf("Main integration of corrective Review: %v", err)
+	}
+	j.observeRun(t, id)
+	return head
 }
 
 func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) WorkerDiffRequest {
+	t.Helper()
+	return workerDiffDispatchJob(t, j, attempt, workerDiffJob(t, j, attempt))
+}
+
+func workerDiffCompleteRead(t *testing.T, j *candidateJourney, attempt string) {
+	t.Helper()
+	job, err := workflowDispatchedJobForAttempt(t.Context(), j.s.db, j.workID, attempt)
+	if err != nil || job == nil {
+		t.Fatalf("read diff assignment binding: %v, %v", job, err)
+	}
+	j.completeReview(t, attempt, *job, currentReviewBlockForTest(t, j.s, j.workID, attempt, "continue"))
+}
+
+func workerDiffJob(t *testing.T, j *candidateJourney, attempt string) WorkerJobBinding {
 	t.Helper()
 	// The diff-reading job's scope covers the fixture's committed edit
 	// paths, so the bounded read returns the review delta.
@@ -46,14 +76,7 @@ func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) Worke
 		"stopping_condition": "the bounded review delta is read", "path_scope": []string{"internal/store"},
 		"checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"},
 	}
-	if sizeCapablePinForWork(t, j.s, j.workID) {
-		bootstrapOracleFixtureSubject(t, j.s, j.workID)
-		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, j.s, j.workID)
-		for member, value := range workerJobSizeMembersForTest(t, j.s, j.workID, fields) {
-			fields[member] = value
-		}
-	}
-	if err := recordWorkerJobActionForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, j.s, j.workID, j.fixture.owner, fields); err != nil {
 		t.Fatalf("record diff-read job: %v", err)
 	}
 	views, err := readWorkerJobRevisions(context.Background(), j.s.db, j.workID)
@@ -66,14 +89,21 @@ func workerDiffDispatch(t *testing.T, j *candidateJourney, attempt string) Worke
 			job = view.Binding
 		}
 	}
-	return workerDiffDispatchJob(t, j, attempt, job)
+	return job
 }
 
 func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, job WorkerJobBinding) WorkerDiffRequest {
 	t.Helper()
-	version, digest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", version, digest)
+	digest := registeredLaneIdentity(t, "review")
+	packet := joinPacketFor(t, j.s, j.workID, currentStep(t, j.s, j.workID), attempt, "review", digest)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, j.s, j.workID, job, "review")
+	correction, err := workflowCorrectionContextForDispatch(t.Context(), j.s.db, j.workID, currentStep(t, j.s, j.workID), attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
 	ctx, err := reviewSubjectPrepareDispatch(j.s, j.workID, j.repo)
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +111,7 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 	if _, err := dispatchJoinAttempt(ctx, t, j.s, j.workID, readWorkVersion(t, j.s, j.workID), j.fixture.owner, packet); err != nil {
 		t.Fatal(err)
 	}
+	j.laneDispatch(t, attempt, "review", &job)
 	window := reviewSubjectWindow(t, j.s, j.workID, attempt)
 	raw, err := json.Marshal(packet)
 	if err != nil {
@@ -90,28 +121,19 @@ func workerDiffDispatchJob(t *testing.T, j *candidateJourney, attempt string, jo
 }
 
 func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *testing.T) {
-	version, digest := registeredLaneIdentity(t, "implement")
 	for _, missing := range []string{"worker_subject_commit", "worker_worktree_identity"} {
 		t.Run(missing, func(t *testing.T) {
-			db, err := sql.Open("sqlite", ":memory:")
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			if _, err := db.Exec(`CREATE TABLE domain_events(seq INTEGER PRIMARY KEY,subject_type TEXT,subject_id TEXT,kind TEXT,payload TEXT); CREATE TABLE worker_attempts(work_id TEXT,attempt_id TEXT,lane_id TEXT,lane_version INTEGER,lane_digest TEXT)`); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.Exec(`INSERT INTO domain_events VALUES(1,'work_item','work',?,?)`, WorkflowContractApproved, `{"contract_version":1}`); err != nil {
-				t.Fatal(err)
-			}
+			db := workerFoundationCurrentDB(t)
 			for seq := 2; seq <= 3; seq++ {
-				payload := map[string]any{"action_id": "dispatch_worker", "worker_lane_id": "implement", "worker_lane_version": version, "worker_lane_digest": digest, "worker_worktree_identity": "claim", "worker_subject_commit": strings.Repeat("a", 40)}
+				subject, tree := strings.Repeat("a", 40), "claim"
 				if seq == 2 {
-					delete(payload, missing)
+					if missing == "worker_subject_commit" {
+						subject = ""
+					} else {
+						tree = ""
+					}
 				}
-				if _, err := db.Exec(`INSERT INTO domain_events VALUES(?,'work_item','work',?,?)`, seq, WorkflowActionCompleted, string(mustJSONValue(payload))); err != nil {
-					t.Fatal(err)
-				}
+				foundationDispatchForTest(t, db, int64(seq), 1, fmt.Sprintf("attempt:%d", seq), "implement", subject, tree)
 			}
 			base, err := firstWorkerEditingSubject(context.Background(), db, "work", "claim", 4)
 			if !hasFailureKind(err, KindUnauthorizedDispatch) || base != "" {
@@ -121,7 +143,7 @@ func TestReadWorkerDiffMissingFirstHistoryRefusesRatherThanUsingLaterSubject(t *
 	}
 }
 
-func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) {
+func TestReadWorkerDiffRefusesSelectorsAndRetiredAttempt(t *testing.T) {
 	j, _ := descendantReviewFixture(t, "diff-refusal")
 	head := workerDiffCommit(t, j, "change", "review change\n")
 	original := workerDiffDispatch(t, j, "review-refusal")
@@ -148,8 +170,13 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(j.repo, "seed.txt"), []byte("dirty"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if page, err := j.s.ReadWorkerDiff(context.Background(), original); !hasFailureKind(err, KindUnauthorizedDispatch) || len(page.Data) != 0 {
-		t.Fatalf("dirty review returned bytes: %+v %v", page, err)
+	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) || bytes.Contains(page.Data, []byte("dirty")) {
+		t.Fatalf("mutable repair leaked into the pinned input diff: %+v %v", page, err)
+	}
+	// A read-only assignment still requires exact clean B on every read.
+	readOnly := workerDiffSnapshot{repo: j.repo, window: WorkerDispatchWindow{SubjectCommit: head}}
+	if err := checkWorkerDiffSubject(context.Background(), CommittedReadGitRunner{}, readOnly); !hasFailureKind(err, KindUnauthorizedDispatch) {
+		t.Fatalf("read-only dirty HEAD was admitted: %v", err)
 	}
 	gitRunStore(t, j.repo, "restore", "seed.txt")
 	if page, err := j.s.ReadWorkerDiff(context.Background(), original); err != nil || page.SubjectCommit != head || !bytes.Contains(page.Data, []byte("+review change")) {
@@ -157,9 +184,9 @@ func TestReadWorkerDiffRefusesSelectorsDirtyHeadAndRetiredAttempt(t *testing.T) 
 	}
 	original.Runner = &workerReadingProbeRunner{GitRunner: CommittedReadGitRunner{}, once: func() {
 		if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-			mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+			mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 			mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
-			mustTxExec(t, tx, `DELETE FROM fold_guard`)
+			mustTxExec(t, tx, `DELETE FROM write_guard`)
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -178,10 +205,11 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "*"), []byte("literal star\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	workerDiffCommit(t, j, "literal", "must not match a wildcard\n")
+	workerDiffCommit(t, j, "literal", "must not match a wildcard\n", func() {
+		if err := os.WriteFile(filepath.Join(dir, "*"), []byte("literal star\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
 	for i, scope := range [][]string{{"internal/store/*"}, {}} {
 		jobID := fmt.Sprintf("diff-scope-%d", i)
 		fields := map[string]any{"job_id": jobID, "objective": "read only the declared literal scope", "stopping_condition": "the bounded review delta is read", "path_scope": scope, "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:ready"}}
@@ -219,13 +247,14 @@ func TestReadWorkerDiffRequiresNonemptyLiteralJobScope(t *testing.T) {
 		} else if err != nil || !bytes.Contains(page.Data, []byte("+literal star")) || bytes.Contains(page.Data, []byte("must not match")) {
 			t.Fatalf("literal scope widened to a glob: %s %v", page.Data, err)
 		}
+		workerDiffCompleteRead(t, j, req.AttemptID)
 	}
 }
 
 func TestReadWorkerDiffCorrectionLoopKeepsFirstEditingSubject(t *testing.T) {
 	j, base := descendantReviewFixture(t, "diff-correction")
 	first := workerDiffCommit(t, j, "first", "first change\n")
-	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed")
 	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
 	head := workerDiffCommit(t, j, "second", "first change\n"+strings.Repeat("second change\n", 400))
 	req := workerDiffDispatch(t, j, "review-diff")
@@ -273,8 +302,10 @@ func TestReadWorkerDiffSupersessionStartsNewEditingHistory(t *testing.T) {
 	j, oldBase := descendantReviewFixture(t, "diff-supersession")
 	base := workerDiffCommit(t, j, "old-contract", "old contract change\n")
 	oldRequest := workerDiffDispatch(t, j, "old-review")
+	workerDiffCompleteRead(t, j, oldRequest.AttemptID)
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
-	reviewSubjectImplementComplete(t, j.fixture, "new-contract-editor", "new-contract-completed", true)
+	acceptCurrentReviewForTest(t, j.fixture, j.repo, "continue")
+	reviewSubjectImplementComplete(t, j.fixture, "new-contract-editor", "new-contract-completed")
 	reviewSubjectAccept(t, j.s, j.workID, "new-contract-editor")
 	head := workerDiffCommit(t, j, "new-contract", "old contract change\nnew contract change\n")
 	req := workerDiffDispatch(t, j, "new-review")
@@ -299,9 +330,9 @@ func TestReadWorkerDiffRetiredReviewRefusesBeforeGitWithExactDiffRecovery(t *tes
 		t.Fatalf("bound review read failed before the retirement: %+v %v", page, err)
 	}
 	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		mustTxExec(t, tx, `UPDATE worker_attempts SET lifecycle_state='failed',failed_at='2030-01-01T00:00:00Z',failure_kind='abandoned' WHERE work_id=? AND attempt_id=?`, original.WorkID, original.AttemptID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -323,10 +354,10 @@ func TestReadWorkerDiffMissingActiveContractRefusesBeforeGitWithExactDiffRecover
 		t.Fatalf("bound review read failed before the contract perturbation: %+v %v", page, err)
 	}
 	if err := j.s.Transact(context.Background(), func(tx *Transaction) error {
-		mustTxExec(t, tx, `INSERT INTO fold_guard(active) VALUES(1)`)
+		mustTxExec(t, tx, `INSERT INTO write_guard(active) VALUES(1)`)
 		// Preserve the version row and its foreign keys while removing active authority.
 		mustTxExec(t, tx, `UPDATE workflow_contracts SET superseded_by=contract_version WHERE work_id=? AND superseded_by IS NULL`, original.WorkID)
-		mustTxExec(t, tx, `DELETE FROM fold_guard`)
+		mustTxExec(t, tx, `DELETE FROM write_guard`)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -352,7 +383,7 @@ func TestReadWorkerDiffMissingActiveContractRefusesBeforeGitWithExactDiffRecover
 func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) {
 	j, base := descendantReviewFixture(t, "diff-correction-supersession")
 	first := workerDiffCommit(t, j, "first", "delivered change\n")
-	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed")
 	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
 	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
@@ -375,7 +406,7 @@ func TestReadWorkerDiffCorrectionSupersessionKeepsPredecessorBase(t *testing.T) 
 func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
 	j, base := descendantReviewFixture(t, "diff-review-retry-base")
 	workerDiffCommit(t, j, "first", "delivered change\n")
-	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed", true)
+	reviewSubjectImplementComplete(t, j.fixture, "correction-editor", "correction-completed")
 	reviewSubjectAccept(t, j.s, j.workID, "correction-editor")
 	head := workerDiffCommit(t, j, "second", "delivered change\nmore delivered change\n")
 	reviewSubjectSupersedeContract(t, j.s, j.workID)
@@ -387,6 +418,10 @@ func TestReadWorkerDiffReviewRetryDoesNotResetEditingBase(t *testing.T) {
 	// correction machinery forces a second supersession before the retry
 	// dispatches. The retry's own dispatch must not qualify the newer
 	// supersession, and neither must the first review's.
+	lane := reviewGateLane(t, "review")
+	if err := s2WorkerFailedLive(t, j.s, s2WorkerFailedAttributedEvent(j.workID, first.AttemptID, "failed-review-first", preferredModelForLane(lane), WorkerFailureWorkerError, "the review failed without editing the candidate", time.Unix(30, 0).UTC())); err != nil {
+		t.Fatalf("record the first review's terminal failure: %v", err)
+	}
 	reviewSubjectSupersedeContractVersions(t, j.s, j.workID, 2, 3, "the correction window forces a fresh basis supersession before the review retry")
 	retry := workerDiffDispatch(t, j, "review-retry")
 	page, err := j.s.ReadWorkerDiff(context.Background(), retry)

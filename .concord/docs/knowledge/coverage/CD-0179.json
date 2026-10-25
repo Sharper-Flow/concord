@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestSessionVacateReleasesEveryWorkItemRow"
+      "value": "internal/store.TestSessionVacateLandingReleasesRowsInOneTransaction"
     },
     {
       "kind": "go_test",

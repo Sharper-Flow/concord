@@ -58,7 +58,7 @@ follows them without restating the ranked list.
 - If a projection is stale, the surface marks it stale rather than guessing.
 - Concord operational memory owns live state, blockers, approvals, versions, and
   active relations. Versioned Product knowledge owns accepted laws, decisions,
-  runbooks, and durable narratives. Browse/search/launcher views are rebuildable
+  runbooks, and durable narratives. Browse/search views are rebuildable
   projections. The same fact never has two authorities (CD-0006 D7).
 
 ---
@@ -83,9 +83,9 @@ browse constantly); if it's slow or memory-heavy, the whole platform feels heavy
 - **Memory-bounded** — browsing a large Product/Domain law graph must **not** load
   everything; lazy / paginated / streaming reads. A Product with thousands of
   changes + specs browses as fast as a small one.
-- **Append-only history** — documents are versioned append-only (couples to
-  no-history-repair, `design-constraints.md` §4). Browsing shows current state;
-  history is queryable but never mutated.
+- **Current state from Git** — the Git knowledge home owns documents, and the
+  store keeps current state and finite snapshots, not history (CD-0242 D1–D2;
+  couples to `design-constraints.md` §4). Browsing shows current state.
 - **Locality** — a Domain's law + its changes' documents are co-located and
   navigable together (P04; see [`product-data-model.md`](./product-data-model.md)
   §3, §6).
@@ -106,7 +106,7 @@ Default self-documentation views are minimal by design:
 - Show **what blocks execution right now**.
 - Completed history, archived changes, and historical projections are available
   through explicit drill-down, not cluttering the default Product/Domain view.
-- This applies to the terminal launcher, the optional admin panel, and agent-tool
+- This applies to the optional admin panel and agent-tool
   read surfaces.
 
 ### 2.4 Authority/freshness and related-work impact
@@ -125,14 +125,15 @@ in Linear through the Linear MCP server under CD-0213 and never clears that stat
 
 ## 3. Open questions
 
-1. **Doc-store format** — content-addressed files? a doc DB? an append-only log +
-   projections? (Couples to `design-constraints.md` §4 storage decision.)
-2. **Browse UX** — terminal launcher tree? tool-based queries? optional admin panel?
-   all three?
+1. **Doc-store format** — content-addressed files? a doc DB? (Storage authority
+   is settled: current rows and finite snapshots, no event log — CD-0242 D2;
+   couples to `design-constraints.md` §4.)
+2. **Browse UX** — tool-based queries? optional admin panel? both?
 3. **Versioning granularity** — per-document versions, or per-change snapshots?
 4. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
-5. **Staleness signal source** — derived from orchestrator events, or computed
-   on read from base-branch / dependency timestamps?
+5. **Staleness signal source** — computed
+   on read from base-branch / dependency timestamps, or derived from another
+   current-state signal?
 
 ---
 

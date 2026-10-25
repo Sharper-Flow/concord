@@ -30,7 +30,7 @@ import (
 // oracle job adds its preparations to the current work context view.
 func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, view any) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -49,7 +49,6 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        f.workID,
 		"step_id":        "repair",
@@ -82,6 +81,15 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 	if err != nil || view == nil || view.SubjectCommit == "" {
 		t.Fatalf("admitted work context = %+v, error = %v, want a qualified subject", view, err)
 	}
+	tampered := *view
+	tampered.SubjectCommit = strings.Repeat("b", 40)
+	tamperedPacket := workContextDispatchPacket(t, fixture, "attempt-ctx-subject-tampered", job, &tampered)
+	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); err == nil || !strings.Contains(err.Error(), "does not consume the current work context") {
+		t.Fatalf("tampered candidate view error = %v, want the typed consumption refusal", err)
+	}
+	if got := dispatchStartedCount(t, s, fixture.workID); got != 0 {
+		t.Fatalf("tampered initial packet started %d dispatches", got)
+	}
 	attemptID := "attempt-ctx-subject-once"
 	packet := workContextDispatchPacket(t, fixture, attemptID, job, view)
 	if err := dispatchWorkContextAttempt(t, fixture, packet); err != nil {
@@ -99,7 +107,7 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 	completionsWithSubject := func() int {
 		t.Helper()
 		var count int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID, WorkflowActionCompleted).Scan(&count); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		return count
@@ -108,7 +116,7 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 		t.Fatalf("dispatch completions recording an admitted subject = %d, want exactly one", got)
 	}
 	var recordedSubject, recordedDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_subject_commit'), json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID, WorkflowActionCompleted).Scan(&recordedSubject, &recordedDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_subject_commit'), json_extract(payload,'$.worker_packet_digest') FROM worker_authorizations WHERE work_id=? AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID).Scan(&recordedSubject, &recordedDigest); err != nil {
 		t.Fatal(err)
 	}
 	if recordedSubject != view.SubjectCommit || recordedDigest != wantDigest {
@@ -125,11 +133,8 @@ func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
 	if window.SubjectCommit != view.SubjectCommit || window.PacketDigest != wantDigest {
 		t.Fatalf("dispatch window subject=%s digest=%s, want subject=%s digest=%s", window.SubjectCommit, window.PacketDigest, view.SubjectCommit, wantDigest)
 	}
-	tampered := *view
-	tampered.SubjectCommit = strings.Repeat("b", 40)
-	tamperedPacket := workContextDispatchPacket(t, fixture, "attempt-ctx-subject-tampered", job, &tampered)
-	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); err == nil || !strings.Contains(err.Error(), "does not consume the current work context") {
-		t.Fatalf("tampered candidate view error = %v, want the typed consumption refusal", err)
+	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); failureKind(err) != KindOperationConflict || !strings.Contains(err.Error(), "unresolved launch outcome") {
+		t.Fatalf("another authorization before launch reconciliation = %v, want operation_conflict", err)
 	}
 	if got := completionsWithSubject(); got != 1 {
 		t.Fatalf("dispatch completions after the tampered attempt = %d, want still the one admitted subject", got)
@@ -266,7 +271,7 @@ func TestDispatchRefusesStaleWorkContextPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	reported := []WorkerContextFinding{{Kind: "observation", Statement: "the terminal report adds a finding the packet never saw", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, WorkerEvidenceEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-complete-stale", "attempt-ctx-stale-report", preferredModelForLane(lane), lane, reported, CurrentEventPayloadVersion(WorkerCompleted), workerFixtureDirectory(t, fixture.store, fixture.workID))}}); err != nil {
 		t.Fatalf("terminal report refused: %v", err)
 	}
 	startsBefore := dispatchStartedCount(t, fixture.store, fixture.workID)
@@ -381,7 +386,7 @@ func seedWorkContextOverflow(t *testing.T, fixture workContextFixture) {
 	}
 	declareSixteen("first")
 	var firstSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&firstSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&firstSeq); err != nil {
 		t.Fatal(err)
 	}
 	refs := make([]string, 16)
@@ -403,7 +408,7 @@ func seedWorkContextOverflow(t *testing.T, fixture workContextFixture) {
 		t.Fatalf("second declaration refused: %v", err)
 	}
 	var secondSeq int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, fixture.workID, WorkflowWorkContextRecorded).Scan(&secondSeq); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT declaration_seq FROM work_context_state WHERE work_id=?`, fixture.workID).Scan(&secondSeq); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 16; i++ {
@@ -626,7 +631,7 @@ func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-reject-retry-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-reject-retry-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -701,7 +706,7 @@ func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
 			t.Fatalf("combined reject/retry error = %v, want %s refusing the whole operation", err, KindProjectionConflict)
 		}
 		var rejections, retryAttempts int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, workID).Scan(&rejections); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID).Scan(&retryAttempts); err != nil {
@@ -772,7 +777,7 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-c1-x", lane, job)}}); err != nil {
 			t.Fatal(err)
 		}
-		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 			AttemptID: "attempt-c1-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 			EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 		})}
@@ -876,7 +881,7 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 			t.Fatalf("combined deadline error = %v, want %s", err, KindTimeout)
 		}
 		var rejections, retryAttempts int
-		if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID2, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, workID2).Scan(&rejections); err != nil {
 			t.Fatal(err)
 		}
 		if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID2).Scan(&retryAttempts); err != nil {
@@ -889,6 +894,8 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 
 	t.Run("identity drift between the snapshot and the admission refuses with zero effects", func(t *testing.T) {
 		s, workID, driftClaimDir, _, _ := setup(t, "work-c1-drift-ordinary")
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+		acceptCurrentReviewForTest(t, workContextFixture{store: s, workID: workID, owner: owner}, driftClaimDir, "continue")
 		preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: driftClaimDir})
 		if prepErr != nil {
 			t.Fatalf("preparation refused: %v", prepErr)
@@ -898,7 +905,6 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		if viewErr != nil || view == nil {
 			t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
 		}
-		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		// The work version moves after the sealed snapshot, and the packet is
 		// rebuilt from the moved state, so the freshness revalidation itself
 		// is the refusing guard, with zero dispatch effects.
@@ -985,7 +991,7 @@ func seedAggregateBoundDeclarations(t *testing.T, f workContextFixture, evidence
 		t.Fatalf("first aggregate declaration refused: %v", err)
 	}
 	var seqs []int64
-	rows, err := f.store.DatabaseForTesting().Query(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, f.workID, WorkflowWorkContextRecorded)
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT effect_seq FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq`, f.workID, WorkflowWorkContextRecorded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1136,7 +1142,7 @@ func tuneAggregateCheckpointToTarget(t *testing.T, f workContextFixture, correct
 // may dispatch more than one attempt.
 func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, checkpoint, correction any) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := implementLaneIdentity()
+	laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,
@@ -1165,7 +1171,6 @@ func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID strin
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
-		"lane_version":   laneVersion,
 		"lane_digest":    laneDigest,
 		"work_id":        f.workID,
 		"step_id":        "repair",
@@ -1208,7 +1213,7 @@ func aggregateRejectResult(t *testing.T, f workContextFixture, attemptID string,
 func aggregateCommittedRejections(t *testing.T, s *Store, workID string) (int, int) {
 	t.Helper()
 	var rejections, retryAttempts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempt_dispositions WHERE work_id=? AND action_id='reject_worker_result'`, workID).Scan(&rejections); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID).Scan(&retryAttempts); err != nil {
@@ -1439,7 +1444,7 @@ func completeAggregateAttempt(t *testing.T, f workContextFixture, attemptID stri
 	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
 		EvidenceOrigin: WorkerEvidenceReported, Evidence: laneCoveringEvidence(lane), WorkerJob: &job,
 	})}
@@ -1494,11 +1499,11 @@ func TestDispatchContextAggregateMeasurement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		laneVersion, laneDigest := implementLaneIdentity()
+		laneDigest := implementLaneIdentity()
 		for _, member := range []string{"work_context", "checkpoint", "correction"} {
 			packet := map[string]any{
 				"schema_version": WorkerPacketSchemaVersion, "attempt_id": "attempt-null-member",
-				"lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+				"lane_id": "implement", "lane_digest": laneDigest,
 				"work_id": "work-null-member", "step_id": "repair",
 				"inputs": map[string]any{member: nil, "task": "carry the objective", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
 			}

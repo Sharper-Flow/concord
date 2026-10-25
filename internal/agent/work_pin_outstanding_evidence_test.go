@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -17,9 +16,8 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 			"workflow_type": "workflow.implementation", "step": "acceptance", "attempt": nil,
 			"pending_operator_decision": nil, "driving_sessions": []any{},
 			"watermark": "seq:3", "next_valid_intents": []any{},
-			"workflow_definition_version": 1,
-			"workflow_definition_digest":  "sha256:" + strings.Repeat("0", 64),
-			"obligations":                 []string{"verification"},
+			"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
+			"obligations":                []string{"verification"},
 		}
 		if present {
 			pin["outstanding_evidence_kinds"] = []string{"approval", "artifact", "commit", "durable_note", "native_run", "review", "verification"}
@@ -50,7 +48,7 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 		if !bytes.Equal(decoded.Result, payload) {
 			t.Fatal("envelope round-trip changed or truncated evidence-debt metadata")
 		}
-		replayed, _, pinless, err := (runtime{}).replayMutationPayload(context.Background(), payload,
+		replayed, _, pinless, err := (runtime{}).replayMutationPayload(payload,
 			[]ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}})
 		if err != nil || len(pinless) != 0 || !bytes.Equal(replayed, payload) {
 			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: err=%v pinless=%v", err, pinless)

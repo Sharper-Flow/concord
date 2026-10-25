@@ -6,7 +6,6 @@
 - **Related:** CD-0006 (D5, D10), CD-0012 (D6), CD-0015 (R0), TS1 AJ3, TS4
   ([`agent-mutation-tool-contract.md`](../agent-mutation-tool-contract.md)),
   [`specs-as-laws.md`](../specs-as-laws.md) §4
-- **Supersedes:** nothing
 
 ## Context
 
@@ -99,7 +98,7 @@ Reintroducing it for the operator-choice surface would be a regression by
 precedent.
 
 **Extending the workflow-contract `spec_mandate` to capture.** Cheaper — the
-table, fold, and completion check already exist. Rejected because `spec_mandate`
+table and completion check already exist. Rejected because `spec_mandate`
 is planning-approved and completion-checked by construction (CD-0006 D10), and
 because capture usually carries no `workflow_type_ref` at all. Most captures
 would bypass the gate entirely, which would make the floor claim read stronger

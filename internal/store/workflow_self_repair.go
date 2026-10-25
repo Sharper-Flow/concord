@@ -36,7 +36,7 @@ func (repair *WorkflowSelfRepair) UnmarshalJSON(data []byte) error {
 	if decoded.EvidenceRefs == nil {
 		return fmt.Errorf("self_repair evidence_refs must be explicitly present and non-null")
 	}
-	if err := validateWorkflowSelfRepairShapeForReplay(WorkflowSelfRepair(decoded)); err != nil {
+	if err := validateWorkflowSelfRepairShape(WorkflowSelfRepair(decoded)); err != nil {
 		return err
 	}
 	*repair = WorkflowSelfRepair(decoded)
@@ -55,20 +55,12 @@ func parseWorkflowSelfRepair(raw json.RawMessage) (*WorkflowSelfRepair, error) {
 }
 
 func validateWorkflowSelfRepairShape(repair WorkflowSelfRepair) error {
-	return validateWorkflowSelfRepairShapeWithReference(repair, ValidReference)
-}
-
-func validateWorkflowSelfRepairShapeForReplay(repair WorkflowSelfRepair) error {
-	return validateWorkflowSelfRepairShapeWithReference(repair, replayValidReference)
-}
-
-func validateWorkflowSelfRepairShapeWithReference(repair WorkflowSelfRepair, validReference func(string) bool) error {
-	if !TypedErrorKindAllowed(repair.RefusalKind) || !validReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
+	if !TypedErrorKindAllowed(repair.RefusalKind) || !ValidReference(repair.BlockedOperation) || len(repair.EvidenceRefs) < 1 || len(repair.EvidenceRefs) > workflowSelfRepairMaxEvidence {
 		return newFailure(KindInvalidPayload, "workflow_self_repair", "self_repair does not name one typed refusal, blocked operation, and bounded evidence set", false, "supply a typed refusal kind, operation reference, and 1-32 evidence references")
 	}
 	seen := make(map[string]bool, len(repair.EvidenceRefs))
 	for _, ref := range repair.EvidenceRefs {
-		if !validReference(ref) || seen[ref] {
+		if !ValidReference(ref) || seen[ref] {
 			return newFailure(KindInvalidPayload, "workflow_self_repair", "self_repair evidence references are invalid or duplicated", false, "supply unique workflow evidence references")
 		}
 		seen[ref] = true
@@ -77,10 +69,7 @@ func validateWorkflowSelfRepairShapeWithReference(repair WorkflowSelfRepair, val
 }
 
 func validateWorkflowSelfRepairAuthorityTx(ctx context.Context, tx *sql.Tx, workID, actorRef string, repair *WorkflowSelfRepair) error {
-	if repair == nil || isWorkflowReplay(ctx) {
-		// The authority check reads the current Git-derived registry and the
-		// actor projection to police a live classification. Replay records
-		// the classification the log already carries.
+	if repair == nil {
 		return nil
 	}
 	productID, err := workflowBindingProductIDTx(ctx, tx, workID)
@@ -129,41 +118,6 @@ func validateWorkflowSelfRepairAuthorityForDefinitionTx(ctx context.Context, tx 
 	return nil
 }
 
-func validateWorkflowSelfRepairEventAdmission(event Event) error {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return nil
-	}
-	var raw json.RawMessage
-	switch event.Kind {
-	case WorkflowContractApproved:
-		raw = payload["self_repair"]
-	case WorkflowContractSuperseded:
-		successorRaw := payload["successor_contract"]
-		if len(successorRaw) == 0 || string(successorRaw) == "null" {
-			return nil
-		}
-		var successor map[string]json.RawMessage
-		if err := json.Unmarshal(successorRaw, &successor); err != nil {
-			return nil
-		}
-		raw = successor["self_repair"]
-	default:
-		return nil
-	}
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	repair, err := parseWorkflowSelfRepair(raw)
-	if err == nil && repair != nil {
-		err = validateWorkflowSelfRepairShape(*repair)
-	}
-	if err != nil {
-		return newFailure(KindInvalidPayload, "workflow_self_repair_admission", "contract self_repair is invalid before append: "+err.Error(), false, "supply a typed self-repair classification with bounded references")
-	}
-	return nil
-}
-
 func readWorkflowSelfRepair(ctx context.Context, q queryer, workID string, contractVersion int64) (*WorkflowSelfRepair, error) {
 	var raw string
 	if err := q.QueryRowContext(ctx, `SELECT self_repair_json FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&raw); err != nil {
@@ -171,7 +125,7 @@ func readWorkflowSelfRepair(ctx context.Context, q queryer, workID string, contr
 	}
 	repair, err := parseWorkflowSelfRepair(json.RawMessage(raw))
 	if err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "rebuild the workflow projection from its event log")
+		return nil, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return repair, nil
 }
@@ -185,8 +139,7 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 		return false, err
 	}
 	var raw, definitionRef, definitionDigest string
-	var definitionVersion int64
-	err = q.QueryRowContext(ctx, `SELECT self_repair_json,COALESCE(definition_ref,''),COALESCE(definition_version,0),COALESCE(definition_digest,'') FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw, &definitionRef, &definitionVersion, &definitionDigest)
+	err = q.QueryRowContext(ctx, `SELECT self_repair_json,COALESCE(definition_ref,''),COALESCE(definition_digest,'') FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, contractVersion).Scan(&raw, &definitionRef, &definitionDigest)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -195,12 +148,12 @@ func workflowSelfRepairExemptTx(ctx context.Context, q queryer, workID string) (
 	}
 	repair, err := parseWorkflowSelfRepair(json.RawMessage(raw))
 	if err != nil {
-		return false, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "rebuild the workflow projection from its event log")
+		return false, newFailure(KindInvariantViolation, "workflow_self_repair", "stored self_repair classification is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	if repair == nil {
 		return false, nil
 	}
-	definition, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Version: definitionVersion, Digest: definitionDigest})
+	definition, err := verifyWorkflowDefinitionPinForFold(BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: definitionRef, Digest: definitionDigest})
 	if err != nil {
 		return false, err
 	}

@@ -10,7 +10,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkerCompletionMismatchIsDurableTypedFailureAndRebuildDeterministic"
+      "value": "internal/store.TestWorkerCompletionPreservesHostReadback"
     },
     {
       "kind": "go_test",

@@ -132,17 +132,17 @@ func TestSnapshotLivenessIncludesInFlightAttempt(t *testing.T) {
 	}
 }
 
-// productRowExec runs one raw statement under the fold guard, so a direct
+// productRowExec runs one raw statement under the write guard, so a direct
 // table write cannot desync the workflow projection between statements.
 func productRowExec(t *testing.T, s *Store, statement string, args ...any) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
 	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, statement, args...); err != nil {

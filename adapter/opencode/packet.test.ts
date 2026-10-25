@@ -5,6 +5,7 @@ import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated
 import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkerJob, type AgentLanePacketWorkContext, type AgentLanePacketWorkContextResearchEntryResolved, type AgentLanePacketWorkContextResearchEntryUnresolved, type AgentLanePacketWorkContextResearchFindingView } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { fakeTool } from "./plugin-tool.fixture"
+import { reviewBlockFixture } from "./review-test-fixture"
 
 // The builder reaches core through the adapter transport in concord.ts, which
 // imports the host plugin surface. With the shared stub the
@@ -142,6 +143,17 @@ test("new packets pin the worker report protocol and the current card-free revis
   expect(result.packet?.inputs.report_protocol).toBe("concord-worker-result-v1")
 })
 
+test("review input is copied verbatim from continuity only onto the review lane", async () => {
+  const descriptor = { input_candidate: { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }, dependencies: { criteria: [{ predicate_id: "predicate:primary", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true } }
+  const continuity = continuityEnvelope() as any
+  continuity.result.pinned.review_input = descriptor
+  for (const laneId of ["review", "implement"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect((built.packet!.inputs as any).review_input).toEqual(laneId === "review" ? descriptor : undefined)
+  }
+})
+
 test("binding preserves recorded work and contract versions beyond signed int32", async () => {
   const version = 2_147_483_648
   const scope = scopeEnvelope() as any
@@ -186,8 +198,8 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe("step-1")
   expect(packet.lane_id).toBe("implement")
-  expect(packet.lane_version).toBe(1)
-  expect(packet.lane_digest).toBe("sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5")
+  expect(packet).not.toHaveProperty("lane_version")
+  expect(packet.lane_digest).toBe(agentLanes.find((lane) => lane.id === "implement")!.digest)
   expect(packet.inputs.task).toBe("Dispatch inputs are retyped rather than projected.")
   expect(packet.inputs.task).not.toContain(OUTCOME_KIND)
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
@@ -235,9 +247,6 @@ test("sequential dispatches bound each attempt to its own lane's assigned result
 test("a correction projects recorded failure fields into the packet", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "failed",
-    attempt_count: 1,
-    attempt_limit: 3,
-    escalated: false,
     diagnosis: "worker attempt failed",
     strategy: "retry with a fresh fenced attempt",
     failure_kind: "transport_failure",
@@ -265,9 +274,6 @@ test("a correction projects recorded failure fields into the packet", async () =
 test("a checkpoint failed-review correction projects its bounded verdict evidence into the packet", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "failed",
-    attempt_count: 1,
-    attempt_limit: 3,
-    escalated: false,
     diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy",
     strategy: "return to the repair step and dispatch a fresh attempt",
     predicate_ids: ["predicate:return-route"],
@@ -283,18 +289,9 @@ test("a checkpoint failed-review correction projects its bounded verdict evidenc
   expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
-// A correction counts every operator-authorized retry, so its count passes
-// attempt_limit once the operator allows work past the limit. Dropping such a
-// correction left the packet unable to consume it, and the core refuses a
-// dispatch that carries no correction while one is durable. Because a
-// correction clears only when a dispatch follows it, that stranded the work
-// item: no lane could ever be dispatched again, review and verify included.
-test("a correction past the attempt limit still projects into the packet", async () => {
+test("a rejected correction projects without retry budget authority", async () => {
   const correction: AgentLanePacketCorrection = {
     disposition: "rejected",
-    attempt_count: 6,
-    attempt_limit: 3,
-    escalated: true,
     diagnosis: "the attempt did not repair the reported defects",
     strategy: "repair the reported defects with a failing regression before each fix",
     predicate_ids: [],
@@ -306,8 +303,9 @@ test("a correction past the attempt limit still projects into the packet", async
   })
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.correction).toEqual(correction)
-  expect(built.packet!.inputs.correction!.attempt_count).toBe(6)
-  expect(built.packet!.inputs.correction!.escalated).toBe(true)
+  expect(built.packet!.inputs.correction).not.toHaveProperty("attempt_count")
+  expect(built.packet!.inputs.correction).not.toHaveProperty("attempt_limit")
+  expect(built.packet!.inputs.correction).not.toHaveProperty("escalated")
 })
 
 // The pin's work-context view rides the packet verbatim. The core
@@ -792,9 +790,6 @@ test("the packet carries bounded correction data outside the work record", async
     next_valid_intents: [],
     correction: {
       disposition: "rejected",
-      attempt_count: 1,
-      attempt_limit: 3,
-      escalated: false,
       predicate_ids: ["predicate:primary"],
       evidence_refs: ["evidence:review"],
       diagnosis: "the result misses the boundary case",
@@ -878,7 +873,7 @@ test("every registered lane packet projects only its serialized mandate", async 
     const packet = built.packet!
     expect(validateAgentLanePacket(packet)).toBe(true)
     expect(packet.lane_id).toBe(lane.id)
-    expect(packet.lane_version).toBe(lane.version)
+    expect(packet.lane_digest).toBe(lane.digest)
     expect(packet.lane_digest).toBe(lane.digest)
     expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
     assertNoMandateSplice(packet)
@@ -1027,7 +1022,7 @@ test("an admitted maximum BMP premise reaches inputs.task byte-for-byte", async 
 // packet the contract admits.
 test("packet string validation counts Unicode code points, not UTF-16 units", () => {
   const packet = (task: string) => ({
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task, binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" } },
@@ -1066,7 +1061,7 @@ test("the serialized typed predicate bound stays fail-closed at the capacity the
 
 test("the closed packet schema enforces the strict per-kind outcome payload field sets", () => {
   const packet = (predicate: Record<string, unknown>) => ({
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task: "t", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, outcome_predicates: [predicate] },
@@ -1277,9 +1272,6 @@ const EIGHT_CONTRACT = {
 }
 const EIGHT_CORRECTION: AgentLanePacketCorrection = {
   disposition: "verification",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the first attempt skipped the astral premise control",
   strategy: "rerun with the full fixture",
   predicate_ids: ["predicate:con795-eight-3"],
@@ -1317,7 +1309,7 @@ test("the synthetic full-contract fixture preserves all eight predicates, record
 // source demands its matching contract_version shape.
 test("strict binding rejection", () => {
   const valid = {
-    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement",
     lane_digest: "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task: "t", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" } },
@@ -1377,10 +1369,20 @@ const READY_JOB = {
 
 const jobContinuity = (stepActions: string[], ready: unknown[]) => {
   const envelope = continuityEnvelope() as any
+  const review = reviewBlockFixture()
+  envelope.result.pinned.review_input = { input_candidate: review.input_candidate, dependencies: review.dependencies }
   envelope.result.pinned.step_actions = stepActions
   if (ready.length > 0) envelope.result.pinned.ready_worker_jobs = ready
   return envelope
 }
+
+test("a bound review cannot dispatch without its current input descriptor", async () => {
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB])
+  delete continuity.result.pinned.review_input
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity }, { laneId: "review" })
+  expect(built.failure?.kind).toBe("packet_refused")
+  expect(built.failure?.message).toContain("review input candidate and dependencies")
+})
 
 test("a job-executing lane binds the one ready worker-job revision verbatim", async () => {
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) })
@@ -1406,7 +1408,7 @@ test("a checks repair review binds the satisfied revision and its old checks ver
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
 })
 
-test("a checks repair review never funds an implementation or verification packet", async () => {
+test("a checks repair review never supplies an implementation or verification job", async () => {
   const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [])
   continuity.result.pinned.checks_repair_review_jobs = [READY_JOB]
   for (const laneId of ["implement", "verify"]) {
@@ -1522,18 +1524,9 @@ const ORACLE = {
 }
 const ORACLE_JOB = { ...READY_JOB, predicate_ids: ["predicate:primary"], acceptance_oracle: ORACLE }
 
-test("size bindings ride unchanged while caller exclusions remain implementation-only", async () => {
+test("caller scope rides unchanged while caller exclusions remain implementation-only", async () => {
   const job: AgentLanePacketWorkerJob = {
     ...ORACLE_JOB,
-    production_size_max: 200,
-    measurement_basis: {
-      base_commit: "1".repeat(40),
-      paths: [
-        { path: "internal/store/worker_jobs.go", class: "production" },
-        { path: "internal/store/worker_jobs_test.go", class: "test" },
-        { path: "internal/store/generated.go", class: "generated", generator_ref: "scripts/generate.go" },
-      ],
-    },
     direct_caller_allowance: {
       project_id: "project-1",
       mechanisms: [ORACLE.owners[0].mechanism],
@@ -1586,9 +1579,9 @@ test("TestReviewSubjectLaneMismatch", async () => {
   const agent = await Bun.file(new URL(`../../.opencode/agents/concord-review.md`, import.meta.url)).text()
   expect(agent).toContain("`inputs.work_context.subject_commit`")
   expect(agent).toContain("The host checks")
-  expect(agent).toContain("before review tool access")
-  expect(agent).toContain("and fresh report settlement")
-  expect(agent).toContain("Do not run shell commands")
+  expect(agent).toContain("before access and report settlement")
+  expect(agent).not.toContain("Do not run shell commands")
+  expect(agent).toContain("git rev-parse HEAD^{tree}")
   expect(agent).toContain("`failed`")
 })
 
@@ -1631,9 +1624,6 @@ const PAGED_WORK_CONTEXT = {
 }
 const PAGED_CORRECTION: AgentLanePacketCorrection = {
   disposition: "failed",
-  attempt_count: 2,
-  attempt_limit: 3,
-  escalated: false,
   diagnosis: "the paged attempt failed",
   strategy: "retry the paged dispatch with a fresh fenced attempt",
   predicate_ids: [],
@@ -1808,7 +1798,7 @@ test("a paged oversized continuity builds the exact packet the inline result bui
   expect(built.packet!.inputs.worker_job).toEqual(ORACLE_JOB)
   expect(built.packet!.inputs.work_context).toEqual(PAGED_WORK_CONTEXT)
   expect(built.packet!.inputs.checkpoint).toEqual(CHECKPOINT)
-  expect(built.packet!.inputs.correction!.attempt_count).toBe(2)
+  expect(built.packet!.inputs.correction).toEqual(PAGED_CORRECTION)
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
 })
 

@@ -21,8 +21,8 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	const workID = "stale-registry-current-pin-dispatch"
 	const peerID = "stale-registry-current-pin-dispatch-peer"
 	ctx := context.Background()
-	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
-	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -39,14 +39,32 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	// only the peer stays stranded.
 	driftStaleRegistryFixture(t, s)
 	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, registryRescannedHash(), workID, 1, "root"), owner, operator); err != nil {
+	// The executing coordinator re-pins unsigned under consequence_v1. The
+	// current family requires the successor's decision fact, and the shared
+	// root Domain modification is a registry edit whose contracts record why
+	// (CD-0230 D4).
+	var repin map[string]any
+	if err := json.Unmarshal(registryRepinSuccessorPayload(2, registryRescannedHash(), workID, 1, "root"), &repin); err != nil {
+		t.Fatal(err)
+	}
+	repin["decision_domains"] = []string{}
+	repin["law_change_reason"] = "Re-pin the shared root Domain modification to the rescanned registry."
+	repin["law_change_removes_user_visible_behavior"] = false
+	repin["law_change_touches_security_or_data_safety"] = false
+	if err := runApprovalActionTx(t, s, BuiltinWorkflowRegistry(), workID, "supersede_contract", owner, nil, "", "", string(mustJSONValue(repin))); err != nil {
 		t.Fatalf("subject re-pin to the current hash: %v", err)
 	}
 
 	// Each dispatch builds its packet from the state it is admitted at, as
-	// the adapter does, so the binding names the current work version.
-	dispatch := func(operationID, idempotencyKey string) error {
-		packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "repair", "attempt-"+workID))
+	// the adapter does, so the binding names the current work version. The
+	// current family dispatches only a selected ready worker-job revision;
+	// job is nil while the overlap still refuses its recording.
+	dispatch := func(operationID, idempotencyKey string, job *WorkerJobBinding) error {
+		packet := dispatchWorkerPacket(t, s, workID, "repair", "attempt-"+workID)
+		if job != nil {
+			packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job, "implement")
+		}
+		packetPayload, err := json.Marshal(packet)
 		if err != nil {
 			t.Fatalf("marshal dispatch packet: %v", err)
 		}
@@ -69,7 +87,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	// on the peer's stale pin: the refusal names the pair and carries the
 	// four closed recovery routes, the same answer an unresolved overlap
 	// beside a current-pinned peer produces.
-	err = dispatch("peer-stale", "peer-stale-key")
+	err = dispatch("peer-stale", "peer-stale-key", nil)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil {
 		t.Fatalf("dispatch_worker beside a stale peer pin error=%v, want the unresolved-overlap refusal", err)
@@ -111,11 +129,13 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 
 	// The recorded resolution is evaluated before the peer pin check, so the
 	// freshly approved current-hash contract reaches execution.
-	if err := dispatch("peer-stale-2", "peer-stale-key-2"); err != nil {
+	job := WorkerJobBinding{JobID: "job:" + workID, Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, owner, &job)
+	if err := dispatch("peer-stale-2", "peer-stale-key-2", &job); err != nil {
 		t.Fatalf("dispatch_worker under the recorded resolution: %v", err)
 	}
 	var windows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker'`, workID, WorkflowActionStarted).Scan(&windows); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_authorizations a JOIN effect_receipts r ON r.effect_seq=a.start_seq WHERE a.work_id=? AND r.subject_id=a.work_id AND r.kind=?`, workID, WorkflowActionStarted).Scan(&windows); err != nil {
 		t.Fatal(err)
 	}
 	if windows < 1 {

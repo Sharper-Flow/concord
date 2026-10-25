@@ -3,9 +3,6 @@
 Status: accepted
 Date: 2026-08-24
 
-Amended by: CD-0143 for the fresh packet and epoch required by verdict correction
-after completed and accepted worker delivery.
-
 ## Context
 
 Issue #253: the lane worker pipeline reaches no installation. The
@@ -33,14 +30,18 @@ current records. It records `worker_packet_digest`, SHA-256 over canonicalJSON
 of that same admitted packet, beside `worker_attempt_id` on the completion.
 The completion builder also records `worker_subject_commit` from the same
 tx-scoped core view whose `subject_commit` the packet validation admitted.
-The fold and `FindAuthorizedDispatchWindowTx` expose that immutable commit,
+The dispatch record and `FindAuthorizedDispatchWindowTx` expose that immutable commit,
 never a replacement derived from current state or a worker assertion.
 The integrated view carries only `subject_commit`, not a parallel candidate
 field. This extends the existing packet-derived predicate binding pattern;
 it does not retain packet bodies or create another authorization record.
 A present commit must be a valid raw commit OID. Missing candidates remain
 absent, including historical completions and non-oracle dispatches without
-a candidate. No upcast fabricates the field or changes historical authority.
+a candidate. No later write fabricates the field or rewrites an earlier completion.
+
+After verdict correction of a completed and accepted worker delivery, the next
+dispatch binds a fresh packet to the current correction context and creates a
+fresh worker attempt and epoch through the normal dispatch boundary (CD-0143 D2).
 Native oracle execution requires current clean `HEAD`, current core subject,
 and this recorded dispatch commit to be nonempty and equal.
 Missing or unequal values refuse with zero test-program launches.
@@ -48,9 +49,7 @@ Ordinary historical dispatch behavior remains unchanged; absent commit binding
 grants no native oracle execution. No store migration is needed for this
 completion-payload field.
 
-Amended 2026-10-09 for the packet output-protocol pin
-([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
-the packet declares its output protocol. `inputs.report_protocol`, when
+The packet declares its output protocol. `inputs.report_protocol`, when
 present, names the report framing its worker must use —
 `concord-worker-result-v1` — and every new packet builder sets it. The field
 travels inside the digested packet object, so `worker_packet_digest` pins it
@@ -60,16 +59,13 @@ the field is historical, and its output follows
 the legacy report grammar; a packet that pins the protocol never falls back
 to that grammar.
 
-Amended 2026-10-13 for the consumed context frontier, the core-observed
-delivery observation, and core-owned subject freshness
-([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
-the dispatch completion also records `worker_context_frontier`, the
-nonnegative source-event frontier of the admitted work-context view: the
-highest sequence among the work item's context-source events at read time. A
+The dispatch completion also records `worker_context_frontier`, the
+nonnegative source frontier of the admitted work-context view: the
+highest sequence among the work item's context-source records at read time. A
 present view carries its frontier, including zero, and a dispatch whose
 admitted view is absent carries explicit zero. Absence of the recorded field
 stays reserved for terminals recorded before this field existed, and no
-reader turns that absence into zero. Every terminal event whose
+reader turns that absence into zero. Every terminal record whose
 authorization recorded the field derives `consumed_context_frontier` from
 that authorization: a completed and a failed report carry it, a failure
 without a report included. The field attributes the terminal input to the
@@ -84,7 +80,7 @@ before the append. A caller, a packet, or a worker value can neither supply
 nor alter the field. Dirty but reachable worktrees record `dirty`. A Git
 failure or deadline refuses the completion with zero terminal events,
 derived failures, and nonce effects; no `unavailable` observation exists. An
-exact acknowledgment of a recorded event returns the stored observation and
+exact acknowledgment of a recorded completion returns the stored observation and
 probes no Git. A completion whose authorization recorded no worktree
 binding, and every completion recorded before this observation existed,
 keeps explicit absence. The store never fills that absence from current
@@ -112,8 +108,7 @@ through the existing records. Newer rejected, failed, or unaccepted results
 cannot replace the accepted delivery, and they do not let an older one
 through. A delivery from another work item, Project, or worktree cannot host
 the review, and a cancelled or superseded work item cannot review. This join
-resets no correction budget, refunds no attempt, and opens no approval
-challenge. A review whose joined delivery carries no clean core observation
+opens no approval challenge. A review whose joined delivery carries no clean core observation
 refuses; the approved remedy is a fresh implementation attempt.
 
 The dispatch packet is admitted whole under the shared dispatch context

@@ -14,10 +14,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestWorkflowSuccessorLinkedV1RebuildPreservesUnpinnedResearchSuccessor"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestWorkflowSuccessorLinkedCurrentVersionRequiresDefinitionRef"
     },
     {

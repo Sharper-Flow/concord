@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,10 +13,9 @@ import (
 // The cross-field payload rules (legal input combinations, alternative field
 // groups) are typed declarations on the ENGINE action registry — the one
 // owner core validation enforces and the published variants generate their
-// closed branches from (CON-412). These tests hold that ownership: every
+// closed branches from. These tests hold that ownership: every
 // declaration is registry-valid, a declaration that drifts from its own
-// fields fails validation, definition digests stay byte-identical to the
-// released ones, and every declared rule produces core and published
+// fields fails validation, and every declared rule produces core and published
 // verdicts that match in both directions — including every partial
 // alternative-group mutant.
 
@@ -34,6 +34,9 @@ func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 		}
 	}
 	for _, action := range BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
+		payloads[action.ID] = action.Payload
+	}
+	for _, action := range BuiltinWorkflowDecisionFactActionDefinitions() {
 		payloads[action.ID] = action.Payload
 	}
 	return payloads
@@ -111,7 +114,7 @@ func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
 // each rule's own invalid mutant — a required field dropped under its
 // discriminator value, a forbidden field carried under it, an alternative
 // group withheld, or two groups supplied — is refused by both, in both
-// directions against the same declaration (CON-412).
+// directions against the same declaration.
 func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
 	declaredAny := false
@@ -142,22 +145,20 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 		sample := firstCallObject(defs, map[string]any{"$ref": "#/$defs/" + variantName})
 		fieldsNode := mergeRefSiblings(defs, firstCallResolve(defs, variant["properties"].(map[string]any)["fields"].(map[string]any)))
 		baseFields := crossFieldSampleObject(defs, fieldsNode)
+		for _, field := range payload.Fields {
+			if field.Required && !field.Envelope {
+				if _, present := baseFields[field.Name]; !present {
+					baseFields[field.Name] = sampleFieldValue(t, defs, variantName, field.Name)
+				}
+			}
+		}
 		core := func(fields map[string]any) error {
 			encoded, err := json.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if actionID == "supersede_contract" {
-				// A canonical head pins the canonical recovery fields, so
-				// the core validator reads the same declaration the
-				// published variant generates from. The published fields
-				// offer the legacy and the consequence_v1 successor, and
-				// only the consequence_v1 one carries decision_domains.
-				definition := legacyApprovalPolicyDefinitionForRef(t, "workflow.implementation").Definition
-				if _, decisionFact := fields["decision_domains"]; decisionFact {
-					definition = currentWorkflowDefinition(t)
-				}
-				return validateWorkflowContractRecoveryPayload(definition, encoded)
+				return validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), encoded)
 			}
 			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
 		}
@@ -516,6 +517,13 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 			list := make([]any, int(minimum))
 			for i := range list {
 				list[i] = crossFieldSampleValue(defs, items)
+				if unique, _ := node["uniqueItems"].(bool); unique {
+					if binding, ok := list[i].(map[string]any); ok {
+						if _, hasJob := binding["job_id"]; hasJob {
+							binding["job_id"] = fmt.Sprintf("job:cross-field-%d", i)
+						}
+					}
+				}
 			}
 			return list
 		}

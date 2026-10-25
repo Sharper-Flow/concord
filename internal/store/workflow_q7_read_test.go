@@ -24,71 +24,41 @@ func TestQ7OmitsUnboundWorkflow(t *testing.T) {
 	}
 }
 
-// TestQ7ContinuationPagesHoldTheNextEvents walks every history page of
-// ordinary lifecycle events through its cursor: each page holds exactly the
-// next events in the requested direction and kind filter, and only the last
-// page carries no cursor.
-func TestQ7ContinuationPagesHoldTheNextEvents(t *testing.T) {
+// CD-0242 D2 retires the exact transition trace. Paging retains only current rows.
+func TestQ7ContinuationPagesHoldCurrentEntries(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	const work = "q7-pages"
-	seedWork(t, s, work)
-	for i, event := range []Event{
-		workTransitionEvent("q7-start", work, "needed", "in_progress", 2, 3),
-		workTransitionEvent("q7-finish", work, "in_progress", "completed", 3, 4),
-		workReopenedEvent("q7-reopen", work, "completed", 4, 5),
-		workTransitionEvent("q7-restart", work, "needed", "in_progress", 5, 6),
-		workTransitionEvent("q7-cancel", work, "in_progress", "cancelled", 6, 7),
-	} {
-		if err := applyWorkEvent(t, s, event, workVersion(work, int64(i+2))); err != nil {
-			t.Fatalf("apply %s: %v", event.EventID, err)
-		}
-	}
-	all := []string{"create-" + work, "q7-start", "q7-finish", "q7-reopen", "q7-restart", "q7-cancel"}
-	transitions := []string{"q7-start", "q7-finish", "q7-restart", "q7-cancel"}
-	reversed := func(ids []string) []string {
-		out := make([]string, len(ids))
-		for i, id := range ids {
-			out[len(ids)-1-i] = id
-		}
-		return out
-	}
+	s := seedQueryFixture(t)
+	const work = "blocked"
 	for _, tc := range []struct {
 		name      string
 		direction string
 		kinds     []string
-		want      []string
 	}{
-		{name: "default kinds oldest first", direction: "oldest_first", want: all},
-		{name: "default kinds newest first", direction: "newest_first", want: reversed(all)},
-		{name: "one kind oldest first", direction: "oldest_first", kinds: []string{"work.transitioned"}, want: transitions},
-		{name: "one kind newest first", direction: "newest_first", kinds: []string{"work.transitioned"}, want: reversed(transitions)},
+		{name: "all oldest first", direction: "oldest_first"},
+		{name: "all newest first", direction: "newest_first"},
+		{name: "relations oldest first", direction: "oldest_first", kinds: []string{"relation"}},
+		{name: "relations newest first", direction: "newest_first", kinds: []string{"relation"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			const limit = 2
-			var want [][]string
-			for start := 0; start < len(tc.want); start += limit {
-				want = append(want, tc.want[start:min(start+limit, len(tc.want))])
+			full, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, RecordKinds: tc.kinds, Limit: 100})
+			if err != nil {
+				t.Fatal(err)
 			}
-			var got [][]string
+			var got []HistoryEntry
 			cursor := ""
-			for len(got) <= len(want) {
-				out, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, EventKinds: tc.kinds, Limit: limit, Cursor: cursor})
+			for len(got) <= len(full.Entries) {
+				out, err := s.QueryQ7(context.Background(), Q7Request{Work: work, Direction: tc.direction, RecordKinds: tc.kinds, Limit: 1, Cursor: cursor})
 				if err != nil {
 					t.Fatalf("page %d: %v", len(got)+1, err)
 				}
-				ids := []string{}
-				for _, event := range out.Events {
-					ids = append(ids, event.EventID)
-				}
-				got = append(got, ids)
+				got = append(got, out.Entries...)
 				if out.NextCursor == nil {
 					break
 				}
 				cursor = *out.NextCursor
 			}
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("pages = %v, want %v with no cursor after the last page", got, want)
+			if !reflect.DeepEqual(got, full.Entries) {
+				t.Fatalf("pages = %v, want %v with no cursor after the last page", got, full.Entries)
 			}
 		})
 	}
@@ -130,14 +100,14 @@ func TestQ7ProjectsParkedDelivery(t *testing.T) {
 func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-fields"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	version, err := workflowCurrentVersion(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/"+workID)
+	executor := completion.Actor
 	noticeID := WorkflowNoticeID(workID, 1, "spec", "spec:one", workID, "informational")
 	events := []Event{
 		workflowEventWithActor("q7-candidate", WorkflowCandidateSetRevised, workID, executor, map[string]any{
@@ -147,7 +117,7 @@ func TestQ7ProjectsCandidatesNoticesAndWarnings(t *testing.T) {
 		workflowEvent("q7-notice", WorkflowImpactNoticeRecorded, workID, map[string]any{
 			"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "notice_id": noticeID,
 			"source_contract_version": 1, "entity_kind": "spec", "entity_ref": "spec:one", "target_work_id": workID,
-			"edge_id": "edge:" + workID, "old_hash": nil, "new_hash": nil, "severity": "informational",
+			"edge_owner_work_id": workID, "edge_id": "edge:" + workID, "old_hash": nil, "new_hash": nil, "severity": "informational",
 		}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
@@ -187,23 +157,16 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-stale-law"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	successorHash := "sha256:" + strings.Repeat("b", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid)
-		VALUES('project','workflow-law-locator','spec:next','spec','accepted','.concord/docs/next.md','Successor',?,'test');
-		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid)
-		VALUES('project','workflow-law-locator','spec:next','supersedes','spec:one','test');
-		DELETE FROM fold_guard`, successorHash); err != nil {
-		t.Fatal(err)
-	}
+	pinnedHash := "sha256:" + strings.Repeat("a", 64)
+	attachWorkflowLawPin(t, s, workID, pinnedHash)
+	cutoverLawProjection(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	full, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.StaleLawRevision == nil || full.StaleLawRevision.OldLawID != "spec:one" || full.StaleLawRevision.AcceptedSuccessorLawID != "spec:next" || full.StaleLawRevision.AcceptedSuccessorContentHash != successorHash {
+	if full.StaleLawRevision == nil || full.StaleLawRevision.OldLawID != "spec:one" || full.StaleLawRevision.OldContentHash != pinnedHash || !reflect.DeepEqual(full.StaleLawRevision.RecoveryActions, []string{"supersede_contract", "terminal_work"}) {
 		t.Fatalf("fixture did not populate the full reader's stale law revision: %+v", full.StaleLawRevision)
 	}
 	out, err := s.QueryQ7(ctx, Q7Request{Work: workID})
@@ -214,8 +177,8 @@ func TestQ7ProjectsStaleLawRevision(t *testing.T) {
 		t.Fatal("Q7 omitted the recorded workflow")
 	}
 	stale := out.Result.Workflow.StaleLawRevision
-	if stale == nil || stale.OldLawID != "spec:one" || stale.AcceptedSuccessorLawID != "spec:next" || stale.AcceptedSuccessorContentHash != successorHash {
-		t.Fatalf("Q7 stale law revision = %+v, want spec:one superseded by spec:next at %s", stale, successorHash)
+	if !reflect.DeepEqual(stale, full.StaleLawRevision) {
+		t.Fatalf("Q7 stale law revision = %+v, want deleted spec:one at pinned hash %s with closed recovery actions", stale, pinnedHash)
 	}
 	// The stale-law check belongs to the active contract: a selected
 	// contract version, even the active one, omits it.

@@ -20,7 +20,7 @@ import (
 // versions earlier binaries recorded — worker.dispatched v3 (pre
 // lane-actor enrichment), worker.dispatched v4 (enriched), and
 // worker.completed v3 (pre worker-job claim) — through the store's lawful
-// append routes, then acknowledge them by their original event identifier
+// retained current rows, then acknowledge them by their original identifier
 // with fresh signed assertions. The stored row must keep its raw version,
 // raw payload bytes, actor, and single-event count, and a request that
 // inserts content the original never carried must refuse.
@@ -36,7 +36,6 @@ func legacyWorkerDispatchEvent(t *testing.T, eventID string, lane store.LaneDefi
 	payload := store.WorkerDispatchedPayload{
 		AttemptID:           "attempt-1",
 		LaneID:              lane.ID,
-		LaneVersion:         lane.Version,
 		LaneDigest:          lane.Digest,
 		CapabilityClass:     lane.CapabilityClass,
 		PacketSchemaVersion: store.WorkerPacketSchemaVersionLegacy,
@@ -55,21 +54,15 @@ func legacyWorkerDispatchEvent(t *testing.T, eventID string, lane store.LaneDefi
 	}
 }
 
-// seedLegacyWorkerDispatchEvent records one worker.dispatched event at the
-// raw payload version and released schema pair a binary of that era
-// recorded. The 2.0 cutover refuses retired pairs on the live boundary, so
-// the historical row is inserted into the domain log exactly as that era's
-// binary wrote it and the projection is rebuilt from the log — the same
-// recorded history a pre-cutover store carries, with the stored row keeping
-// its raw version, payload bytes, and actor.
+// seedLegacyWorkerDispatchEvent retains the original payload version, released
+// schema pair, bytes and actor that exact acknowledgment must compare.
 func seedLegacyWorkerDispatchEvent(t *testing.T, dbPath, eventID string, lane store.LaneDefinition, readback string, rawVersion int) {
 	t.Helper()
 	seedLegacyWorkerEventRows(t, dbPath, legacyWorkerDispatchEvent(t, eventID, lane, readback, rawVersion))
 }
 
 // seedLegacyWorkerCompletionEvent records one worker.completed event at the
-// raw v3 payload version, behind a legacy v3 dispatch of the same attempt so
-// the completion folds against the schema identity that era recorded.
+// raw v3 payload version, beside a legacy v3 dispatch of the same attempt.
 func seedLegacyWorkerCompletionEvent(t *testing.T, dbPath, dispatchEventID, completionEventID string, lane store.LaneDefinition, readback string) {
 	t.Helper()
 	evidence := make([]store.WorkerReportEvidence, 0, len(lane.EvidenceObligations))
@@ -91,12 +84,9 @@ func seedLegacyWorkerCompletionEvent(t *testing.T, dbPath, dispatchEventID, comp
 	seedLegacyWorkerEventRows(t, dbPath, legacyWorkerDispatchEvent(t, dispatchEventID, lane, readback, 3), completion)
 }
 
-// seedLegacyWorkerEventRows inserts the given events into the domain log and
-// the worker-attempt projection row the dispatch fold maintains, exactly as
-// the era's binary left them: the log row keeps its raw payload version,
-// payload bytes, and actor, and the projection keeps the released pair. The
-// 2.0 cutover refuses retired pairs on the live boundary, so recorded
-// history reaches the store the way a pre-cutover store carries it.
+// seedLegacyWorkerEventRows retains original worker payloads beside their
+// immutable receipt identities. eventByID joins these exact current rows;
+// no live dispatch validation or stored-payload conversion is exercised here.
 func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Event) {
 	t.Helper()
 	ctx := context.Background()
@@ -111,26 +101,36 @@ func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Even
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, event := range events {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES (?,?,?,?,?,?,?,?)`,
-			event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), event.PayloadVersion, string(event.Payload)); err != nil {
-			t.Fatalf("seed legacy event %s: %v", event.EventID, err)
-		}
+		seq := seedCLIReceipt(t, tx, event)
 		if event.Kind == store.WorkerDispatched {
 			var payload store.WorkerDispatchedPayload
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
-				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
+				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
 				t.Fatalf("seed legacy attempt row %s: %v", payload.AttemptID, err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET dispatch_event_id=?,dispatch_actor=?,dispatch_payload_version=?,dispatch_payload=?,dispatch_seq=? WHERE work_id=? AND attempt_id=?`, event.EventID, event.Actor, event.PayloadVersion, string(event.Payload), seq, event.SubjectID, payload.AttemptID); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			var payload struct {
+				AttemptID string `json:"attempt_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET terminal_event_id=?,terminal_kind=?,terminal_payload_version=?,terminal_payload=?,terminal_seq=?,terminal_occurred_at=? WHERE work_id=? AND attempt_id=?`, event.EventID, event.Kind, event.PayloadVersion, string(event.Payload), seq, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID, payload.AttemptID); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -148,8 +148,16 @@ func storedWorkerEventRow(t *testing.T, dbPath, eventID string) (version int, pa
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := db.QueryRow(`SELECT payload_version,payload,actor FROM domain_events WHERE event_id=?`, eventID).Scan(&version, &payload, &actor); err != nil {
+	var digest string
+	if err := db.QueryRow(`SELECT r.payload_version,CASE r.kind WHEN 'worker.dispatched' THEN a.dispatch_payload ELSE a.terminal_payload END,r.actor,r.payload_digest
+FROM effect_receipts r JOIN worker_attempts a ON a.work_id=r.subject_id AND
+((r.kind='worker.dispatched' AND a.dispatch_event_id=r.event_id AND a.dispatch_seq=r.effect_seq AND a.dispatch_payload_version=r.payload_version AND a.dispatch_actor=r.actor) OR
+(r.kind IN ('worker.completed','worker.failed') AND a.terminal_event_id=r.event_id AND a.terminal_kind=r.kind AND a.terminal_seq=r.effect_seq AND a.terminal_payload_version=r.payload_version))
+WHERE r.event_id=?`, eventID).Scan(&version, &payload, &actor, &digest); err != nil {
 		t.Fatalf("read stored event %s: %v", eventID, err)
+	}
+	if want := cliPayloadDigest(t, payload); digest != want {
+		t.Fatalf("stored original payload %q does not match receipt: got %q want %q", eventID, digest, want)
 	}
 	return version, payload, actor
 }
@@ -162,7 +170,7 @@ func countWorkerEvents(t *testing.T, dbPath, kind string) int {
 	}
 	defer db.Close()
 	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id='work-1' AND kind=?`, kind).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='work-1' AND kind=?`, kind).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

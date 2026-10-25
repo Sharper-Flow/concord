@@ -45,7 +45,6 @@ func resolutionPolicyDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	definition := routinePolicyDefinition(t)
 	definition.Ref = resolutionWorkflowRef
-	definition.Version = 1
 	// The decision-record checkpoint folds against the pinned payload
 	// contract, so the local definition declares record_decision's typed
 	// fields beside the implementation actions it already carries.
@@ -70,7 +69,7 @@ func newResolutionRegistry(t *testing.T, definition WorkflowDefinition) (Definit
 // operation with the caller's definition registry bound to the scope before
 // any write. The binding refuses a scope from another transaction and a
 // conflicting second registry on one scope.
-func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *foldScope, registry DefinitionRegistry) error {
+func applyWorkflowOperationTxWithRegistry(ctx context.Context, tx *sql.Tx, operation Operation, scope *writeScope, registry DefinitionRegistry) error {
 	if err := scope.bindRegistry(tx, registry); err != nil {
 		return err
 	}
@@ -87,7 +86,7 @@ func tryAppendWorkflowEventsWithRegistry(s *Store, registry DefinitionRegistry, 
 		return err
 	}
 	defer tx.Rollback()
-	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newFoldScope(tx), registry); err != nil {
+	if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, operation, newWriteScope(tx), registry); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -136,7 +135,7 @@ func resolutionSelectionOperation(t *testing.T, s *Store, workID string, registe
 				"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent",
 			}),
 			resolutionEvent("resolution-selection-"+workID, WorkflowDefinitionSelected, workID, ownerRef, version+1, map[string]any{
-				"ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest,
+				"ref": registered.Definition.Ref, "digest": registered.Digest,
 				"work_kind": string(registered.Definition.WorkKind),
 			}),
 		},
@@ -162,9 +161,13 @@ func seedResolutionSelection(t *testing.T, workID string, registry DefinitionReg
 func runResolutionProducer(s *Store, registry DefinitionRegistry, workID, principal string) (FenceResult, error) {
 	opID := "resolution-produce-" + workID
 	requestID := "request:" + opID
+	registered, ok := registry.Current(resolutionWorkflowRef)
+	if !ok {
+		return FenceResult{}, definitionFailure(KindDefinitionDigestMismatch, "local producer definition is not registered")
+	}
 	claimed, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 		OpID: opID, WorkID: workID,
-		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+		WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 		StepID: "execution", StepKind: StepExternalEffect,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), AcceptedScopeSnapshot: `{}`,
 		PrincipalRef: principal, Tool: "workflow-resolution-test", IdempotencyKey: opID,
@@ -299,7 +302,7 @@ func runResolutionAction(s *Store, registry DefinitionRegistry, workID, action s
 	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		return err
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), registry, WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), registry, WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload,
 		Actor:                actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
@@ -323,7 +326,7 @@ func seedResolutionInvestigation(t *testing.T, s *Store, workID string) {
 	seedIssue31DomainRegistry(t, s)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
 		EventID: "resolution-investigation-" + workID, Kind: WorkObservationRecorded, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: 1,
+		Actor: "actor:test", OccurredAt: time.Unix(8, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion(WorkObservationRecorded),
 		Payload: mustJSONValue(map[string]any{
 			"observation_id": "obs:" + strings.Repeat("a", 16), "statement": "technical investigation",
 			"refs": []string{"root", other}, "tags": []string{},
@@ -371,40 +374,12 @@ func confirmResolutionPremise(t *testing.T, s *Store, registry DefinitionRegistr
 	return events, nil
 }
 
-// resolutionCompletionEvent builds the typed completion event the terminal
-// entry folds: non-breaking impact, completed terminal state, and the stored
-// independent verdict's actor.
-func resolutionCompletionEvent(workID, actorRef, verdictActorRef string, version int64) Event {
-	return workflowTypedEvent("resolution-complete-"+workID, WorkflowCompleted, workID, actorRef, time.Unix(12, 0).UTC(), version, map[string]any{
-		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": verdictActorRef,
-		"premise_confirmed": true, "evidence_count": 2,
-		"changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": "non-breaking",
-	})
-}
-
 // recordResolutionActors records the independent reviewer, the operator, and
 // the non-executing coordinator on the seeded instance. Re-recording the same
 // tuples folds idempotently, so callers may invoke it more than once.
 func recordResolutionActors(t *testing.T, s *Store, workID string) (reviewer WorkflowActor, operator WorkflowActor, coordinator WorkflowActor) {
 	t.Helper()
 	return seedRoutineReviewersForSelection(t, s, workID)
-}
-
-// recordResolutionVerdict records the independent reviewer's ok verdict for
-// the contract's approved predicate through the real dispatcher.
-func recordResolutionVerdict(t *testing.T, s *Store, registry DefinitionRegistry, workID string) {
-	t.Helper()
-	reviewer := reviewerForSeed(t, s, workID)
-	payload := json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`)
-	if err := runResolutionAction(s, registry, workID, "record_verdict", payload, reviewer); err != nil {
-		t.Fatalf("independent verdict refused under the local pin: %v", err)
-	}
-}
-
-// runResolutionActionVerdict records one verdict with explicit fields so the
-// worker and self-verdict refusals can name the claimed evaluator.
-func runResolutionActionVerdict(s *Store, registry DefinitionRegistry, workID string, actor WorkflowActor, payload json.RawMessage) error {
-	return runResolutionAction(s, registry, workID, "record_verdict", payload, actor)
 }
 
 func TestWorkflowDefinitionResolution(t *testing.T) {
@@ -417,12 +392,11 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		registry, registered := newResolutionRegistry(t, definition)
 		s, _ := seedResolutionSelection(t, workID, registry, registered)
 		var ref, digest string
-		var version int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &version, &digest); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref, &digest); err != nil {
 			t.Fatalf("selection fold did not create the instance under the caller registry: %v", err)
 		}
-		if ref != resolutionWorkflowRef || version != 1 || digest != registered.Digest {
-			t.Fatalf("instance pin = %s@%d %s, want the caller registry's %s@1 %s", ref, version, digest, resolutionWorkflowRef, registered.Digest)
+		if ref != resolutionWorkflowRef || digest != registered.Digest {
+			t.Fatalf("instance pin = %s %s, want the caller registry's %s %s", ref, digest, resolutionWorkflowRef, registered.Digest)
 		}
 	})
 
@@ -455,18 +429,12 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 
 	t.Run("both confirmation authorities resolve the verified definition", func(t *testing.T) {
 		t.Parallel()
+		registry, definition := BuiltinWorkflowRegistry(), mustBuiltinDefinition(t, "workflow.implementation").Definition
 		const engineeringID = "resolution-confirm-engineering"
-		definition := resolutionPolicyDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, engineeringID, registry, registered)
-		_, _, coordinator := recordResolutionActors(t, s, engineeringID)
-		advanceResolutionToExecution(t, s, registry, engineeringID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, engineeringID, owner)
-		recordResolutionVerdict(t, s, registry, engineeringID)
-		seedResolutionInvestigation(t, s, engineeringID)
+		s, _, _, _, coordinator := engineeringConfirmationSeed(t, engineeringID, `[]`)
 		events, err := confirmResolutionPremise(t, s, registry, definition, engineeringID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
 		if err != nil {
-			t.Fatalf("engineering confirmation refused under the local pin: %v", err)
+			t.Fatalf("engineering confirmation refused: %v", err)
 		}
 		var payload struct {
 			ConfirmingActorRef    string `json:"confirming_actor_ref"`
@@ -488,12 +456,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		// Engineering takes no operator substitution.
 		const substitutedID = "resolution-confirm-substituted"
-		s2, owner2 := seedResolutionSelection(t, substitutedID, registry, registered)
-		_, operator2, coordinator2 := recordResolutionActors(t, s2, substitutedID)
-		advanceResolutionToExecution(t, s2, registry, substitutedID, owner2, []string{})
-		advanceResolutionDelivery(t, s2, registry, substitutedID, owner2)
-		recordResolutionVerdict(t, s2, registry, substitutedID)
-		seedResolutionInvestigation(t, s2, substitutedID)
+		s2, _, _, operator2, coordinator2 := engineeringConfirmationSeed(t, substitutedID, `[]`)
 		_, substitutionErr := confirmResolutionPremise(t, s2, registry, definition, substitutedID, coordinator2, &operator2, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)})
 		var substitutionFailure *Failure
 		if substitutionErr == nil || !failureAs(substitutionErr, &substitutionFailure) || substitutionFailure.Kind != KindUnauthorized {
@@ -501,11 +464,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		// Decision-bearing keeps the verified operator and the human context.
 		const decisionID = "resolution-confirm-decision"
-		s3, owner3 := seedResolutionSelection(t, decisionID, registry, registered)
-		_, operator3, coordinator3 := recordResolutionActors(t, s3, decisionID)
-		advanceResolutionToExecution(t, s3, registry, decisionID, owner3, []string{"product"})
-		advanceResolutionDelivery(t, s3, registry, decisionID, owner3)
-		recordResolutionVerdict(t, s3, registry, decisionID)
+		s3, _, _, operator3, coordinator3 := engineeringConfirmationSeed(t, decisionID, `["product"]`)
 		_, missingOperatorErr := confirmResolutionPremise(t, s3, registry, definition, decisionID, coordinator3, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"digest:human-question"`)})
 		var missingOperatorFailure *Failure
 		if missingOperatorErr == nil || !failureAs(missingOperatorErr, &missingOperatorFailure) || missingOperatorFailure.Kind != KindApprovalRequired {
@@ -514,8 +473,9 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		if _, err := confirmResolutionPremise(t, s3, registry, definition, decisionID, coordinator3, &operator3, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`), "decision_context_digest": json.RawMessage(`"digest:human-question"`)}); err != nil {
 			t.Fatalf("decision confirmation refused with the verified operator: %v", err)
 		}
+		// The decision fact rides contract 2, the reclassified successor.
 		var confirmedOperator string
-		if err := s3.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, decisionID).Scan(&confirmedOperator); err != nil {
+		if err := s3.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, decisionID).Scan(&confirmedOperator); err != nil {
 			t.Fatal(err)
 		}
 		if confirmedOperator != ownerRefForTest(t, operator3) {
@@ -523,82 +483,39 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("acceptance deliverables read the caller registry", func(t *testing.T) {
+	t.Run("acceptance deliverables read the pinned definition", func(t *testing.T) {
 		t.Parallel()
-		const workID = "resolution-deliverables"
-		definition := resolutionPolicyDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		recordResolutionActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		// Before the independent verdict the deliverables check refuses with
-		// the recorded-verdict requirement.
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
+		definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+		readDeliverables := func(t *testing.T, s *Store, definition WorkflowDefinition, workID string) error {
+			t.Helper()
+			tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			return requireAcceptanceDeliverables(context.Background(), tx, definition, workID)
 		}
-		deliverablesErr := requireAcceptanceDeliverables(context.Background(), tx, definition, workID)
+		// Before Main associates the accepted Review with the criteria the
+		// deliverables check refuses.
+		const unassociatedID = "resolution-deliverables-unassociated"
+		s, _, _, _, _ := engineeringConfirmationFixture(t, unassociatedID, `[]`, false, true)
 		var failure *Failure
-		if deliverablesErr == nil || !failureAs(deliverablesErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "recorded workflow verdict") {
-			t.Fatalf("deliverables without a verdict returned %v, want the missing-verdict refusal", deliverablesErr)
+		if err := readDeliverables(t, s, definition, unassociatedID); !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
+			t.Fatalf("deliverables without the criterion association returned %v, want the missing-evidence refusal", err)
 		}
-		if err := tx.Rollback(); err != nil {
-			t.Fatal(err)
-		}
-		recordResolutionVerdict(t, s, registry, workID)
-		checkTx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer checkTx.Rollback()
-		if err := requireAcceptanceDeliverables(context.Background(), checkTx, definition, workID); err != nil {
-			t.Fatalf("deliverables refused under the caller registry with the verdict recorded: %v", err)
+		const workID = "resolution-deliverables"
+		s2, _, _, _, _ := engineeringConfirmationSeed(t, workID, `[]`)
+		if err := readDeliverables(t, s2, definition, workID); err != nil {
+			t.Fatalf("deliverables refused with the criterion association recorded: %v", err)
 		}
 		// The stored contract's approved predicates are validated against the
-		// definition the owner hands in: a verified definition that would not
-		// have approved the stored outcome refuses.
-		const foreignShapeID = "resolution-deliverables-shape"
-		s2, owner2 := seedResolutionSelection(t, foreignShapeID, registry, registered)
-		recordResolutionActors(t, s2, foreignShapeID)
-		advanceResolutionToExecution(t, s2, registry, foreignShapeID, owner2, []string{})
-		advanceResolutionDelivery(t, s2, registry, foreignShapeID, owner2)
-		recordResolutionVerdict(t, s2, registry, foreignShapeID)
-		mismatched := resolutionPolicyDefinition(t)
-		mismatched.OutcomeSchema.AllowedKinds = []PredicateKind{PredicateExists}
-		shapeTx, err := s2.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer shapeTx.Rollback()
-		shapeErr := requireAcceptanceDeliverables(context.Background(), shapeTx, mismatched, foreignShapeID)
+		// definition the owner hands in: a definition that would not have
+		// approved the stored outcome refuses.
+		mismatched := definition
+		mismatched.OutcomeSchema.AllowedKinds = []PredicateKind{PredicateAbsent}
 		var shapeFailure *Failure
-		if shapeErr == nil || !failureAs(shapeErr, &shapeFailure) || shapeFailure.Kind != KindInvariantViolation || !strings.Contains(shapeFailure.Detail, "outside the pinned definition") {
-			t.Fatalf("deliverables under a definition that disapproves the stored outcome returned %v, want the pinned-definition refusal", shapeErr)
-		}
-		// Partially bound required evidence refuses even with the verdict
-		// recorded: the born-bound mint binds every required kind, so the gap
-		// is authored by binding verification alone and leaving review
-		// unbound.
-		const unboundID = "resolution-deliverables-unbound"
-		s3, owner3 := seedResolutionSelection(t, unboundID, registry, registered)
-		recordResolutionActors(t, s3, unboundID)
-		advanceResolutionPrefix(t, s3, registry, unboundID, owner3, []string{}, true)
-		bindResolutionEvidence(t, s3, registry, unboundID, owner3, "verification", "evidence:operator-verdict")
-		advanceResolutionDelivery(t, s3, registry, unboundID, owner3)
-		reviewer3 := reviewerForSeed(t, s3, unboundID)
-		if err := runResolutionAction(s3, registry, unboundID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`), reviewer3); err != nil {
-			t.Fatalf("verdict refused with only verification bound: %v", err)
-		}
-		unboundTx, err := s3.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer unboundTx.Rollback()
-		unboundErr := requireAcceptanceDeliverables(context.Background(), unboundTx, definition, unboundID)
-		var unboundFailure *Failure
-		if unboundErr == nil || !failureAs(unboundErr, &unboundFailure) || unboundFailure.Kind != KindMissingEvidence || !strings.Contains(unboundFailure.Detail, "evidence kind bound") {
-			t.Fatalf("deliverables with unbound required evidence returned %v, want the missing-evidence refusal", unboundErr)
+		if err := readDeliverables(t, s2, mismatched, workID); !failureAs(err, &shapeFailure) || shapeFailure.Kind != KindInvariantViolation || !strings.Contains(shapeFailure.Detail, "outside the pinned definition") {
+			t.Fatalf("deliverables under a definition that disapproves the stored outcome returned %v, want the pinned-definition refusal", err)
 		}
 	})
 
@@ -637,68 +554,6 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("terminal lifecycle refuses a drifted pin without effect", func(t *testing.T) {
-		t.Parallel()
-		const workID = "resolution-lifecycle-drift"
-		definition := resolutionPolicyDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		advanceResolutionPrefix(t, s, registry, workID, owner, []string{}, false)
-		// A second registry carries the same family and version with different
-		// bytes, so only the stored digest can tell them apart.
-		drifted := resolutionPolicyDefinition(t)
-		drifted.EvaluatorIndependence.ModelDistinct = !drifted.EvaluatorIndependence.ModelDistinct
-		driftRegistry := NewWorkflowDefinitionRegistry()
-		if _, err := driftRegistry.Register(drifted); err != nil {
-			t.Fatalf("drifted definition refused registration: %v", err)
-		}
-		var baselineVersion int64
-		var baselineLifecycle string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT version,lifecycle FROM work_items WHERE id=?`, workID).Scan(&baselineVersion, &baselineLifecycle); err != nil {
-			t.Fatal(err)
-		}
-		var baselineEvents int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&baselineEvents); err != nil {
-			t.Fatal(err)
-		}
-		ownerRef := ownerRefForTest(t, owner)
-		transition := workflowEventWithActor("resolution-transition-"+workID, "work.transitioned", workID, ownerRef, map[string]any{
-			"from": "in_progress", "to": "completed", "reason": "workflow completed",
-			"evidence_refs":    []string{},
-			"expected_version": baselineVersion, "resulting_version": baselineVersion + 1,
-		})
-		appendErr := tryAppendWorkflowEventsWithRegistry(s, driftRegistry, Operation{
-			Events:           []Event{transition},
-			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baselineVersion},
-		})
-		var driftFailure *Failure
-		if appendErr == nil || !failureAs(appendErr, &driftFailure) || driftFailure.Kind != KindInvariantViolation || !strings.Contains(driftFailure.Detail, "digest drifted") {
-			t.Fatalf("terminal lifecycle under a digest-drifted registry returned %v, want the drift refusal", appendErr)
-		}
-		var version int64
-		var lifecycle string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT version,lifecycle FROM work_items WHERE id=?`, workID).Scan(&version, &lifecycle); err != nil {
-			t.Fatal(err)
-		}
-		if version != baselineVersion || lifecycle != baselineLifecycle {
-			t.Fatalf("the refused transition moved the work item to version %d %q, want %d %q", version, lifecycle, baselineVersion, baselineLifecycle)
-		}
-		var events int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
-			t.Fatal(err)
-		}
-		if events != baselineEvents {
-			t.Fatalf("the refused transition left %d events, want the baseline %d", events, baselineEvents)
-		}
-		var guards int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil {
-			t.Fatal(err)
-		}
-		if guards != 0 {
-			t.Fatalf("the refused transition stranded %d fold guard rows", guards)
-		}
-	})
-
 	t.Run("durable producer claims and completes under the local pin", func(t *testing.T) {
 		t.Parallel()
 		const workID = "resolution-producer"
@@ -725,7 +580,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// stored pin.
 		if _, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-claim-wrong-step-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "proposal", StepKind: StepInternalSQLite,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-claim-wrong-step-" + workID,
@@ -737,7 +592,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// attempt without a result.
 		next, err := claimStepObservedAuthorizedWithRegistry(context.Background(), s, ClaimRequest{
 			OpID: "resolution-produce-" + workID, WorkID: workID,
-			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeVersion: 1,
+			WorkflowTypeRef: resolutionWorkflowRef, WorkflowTypeDigest: registered.Digest,
 			StepID: "execution", StepKind: StepExternalEffect,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), AcceptedScopeSnapshot: `{}`,
 			PrincipalRef: owner.PrincipalRef, Tool: "workflow-resolution-test", IdempotencyKey: "resolution-produce-retry-" + workID,
@@ -762,107 +617,6 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 	})
 
-	t.Run("completion records the executing coordinator only after an independent verdict and closes the work lifecycle", func(t *testing.T) {
-		t.Parallel()
-		const workID = "resolution-complete"
-		definition := resolutionPolicyDefinition(t)
-		registry, registered := newResolutionRegistry(t, definition)
-		s, owner := seedResolutionSelection(t, workID, registry, registered)
-		reviewer, _, coordinator := recordResolutionActors(t, s, workID)
-		advanceResolutionToExecution(t, s, registry, workID, owner, []string{})
-		advanceResolutionDelivery(t, s, registry, workID, owner)
-		// The independent verdict exists before the executing coordinator
-		// records anything terminal.
-		recordResolutionVerdict(t, s, registry, workID)
-		seedResolutionInvestigation(t, s, workID)
-		if _, err := confirmResolutionPremise(t, s, registry, definition, workID, coordinator, nil, map[string]json.RawMessage{"selected_choice": json.RawMessage(`"confirm"`)}); err != nil {
-			t.Fatalf("engineering confirmation refused before completion: %v", err)
-		}
-		if err := CompleteWorkflowWithRegistry(context.Background(), s, registry, resolutionCompletionEvent(workID, ownerRefForTest(t, owner), ownerRefForTest(t, reviewer), readWorkVersion(t, s, workID))); err != nil {
-			t.Fatalf("completion refused under the caller registry: %v", err)
-		}
-		var lifecycle, instanceState string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {
-			t.Fatal(err)
-		}
-		if lifecycle != "completed" || instanceState != "completed" {
-			t.Fatalf("terminal close left lifecycle=%q instance=%q, want both completed", lifecycle, instanceState)
-		}
-		// A worker's verdict still refuses under the local pin.
-		const workerID = "resolution-complete-worker"
-		s2, owner2 := seedResolutionSelection(t, workerID, registry, registered)
-		reviewer2, _, _ := recordResolutionActors(t, s2, workerID)
-		advanceResolutionToExecution(t, s2, registry, workerID, owner2, []string{})
-		advanceResolutionDelivery(t, s2, registry, workerID, owner2)
-		lane := BuiltinLaneDefinitions()[0]
-		reviewer2Ref := ownerRefForTest(t, reviewer2)
-		if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{{
-			EventID: "resolution-dispatch-" + workerID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workerID,
-			Actor: reviewer2Ref, OccurredAt: time.Unix(9, 40).UTC(), PayloadVersion: 2,
-			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:" + workerID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, LaneActorRef: reviewer2Ref}),
-		}}}); err != nil {
-			t.Fatalf("seed worker dispatch: %v", err)
-		}
-		workerVerdictErr := runResolutionActionVerdict(s2, registry, workerID, reviewer2, json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"]}`))
-		var workerFailure *Failure
-		if workerVerdictErr == nil || !failureAs(workerVerdictErr, &workerFailure) || workerFailure.Kind != KindUnauthorized {
-			t.Fatalf("worker-authority verdict returned %v, want the unauthorized refusal", workerVerdictErr)
-		}
-		// The executing owner cannot evaluate its own delivery either.
-		const selfID = "resolution-complete-self"
-		s3, owner3 := seedResolutionSelection(t, selfID, registry, registered)
-		recordResolutionActors(t, s3, selfID)
-		advanceResolutionToExecution(t, s3, registry, selfID, owner3, []string{})
-		advanceResolutionDelivery(t, s3, registry, selfID, owner3)
-		selfFields := json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","evaluation_evidence":["evidence:operator-verdict"],"verdict_actor_ref":"` + ownerRefForTest(t, owner3) + `"}`)
-		selfVerdictErr := runResolutionActionVerdict(s3, registry, selfID, owner3, selfFields)
-		var selfFailure *Failure
-		if selfVerdictErr == nil || !failureAs(selfVerdictErr, &selfFailure) || selfFailure.Kind != KindUnauthorized {
-			t.Fatalf("self-verdict returned %v, want the unauthorized refusal", selfVerdictErr)
-		}
-		// Completion without the independent verdict refuses at the ordered
-		// gate instead of recording a terminal state.
-		const noVerdictID = "resolution-complete-noverdict"
-		s4, owner4 := seedResolutionSelection(t, noVerdictID, registry, registered)
-		advanceResolutionToExecution(t, s4, registry, noVerdictID, owner4, []string{})
-		advanceResolutionDelivery(t, s4, registry, noVerdictID, owner4)
-		noVerdictErr := CompleteWorkflowWithRegistry(context.Background(), s4, registry, resolutionCompletionEvent(noVerdictID, ownerRefForTest(t, owner4), ownerRefForTest(t, owner4), readWorkVersion(t, s4, noVerdictID)))
-		var noVerdictFailure *Failure
-		if noVerdictErr == nil || !failureAs(noVerdictErr, &noVerdictFailure) || noVerdictFailure.Kind != KindMissingEvidence {
-			t.Fatalf("completion without a verdict returned %v, want the missing-evidence refusal", noVerdictErr)
-		}
-		var state string
-		if err := s4.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, noVerdictID).Scan(&state); err != nil {
-			t.Fatal(err)
-		}
-		if state == "completed" {
-			t.Fatal("the refused completion still closed the instance")
-		}
-		// The legacy twin keeps the executing-actor refusal kind and detail
-		// through the same caller-authority predicate.
-		const legacyID = "resolution-complete-legacy"
-		s5, legacyOwner := seedDeliveredItemAtAcceptance(t, legacyID)
-		legacyReviewer, _, legacyCoordinator := seedRoutineReviewersForSelection(t, s5, legacyID)
-		foldRoutineVerdict(t, s5, legacyID, legacyReviewer)
-		legacy := workflowFixtureDefinition(t, 2).Definition
-		tx, err := s5.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		legacyErr := workflowCompletionCallerAuthority(context.Background(), tx, legacy, legacyID, ownerRefForTest(t, legacyOwner))
-		var legacyFailure *Failure
-		if legacyErr == nil || !failureAs(legacyErr, &legacyFailure) || legacyFailure.Kind != KindUnauthorized || !strings.Contains(legacyFailure.Detail, "executing actor cannot author its own verdict") {
-			t.Fatalf("legacy executor completion authority returned %v, want the retained distinctness refusal", legacyErr)
-		}
-		if err := workflowCompletionCallerAuthority(context.Background(), tx, legacy, legacyID, ownerRefForTest(t, legacyCoordinator)); err != nil {
-			t.Fatalf("legacy non-executing coordinator completion authority refused: %v", err)
-		}
-	})
-
 	t.Run("transaction binding refuses a scope from another transaction before any write", func(t *testing.T) {
 		t.Parallel()
 		const workID = "resolution-foreign-scope"
@@ -875,7 +629,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		fixture := workflowFixtureDefinition(t, 1)
 		operation := Operation{
 			Events: []Event{resolutionEvent("resolution-foreign-selection-"+workID, WorkflowDefinitionSelected, workID, "actor:test", version, map[string]any{
-				"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+				"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 			})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 		}
@@ -888,10 +642,10 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		}
 		defer foreignTx.Rollback()
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
-		foreignScope := newFoldScope(foreignTx)
+		foreignScope := newWriteScope(foreignTx)
 		targetTx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 		if err != nil {
 			t.Fatal(err)
@@ -921,7 +675,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatalf("the foreign-scope append left %d instance rows, want no terminal effect", instances)
 		}
 		var appended int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline {
@@ -955,13 +709,13 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		selection := func(eventID string) Operation {
 			return Operation{
 				Events: []Event{resolutionEvent(eventID, WorkflowDefinitionSelected, workID, "actor:test", version, map[string]any{
-					"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+					"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 				})},
 				ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
 			}
 		}
 		var baseline int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&baseline); err != nil {
 			t.Fatal(err)
 		}
 		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -969,7 +723,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		boundScope := newFoldScope(tx)
+		boundScope := newWriteScope(tx)
 		if err := applyWorkflowOperationTxWithRegistry(context.Background(), tx, selection("resolution-bound-first-"+workID), boundScope, BuiltinWorkflowRegistry()); err != nil {
 			t.Fatalf("the first append on its own registry refused: %v", err)
 		}
@@ -986,7 +740,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		// The store pools one connection: the in-transaction count reads the
 		// open transaction, never the pool beside it.
 		var appended int
-		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&appended); err != nil {
+		if err := tx.QueryRowContext(context.Background(), `SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&appended); err != nil {
 			t.Fatal(err)
 		}
 		if appended != baseline+1 {
@@ -1029,7 +783,7 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 		builtinVersion := readWorkVersion(t, s3, builtinID)
 		builtinErr := tryAppendWorkflowEventsWithRegistry(s3, emptyForBuiltin, Operation{
 			Events: []Event{resolutionEvent("resolution-selection-"+builtinID, WorkflowDefinitionSelected, builtinID, ownerRefForTest(t, owner3), builtinVersion, map[string]any{
-				"ref": fixture.Definition.Ref, "version": fixture.Definition.Version, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
+				"ref": fixture.Definition.Ref, "digest": fixture.Digest, "work_kind": string(fixture.Definition.WorkKind),
 			})},
 			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, builtinID): builtinVersion},
 		})
@@ -1063,10 +817,10 @@ func TestWorkflowDefinitionResolution(t *testing.T) {
 func assertNoFoldGuardRows(t *testing.T, s *Store) {
 	t.Helper()
 	var guards int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM fold_guard`).Scan(&guards); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM write_guard`).Scan(&guards); err != nil {
 		t.Fatal(err)
 	}
 	if guards != 0 {
-		t.Fatalf("%d fold guard rows survived a refused operation", guards)
+		t.Fatalf("%d write guard rows survived a refused operation", guards)
 	}
 }

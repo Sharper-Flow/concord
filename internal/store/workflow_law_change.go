@@ -329,7 +329,7 @@ func readWorkflowLawChangeBaselineTx(ctx context.Context, q queryer, workID stri
 	defer func() { _ = rows.Close() }()
 	var baseline *WorkflowLawChange
 	before := map[string]workflowLawState{}
-	disagree := newFailure(KindInvariantViolation, "workflow_law_change", "the item's active contracts record different before-states", false, "rebuild projections from the event log")
+	disagree := newFailure(KindInvariantViolation, "workflow_law_change", "the item's active contracts record different before-states", false, "restore a verified backup into a new path with concord restore, then swap")
 	for rows.Next() {
 		var encoded string
 		if err := rows.Scan(&encoded); err != nil {
@@ -337,7 +337,7 @@ func readWorkflowLawChangeBaselineTx(ctx context.Context, q queryer, workID stri
 		}
 		var recorded WorkflowLawChange
 		if err := json.Unmarshal([]byte(encoded), &recorded); err != nil {
-			return nil, newFailure(KindInvariantViolation, "workflow_law_change", "the item's recorded law change is malformed", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, "workflow_law_change", "the item's recorded law change is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if baseline == nil {
 			baseline = &WorkflowLawChange{RegistryBefore: recorded.RegistryBefore}
@@ -412,11 +412,11 @@ func validateWorkflowLawChangePins(change *WorkflowLawChange, op string) error {
 }
 
 func workflowWorkIsCrucial(ctx context.Context, q queryer, workID string) (bool, error) {
-	size, sized, err := readWorkSize(ctx, q, workID)
+	size, sized, err := readEffectiveWorkSize(ctx, q, workID)
 	if err != nil {
 		return false, err
 	}
-	return sized && size.Size == WorkSizeCrucial, nil
+	return sized && size.Effective == WorkSizeCrucial, nil
 }
 
 // workflowLawChangeSerious applies P12 to one law change: more than one child

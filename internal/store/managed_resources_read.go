@@ -137,7 +137,7 @@ func resourcesTx(ctx context.Context, tx *sql.Tx, req ResourcesRequest) ([]Resou
 			return nil, wrapFailure(KindUnavailable, resourcesQueryID, "cannot decode a managed resource", true, "retry once the database is readable", err)
 		}
 		if err := json.Unmarshal([]byte(environments), &view.Environments); err != nil {
-			return nil, newFailure(KindInvariantViolation, resourcesQueryID, "resource environments are not a JSON array", false, "rebuild the projections from the log")
+			return nil, newFailure(KindInvariantViolation, resourcesQueryID, "resource environments are not a JSON array", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if view.Environments == nil {
 			view.Environments = []string{}
@@ -170,7 +170,7 @@ func resourceLinksTx(ctx context.Context, tx *sql.Tx, view *ResourceView) error 
 			return wrapFailure(KindUnavailable, resourcesQueryID, "cannot decode a resource Product link", true, "retry once the database is readable", err)
 		}
 		if err := json.Unmarshal([]byte(environments), &link.Environments); err != nil {
-			return newFailure(KindInvariantViolation, resourcesQueryID, "resource link environments are not a JSON array", false, "rebuild the projections from the log")
+			return newFailure(KindInvariantViolation, resourcesQueryID, "resource link environments are not a JSON array", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		if link.Environments == nil {
 			link.Environments = []string{}
@@ -186,7 +186,7 @@ func resourceLinksTx(ctx context.Context, tx *sql.Tx, view *ResourceView) error 
 		return wrapFailure(KindUnavailable, resourcesQueryID, "cannot finish reading resource Product links", true, "retry once the database is readable", err)
 	}
 	if owners != 1 {
-		return newFailure(KindInvariantViolation, resourcesQueryID, "resource "+view.ResourceID+" does not hold exactly one owner", false, "rebuild the projections from the log")
+		return newFailure(KindInvariantViolation, resourcesQueryID, "resource "+view.ResourceID+" does not hold exactly one owner", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	return nil
 }

@@ -11,21 +11,15 @@
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5388341229)
 - **Related:** CD-0012, CD-0013, CD-0222, CD-0053,
   [`workflow-engine-contract.md`](../workflow-engine-contract.md)
-- **Preserves:** Scenario count and 1..48 numbering; the six evidence records
-  that cite the corpus, which regain the anchors their text already claims
-- **Supersedes:** nothing
+- **Preserves:** Stable IDs for current scenarios; obligations the corpus does
+  not carry require their own current behavioral controls.
 
 ## Context
 
-The corpus predates the #400 collapse, and under the historical derivation it
-had only ever run with Product-truth enforcement switched off: the shipped
-version 4 classified `changes_product_truth` per work kind, while 47 of 48
-scenarios pinned version 1, where the classification was uniformly false.
-
-Domain overlap resolution, architecture binding, notice severity, and audit
-supersession therefore had no conformance coverage for the three families that
-trigger them. Authoring the true classification into the collapsed definitions
-made that gap visible as 18 failing scenarios rather than as a silent absence.
+A conformance corpus that runs a definition production never emits proves
+nothing about production. A corpus that runs only non-Product-changing
+definitions leaves Product-truth enforcement without conformance coverage, while
+the evidence records citing it stay green.
 
 ## Decision
 
@@ -35,70 +29,70 @@ The shipped built-in workflow definitions classify `changes_product_truth` per
 work kind. No definition exists solely to give the conformance corpus a
 non-Product-changing target.
 
-### D2. Scenarios pin what production emits
+### D2. Scenarios select what production runs
 
-Every conformance scenario pins the shipped definition version. A scenario may
-not pin a definition production cannot emit.
+Every conformance scenario selects a current production definition by
+reference. A scenario carries no definition version pin and may not select a
+definition production cannot run
+([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 ### D3. Product truth is declared, never defaulted
 
-Each Product-changing scenario declares its Domain home and architecture
-binding explicitly in setup. No default or implicit Domain.
+A Product-changing scenario reaches its step through a named proof case. The
+proof case approves its contract through the production `approve_contract`
+action with an explicit architecture binding, which that action requires. The
+runner infers no Domain.
 
-### D4. Overlap is exercised, including its refusal
+### D4. Each obligation is proved where it is owned
 
-Scenarios whose bindings intersect declare their overlap resolution explicitly.
-At least one scenario exercises unresolved overlap blocking, so the refusal path
-carries conformance coverage. Domains are separate by default; intersections
-exist only where they earn coverage, held to the minimum that proves the path.
+The corpus proves workflow-action obligations end to end: the request runs
+through the production dispatch boundary and the assertions read authoritative
+rows and events. An obligation the corpus does not carry, such as Domain overlap
+refusal, is proved by its own current behavioral control. An evidence record
+cites the control that proves its own text.
 
-### D5. Numbering is preserved
+### D5. Current scenarios keep their IDs
 
-Scenario count and 1..48 numbering are preserved, per
-[`scripts/check-agent-contracts.py`](../../../scripts/check-agent-contracts.py).
-
-## Resolutions recorded with acceptance
-
-Scenario `law_revisions` carry synthetic law IDs rather than real Git hashes,
-which would need maintenance the corpus cannot give them. The WF48 expectation
-of `current_step: acceptance` was correct; the defect was the version-keyed
-gate that suppressed strict checks below version 2, removed under #400 rather
-than accommodated.
+The corpus holds twelve scenarios. Ten run one case each, and two carry nested
+cases: three for `WF26-condition-actions-refused` and two for
+`WF48-lane-pipeline-typed-evidence`. Each keeps its stable ID.
 
 ## Consequences
 
-- Domain overlap, architecture binding, notice severity, and audit supersession
-  gain their first conformance coverage.
-- The six evidence records citing the corpus — CD-0012 and CD-0053 in
-  law-coverage, four floor-condition records in floor-readiness — now anchor to
-  scenarios that execute the behavior their text claims.
-- Scenario setup carries more authored Product law per scenario: Domain homes,
-  bindings, overlap resolutions, severity, and supersession. This is the cost of
-  D1 and it is accepted.
+- Product-truth enforcement on the implementation workflow carries conformance
+  coverage: outcome contracts, verdict-actor distinctness, completion rollback,
+  impact notices, evidence-commit binding, and owner acceptance of a lane result.
+- Domain overlap refusal is proved by store tests, not by the corpus.
+- Each Product-changing proof case seeds a Domain registry and approves an
+  explicit architecture binding. This setup cost follows from D1 and is accepted.
 
 ## Rejected alternatives
 
-**Re-pin the 18 to a non-Product-changing family.** Smallest diff, and it
-changes what each scenario tests. WF04 is the sole anchor for CD-0012's outcome
-contract; re-pinning it would test that contract somewhere production never
-applies Product-truth enforcement, leaving the records green while proving less
-than their text claims.
+**Re-pin Product-changing scenarios to a non-Product-changing family.** This is
+the smallest change, and it alters what each scenario tests. The outcome
+contract would be tested where production never enforces Product truth, leaving
+its records green while proving less than their text claims.
 
-**Keep the corpus non-Product-changing and add a second corpus.** Preserves the
-48 accepted scenarios but requires shipping a definition that exists only to
-keep the first corpus valid — reintroducing the accretion #400 removed — and
-leaves two corpora to keep in sync.
+**Keep the corpus non-Product-changing and add a second corpus.** This needs a
+shipped definition that exists only to keep the first corpus valid, and leaves
+two corpora to keep in sync.
 
 ## Verification
 
-- `.concord/scenarios/workflow-engine.v1.json` holds 48 scenarios, each pinning the
-  shipped definition version and its seven digests.
-- Every Product-changing scenario declares `domain_home` and an architecture
-  binding in setup; at least one declares unresolved overlap and is blocked.
-- `internal/store` suite passes against the corpus, including
-  `initializeWorkflowRawTx`, `CompleteWorkflow`,
-  `AppendWorkflowStalenessObservation`, and `RebuildFromLog` over real SQLite.
-- `.concord/docs/workflow-engine-contract.md` describes the collapsed single-version
-  definitions and no longer documents v1/v2/v3 pinned replay.
+- `.concord/scenarios/workflow-engine.v1.json` holds twelve scenarios and
+  fifteen executable cases. Each selects `workflow.implementation` by reference
+  with no version pin.
+- `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`
+  runs every case through the production action boundary over real SQLite and
+  asserts authoritative rows and events.
+- `internal/store.TestCorpusCurrentProofPreparationProfiles` proves each proof
+  case prepares its declared step and the production action returns the
+  expected outcome or the exact typed refusal.
+- `internal/store.TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState`
+  and `internal/store.TestWorkflowScenarioAssertionInterpreterRejectsMutatedExpectation`
+  prove a mutated scenario or expectation fails.
+- `internal/store.TestOverlapBlocksRemovesWorkFromReady` and
+  `internal/store.TestDomainOverlapsDeriveFromCurrentContracts` prove Domain
+  overlap derivation and blocking.
 - `python3 scripts/check-agent-contracts.py`,
   `python3 scripts/check-json.py`, and `python3 scripts/check-doc-links.py` pass.

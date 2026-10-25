@@ -2,10 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-23
-- **Amended:** 2026-10-17. Coordinator approval under the operator's delegation
-  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160). Readback walks every page under a deadline and keeps only readback evidence.
+- **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
+  for [Concord (CON) issue 160](https://linear.app/sharper-flow/issue/CON-160).
 - **Scope:** OpenCode adapter worker completion and session readback
-- **Amends:** CD-0058 D2, CD-0102 D5
 - **Related:** CD-0017, CD-0059
 - **Approval:** The operator approved replacing the export subprocess after its truncation and exit-before-drain behavior stopped managed completions.
 

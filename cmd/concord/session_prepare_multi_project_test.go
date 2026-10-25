@@ -26,10 +26,10 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	seedLocatorAuthority(t, s, repoA)
 	// Join project-wl-b to product-wl (the seed leaves the Product at
 	// version 2) and register repoB as its canonical path.
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
-		{EventID: "wl-project-b", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-wl-b", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"wl-b"}`)},
-		{EventID: "wl-membership-b", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-wl", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-wl","project_id":"project-wl-b","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-wl"): 2, store.VersionRef(store.SubjectProject, "project-wl-b"): 0}}); err != nil {
+	if _, err := s.CreateProjectForProduct(context.Background(), store.ProjectCreation{
+		ProjectID: "project-wl-b", DisplayName: "wl-b", ProductID: "product-wl",
+		Role: "secondary", Reason: "fixture", ExpectedProductVersion: 2,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(context.Background(), "project-wl-b", store.ProjectLocator{ID: "path-wl-b", Kind: store.LocatorCanonicalPath, Value: repoB}, 1); err != nil {

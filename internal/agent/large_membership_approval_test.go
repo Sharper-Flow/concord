@@ -27,7 +27,7 @@ func largeMembershipApprovalFixture(t *testing.T, projectCount int) (*store.Stor
 		project := fmt.Sprintf("project-%d", i)
 		version := i - 8
 		events := []store.Event{
-			{EventID: "large-" + project, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: project, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"` + project + `"}`)},
+			{EventID: "large-" + project, Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: project, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: store.CurrentEventPayloadVersion("project.created"), Payload: json.RawMessage(`{"display_name":"` + project + `"}`)},
 			{EventID: "large-link-" + project, Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","project_id":%q,"role":"secondary","reason":"fixture","expected_version":%d,"resulting_version":%d}`, project, version, version+1))},
 		}
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, project): 0, store.VersionRef(store.SubjectProduct, "product-1"): int64(version)}}); err != nil {

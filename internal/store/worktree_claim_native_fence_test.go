@@ -66,11 +66,12 @@ func TestClaimNativeFenceProcess(t *testing.T) {
 		return err
 	}
 	runner := claimFenceGit{}
-	if stage == "before-remove" {
+	switch stage {
+	case "before-remove":
 		runner.before = barrier
-	} else if stage == "after-remove" {
+	case "after-remove":
 		runner.after = barrier
-	} else {
+	default:
 		t.Fatalf("unknown crash stage %q", stage)
 	}
 	cause := errors.New("original claim failed")

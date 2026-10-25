@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"testing"
@@ -49,9 +47,7 @@ func assertDuplicateRepairCorpus142(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c.write = func(ctx context.Context, tx *sql.Tx, e Event) error {
-		return advanceWorkflowCorrectionFactsTx(ctx, tx, e)
-	}
+	c.write = advanceWorkflowCorrectionFactsTx
 	for _, duplicate := range []bool{false, true} {
 		t.Run(fmt.Sprintf("duplicate=%t", duplicate), func(t *testing.T) {
 			journey := c

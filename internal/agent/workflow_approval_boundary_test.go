@@ -124,7 +124,7 @@ func TestWorkflowApprovalBoundaryConsent(t *testing.T) {
 				if versionAfter != version+2 {
 					t.Fatalf("routine record_proposal work version=%d, want %d after proposal and advance-mode completion", versionAfter, version+2)
 				}
-				rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY seq`, store.WorkflowProposalRecorded, store.WorkflowActionCompleted)
+				rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM effect_receipts WHERE subject_id='work-1' AND kind IN (?,?) ORDER BY effect_seq`, store.WorkflowProposalRecorded, store.WorkflowActionCompleted)
 				if err != nil {
 					t.Fatal(err)
 				}

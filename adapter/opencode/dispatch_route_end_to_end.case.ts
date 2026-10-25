@@ -1531,7 +1531,9 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
 const RECOVERY_PROCESS = `
 import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
-import { configureConcordAdapter, invokeConcordOperation, work_start, work_transition, work_trace } from "./adapter/opencode/concord.ts";
+import { configureConcordAdapter, executeBoundWorkerControl, invokeConcordOperation, work_start, work_transition, work_trace } from "./adapter/opencode/concord.ts";
+import { createWorkerCapabilityGuard } from "./adapter/opencode/lane_capabilities.ts";
+import { workerCheckTool } from "./adapter/opencode/worker_control.ts";
 import { dispatchLaneWorker } from "./adapter/opencode/lane_dispatch.ts";
 import { completeDispatchedWorker } from "./adapter/opencode/lane_completion.ts";
 import { configureCoreBinary } from "./adapter/opencode/dispatch.ts";
@@ -1619,6 +1621,7 @@ const recoveryRunner = { async run(argv, input, signal, options) {
     }
   } };
 configureConcordAdapter({ credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } }, runner: recoveryRunner });
+const workerCheck = workerCheckTool(createWorkerCapabilityGuard({ windows: dispatchWindows() }), executeBoundWorkerControl);
 const started = performance.now();
 const context = { sessionID: fixture.sessionID, messageID: "recovery-message", agent: "concord-implement", directory: fixture.worktree, worktree: fixture.worktree, abort: new AbortController().signal, metadata() {}, ask: async () => {} };
 if (fixture.coordinator) {
@@ -1655,6 +1658,9 @@ if (fixture.coordinator) {
       const output = { title: "task", output: request.output, metadata: {} };
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: fixture.sessionID, callID: request.callID, args: request.taskArgs }, output, { windows: dispatchWindows(), runner: recoveryRunner, concordBinary: fixture.binary, credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } } });
       envelope = { output: output.output };
+    } else if (request.kind === "check") {
+      const execution = JSON.parse(await workerCheck.execute({ control_id: request.controlID }, { ...context, sessionID: request.workerID }));
+      envelope = { outcome: "ok", execution };
     } else if (request.kind === "invoke" || request.kind === "hold") {
       if (request.kind === "hold") heldKey = request.args.input.idempotency_key;
       envelope = await invokeConcordOperation(request.tool ?? "concord_work_transition", request.args, context);
@@ -1757,9 +1763,22 @@ for (const started of [false, true]) {
       const marker = join(root, "external-effect.jsonl")
       const markerID = `c12-effect-${crypto.randomUUID()}`
       const count = async (path: string) => await Bun.file(path).exists() ? (await Bun.file(path).text()).trim().split("\n").length : 0
-      const spawnEffect = async (packet: JSONRecord, workerID: string, coordinatorID: string) => {
+      const spawnEffect = async (actor: typeof a, packet: JSONRecord, workerID: string, coordinatorID: string) => {
         const subject = (await runProcess(["git", "rev-parse", "HEAD"], "", worktree)).stdout.trim()
         const report = routeWorkerReport(lane, packet, subject)
+        host.opening({ ...contextFor(worktree, coordinatorID), workerSessionID: workerID }, packet, "concord-implement")
+        const control = packet.inputs.worker_job.acceptance_oracle.controls[0]
+        const checked = await actor.call({ kind: "check", workerID, controlID: control.control_id, host: { child: host.sessions.get(workerID) } })
+        const execution = ok(checked).execution
+        expect(checked.core_commands).toContain("worker-control")
+        expect(execution.oracle.qualification).toBe("pass")
+        expect(execution.oracle.subject_commit).toBe(subject)
+        expect(execution.oracle.attempt_id).toBe(packet.attempt_id)
+        expect(execution.exit_code).toBe(0)
+        report.evidence[0].oracle_receipt = {
+          control_ids: [control.control_id], case_ids: control.case_ids, recipe_source: control.recipe_source,
+          result: "pass", exit_code: execution.exit_code, run_ref: execution.operation_ref, evidence_refs: [],
+        }
         // A real harness-owned child, not the assertion process, emits the
         // unique effect and its original report. This is not OpenCode startup.
         const emitted = await runProcess([process.execPath, "-e", `
@@ -1771,8 +1790,6 @@ for (const started of [false, true]) {
         `], JSON.stringify({ starts, marker, markerID, attemptID: packet.attempt_id, report }), worktree)
         expect(emitted.exitCode, emitted.stderr).toBe(0)
         const original = JSON.parse(emitted.stdout)
-        const workerContext = { ...contextFor(worktree, coordinatorID), workerSessionID: workerID }
-        host.opening(workerContext, packet, "concord-implement")
         return original
       }
       const resumed = await Promise.all([a.call({ kind: "start" }), b.call({ kind: "start" })])
@@ -1797,7 +1814,7 @@ for (const started of [false, true]) {
       let retained: JSONRecord | undefined
       const retainedPath = join(root, "original-host-task.json")
       if (started) {
-        const original = await spawnEffect(packet, "c12-original-worker", aID)
+        const original = await spawnEffect(a, packet, "c12-original-worker", aID)
         const task: RouteTaskDispatch = { dispatchResult: dispatch, windows: new DispatchWindows(), windowWasOpen: true, taskArgs, packet, callID: "c12-original-task", sessionID: aID, workerSessionID: "c12-original-worker", retainedOutput: taskResult(original, "c12-original-worker") }
         retained = host.retain(task, original)
         await Bun.write(retainedPath, JSON.stringify(retained))
@@ -1898,7 +1915,7 @@ for (const started of [false, true]) {
         acceptedAttempt = successorPacket.attempt_id
         acceptedEpoch = dbValue(dbPath, "SELECT json_extract(payload,'$.attempt_epoch') AS n FROM worker_authorizations WHERE work_id=? AND attempt_id=?", workID, acceptedAttempt).n
         expect(acceptedEpoch).toBeGreaterThan(epoch)
-        const report = await spawnEffect(successorPacket, "c12-successor-worker", bID)
+        const report = await spawnEffect(b, successorPacket, "c12-successor-worker", bID)
         const task: RouteTaskDispatch = { dispatchResult: successor, windows: new DispatchWindows(), windowWasOpen: true, taskArgs: successorArgs, packet: successorPacket, callID: "c12-successor-task", sessionID: bID, workerSessionID: "c12-successor-worker", retainedOutput: taskResult(report, "c12-successor-worker") }
         // U has no lost response. Its original Task completes through the
         // ordinary signed hook; only T needs abandonment in this branch.

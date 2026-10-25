@@ -78,9 +78,10 @@ each material transferable finding in the existing bounded note fields:
 - transferable lessons; and
 - ordinary links to commits, PRs, decisions, or external systems when useful.
 
-The operator's existing PM6 approval attests to the useful summary. It does not certify
-that every WIP artifact was read, captured, or deleted. A missing raw report is not an
-integrity failure because Concord never promised to retain it.
+The authenticated publisher's summary attestation under CD-0013 D11 records the useful summary after salvage and evidence review.
+Routine PM6 publication requires no operator attestation; applicable operator approvals remain governed by CD-0243 D2.
+The attestation does not certify that every WIP artifact was read, captured or deleted.
+A missing raw report is not an integrity failure because Concord never promised to retain it.
 
 ## 3. Structural boundary and failure handling
 
@@ -201,7 +202,7 @@ criterion carries a typed exemption naming the structural proof. The checker
   (`TestPublishCanonicalNoteCommitsOneNote` and
   `TestCompactionPayloadRequiresExplicitUniqueScopeArrays`,
   `internal/store/knowledge_index_test.go`), which fix the bounded note
-  payload the operator approves.
+  payload the publisher attests.
 - Criterion 2 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`
   (`internal/store/pm8_pm9_absence_test.go`), which rejects receipt-shaped

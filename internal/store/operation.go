@@ -427,6 +427,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 			if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
 				return output, err
 			}
+			if err := refusePublishedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+				return output, err
+			}
 		}
 		if err := validateRegisteredEvent(event); err != nil {
 			return output, attributeFailure(err, event, StageDecode)
@@ -540,6 +543,9 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
 			if err := refuseRemovedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
+				return output, rollback(err)
+			}
+			if err := refusePublishedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
 				return output, rollback(err)
 			}
 		}

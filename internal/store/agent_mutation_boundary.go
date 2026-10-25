@@ -219,6 +219,9 @@ func (s *Store) TerminalWorkVersion(ctx context.Context, workID string) (int64, 
 }
 
 func terminalWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
+	if err := publishedWorkAbsenceQ(ctx, q, workID, "terminal_work"); err != nil {
+		return 0, err
+	}
 	var version int64
 	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded')`, workID).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {

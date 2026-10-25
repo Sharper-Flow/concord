@@ -110,6 +110,7 @@ func TestCompleteRecordsAFirstSeenActorTuple(t *testing.T) {
 	if err := f.run(ctx, "confirm_premise", "confirm", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("confirm the premise: %v", err)
 	}
+	bindCompletionClosure(t, f.store, workID, f.owner)
 	// The restarted session: same principal and client, new agent and
 	// session identity, never recorded on this work item before.
 	restarted := WorkflowActor{PrincipalRef: f.owner.PrincipalRef, ClientRef: f.owner.ClientRef, AgentRef: "agent/owner-restarted", SessionRef: "session/" + workID + "-restarted", ActorClass: ActorAgent}

@@ -40,7 +40,7 @@ func jsonInt(value int64) string {
 }
 
 // completedDeliveryFixture seeds one work item whose workflow instance is
-// completed through the log with a delivery assertion that carries a
+// completed through the current writer with a delivery assertion that carries a
 // repository file path instead of merge evidence, the defect shape the
 // correction exists to repair. It returns the store, the target assertion
 // event id, the work item version the correction must expect, the assertion's
@@ -67,6 +67,7 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 		if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			t.Fatal(err)
 		}
+		bindCompletionClosure(t, s, workID, f.owner)
 		if err := f.run(t.Context(), "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 			t.Fatal(err)
 		}

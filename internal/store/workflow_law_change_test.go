@@ -1284,6 +1284,7 @@ func completeLawChangeContract(t *testing.T, s *Store, definition WorkflowDefini
 	}
 	lawChangeFold(t, s, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES(?,1,?,'2026-10-19T00:00:00Z')`, workID, ownerRef)
 	setWorkflowStepForOperatorVerdictTest(t, s, workID, "complete")
+	bindCompletionClosure(t, s, workID, lawChangeConstructorActor)
 	version = readWorkVersion(t, s, workID)
 	tx = lawChangeTx(t, s)
 	request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, OperationID: workID + "-complete", Now: time.Unix(14, 0).UTC()}

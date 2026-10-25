@@ -266,13 +266,13 @@ func assertEvidenceCorpus142(t *testing.T) {
 		`SELECT json_array(work_id,step_id,attempt_epoch,state,actor_ref,effect_seq,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_action_obligations ORDER BY work_id,effect_seq`,
 		`SELECT json_array(actor_ref,first_dispatch_seq) FROM workflow_worker_actors ORDER BY actor_ref`,
 		`SELECT json_array(observation_id,recorded_seq) FROM work_observations ORDER BY observation_id`,
-		`SELECT json_array(work_id) FROM compaction_publications ORDER BY work_id`,
 	}
 	want := workerFactsQueryRows(t, live, queries)
+	advanceHistoricalPrefix(t, old.db, 152)
+	assertEvidenceLegacySelections(t, old, c.events)
 	if err := Migrate(t.Context(), old.db); err != nil {
 		t.Fatal(err)
 	}
-	assertEvidenceLegacySelections(t, old, c.events)
 	if got := workerFactsQueryRows(t, old, queries); !reflect.DeepEqual(got, want) {
 		for i := range queries {
 			if !reflect.DeepEqual(got[i], want[i]) {

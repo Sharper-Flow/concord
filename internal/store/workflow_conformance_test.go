@@ -304,6 +304,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		if err := f.run(ctx, "confirm_premise", "corpus-confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			return nil, nil, err
 		}
+		bindCompletionClosure(t, s, workID, owner)
 		if proof == "completion_rollback" || proof == "impact_notice_identity" {
 			prepareCorpusImpactDependent(t, s, workID, registered)
 		}
@@ -405,6 +406,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", mustActorRef(t, route.owner)); err != nil {
 				return nil, nil, err
 			}
+			bindCompletionClosure(t, s, workID, owner)
 		}
 	default:
 		return nil, nil, fmt.Errorf("current fixture has unknown proof case %q", proof)

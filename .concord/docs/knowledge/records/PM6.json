@@ -9,7 +9,7 @@
     },
     {
       "criterion": 2,
-      "scenario": "Q10-not-compacted"
+      "exemption": "Canonical discovery and cleanup eligibility are operation properties, not one query-corpus case. TestQ10RebuildsCommittedOutcomeWithoutLiveWorkOrPublicationFlag (internal/store/knowledge_index_test.go) is a candidate discovery witness; Q10-not-compacted, executed by TestAcceptedQ1ToQ10Corpus (internal/store/query_corpus_test.go), covers work with no verified note. Integrated coverage remains unmeasured."
     },
     {
       "criterion": 3,
@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f457f7e8961100a8d32ea885c3ff6d3115ae01d39814cfe683c93cf8d3e4bce0",
+  "sha256": "sha256:a06f236e21b051a81161cecdc9d8d51f57595f695ee3e5f88039e20c133918ec",
   "status": "accepted",
-  "summary": "Defines canonical home placement and git-first proof for durable notes.",
+  "summary": "Verifies canonical Git note identity and publication recovery; canonical discovery is independent of settled linkage and does not itself authorize terminal cleanup.",
   "tags": [
     "pm6",
     "git",

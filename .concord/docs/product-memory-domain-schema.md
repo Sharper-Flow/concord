@@ -84,12 +84,12 @@ restore with reconciliation
 ### 3.1a Retention-bounded active-context exception
 
 CD-0215 D4 makes direct pack tables the sole authority for research-pack content and consumer links.
-Research packs are WIP context, not Product/work history: one versioned transactional
-operation surface owns direct SQLite pack tables while the owner is nonterminal, and
-proof-backed archive deletes those rows. Product/work identity, lifecycle,
-membership, relations, archive linkage, and every normal table remain current rows
-under [CD-0242 D2](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). No other fact type inherits this exception by
-analogy.
+Research packs are versioned context, not Product/work history.
+Nonterminal owners may author them; terminal owners retain read-only content for authorized exact-revision reuse under CD-0215 and CD-0216.
+Publication, archive, terminal execution cleanup, work removal and foreign-key cascades never delete retained research.
+Only explicit eligible research_retire deletes a pack aggregate under CD-0216 and CD-0217.
+Releasing a consumer pin never deletes its pack.
+Product/work state and retention follow CD-0242 D2; no other fact type inherits research-pack retention by analogy.
 
 ### 3.1b Worktree occupancy reconciliation
 

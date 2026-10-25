@@ -132,6 +132,7 @@ func TestManagedCandidateTerminalPostObservationMovementKeepsObservedSubject(t *
 	if err := j.confirmPremise(t); err != nil {
 		t.Fatalf("confirm clean A: %v", err)
 	}
+	bindCompletionClosure(t, j.s, j.workID, j.fixture.owner)
 	prepared, err := PrepareWorkflowAcceptanceFreshness(context.Background(), j.s, PrepareWorkerDispatchRequest{WorkID: j.workID})
 	if err != nil {
 		t.Fatal(err)

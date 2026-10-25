@@ -49,7 +49,7 @@ func recordWorkflowAssignmentGroup(ctx context.Context, tx *sql.Tx, event Event,
 	if p.WorkerCapabilityClass != "implementation" || p.WorkerJob == nil {
 		return nil
 	}
-	state, err := loadWorkflowReviewState(ctx, tx, event.SubjectID, event.Seq)
+	state, err := loadWorkflowReviewState(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
 	}

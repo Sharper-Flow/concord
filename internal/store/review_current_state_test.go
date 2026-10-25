@@ -295,7 +295,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	repair.Findings[0].Status = "closed"
 	repair.Findings[0].ClosureRefs = []string{"worktree_verify:repair"}
 	appendReview("review:repair", repair)
-	state, err := loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err := loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 		t.Fatalf("projected repair acceptance did not close its blocker: %v", err)
 	}
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:repair"})
-	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	late := reviewBlockFixture()
 	late.Dependencies = dependencies
 	appendReview("review:late-baseline", late)
-	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,10 +329,10 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	}
 	appendAttempt("member:late", "implementation", baseline.OutputCandidate.Commit, WorkerCompletedPayload{AttemptID: "member:late", ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("e", 40), Tree: strings.Repeat("f", 40)}})
 	before := string(mustJSONValue(state))
-	if err := validateReviewAcceptance(context.Background(), db, "work-history", "member:late", "main:fixture", 0); !hasFailureKind(err, KindStaleRequiresReview) {
+	if err := validateReviewAcceptance(context.Background(), db, "work-history", "member:late", "main:fixture"); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("late member acceptance = %v, want stale refusal", err)
 	}
-	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	omitted := *open
 	omitted.Findings = []WorkerReviewFinding{}
 	appendReview("review:omitted-blocker", &omitted)
-	state, err = loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(t.Context(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 		t.Fatalf("projected omission erased the blocker: %v", err)
 	}
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:omitted-blocker"})
-	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestReviewCurrentCandidateChangesOnlyOnMainAcceptance(t *testing.T) {
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "member:review-claim", WorkerCapabilityClass: "implementation", WorkerSubjectCommit: repair.OutputCandidate.Commit})
 	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "member:review-claim", Review: &omitted})
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "member:review-claim"})
-	state, err = loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+	state, err = loadWorkflowReviewState(context.Background(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func TestReviewCurrentFindingRetainsItsObligationBinding(t *testing.T) {
 			}
 			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:changed", WorkerCapabilityClass: "review", WorkerSubjectCommit: changed.InputCandidate.Commit})
 			appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:changed", Review: &changed})
-			state, err := loadWorkflowReviewState(context.Background(), db, "work-history", 0)
+			state, err := loadWorkflowReviewState(context.Background(), db, "work-history")
 			if err != nil {
 				t.Fatal(err)
 			}

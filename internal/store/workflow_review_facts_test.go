@@ -65,14 +65,14 @@ func TestG32ReviewLogBlind(t *testing.T) {
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "dispatch_worker", WorkerAttemptID: "review:first", WorkerCapabilityClass: "review"})
 	appendEvent(WorkerCompleted, WorkerCompletedPayload{AttemptID: "review:first", Review: report})
 	appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: "review:first"})
-	before, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+	before, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`ALTER TABLE domain_events RENAME TO hidden_domain_events`); err != nil {
 		t.Fatal(err)
 	}
-	after, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+	after, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 	if err != nil || string(mustJSONValue(after)) != string(mustJSONValue(before)) {
 		t.Fatalf("log-blind review = %+v, %v; want %+v", after, err, before)
 	}
@@ -98,7 +98,7 @@ func TestG32ReviewLogBlind(t *testing.T) {
 	if err := advanceWorkflowReviewCompletedTx(t.Context(), tx, event, result); err != nil {
 		t.Fatal(err)
 	}
-	unaccepted, err := loadWorkflowReviewState(t.Context(), tx, "work-history", 22)
+	unaccepted, err := loadWorkflowReviewState(t.Context(), tx, "work-history")
 	if err != nil || *unaccepted.Candidate != report.OutputCandidate || unaccepted.Accepted.ReportRef != before.Accepted.ReportRef {
 		t.Fatalf("unaccepted log-blind terminal changed authority: %+v, %v", unaccepted, err)
 	}
@@ -106,14 +106,14 @@ func TestG32ReviewLogBlind(t *testing.T) {
 	if err := advanceWorkflowReviewAcceptanceTx(t.Context(), tx, event, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: auth.WorkerAttemptID}); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := loadWorkflowReviewState(t.Context(), tx, "work-history", 0)
+	accepted, err := loadWorkflowReviewState(t.Context(), tx, "work-history")
 	if err != nil || *accepted.Candidate != repair.OutputCandidate || accepted.Accepted.ReportRef != "terminal:log-blind" || accepted.Accepted.ActorRef != event.Actor || accepted.blocker() == "" {
 		t.Fatalf("log-blind acceptance lost exact identity or omitted finding: %+v, %v", accepted, err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	durable, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+	durable, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 	if err != nil || string(mustJSONValue(durable)) != string(mustJSONValue(accepted)) {
 		t.Fatalf("committed Review state = %+v, %v; want %+v", durable, err, accepted)
 	}
@@ -126,7 +126,7 @@ func TestG32ImplementationCandidateAndReviewGroupOrder(t *testing.T) {
 	appendEvent(WorkerCompleted, result)
 	read := func() WorkflowReviewState {
 		t.Helper()
-		state, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+		state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -262,7 +262,7 @@ INSERT INTO workflow_contract_predicates VALUES('work-history',1,'predicate:prim
 	}
 	read := func() WorkflowReviewState {
 		t.Helper()
-		state, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+		state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 		if err != nil {
 			t.Fatal(err)
 		}

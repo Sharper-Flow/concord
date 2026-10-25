@@ -919,7 +919,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	observation.State[workID] = map[string]any{"state": projection.State, "current_step": projection.CurrentStep}
 	if projection.Contract != nil {
 		work["outcome_contract"] = projection.Contract
-		review, err := loadWorkflowReviewState(ctx, s.db, workID, 0)
+		review, err := loadWorkflowReviewState(ctx, s.db, workID)
 		if err != nil {
 			return observation, err
 		}

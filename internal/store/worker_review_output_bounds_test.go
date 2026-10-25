@@ -63,7 +63,7 @@ func TestReviewReportRefPreservesUnboundedEventID(t *testing.T) {
 				t.Fatal(err)
 			}
 			appendEvent(WorkflowActionCompleted, workflowActionCompletedPayload{ActionID: "accept_worker_result", WorkerAttemptID: attempt, ActorRef: progressActorRecord(t, db, "main", "coordinator")})
-			state, err := loadWorkflowReviewState(t.Context(), db, "work-history", 0)
+			state, err := loadWorkflowReviewState(t.Context(), db, "work-history")
 			if err != nil {
 				t.Fatal(err)
 			}

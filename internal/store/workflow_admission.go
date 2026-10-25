@@ -254,7 +254,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	// Duplicate active contracts leave no single criteria set to review
 	// against, so no Review stands: every Review-gated action stays closed
 	// while the supersede recovery the duplicates require stays reachable.
-	review, reviewErr := loadWorkflowReviewState(ctx, q, workID, 0)
+	review, reviewErr := loadWorkflowReviewState(ctx, q, workID)
 	if reviewErr != nil && l.duplicated && workflowDuplicateContractProjection(reviewErr) {
 		review, reviewErr = WorkflowReviewState{Findings: []WorkerReviewFinding{}, PublicationOutstanding: true}, nil
 	}

@@ -125,7 +125,7 @@ func sameReviewDependencies(a, b WorkerReviewDependencies) bool {
 // Admission runs before the current effect updates Review facts. The former
 // before-sequence argument therefore denotes the current transaction prefix,
 // not an API for reconstructing an arbitrary historical Review.
-func loadWorkflowReviewState(ctx context.Context, q queryer, workID string, _ int64) (WorkflowReviewState, error) {
+func loadWorkflowReviewState(ctx context.Context, q queryer, workID string) (WorkflowReviewState, error) {
 	state, err := readWorkflowReviewFacts(ctx, q, workID)
 	if err != nil {
 		return state, err
@@ -279,7 +279,7 @@ func bindWorkflowReviewRequest(ctx context.Context, q queryer, state *WorkflowAd
 	if err != nil {
 		return err
 	}
-	if err := validateReviewAcceptance(ctx, q, workID, workflowFieldStringDefault(fields, "attempt_id", ""), ref, 0); err != nil {
+	if err := validateReviewAcceptance(ctx, q, workID, workflowFieldStringDefault(fields, "attempt_id", ""), ref); err != nil {
 		state.ReviewAcceptanceError = workflowFailureOf(err)
 	}
 	return nil
@@ -306,7 +306,7 @@ func readReviewAttempt(ctx context.Context, q queryer, workID, attempt string) (
 
 // validateReviewAcceptance never accepts a worker-claimed subject. The report
 // must agree with both the admitted input and the host's terminal output.
-func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, actor string, before int64) error {
+func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, actor string) error {
 	if err := workflowRequireMain(ctx, q, workID, actor); err != nil {
 		return err
 	}
@@ -319,7 +319,7 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	}
 	if auth.WorkerCapabilityClass != "review" {
 		if auth.WorkerCapabilityClass == "implementation" {
-			state, err := loadWorkflowReviewState(ctx, q, workID, before)
+			state, err := loadWorkflowReviewState(ctx, q, workID)
 			if err != nil {
 				return err
 			}
@@ -359,7 +359,7 @@ func validateReviewAcceptance(ctx context.Context, q queryer, workID, attempt, a
 	if job.ProjectScope != report.InputCandidate.ProjectID {
 		return reviewFailure(KindUnauthorized, "Review candidate names another Project", "return a report for the Project owning the admitted assignment")
 	}
-	state, err := loadWorkflowReviewState(ctx, q, workID, before)
+	state, err := loadWorkflowReviewState(ctx, q, workID)
 	if err != nil {
 		return err
 	}
@@ -496,7 +496,7 @@ func workflowCriterionReceipt(ctx context.Context, q queryer, workID, predicate,
 		return reviewFailure(KindMissingEvidence, "criterion "+predicate+" requires a passing producer receipt on the final candidate; "+ref+" does not qualify", "run the criterion's declared control on the current candidate and reference its captured receipt")
 	}
 	if producer.Oracle == nil {
-		state, err := loadWorkflowReviewState(ctx, q, workID, 0)
+		state, err := loadWorkflowReviewState(ctx, q, workID)
 		if err != nil {
 			return err
 		}
@@ -568,7 +568,7 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, workID s
 	if err := workflowRequireMain(ctx, q, workID, association.VerdictActorRef); err != nil {
 		return err
 	}
-	state, err := loadWorkflowReviewState(ctx, q, workID, 0)
+	state, err := loadWorkflowReviewState(ctx, q, workID)
 	if err != nil {
 		return err
 	}

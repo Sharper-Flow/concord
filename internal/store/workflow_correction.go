@@ -1016,7 +1016,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // a nil registry selects the builtin registry.
 func workflowCorrectionRequestAdmissionForRegistry(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64, registry DefinitionRegistry) (*WorkflowCorrectionContext, string, error) {
 	if workflowCorrectionReturnTarget(definition, currentStep) != "" {
-		review, err := loadWorkflowReviewState(ctx, q, workID, excludeSeq)
+		review, err := loadWorkflowReviewState(ctx, q, workID)
 		if err != nil {
 			return nil, workflowCorrectionMissingNone, err
 		}

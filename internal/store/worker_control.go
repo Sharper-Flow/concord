@@ -111,7 +111,9 @@ func resolveWorkerControl(ctx context.Context, q queryer, req WorkerControlReque
 // executes there, without borrowing its member caller's authenticated tuple.
 func activeDispatchWorktreeEntry(ctx context.Context, q queryer, workID, projectID, identity string) (WorktreeEntry, error) {
 	entries, err := worktreeEntriesCore(ctx, q, workID)
-	if err != nil { return WorktreeEntry{}, err }
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
 	for _, entry := range entries {
 		if entry.ProjectID == projectID && entry.State == worktreeEntryActive && workerWorktreeIdentity(filepath.Clean(entry.Path)) == identity {
 			return entry, nil
@@ -125,6 +127,8 @@ func worktreeVerifyEntry(ctx context.Context, q queryer, req WorktreeVerifyReque
 		return activeWorktreeEntryForProject(ctx, q, "worktree_verify", req.WorkID, req.ProjectID)
 	}
 	window, err := findAuthorizedDispatchWindowBefore(ctx, q, req.WorkID, req.Oracle.AttemptID, 0)
-	if err != nil { return WorktreeEntry{}, err }
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
 	return activeDispatchWorktreeEntry(ctx, q, req.WorkID, req.ProjectID, window.WorktreeIdentity)
 }

@@ -89,8 +89,12 @@ parent can do directly, not a reason to start an investigation.
 3. Search for relevant symbols or text with `grep` when needed.
 4. Choose each next search from the evidence already found. Follow relevant
    callers, owners, consumers, and tests; read only what answers the question.
-5. Use the declared read-only Git commands when the parent asks about history,
-   status, or the current diff.
+5. Answer history, status, or diff questions only with these commands:
+   `git diff`, `git log`, `git show`, `git status`, `git ls-files`, `git rev-parse`.
+   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
+   parameter to the repository. The host refuses the whole command when any
+   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
+   Bound output with Git's own options, such as `-n 20` or `--stat`.
 6. Stop when the question has a source-backed answer, or after 10 minutes of
    total wall time, whichever comes first. Report the facts you hold when the
    cap stops you.

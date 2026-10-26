@@ -18,7 +18,7 @@ func TestMandatedLawDiagnostics(t *testing.T) {
 				manifestFixture{ID: "accepted", Kind: "spec", Path: ".concord/docs/current.md", Status: "accepted", Date: "2026-10-01T00:00:00Z", Title: "Current", Summary: "Current law", Scopes: homeScope()},
 				manifestFixture{ID: "lesson", Kind: "lesson", Path: ".concord/docs/lesson.md", Status: "published", Date: "2026-10-01T00:00:00Z", Title: "Lesson", Summary: "Useful context, not law", Scopes: homeScope()},
 			)
-			commitKnowledgeRepo(t, repo, "diagnostic records")
+			commit := commitKnowledgeRepo(t, repo, "diagnostic records")
 			home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
 			authorizeKnowledgeProductHome(t, s, "diag-single", home, "p", "other")
 			if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
@@ -65,6 +65,9 @@ func TestMandatedLawDiagnostics(t *testing.T) {
 							t.Errorf("detail %q does not contain %q", failure.Detail, want)
 						}
 					}
+					if !strings.Contains(failure.Detail, "p/l@"+commit) {
+						t.Errorf("refusal lost the checked source revision: %q", failure.Detail)
+					}
 					if strings.Contains(failure.RecoveryAction, "rebuild") || strings.Contains(failure.RecoveryAction, "publish") {
 						t.Errorf("a missing or nonaccepted record is not evidence of projection lag: %q", failure.RecoveryAction)
 					}
@@ -87,6 +90,61 @@ func TestMandatedLawDiagnostics(t *testing.T) {
 				if err := check([]string{"other/lesson"}); !failureAs(err, &failure) || !strings.Contains(failure.Detail, "no law record") || strings.Contains(failure.Detail, "published") {
 					t.Fatalf("qualified absence must not diagnose another source's record: %v", err)
 				}
+			}
+		})
+	}
+}
+
+func TestSingleHomeMandateRefreshesProjection(t *testing.T) {
+	t.Parallel()
+	for _, designated := range []bool{false, true} {
+		name := "standalone"
+		if designated {
+			name = "product"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := openTemp(t)
+			repo := initKnowledgeRepo(t)
+			base := manifestFixture{ID: "base", Kind: "spec", Path: ".concord/docs/base.md", Status: "accepted", Date: "2026-10-01T00:00:00Z", Title: "Base", Summary: "Base law", Scopes: homeScope()}
+			writeManifestFixture(t, repo, base)
+			commitKnowledgeRepo(t, repo, "base law")
+			home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
+			if designated {
+				authorizeKnowledgeProductHome(t, s, "single-product", home)
+			} else {
+				authorizeSourceLocator(t, s, home)
+			}
+			if designated {
+				if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeManifestFixture(t, repo, base, manifestFixture{ID: "later", Kind: "spec", Path: ".concord/docs/later.md", Status: "accepted", Date: "2026-10-01T00:00:00Z", Title: "Later", Summary: "Later law", Scopes: homeScope()})
+			commit := commitKnowledgeRepo(t, repo, "add later law")
+			if !designated {
+				var failure *Failure
+				if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"later"}, nil, false); !failureAs(err, &failure) || failure.Kind != KindKnowledgeAmbiguous || !strings.Contains(failure.RecoveryAction, "assign exactly one Product knowledge home") {
+					t.Fatalf("an unconfigured standalone home must expose its refresh limitation, not infer an absent law: %v", err)
+				}
+				return
+			}
+			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"later"}, nil, false); err != nil {
+				t.Fatalf("a stale single-home projection must refresh before diagnosing a mandate: %v", err)
+			}
+			watermark, err := knowledgeIndexWatermark(ctx, s.db, "p", "l", "HEAD")
+			if err != nil || watermark != commit {
+				t.Fatalf("watermark = %q, want %q: %v", watermark, commit, err)
+			}
+			writeKnowledgeFile(t, repo, "README.md", "unrelated content\n")
+			commitKnowledgeRepo(t, repo, "unrelated content")
+			if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"later"}, nil, false); err != nil {
+				t.Fatal(err)
+			}
+			after, err := knowledgeIndexWatermark(ctx, s.db, "p", "l", "HEAD")
+			if err != nil || after != watermark {
+				t.Fatalf("a code-only commit must not trigger an index rebuild: %q -> %q: %v", watermark, after, err)
 			}
 		})
 	}

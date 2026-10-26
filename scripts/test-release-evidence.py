@@ -53,7 +53,7 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 
 # The internal/store shard count that the shard margin rule in ci.yml sets.
-STORE_SHARDS = 5
+STORE_SHARDS = 6
 
 CI_JOB_IDS = (
     "verify-history",
@@ -71,6 +71,7 @@ CI_JOB_IDS = (
     "verify-tests-store-3",
     "verify-tests-store-4",
     "verify-tests-store-5",
+    "verify-tests-store-6",
     "verify-tests-cli-1",
     "verify-tests-cli-2",
     "verify-race",
@@ -182,6 +183,19 @@ class CIWorkflowDriftTests(unittest.TestCase):
             variables = [key for key, value in gate_env.items() if value == f"${{{{ needs.{job_id}.result }}}}"]
             self.assertEqual(len(variables), 1, f"verify-tests must read {job_id}'s result once")
             self.assertIn(f'test "${variables[0]}" = success', gate_run)
+
+    def test_store_shards_preserve_preparation_poison_and_result_retention(self) -> None:
+        block = jobs(load_workflow(CI_WORKFLOW))
+        reference = None
+        for index in range(1, STORE_SHARDS + 1):
+            steps = [dict(step) for step in block[f"verify-tests-store-{index}"]["steps"]]
+            for step in steps:
+                if step.get("name", "").startswith("Test shard"):
+                    step["name"] = "Test store shard"
+                    step["run"] = re.sub(r"(go-test-shard\.py ./internal/store) \d+ \d+", r"\1 INDEX COUNT", step["run"])
+            if reference is None:
+                reference = steps
+            self.assertEqual(steps, reference, f"store shard {index} changed more than its selection")
 
     def test_ci_keeps_a_per_run_concurrency_group(self) -> None:
         document = load_workflow(CI_WORKFLOW)

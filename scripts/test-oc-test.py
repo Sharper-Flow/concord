@@ -234,8 +234,8 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(smoke_go_command(wrapper), workflow_step_run(workflow, CI_UNSHARDED_STEP))
 
     def test_smoke_docs_name_the_ci_shards(self):
-        # The header and README name the packages smoke leaves out and give a
-        # one-shard command. Both copy CI's shard jobs, so they must change
+        # The wrapper header, README, and TESTING.md name the omitted packages
+        # and give a one-shard command. Each copies CI's shard jobs and must change
         # when a package is sharded or its shard count moves.
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
         counts = {}
@@ -244,7 +244,11 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("internal/store", counts)
         store_count = counts["internal/store"].pop()
         example = f'go-test-shard.py ./internal/store 1 {store_count})" ./internal/store'
-        prose = {"bin/oc-test": f"shard 1 of {store_count}:", "README.md": f"shard 1 of the {store_count} `internal/store` shards"}
+        prose = {
+            "bin/oc-test": f"shard 1 of {store_count}:",
+            "README.md": f"shard 1 of the {store_count} `internal/store` shards",
+            "TESTING.md": f"store shard 1 of {store_count}:",
+        }
         for path, phrase in prose.items():
             with self.subTest(path=path):
                 text = (REPOSITORY / path).read_text()

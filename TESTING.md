@@ -61,10 +61,10 @@ a 20-minute execution limit after admission; the existing host variable
 increase timeouts as a performance fix or disable required freshness checks.
 
 Keep discovery inside admission. Shell command substitution happens **before**
-the outer wrapper starts; wrap a shard's discovery and execution together:
+the outer wrapper starts; wrap discovery and execution together, for store shard 1 of 6:
 
 ```sh
-bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store'
+bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 6)" ./internal/store'
 ```
 
 Sharding assigns the discovered inventory, not affected behavior. A shard is a

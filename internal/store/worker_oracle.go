@@ -167,7 +167,7 @@ func validateWorkerJobLawSource(surface string, source WorkContextReadingSource)
 	if !workflowDigest(source.ContentHash) {
 		return oracleFailure(KindInvalidPayload, surface+" law binding content_hash must be a sha256 digest", "pin the law revision content hash")
 	}
-	if source.ProjectID != "" || source.Path != "" || source.CommitOID != "" {
+	if source.ProjectID != "" || source.Path != "" || source.CommitOID != "" || source.Selector != nil {
 		return oracleFailure(KindInvalidPayload, surface+" law binding carries repository source fields", "use one closed source arm")
 	}
 	return nil
@@ -191,7 +191,7 @@ func validateOracleRecipeSource(source WorkContextReadingSource) error {
 	if !workContextCommitOID(source.CommitOID) {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle recipe_source commit_oid must be 40 to 64 hex bytes", "pin the commit the harness was taken at")
 	}
-	if source.SourceID != "" || source.LawID != "" || source.ContentHash != "" {
+	if source.SourceID != "" || source.LawID != "" || source.ContentHash != "" || source.Selector != nil {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle recipe_source carries knowledge source fields", "use one closed source arm")
 	}
 	return nil

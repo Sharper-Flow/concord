@@ -11,8 +11,8 @@ import (
 
 // UnmarshalJSON keeps a required reading's source union closed even on internal
 // replay and worker-read paths that do not pass through the public authoring
-// schema. The closure belongs to the reading entry: oracle recipe sources share
-// the source type and keep their own repository-file validation.
+// schema. The closure belongs to the reading entry: oracle law and recipe
+// sources share the source type and keep their own closed-arm validators.
 func (reading *WorkContextReading) UnmarshalJSON(raw []byte) error {
 	var decoded struct {
 		DomainID             string          `json:"domain_id"`

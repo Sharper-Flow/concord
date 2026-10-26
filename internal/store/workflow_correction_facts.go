@@ -63,20 +63,33 @@ func readWorkflowCorrectionFacts(ctx context.Context, q queryer, workID, subject
 	}
 	// Immutable job obligations and attempt identities already have current
 	// owners. Keep only mutable debt and repair decisions in this projection.
+	if err := h.readObligations(ctx, q, workID); err != nil {
+		return nil, err
+	}
+	if err := h.readAuthorizations(ctx, q, workID); err != nil {
+		return nil, err
+	}
+	if err := h.readAttempts(ctx, q, workID); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+func (h *workflowCorrectionHistory) readObligations(ctx context.Context, q queryer, workID string) error {
 	rows, err := q.QueryContext(ctx, `SELECT recorded_payload FROM worker_job_revisions WHERE work_id=?`, workID)
 	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read current correction obligations")
+		return workflowProjectionError(err, "cannot read current correction obligations")
 	}
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
 		var job WorkerJobRecordedPayload
 		if err := json.Unmarshal([]byte(payload), &job); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
 		key := workerJobKey(job.JobID, job.Revision)
 		h.obligations[key] = workflowJobObligationState{base: workerJobObligationKey(job), oracle: job.AcceptanceOracle, contractVersion: job.ContractVersion}
@@ -90,26 +103,30 @@ func readWorkflowCorrectionFacts(ctx context.Context, q queryer, workID, subject
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, err
+		return err
 	}
 	if err := rows.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	rows, err = q.QueryContext(ctx, `SELECT attempt_id,seq,payload FROM worker_authorizations WHERE work_id=? ORDER BY seq`, workID)
+	return nil
+}
+
+func (h *workflowCorrectionHistory) readAuthorizations(ctx context.Context, q queryer, workID string) error {
+	rows, err := q.QueryContext(ctx, `SELECT attempt_id,seq,payload FROM worker_authorizations WHERE work_id=? ORDER BY seq`, workID)
 	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read current correction authorizations")
+		return workflowProjectionError(err, "cannot read current correction authorizations")
 	}
 	for rows.Next() {
 		var attempt, payload string
 		var seq int64
 		if err := rows.Scan(&attempt, &seq, &payload); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
 		var authorization workflowActionCompletedPayload
 		if err := json.Unmarshal([]byte(payload), &authorization); err != nil {
 			rows.Close()
-			return nil, err
+			return err
 		}
 		if authorization.WorkerJob != nil {
 			h.bind(attempt, *authorization.WorkerJob)
@@ -118,27 +135,31 @@ func readWorkflowCorrectionFacts(ctx context.Context, q queryer, workID, subject
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, err
+		return err
 	}
 	if err := rows.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	rows, err = q.QueryContext(ctx, `SELECT attempt_id,dispatch_payload,terminal_payload FROM worker_attempts WHERE work_id=?`, workID)
+	return nil
+}
+
+func (h *workflowCorrectionHistory) readAttempts(ctx context.Context, q queryer, workID string) error {
+	rows, err := q.QueryContext(ctx, `SELECT attempt_id,dispatch_payload,terminal_payload FROM worker_attempts WHERE work_id=?`, workID)
 	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read current correction attempts")
+		return workflowProjectionError(err, "cannot read current correction attempts")
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var attempt string
 		var dispatch, terminal sql.NullString
 		if err := rows.Scan(&attempt, &dispatch, &terminal); err != nil {
-			return nil, err
+			return err
 		}
 		h.materialized[attempt] = dispatch.Valid
 		if dispatch.Valid {
 			var payload WorkerDispatchedPayload
 			if err := json.Unmarshal([]byte(dispatch.String), &payload); err != nil {
-				return nil, err
+				return err
 			}
 			if payload.WorkerJob != nil {
 				h.bind(attempt, *payload.WorkerJob)
@@ -149,7 +170,7 @@ func readWorkflowCorrectionFacts(ctx context.Context, q queryer, workID, subject
 				Review *WorkerReviewBlock `json:"review"`
 			}
 			if err := json.Unmarshal([]byte(terminal.String), &payload); err != nil {
-				return nil, err
+				return err
 			}
 			if payload.Review != nil {
 				h.reviewDisposition[attempt] = payload.Review.Disposition
@@ -158,9 +179,9 @@ func readWorkflowCorrectionFacts(ctx context.Context, q queryer, workID, subject
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return h, nil
+	return nil
 }
 
 func writeWorkflowCorrectionFacts(ctx context.Context, q migrationRunner, workID string, h *workflowCorrectionHistory) error {

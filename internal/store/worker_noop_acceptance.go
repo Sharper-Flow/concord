@@ -73,31 +73,40 @@ func unchangedJobOutcomeProven(g *workflowActionGuardContext, completed *WorkerC
 		}
 		for _, id := range receipt.ControlIDs {
 			control := controls[id]
-			if !oracleReceiptCoversControl(receipt, control) {
-				continue
-			}
-			fresh, err := oracleControlProducerFreshTx(g.ctx, g.tx, g.request.WorkID, receipt.SubjectCommit, control, producer)
+			qualified, err := unchangedJobControlProven(g, completed, worker, receipt, control, producer)
 			if err != nil {
 				return false, err
 			}
-			if !fresh {
-				continue
+			if qualified {
+				covered[id] = true
 			}
-			if control.RequiredEvidenceRole == OracleEvidenceRoleIndependentlyExecuted {
-				bound, err := oracleClosureProducerBoundTx(g.ctx, g.tx, g.request.WorkID, receipt.RunRef, producer.OperationRef)
-				if err != nil {
-					return false, err
-				}
-				independent, err := oracleClosureIndependentProducerTx(g.ctx, g.tx, g.request.WorkID, producer, completed, worker)
-				if err != nil {
-					return false, err
-				}
-				if !bound || !independent {
-					continue
-				}
-			}
-			covered[id] = true
 		}
 	}
 	return len(covered) == len(controls), nil
+}
+
+func unchangedJobControlProven(g *workflowActionGuardContext, completed *WorkerCompletedPayload, worker string, receipt WorkerOracleReceipt, control OracleControl, producer *WorktreeVerifyResult) (bool, error) {
+	if !oracleReceiptCoversControl(receipt, control) {
+		return false, nil
+	}
+	fresh, err := oracleControlProducerFreshTx(g.ctx, g.tx, g.request.WorkID, receipt.SubjectCommit, control, producer)
+	if err != nil || !fresh {
+		return false, err
+	}
+	if control.RequiredEvidenceRole == OracleEvidenceRoleIndependentlyExecuted {
+		return unchangedJobIndependentProducer(g, completed, worker, receipt.RunRef, producer)
+	}
+	return true, nil
+}
+
+func unchangedJobIndependentProducer(g *workflowActionGuardContext, completed *WorkerCompletedPayload, worker, runRef string, producer *WorktreeVerifyResult) (bool, error) {
+	bound, err := oracleClosureProducerBoundTx(g.ctx, g.tx, g.request.WorkID, runRef, producer.OperationRef)
+	if err != nil {
+		return false, err
+	}
+	independent, err := oracleClosureIndependentProducerTx(g.ctx, g.tx, g.request.WorkID, producer, completed, worker)
+	if err != nil {
+		return false, err
+	}
+	return bound && independent, nil
 }

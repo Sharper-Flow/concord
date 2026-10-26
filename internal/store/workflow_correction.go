@@ -360,6 +360,16 @@ type workflowCorrectionHistoryRow struct {
 }
 
 func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, subject string) error {
+	if err := h.observeCorrectionEvent(row, subject); err != nil {
+		return err
+	}
+	if row.kind != string(WorkflowActionCompleted) {
+		return nil
+	}
+	return h.observeCorrectionAction(row, subject)
+}
+
+func (h *workflowCorrectionHistory) observeCorrectionEvent(row workflowCorrectionHistoryRow, subject string) error {
 	switch row.kind {
 	case string(WorkflowContractSuperseded):
 		var successor struct {
@@ -395,26 +405,31 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		h.materialized[row.dispatchAttempt] = true
 		h.bind(row.dispatchAttempt, WorkerJobBinding{JobID: row.jobID, Revision: row.jobRevision, Digest: row.jobDigest})
 	case string(WorkerJobRecorded):
-		var recorded WorkerJobRecordedPayload
-		if err := json.Unmarshal([]byte(row.payload), &recorded); err == nil {
-			key := workerJobKey(recorded.JobID, recorded.Revision)
-			h.obligations[key] = workflowJobObligationState{base: workerJobObligationKey(recorded), oracle: recorded.AcceptanceOracle, contractVersion: recorded.ContractVersion}
-			if recorded.ChecksRepair != nil {
-				named := make([]string, 0, len(recorded.ChecksRepair.Revisions))
-				for _, entry := range recorded.ChecksRepair.Revisions {
-					named = append(named, workerJobKey(entry.WorkerJob.JobID, entry.WorkerJob.Revision))
-				}
-				h.checksRepairs[key] = &workflowChecksRepairState{
-					binding:         WorkerJobBinding{JobID: recorded.JobID, Revision: recorded.Revision, Digest: recorded.Digest},
-					namedKeys:       named,
-					contractVersion: recorded.ContractVersion,
-				}
+		h.observeCorrectionJob(row.payload)
+	}
+	return nil
+}
+
+func (h *workflowCorrectionHistory) observeCorrectionJob(raw string) {
+	var recorded WorkerJobRecordedPayload
+	if err := json.Unmarshal([]byte(raw), &recorded); err == nil {
+		key := workerJobKey(recorded.JobID, recorded.Revision)
+		h.obligations[key] = workflowJobObligationState{base: workerJobObligationKey(recorded), oracle: recorded.AcceptanceOracle, contractVersion: recorded.ContractVersion}
+		if recorded.ChecksRepair != nil {
+			named := make([]string, 0, len(recorded.ChecksRepair.Revisions))
+			for _, entry := range recorded.ChecksRepair.Revisions {
+				named = append(named, workerJobKey(entry.WorkerJob.JobID, entry.WorkerJob.Revision))
+			}
+			h.checksRepairs[key] = &workflowChecksRepairState{
+				binding:         WorkerJobBinding{JobID: recorded.JobID, Revision: recorded.Revision, Digest: recorded.Digest},
+				namedKeys:       named,
+				contractVersion: recorded.ContractVersion,
 			}
 		}
 	}
-	if row.kind != string(WorkflowActionCompleted) {
-		return nil
-	}
+}
+
+func (h *workflowCorrectionHistory) observeCorrectionAction(row workflowCorrectionHistoryRow, subject string) error {
 	switch row.actionID {
 	case "dispatch_worker":
 		// Authorization owns the binding even without worker evidence. Only
@@ -451,33 +466,37 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		record := workflowCorrectionRecordState{seq: row.seq, sourceID: row.eventID, fields: fields, jobKey: key}
 		h.records = append(h.records, record)
 	case "accept_worker_result":
-		// Only a result acceptance counts for repair state (CD-0205 D4):
-		// the repairing result's own acceptance opens the repair, and the
-		// exact confirming attempt's accepted Review confirms it when that
-		// Review requires no corrective work (continue or
-		// ready_for_final_proof) — never another attempt bound to the same
-		// repairing revision.
-		if repair := h.repairOfBinding(row.jobID, row.jobRevision); repair != nil && repair.acceptanceSeq == 0 {
-			repair.acceptanceSeq = row.seq
-		}
-		confirming := h.confirmingAttemptOf(row.actionAttempt)
-		disposition := h.reviewDisposition[row.actionAttempt]
-		if confirming != nil && (disposition == "correction_required" || disposition == "revision_required") {
-			h.voidConfirmingRepair(row.actionAttempt)
-		}
-		if confirming != nil && (disposition == "continue" || disposition == "ready_for_final_proof") && !confirming.voided {
-			confirming.confirmed = true
-			for _, key := range confirming.namedKeys {
-				delete(h.unresolved, key)
-			}
-			if len(h.unresolved) == 0 {
-				h.boundary = row.seq
-			}
-		} else if !h.blockingReview[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
-			h.boundary = row.seq
-		}
+		h.observeCorrectionAcceptance(row)
 	}
 	return nil
+}
+
+func (h *workflowCorrectionHistory) observeCorrectionAcceptance(row workflowCorrectionHistoryRow) {
+	// Only a result acceptance counts for repair state (CD-0205 D4):
+	// the repairing result's own acceptance opens the repair, and the
+	// exact confirming attempt's accepted Review confirms it when that
+	// Review requires no corrective work (continue or
+	// ready_for_final_proof) — never another attempt bound to the same
+	// repairing revision.
+	if repair := h.repairOfBinding(row.jobID, row.jobRevision); repair != nil && repair.acceptanceSeq == 0 {
+		repair.acceptanceSeq = row.seq
+	}
+	confirming := h.confirmingAttemptOf(row.actionAttempt)
+	disposition := h.reviewDisposition[row.actionAttempt]
+	if confirming != nil && (disposition == "correction_required" || disposition == "revision_required") {
+		h.voidConfirmingRepair(row.actionAttempt)
+	}
+	if confirming != nil && (disposition == "continue" || disposition == "ready_for_final_proof") && !confirming.voided {
+		confirming.confirmed = true
+		for _, key := range confirming.namedKeys {
+			delete(h.unresolved, key)
+		}
+		if len(h.unresolved) == 0 {
+			h.boundary = row.seq
+		}
+	} else if !h.blockingReview[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
+		h.boundary = row.seq
+	}
 }
 
 // repairOfBinding finds the recorded repair whose repairing revision the
@@ -1366,6 +1385,41 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 		}
 		boundary = max(boundary, startSeq)
 	}
+	candidates, err := readWorkflowRejectableCandidates(ctx, q, workID, subject, boundary)
+	if err != nil {
+		return nil, err
+	}
+	var results []workflowRejectableResult
+	for _, candidate := range candidates {
+		var window WorkerDispatchWindow
+		var windowErr error
+		if candidate.ExecutorRef != "" {
+			window, windowErr = findAuthorizedDispatchWindowBefore(ctx, q, workID, candidate.AttemptID, candidate.DispatchSeq)
+		}
+		var failure *Failure
+		if windowErr != nil && (!failureAs(windowErr, &failure) || failure.Kind != KindUnauthorizedDispatch) {
+			return nil, windowErr
+		}
+		if windowErr == nil && candidate.ExecutorRef != "" {
+			if window.StepID != currentStep || window.StartSeq < boundary || window.StartSeq >= candidate.DispatchSeq {
+				continue
+			}
+			candidate.AttemptEpoch = window.AttemptEpoch
+		} else {
+			// Legacy dispatches without an executor or authorization gain
+			// no authority across a newer current step start.
+			if !latestStartFound || candidate.DispatchSeq <= latestStartSeq {
+				continue
+			}
+			candidate.AttemptEpoch = latestStartEpoch
+			candidate.ExecutorRef = ""
+		}
+		results = append(results, candidate)
+	}
+	return results, nil
+}
+
+func readWorkflowRejectableCandidates(ctx context.Context, q queryer, workID, subject string, boundary int64) ([]workflowRejectableResult, error) {
 	rows, err := q.QueryContext(ctx, `SELECT a.attempt_id,a.dispatch_seq,a.dispatch_payload FROM worker_attempts a
  WHERE a.work_id=? AND a.lifecycle_state='completed' AND a.readback_model<>'' AND a.dispatch_seq>?
  AND NOT EXISTS (SELECT 1 FROM worker_attempt_dispositions d WHERE d.work_id=a.work_id AND d.attempt_id=a.attempt_id
@@ -1398,34 +1452,7 @@ func workflowRejectableWorkerResults(ctx context.Context, q queryer, workID stri
 	if err := rows.Close(); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot close completed worker results", true, "retry once the worker projection is readable", err)
 	}
-	var results []workflowRejectableResult
-	for _, candidate := range candidates {
-		var window WorkerDispatchWindow
-		var windowErr error
-		if candidate.ExecutorRef != "" {
-			window, windowErr = findAuthorizedDispatchWindowBefore(ctx, q, workID, candidate.AttemptID, candidate.DispatchSeq)
-		}
-		var failure *Failure
-		if windowErr != nil && (!failureAs(windowErr, &failure) || failure.Kind != KindUnauthorizedDispatch) {
-			return nil, windowErr
-		}
-		if windowErr == nil && candidate.ExecutorRef != "" {
-			if window.StepID != currentStep || window.StartSeq < boundary || window.StartSeq >= candidate.DispatchSeq {
-				continue
-			}
-			candidate.AttemptEpoch = window.AttemptEpoch
-		} else {
-			// Legacy dispatches without an executor or authorization gain
-			// no authority across a newer current step start.
-			if !latestStartFound || candidate.DispatchSeq <= latestStartSeq {
-				continue
-			}
-			candidate.AttemptEpoch = latestStartEpoch
-			candidate.ExecutorRef = ""
-		}
-		results = append(results, candidate)
-	}
-	return results, nil
+	return candidates, nil
 }
 
 // validateWorkerPacketCorrection refuses a packet that does not consume the

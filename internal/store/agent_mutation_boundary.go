@@ -468,6 +468,17 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 	if state.EvaluatorAuthority, err = workflowEvaluationAuthority(ctx, q, request.WorkID, actorRef); err != nil {
 		return state, err
 	}
+	facts, err := workflowApprovalBoundaryFacts(ctx, q, request, state)
+	if err != nil {
+		return state, err
+	}
+	if state.Policy, err = ClassifyWorkflowApproval(state.Definition.Definition, request.ActionID, facts); err != nil {
+		return state, err
+	}
+	return state, nil
+}
+
+func workflowApprovalBoundaryFacts(ctx context.Context, q queryer, request WorkflowActionPreflightRequest, state WorkflowApprovalBoundaryState) (WorkflowApprovalFacts, error) {
 	facts := WorkflowApprovalFacts{ActiveDecisionDomains: state.DecisionDomains}
 	if workflowOperatorVerdictActions[request.ActionID] {
 		// The existing legacy fact: an independent evaluator never becomes consent.
@@ -477,24 +488,25 @@ func workflowApprovalBoundaryCore(ctx context.Context, q queryer, registry Defin
 		var fields map[string]json.RawMessage
 		if len(request.Payload) != 0 {
 			if err := decodeWorkflowActionPayloadStrict(request.Payload, &fields); err != nil {
-				return state, newFailure(KindInvalidPayload, "workflow_approval_boundary", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
+				return facts, newFailure(KindInvalidPayload, "workflow_approval_boundary", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 			}
 		}
 		role := "successor"
 		if request.ActionID == "approve_contract" {
 			role = "approval"
-			if facts.ProposedDecisionDomains, err = workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields); err != nil {
-				return state, err
+			domains, err := workflowSubmittedDecisionDomains(state.Definition.Definition, role, fields)
+			if err != nil {
+				return facts, err
 			}
+			facts.ProposedDecisionDomains = domains
 		}
 		// CD-0230 D4: a serious law change needs the operator's approval of
 		// its exact text; a non-serious one records its reason instead.
-		if facts.SeriousLawChange, err = workflowProposedLawChangeSeriousTx(ctx, q, state.Definition.Definition, request.WorkID, role, fields); err != nil {
-			return state, err
+		serious, err := workflowProposedLawChangeSeriousTx(ctx, q, state.Definition.Definition, request.WorkID, role, fields)
+		if err != nil {
+			return facts, err
 		}
+		facts.SeriousLawChange = serious
 	}
-	if state.Policy, err = ClassifyWorkflowApproval(state.Definition.Definition, request.ActionID, facts); err != nil {
-		return state, err
-	}
-	return state, nil
+	return facts, nil
 }

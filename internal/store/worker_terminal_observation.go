@@ -392,28 +392,7 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 	enriched := event
 	switch event.Kind {
 	case WorkerCompleted:
-		var payload WorkerCompletedPayload
-		if err := decodeClosedWorkerPayload(event, &payload); err != nil {
-			return Event{}, err
-		}
-		deliveryErr := enrichWorkerObservedDeliveryTx(ctx, tx, event, window, &payload)
-		if deliveryErr != nil {
-			return Event{}, deliveryErr
-		}
-		if err := bindWorkerReceiptSubjectsTx(ctx, tx, event.SubjectID, payload.Evidence); err != nil {
-			return Event{}, err
-		}
-		if window.ContextFrontierPresent || payload.ObservedDelivery != nil || len(payload.Evidence) > 0 {
-			if window.ContextFrontierPresent {
-				frontier := window.ContextFrontier
-				payload.ConsumedContextFrontier = &frontier
-			}
-			raw, marshalErr := json.Marshal(payload)
-			if marshalErr != nil {
-				return Event{}, wrapFailure(KindInvariantViolation, workerTerminalObservationOp, "cannot encode the enriched completion payload", false, "repair the terminal delivery identity", marshalErr)
-			}
-			enriched.Payload = raw
-		}
+		return enrichWorkerCompletedEventTx(ctx, tx, event, window)
 	case WorkerFailed:
 		if window.ContextFrontierPresent {
 			var payload WorkerFailedPayload
@@ -430,6 +409,31 @@ func enrichWorkerTerminalEventTx(ctx context.Context, tx *sql.Tx, event Event) (
 		}
 	}
 	return enriched, nil
+}
+
+func enrichWorkerCompletedEventTx(ctx context.Context, tx *sql.Tx, event Event, window WorkerDispatchWindow) (Event, error) {
+	var payload WorkerCompletedPayload
+	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if err := enrichWorkerObservedDeliveryTx(ctx, tx, event, window, &payload); err != nil {
+		return Event{}, err
+	}
+	if err := bindWorkerReceiptSubjectsTx(ctx, tx, event.SubjectID, payload.Evidence); err != nil {
+		return Event{}, err
+	}
+	if window.ContextFrontierPresent || payload.ObservedDelivery != nil || len(payload.Evidence) > 0 {
+		if window.ContextFrontierPresent {
+			frontier := window.ContextFrontier
+			payload.ConsumedContextFrontier = &frontier
+		}
+		raw, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return Event{}, wrapFailure(KindInvariantViolation, workerTerminalObservationOp, "cannot encode the enriched completion payload", false, "repair the terminal delivery identity", marshalErr)
+		}
+		event.Payload = raw
+	}
+	return event, nil
 }
 
 // enrichWorkerObservedDeliveryTx attaches the prepared delivery observation

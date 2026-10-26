@@ -1295,92 +1295,108 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	}
 	p.PredecessorContractVersions = predecessors
 	if p.SuccessorContract != nil {
-		if p.SuccessorContract.ContractVersion != p.NewContractVersion {
-			return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
-		}
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
-		if definitionErr != nil {
-			return definitionErr
-		}
-		productChanging := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-		if productChanging && p.SuccessorContract.ArchitectureBinding == nil {
-			return newFailure(KindInvalidPayload, "fold_event", "true-definition supersession requires a fully supplied successor binding", false, "supply the complete successor architecture binding")
-		}
-		if productChanging {
-			if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
-				return err
-			}
-		} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
-			// CD-0222 D5: a successor that
-			// does not change Product truth may revise derived law in-contract.
-			// A binding still carries Product authority and is refused here.
-			if p.SuccessorContract.ArchitectureBinding != nil {
-				return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
-			}
-			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.SuccessorContract.LawModifies); err != nil {
-				return err
-			}
-		}
-		if !productChanging {
-			if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
-				return err
-			}
-		}
-		p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
-		successorPayload, err := json.Marshal(p.SuccessorContract)
-		if err != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "successor contract payload cannot be encoded", false, "supply a valid successor contract")
-		}
-		successorEvent := event
-		successorEvent.EventID = event.EventID + ":successor"
-		successorEvent.Kind = WorkflowContractApproved
-		successorEvent.PayloadVersion = workflowContractLawChangePayloadVersion
-		successorEvent.Payload = successorPayload
-		if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent, scope); err != nil {
+		if err := foldSuppliedWorkflowSuccessorTx(ctx, tx, event, scope, p); err != nil {
 			return err
 		}
-	} else {
-		registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
-		if definitionErr != nil {
-			return definitionErr
-		}
-		if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
-			return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract supersession cannot use the legacy clone route", false, "supply a fully bound successor contract")
-		}
-		// The clone route copies the predecessor row and supplies no successor
-		// contract, so a consequence_v1 successor cannot declare its
-		// decision-domain fact on this shape. The complete-successor route
-		// declares it through the initial fold's policy gate.
-		if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
-			return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract supersession cannot use the legacy clone route", false, "supply a complete successor contract that declares its decision domains explicitly")
-		}
-		if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+	} else if err := cloneWorkflowSuccessorTx(ctx, tx, event, scope, p); err != nil {
+		return err
+	}
+	return finishWorkflowContractSupersessionTx(ctx, tx, event, scope, p)
+}
+
+func foldSuppliedWorkflowSuccessorTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowContractSupersededPayload) error {
+	if p.SuccessorContract.ContractVersion != p.NewContractVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "successor contract version does not match contract supersession", false, "supply the consecutive successor contract version")
+	}
+	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
+	if definitionErr != nil {
+		return definitionErr
+	}
+	productChanging := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	if productChanging && p.SuccessorContract.ArchitectureBinding == nil {
+		return newFailure(KindInvalidPayload, "fold_event", "true-definition supersession requires a fully supplied successor binding", false, "supply the complete successor architecture binding")
+	}
+	if productChanging {
+		if err := validateArchitectureBindingTx(ctx, tx, event.SubjectID, registered.Definition, p.SuccessorContract.ArchitectureBinding, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
 			return err
 		}
-		if len(predecessors) != 1 {
-			return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
+	} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
+		// CD-0222 D5: a successor that
+		// does not change Product truth may revise derived law in-contract.
+		// A binding still carries Product authority and is refused here.
+		if p.SuccessorContract.ArchitectureBinding != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing successor carries Product authority", false, "leave Product-changing fields empty")
 		}
-		if err := validateClonedWorkflowContractLawRevisionsTx(ctx, tx, event.SubjectID, predecessors); err != nil {
+		if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.SuccessorContract.LawModifies); err != nil {
 			return err
-		}
-		cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)
-		if err != nil {
-			return workflowProjectionError(err, "cannot create superseding workflow contract")
-		}
-		count, err := cloned.RowsAffected()
-		if err != nil {
-			return workflowProjectionError(err, "cannot inspect the cloned workflow contract")
-		}
-		if count > 0 {
-			if err := recordRuntimeContractWriter(ctx, tx, event.SubjectID, p.NewContractVersion); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,?,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
-			return workflowProjectionError(err, "cannot clone workflow contract predicates")
 		}
 	}
-	for _, predecessor := range predecessors {
+	if !productChanging {
+		if err := validateCurrentWorkflowLawRevisionsTx(ctx, tx, event.SubjectID, p.SuccessorContract.SpecMandate, p.SuccessorContract.LawModifies, p.SuccessorContract.LawRevisions); err != nil {
+			return err
+		}
+	}
+	p.SuccessorContract.WorkflowVersionFields = p.WorkflowVersionFields
+	successorPayload, err := json.Marshal(p.SuccessorContract)
+	if err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "successor contract payload cannot be encoded", false, "supply a valid successor contract")
+	}
+	successorEvent := event
+	successorEvent.EventID = event.EventID + ":successor"
+	successorEvent.Kind = WorkflowContractApproved
+	successorEvent.PayloadVersion = workflowContractLawChangePayloadVersion
+	successorEvent.Payload = successorPayload
+	if err := foldWorkflowContractApproved(workflowContractSupersessionContext(ctx), tx, successorEvent, scope); err != nil {
+		return err
+	}
+	return nil
+}
+
+func cloneWorkflowSuccessorTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowContractSupersededPayload) error {
+	registered, definitionErr := VerifyWorkflowInstanceDefinitionTx(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID)
+	if definitionErr != nil {
+		return definitionErr
+	}
+	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+		return newFailure(KindInvalidPayload, "fold_event", "Product-changing contract supersession cannot use the legacy clone route", false, "supply a fully bound successor contract")
+	}
+	// The clone route copies the predecessor row and supplies no successor
+	// contract, so a consequence_v1 successor cannot declare its
+	// decision-domain fact on this shape. The complete-successor route
+	// declares it through the initial fold's policy gate.
+	if workflowApprovalPolicyRequiresDecisionFact(registered.Definition) {
+		return newFailure(KindInvalidPayload, "fold_event", "consequence_v1 contract supersession cannot use the legacy clone route", false, "supply a complete successor contract that declares its decision domains explicitly")
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if len(p.PredecessorContractVersions) != 1 {
+		return newFailure(KindInvariantViolation, "fold_event", "duplicate active contracts require a fully supplied successor contract", false, "supply the typed successor contract")
+	}
+	if err := validateClonedWorkflowContractLawRevisionsTx(ctx, tx, event.SubjectID, p.PredecessorContractVersions); err != nil {
+		return err
+	}
+	cloned, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_digest,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contracts WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion)
+	if err != nil {
+		return workflowProjectionError(err, "cannot create superseding workflow contract")
+	}
+	count, err := cloned.RowsAffected()
+	if err != nil {
+		return workflowProjectionError(err, "cannot inspect the cloned workflow contract")
+	}
+	if count > 0 {
+		if err := recordRuntimeContractWriter(ctx, tx, event.SubjectID, p.NewContractVersion); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,?,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND NOT EXISTS (SELECT 1 FROM workflow_contract_predicates WHERE work_id=? AND contract_version=?)`, p.NewContractVersion, event.SubjectID, p.PreviousContractVersion, event.SubjectID, p.NewContractVersion); err != nil {
+		return workflowProjectionError(err, "cannot clone workflow contract predicates")
+	}
+	return nil
+}
+
+func finishWorkflowContractSupersessionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowContractSupersededPayload) error {
+	for _, predecessor := range p.PredecessorContractVersions {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, p.NewContractVersion, event.SubjectID, predecessor)
 		if err != nil {
 			return workflowProjectionError(err, "cannot supersede workflow contract")
@@ -1389,7 +1405,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return newFailure(KindProjectionNotFound, "fold_event", "predecessor workflow contract does not exist or is already superseded", false, "reload the exact active contract versions")
 		}
 	}
-	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, predecessors, p.NewContractVersion); err != nil {
+	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, p.PredecessorContractVersions, p.NewContractVersion); err != nil {
 		return err
 	}
 	// A contract supersession before the confirming Review is accepted voids an
@@ -1469,27 +1485,28 @@ func foldCompleteStepContractCorrectionTxForRegistry(ctx context.Context, tx *sq
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, registry, workID)
 }
 
-func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope) error {
-	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, event.SubjectID)
+type workflowContractDependent struct{ workID, edgeID, edgeClass string }
+
+func readWorkflowContractDependentsTx(ctx context.Context, tx *sql.Tx, workID string) ([]workflowContractDependent, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT work_id,edge_id,edge_class FROM workflow_impact_edges WHERE target_work_id=? AND edge_kind='depends_on' AND edge_class IN ('hard','soft') ORDER BY work_id,edge_id`, workID)
 	if err != nil {
-		return workflowProjectionError(err, "cannot inspect hard dependents")
+		return nil, workflowProjectionError(err, "cannot inspect hard dependents")
 	}
-	type dependent struct{ workID, edgeID, edgeClass string }
-	var dependents []dependent
+	var dependents []workflowContractDependent
 	for rows.Next() {
-		var item dependent
+		var item workflowContractDependent
 		if err := rows.Scan(&item.workID, &item.edgeID, &item.edgeClass); err != nil {
 			rows.Close()
-			return workflowProjectionError(err, "cannot read hard dependent")
+			return nil, workflowProjectionError(err, "cannot read hard dependent")
 		}
 		dependents = append(dependents, item)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return workflowProjectionError(err, "cannot scan hard dependents")
+		return nil, workflowProjectionError(err, "cannot scan hard dependents")
 	}
 	rows.Close()
-	selected := make(map[string]dependent, len(dependents))
+	selected := make(map[string]workflowContractDependent, len(dependents))
 	for _, candidate := range dependents {
 		current, exists := selected[candidate.workID]
 		if !exists || candidate.edgeClass == "hard" && current.edgeClass != "hard" || candidate.edgeClass == current.edgeClass && candidate.edgeID < current.edgeID {
@@ -1501,49 +1518,67 @@ func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, even
 		owners = append(owners, owner)
 	}
 	sort.Strings(owners)
+	var ordered []workflowContractDependent
+	for _, owner := range owners {
+		ordered = append(ordered, selected[owner])
+	}
+	return ordered, nil
+}
+
+func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope) error {
+	dependents, err := readWorkflowContractDependentsTx(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
 	for _, predecessor := range payload.PredecessorContractVersions {
-		for _, owner := range owners {
-			item := selected[owner]
-			var consumed, active int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.workID, predecessor).Scan(&consumed); err != nil {
-				return workflowProjectionError(err, "cannot inspect dependent contract consumption")
-			}
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.workID).Scan(&active); err != nil {
-				return workflowProjectionError(err, "cannot inspect dependent lifecycle")
-			}
-			severity := "non-breaking"
-			if item.edgeClass == "hard" && consumed != 0 && active != 0 {
-				severity = "breaking"
-			}
-			entityRef := fmt.Sprintf("contract:%d", predecessor)
-			noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", entityRef, item.workID, severity)
-			noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": entityRef, "target_work_id": item.workID, "edge_owner_work_id": item.workID, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": severity}
-			raw, err := json.Marshal(noticePayload)
-			if err != nil {
-				return newFailure(KindInvalidPayload, "fold_event", "workflow impact notice payload cannot be encoded", false, "repair the workflow impact notice")
-			}
-			notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
-			if err := notice.validate(); err != nil {
-				return err
-			}
-			var typed workflowImpactNoticeRecordedPayload
-			if err := decodeRegisteredPayload(notice, &typed); err != nil {
-				return err
-			}
-			seq, err := appendPreparedEvent(ctx, tx, notice)
-			if err != nil {
-				return newFailure(KindOperationConflict, "fold_event", "dependent impact notice conflicted", false, "reconcile the workflow operation")
-			}
-			notice.Seq = seq
-			scope.eventIDs = append(scope.eventIDs, notice.EventID)
-			if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
-				return err
-			}
-			if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
+		for _, item := range dependents {
+			if err := appendWorkflowContractImpactNoticeTx(ctx, tx, event, payload, version, scope, predecessor, item); err != nil {
 				return err
 			}
 			version++
 		}
+	}
+	return nil
+}
+
+func appendWorkflowContractImpactNoticeTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64, scope *writeScope, predecessor int64, item workflowContractDependent) error {
+	var consumed, active int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=?`, item.workID, predecessor).Scan(&consumed); err != nil {
+		return workflowProjectionError(err, "cannot inspect dependent contract consumption")
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, item.workID).Scan(&active); err != nil {
+		return workflowProjectionError(err, "cannot inspect dependent lifecycle")
+	}
+	severity := "non-breaking"
+	if item.edgeClass == "hard" && consumed != 0 && active != 0 {
+		severity = "breaking"
+	}
+	entityRef := fmt.Sprintf("contract:%d", predecessor)
+	noticeID := WorkflowNoticeID(event.SubjectID, payload.NewContractVersion, "workflow_contract", entityRef, item.workID, severity)
+	noticePayload := map[string]any{"work_id": event.SubjectID, "expected_version": version, "resulting_version": version + 1, "notice_id": noticeID, "source_contract_version": payload.NewContractVersion, "entity_kind": "workflow_contract", "entity_ref": entityRef, "target_work_id": item.workID, "edge_owner_work_id": item.workID, "edge_id": item.edgeID, "old_hash": nil, "new_hash": nil, "severity": severity}
+	raw, err := json.Marshal(noticePayload)
+	if err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "workflow impact notice payload cannot be encoded", false, "repair the workflow impact notice")
+	}
+	notice := Event{EventID: "notice-event:" + noticeID, Kind: WorkflowImpactNoticeRecorded, SubjectType: SubjectWorkItem, SubjectID: event.SubjectID, Actor: event.Actor, OccurredAt: event.OccurredAt, PayloadVersion: 2, Payload: raw}
+	if err := notice.validate(); err != nil {
+		return err
+	}
+	var typed workflowImpactNoticeRecordedPayload
+	if err := decodeRegisteredPayload(notice, &typed); err != nil {
+		return err
+	}
+	seq, err := appendPreparedEvent(ctx, tx, notice)
+	if err != nil {
+		return newFailure(KindOperationConflict, "fold_event", "dependent impact notice conflicted", false, "reconcile the workflow operation")
+	}
+	notice.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, notice.EventID)
+	if err := foldWorkflowImpactNoticeRecorded(ctx, tx, notice); err != nil {
+		return err
+	}
+	if err := advanceWorkEffectSeqTx(ctx, tx, notice); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1878,8 +1913,16 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.AttemptEpoch != expectedEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
-	fenced := step != nil && workflowStepFences(entry.Definition, *step)
+	if err := admitWorkflowCheckpointWriterTx(ctx, tx, event, p, entry.Definition, step, currentStep, executionActor); err != nil {
+		return err
+	}
+	return persistWorkflowCheckpointTx(ctx, tx, event, scope, p)
+}
+
+func admitWorkflowCheckpointWriterTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCheckpointedPayload, definition WorkflowDefinition, step *WorkflowStep, currentStep, executionActor string) error {
+	fenced := step != nil && workflowStepFences(definition, *step)
 	var admitted bool
+	var err error
 	if !fenced {
 		admitted, err = workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, false, event.Seq)
 		if err != nil {
@@ -1890,7 +1933,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		if checkpointFieldsErr != nil {
 			return checkpointFieldsErr
 		}
-		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, entry.Definition, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef, event.EventID)
+		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, definition, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef, event.EventID)
 		if deriveErr != nil {
 			return deriveErr
 		}
@@ -1912,6 +1955,10 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
+	return nil
+}
+
+func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCheckpointedPayload) error {
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -1934,7 +1981,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if evidence == nil {
 		evidence = []string{}
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpointID, p.StepID, p.StepKind, p.AttemptEpoch, digest, workflowJSON(evidence), p.ResumeCursor, idem, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_checkpoints(work_id,checkpoint_id,step_id,step_kind,attempt_epoch,accepted_inputs_digest,result_evidence_refs,resume_cursor,idempotency_identity,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpointID, p.StepID, p.StepKind, p.AttemptEpoch, digest, workflowJSON(evidence), p.ResumeCursor, idem, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow checkpoint")
 	}
@@ -2000,30 +2047,10 @@ func foldWorkflowDecisionRecordForRegistry(ctx context.Context, tx *sql.Tx, regi
 	}
 	declaredBounds := false
 	if checkpoint.Fields != nil {
-		entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, event.SubjectID)
+		var err error
+		declaredBounds, err = validateWorkflowDecisionDeclaredBoundsTx(ctx, tx, registry, event.SubjectID, raw)
 		if err != nil {
 			return err
-		}
-		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID != "record_decision" {
-				continue
-			}
-			for _, field := range action.Payload.Fields {
-				if field.Name == "options_considered" {
-					declaredBounds = true
-				}
-			}
-		}
-		if declaredBounds {
-			var envelope struct {
-				Fields json.RawMessage `json:"fields"`
-			}
-			if err := json.Unmarshal(raw, &envelope); err != nil {
-				return err
-			}
-			if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
-				return err
-			}
 		}
 	}
 	// Typed records use their pinned payload contract for preflight and folding.
@@ -2032,6 +2059,36 @@ func foldWorkflowDecisionRecordForRegistry(ctx context.Context, tx *sql.Tx, regi
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, checkpoint.Question, workflowJSON(checkpoint.Options), checkpoint.Decision, checkpoint.Rationale, workflowJSON(checkpoint.Consequences), workflowJSON(checkpoint.Inputs), checkpoint.POCFindings, valueOrNil(checkpoint.Supersedes), valueOrNil(checkpoint.SupersededBy), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow decision")
+}
+
+func validateWorkflowDecisionDeclaredBoundsTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string, raw json.RawMessage) (bool, error) {
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
+	if err != nil {
+		return false, err
+	}
+	declaredBounds := false
+	for _, action := range entry.Definition.ActionDefinitions {
+		if action.ID != "record_decision" {
+			continue
+		}
+		for _, field := range action.Payload.Fields {
+			if field.Name == "options_considered" {
+				declaredBounds = true
+			}
+		}
+	}
+	if declaredBounds {
+		var envelope struct {
+			Fields json.RawMessage `json:"fields"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return false, err
+		}
+		if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
+			return false, err
+		}
+	}
+	return declaredBounds, nil
 }
 
 func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -2214,89 +2271,17 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 // alone, and a rejected result or a correction request carries its full
 // correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if p.WorkerSubjectCommit != "" && (p.ActionID != "dispatch_worker" || !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit)) {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit is reserved for dispatch_worker and must be one raw commit OID", false, "record the admitted dispatch subject only")
+	if err := validateWorkflowCompletionDispatchMetadata(p); err != nil {
+		return err
 	}
-	// The frontier attribution is dispatch authority: only a
-	// dispatch_worker completion records it, and a frontier is never
-	// negative.
-	if p.WorkerContextFrontier != nil && (p.ActionID != "dispatch_worker" || *p.WorkerContextFrontier < 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_context_frontier is reserved for dispatch_worker and must be a nonnegative source-event frontier", false, "record the admitted view frontier only")
+	if err := validateWorkflowCompletionResultFields(p); err != nil {
+		return err
 	}
-	if p.CorrectionOpenFindingIDs != nil && ((p.ActionID != "reject_worker_result" && p.ActionID != "request_correction") || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
-		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result or a correction request with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result or request_correction")
+	if err := validateWorkflowCompletionJobBinding(p); err != nil {
+		return err
 	}
-	if p.RetryConvergence != nil && (p.ActionID != "dispatch_worker" || !p.RetryConvergence.valid()) {
-		return newFailure(KindInvalidPayload, "fold_event", "retry_convergence requires a dispatch and a complete convergence basis", false, "record the convergence basis derived by the store")
-	}
-	if p.ChecksRepairReview != nil {
-		if p.ActionID != "dispatch_worker" {
-			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review is reserved for dispatch_worker: the completion that records the confirming review admission", false, "record the confirming-review admission on its dispatch completion only")
-		}
-		if p.ChecksRepairReview.WorkerJob.JobID == "" || p.ChecksRepairReview.WorkerJob.Revision < 1 || p.ChecksRepairReview.WorkerJob.Digest == "" || p.ChecksRepairReview.RepairingAcceptanceSeq < 1 {
-			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review must bind the exact repairing revision and its repairing acceptance", false, "record the confirming-review admission the store derives")
-		}
-	}
-	bound := workflowOperationEvidenceRefBound
-	if p.VerdictEntryCount != 0 {
-		if p.ActionID != "record_verdict" || p.VerdictEntryCount < 0 || p.VerdictEntryCount > workflowVerdictBatchMaxEntries {
-			return newFailure(KindInvalidPayload, "fold_event", "action_completed verdict_entry_count is reserved for a batched record_verdict operation", false, "emit verdict_entry_count only for the batched record_verdict form")
-		}
-		bound = workflowVerdictBatchEvidenceUnionBound(p.VerdictEntryCount)
-	}
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound); fault != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
-	}
-	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
-	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.ActionID != "record_worker_job" && p.WorkerAttemptID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
-	}
-	// The worker-job binding is recorded authority (CD-0205): the
-	// dispatch_worker completion records the revision the packet binds, and
-	// the accept_worker_result completion records the disposition it
-	// satisfies. Both must be whole — a job_id, a positive revision, and a digest — because
-	// the correction window reads it as the durable fact that one recorded
-	// job was satisfied.
-	if p.WorkerJob != nil {
-		if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" || !workflowString(p.WorkerJob.JobID, 128) || p.WorkerJob.Revision < 1 || !workflowString(p.WorkerJob.Digest, 128) {
-			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for dispatch_worker and accept_worker_result and requires job_id, revision, and digest", false, "record the disposition derived from the accepted attempt's dispatch binding")
-		}
-	}
-	if p.WorkerCallerExclusions != nil {
-		if p.ActionID != "dispatch_worker" || p.WorkerJob == nil || len(p.WorkerCallerExclusions) > WorkerJobCallerExclusionsMax {
-			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed worker_caller_exclusions is reserved for a job-bound dispatch_worker and carries at most %d paths", WorkerJobCallerExclusionsMax), false, "record the caller exclusions the dispatch admission computed")
-		}
-		for _, path := range p.WorkerCallerExclusions {
-			if problem := normalizedRelativeRepoPathProblem("action_completed worker_caller_exclusions", path); problem != "" {
-				return newFailure(KindInvalidPayload, "fold_event", problem, false, "record the caller exclusions the dispatch admission computed")
-			}
-		}
-	}
-	// The lane identity is the dispatch_worker completion's in-flight
-	// binding input, so it is reserved for that action and must arrive all
-	// together: a partial identity would bind an attempt the fold cannot
-	// read back.
-	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
-	laneBound, laneUnbound := 0, 0
-	for _, set := range laneFields {
-		if set {
-			laneBound++
-		} else {
-			laneUnbound++
-		}
-	}
-	if laneBound > 0 && laneUnbound > 0 {
-		return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is partially bound", false, "record the complete lane identity on the dispatch_worker completion")
-	}
-	if laneBound > 0 {
-		if p.ActionID != "dispatch_worker" {
-			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
-		}
-		if !workflowString(p.WorkerLaneID, 32) || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
-			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
-		}
+	if err := validateWorkflowCompletionLaneIdentity(p); err != nil {
+		return err
 	}
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
@@ -2320,6 +2305,106 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.ActionID == "reject_worker_result" {
 		if fault := workflowCorrectionSchemaValuesFaultForAdmission(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
 			return newFailure(KindInvalidPayload, "fold_event", "rejected worker result carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
+		}
+	}
+	return nil
+}
+
+func validateWorkflowCompletionDispatchMetadata(p workflowActionCompletedPayload) error {
+	if p.WorkerSubjectCommit != "" && (p.ActionID != "dispatch_worker" || !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit)) {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit is reserved for dispatch_worker and must be one raw commit OID", false, "record the admitted dispatch subject only")
+	}
+	// The frontier attribution is dispatch authority: only a
+	// dispatch_worker completion records it, and a frontier is never
+	// negative.
+	if p.WorkerContextFrontier != nil && (p.ActionID != "dispatch_worker" || *p.WorkerContextFrontier < 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_context_frontier is reserved for dispatch_worker and must be a nonnegative source-event frontier", false, "record the admitted view frontier only")
+	}
+	if p.CorrectionOpenFindingIDs != nil && ((p.ActionID != "reject_worker_result" && p.ActionID != "request_correction") || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
+		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result or a correction request with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result or request_correction")
+	}
+	if p.RetryConvergence != nil && (p.ActionID != "dispatch_worker" || !p.RetryConvergence.valid()) {
+		return newFailure(KindInvalidPayload, "fold_event", "retry_convergence requires a dispatch and a complete convergence basis", false, "record the convergence basis derived by the store")
+	}
+	if p.ChecksRepairReview != nil {
+		if p.ActionID != "dispatch_worker" {
+			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review is reserved for dispatch_worker: the completion that records the confirming review admission", false, "record the confirming-review admission on its dispatch completion only")
+		}
+		if p.ChecksRepairReview.WorkerJob.JobID == "" || p.ChecksRepairReview.WorkerJob.Revision < 1 || p.ChecksRepairReview.WorkerJob.Digest == "" || p.ChecksRepairReview.RepairingAcceptanceSeq < 1 {
+			return newFailure(KindInvalidPayload, "fold_event", "checks_repair_review must bind the exact repairing revision and its repairing acceptance", false, "record the confirming-review admission the store derives")
+		}
+	}
+	return nil
+}
+
+func validateWorkflowCompletionResultFields(p workflowActionCompletedPayload) error {
+	bound := workflowOperationEvidenceRefBound
+	if p.VerdictEntryCount != 0 {
+		if p.ActionID != "record_verdict" || p.VerdictEntryCount < 0 || p.VerdictEntryCount > workflowVerdictBatchMaxEntries {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed verdict_entry_count is reserved for a batched record_verdict operation", false, "emit verdict_entry_count only for the batched record_verdict form")
+		}
+		bound = workflowVerdictBatchEvidenceUnionBound(p.VerdictEntryCount)
+	}
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound); fault != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
+	}
+	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
+	}
+	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.ActionID != "record_worker_job" && p.WorkerAttemptID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	return nil
+}
+
+func validateWorkflowCompletionJobBinding(p workflowActionCompletedPayload) error {
+	// The worker-job binding is recorded authority (CD-0205): the
+	// dispatch_worker completion records the revision the packet binds, and
+	// the accept_worker_result completion records the disposition it
+	// satisfies. Both must be whole — a job_id, a positive revision, and a digest — because
+	// the correction window reads it as the durable fact that one recorded
+	// job was satisfied.
+	if p.WorkerJob != nil {
+		if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" || !workflowString(p.WorkerJob.JobID, 128) || p.WorkerJob.Revision < 1 || !workflowString(p.WorkerJob.Digest, 128) {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for dispatch_worker and accept_worker_result and requires job_id, revision, and digest", false, "record the disposition derived from the accepted attempt's dispatch binding")
+		}
+	}
+	if p.WorkerCallerExclusions != nil {
+		if p.ActionID != "dispatch_worker" || p.WorkerJob == nil || len(p.WorkerCallerExclusions) > WorkerJobCallerExclusionsMax {
+			return newFailure(KindInvalidPayload, "fold_event", fmt.Sprintf("action_completed worker_caller_exclusions is reserved for a job-bound dispatch_worker and carries at most %d paths", WorkerJobCallerExclusionsMax), false, "record the caller exclusions the dispatch admission computed")
+		}
+		for _, path := range p.WorkerCallerExclusions {
+			if problem := normalizedRelativeRepoPathProblem("action_completed worker_caller_exclusions", path); problem != "" {
+				return newFailure(KindInvalidPayload, "fold_event", problem, false, "record the caller exclusions the dispatch admission computed")
+			}
+		}
+	}
+	return nil
+}
+
+func validateWorkflowCompletionLaneIdentity(p workflowActionCompletedPayload) error {
+	// The lane identity is the dispatch_worker completion's in-flight
+	// binding input, so it is reserved for that action and must arrive all
+	// together: a partial identity would bind an attempt the fold cannot
+	// read back.
+	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
+	laneBound, laneUnbound := 0, 0
+	for _, set := range laneFields {
+		if set {
+			laneBound++
+		} else {
+			laneUnbound++
+		}
+	}
+	if laneBound > 0 && laneUnbound > 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is partially bound", false, "record the complete lane identity on the dispatch_worker completion")
+	}
+	if laneBound > 0 {
+		if p.ActionID != "dispatch_worker" {
+			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
+		}
+		if !workflowString(p.WorkerLaneID, 32) || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
+			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
 		}
 	}
 	return nil
@@ -2410,40 +2495,44 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !workerFailureRecovery && !correctionRecovery {
-		var raw []byte
-		var bindingSeq int64
-		// The evidence constructor emits its binding immediately before the
-		// completion. Join that effect, not a tuple from an earlier action.
-		err := tx.QueryRowContext(ctx, `SELECT binding_seq,payload FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY binding_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
-		if err != nil && err != sql.ErrNoRows {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)
-		}
-		if err == sql.ErrNoRows {
-			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding requires its own bound subject", false, "bind eligible recovery evidence before recording the action completion")
-		}
-		var binding workflowEvidenceBoundPayload
-		if err := json.Unmarshal(raw, &binding); err != nil {
-			return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
-		}
-		// The binding has already folded. Evaluate the shared eligibility at
-		// its input boundary, not against the requirement it just satisfied.
-		recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, tx, entry.Definition, event.SubjectID, currentStep, bindingSeq)
-		if err != nil {
-			return err
-		}
-		if recovery.Refusal != nil {
-			return recovery.Refusal
-		}
-		if slices.Contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
-			for _, requirement := range recovery.Requirements {
-				if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
-					return nil
-				}
-			}
-		}
-		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
+		return admitWorkflowRecoveryEvidenceCompletionTx(ctx, tx, event, p, entry.Definition, currentStep)
 	}
 	return nil
+}
+
+func admitWorkflowRecoveryEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string) error {
+	var raw []byte
+	var bindingSeq int64
+	// The evidence constructor emits its binding immediately before the
+	// completion. Join that effect, not a tuple from an earlier action.
+	err := tx.QueryRowContext(ctx, `SELECT binding_seq,payload FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY binding_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
+	if err != nil && err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)
+	}
+	if err == sql.ErrNoRows {
+		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding requires its own bound subject", false, "bind eligible recovery evidence before recording the action completion")
+	}
+	var binding workflowEvidenceBoundPayload
+	if err := json.Unmarshal(raw, &binding); err != nil {
+		return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
+	}
+	// The binding has already folded. Evaluate the shared eligibility at
+	// its input boundary, not against the requirement it just satisfied.
+	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, tx, definition, event.SubjectID, currentStep, bindingSeq)
+	if err != nil {
+		return err
+	}
+	if recovery.Refusal != nil {
+		return recovery.Refusal
+	}
+	if slices.Contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
+		for _, requirement := range recovery.Requirements {
+			if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
+				return nil
+			}
+		}
+	}
+	return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 }
 
 // workflowCompletedActionAdvances reports whether a recorded action completion advances the pinned step.
@@ -3199,7 +3288,6 @@ func readWorkflowActionStartTx(ctx context.Context, q queryer, workID, stepID st
 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
-	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
 	// derivedPair marks the CD-0198 D5 derivation pair: the completing event
 	// is the workflow failure record the attempt's own terminal event
 	// derives. The pair's actor is already authenticated by that terminal
@@ -3210,34 +3298,9 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// route, not behind it: on a derived-failure pin the recovery admits the
 	// record first, and the pair identity — not the admitting route — is
 	// what the skip keys on.
-	derivedPair := false
-	if !allowed && payload.ActionID == "accept_worker_evidence" {
-		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
-			return err
-		}
-		allowed = true
-	}
-	if !allowed && payload.ActionID == "record_worker_failure" {
-		var recoveryErr error
-		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		// CD-0198 D5: the terminal event's own derivation pair folds without
-		// the recovery route — the record derives from the attempt's terminal
-		// event, not from a coordinator call.
-		derivedPair, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, definition, event, payload)
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		allowed = allowed || derivedPair
-	}
-	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
-		// Live rejection eligibility is checked below.
-		allowed = true
-	}
-	if !allowed {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", payload.ActionID+" is only valid on a worker-dispatch step", false, "record the worker attempt on its pinned step")
+	derivedPair, err := admitWorkflowWorkerAttemptStepTx(ctx, tx, event, payload, definition, step, currentStep)
+	if err != nil {
+		return err
 	}
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
@@ -3275,6 +3338,64 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 			return workflowProjectionError(err, "cannot read recorded worker executor")
 		}
 	}
+	if err := validateWorkflowWorkerAttemptEpochTx(ctx, tx, event, payload, step, currentStep, capability, attemptSeq); err != nil {
+		return err
+	}
+	if lifecycle != requiredLifecycle {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not "+requiredLifecycle, false, "record only a "+requiredLifecycle+" worker attempt")
+	}
+	if requiredLifecycle == "completed" && readback == "" {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker readback model is empty", false, "accept only a worker attempt that reported a readback model")
+	}
+	if payload.ActorRef != event.Actor {
+		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
+	}
+	if !derivedPair {
+		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef); err != nil {
+			return err
+		}
+	}
+	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
+		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
+	}
+	return nil
+}
+
+func admitWorkflowWorkerAttemptStepTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, step *WorkflowStep, currentStep string) (bool, error) {
+	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
+	derivedPair := false
+	if !allowed && payload.ActionID == "accept_worker_evidence" {
+		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
+			return false, err
+		}
+		allowed = true
+	}
+	if !allowed && payload.ActionID == "record_worker_failure" {
+		var recoveryErr error
+		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
+		if recoveryErr != nil {
+			return false, recoveryErr
+		}
+		// CD-0198 D5: the terminal event's own derivation pair folds without
+		// the recovery route — the record derives from the attempt's terminal
+		// event, not from a coordinator call.
+		derivedPair, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, definition, event, payload)
+		if recoveryErr != nil {
+			return false, recoveryErr
+		}
+		allowed = allowed || derivedPair
+	}
+	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
+		// Live rejection eligibility is checked after reading the attempt.
+		allowed = true
+	}
+	if !allowed {
+		return false, newFailure(KindIllegalLifecycleTransition, "fold_event", payload.ActionID+" is only valid on a worker-dispatch step", false, "record the worker attempt on its pinned step")
+	}
+	return derivedPair, nil
+}
+
+func validateWorkflowWorkerAttemptEpochTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, step *WorkflowStep, currentStep, capability string, attemptSeq int64) error {
 	// Failure can bind to the authorization that created the attempt even
 	// when no worker dispatch evidence was admitted. Success still requires
 	// an actual dispatch. The epoch fence (CD-0133) remains the same.
@@ -3327,23 +3448,6 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	if attemptSeq <= startSeq && payload.ActionID != "reject_worker_result" {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")
-	}
-	if lifecycle != requiredLifecycle {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt is not "+requiredLifecycle, false, "record only a "+requiredLifecycle+" worker attempt")
-	}
-	if requiredLifecycle == "completed" && readback == "" {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker readback model is empty", false, "accept only a worker attempt that reported a readback model")
-	}
-	if payload.ActorRef != event.Actor {
-		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
-	}
-	if !derivedPair {
-		if err := workflowActorsDistinctForExecutor(ctx, tx, event.SubjectID, target.ExecutorRef, payload.ActorRef); err != nil {
-			return err
-		}
-	}
-	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
-		return validateReviewAcceptance(ctx, tx, event.SubjectID, payload.WorkerAttemptID, payload.ActorRef)
 	}
 	return nil
 }

@@ -534,24 +534,8 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 			return newFailure(KindInvalidPayload, "fold_event", "law_change law_ids omits the declared law "+lawID, false, "record every law the contract declares")
 		}
 	}
-	if change.LawBefore == nil || !slices.IsSortedFunc(change.LawBefore, func(a, b workflowLawState) int { return strings.Compare(a.LawID, b.LawID) }) {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change law_before must be a list sorted by law_id", false, "record the derived before-states")
-	}
-	for index, state := range change.LawBefore {
-		if index > 0 && change.LawBefore[index-1].LawID == state.LawID {
-			return newFailure(KindInvalidPayload, "fold_event", "law_change law_before names "+state.LawID+" twice", false, "record one before-state per law")
-		}
-		if state.DomainIDs == nil || !slices.IsSorted(state.DomainIDs) || len(slices.Compact(slices.Clone(state.DomainIDs))) != len(state.DomainIDs) {
-			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state Domains of "+state.LawID+" must be a sorted unique list", false, "record the derived before-state")
-		}
-		if state.Absent != (state.ContentHash == "") || state.Absent && (state.Tier != "" || len(state.DomainIDs) != 0) {
-			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" is neither absent nor a content hash", false, "record the derived before-state")
-		}
-		if !state.Absent {
-			if err := validateContentHash(state.ContentHash); err != nil {
-				return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" carries no sha256 content hash", false, "record the derived before-state")
-			}
-		}
+	if err := validateWorkflowLawBeforeStates(change.LawBefore); err != nil {
+		return err
 	}
 	for _, lawID := range change.LawIDs {
 		if !slices.ContainsFunc(change.LawBefore, func(state workflowLawState) bool { return state.LawID == lawID }) {
@@ -580,6 +564,29 @@ func validateWorkflowLawChangeShape(change *WorkflowLawChange, decisionDomains, 
 		return err
 	}
 	return validateWorkflowLawChangeApproval(change)
+}
+
+func validateWorkflowLawBeforeStates(before []workflowLawState) error {
+	if before == nil || !slices.IsSortedFunc(before, func(a, b workflowLawState) int { return strings.Compare(a.LawID, b.LawID) }) {
+		return newFailure(KindInvalidPayload, "fold_event", "law_change law_before must be a list sorted by law_id", false, "record the derived before-states")
+	}
+	for index, state := range before {
+		if index > 0 && before[index-1].LawID == state.LawID {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change law_before names "+state.LawID+" twice", false, "record one before-state per law")
+		}
+		if state.DomainIDs == nil || !slices.IsSorted(state.DomainIDs) || len(slices.Compact(slices.Clone(state.DomainIDs))) != len(state.DomainIDs) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state Domains of "+state.LawID+" must be a sorted unique list", false, "record the derived before-state")
+		}
+		if state.Absent != (state.ContentHash == "") || state.Absent && (state.Tier != "" || len(state.DomainIDs) != 0) {
+			return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" is neither absent nor a content hash", false, "record the derived before-state")
+		}
+		if !state.Absent {
+			if err := validateContentHash(state.ContentHash); err != nil {
+				return newFailure(KindInvalidPayload, "fold_event", "law_change before-state of "+state.LawID+" carries no sha256 content hash", false, "record the derived before-state")
+			}
+		}
+	}
+	return nil
 }
 
 // validateLiveWorkflowLawChangeTx re-derives the counted facts from the item's

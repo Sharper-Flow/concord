@@ -112,7 +112,7 @@ func init() {
 	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
 	observationRefBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(ref)", boundCharacters)
 	observationTagBound := goInlineBound("internal/store/work_observations.go", "validateObservationBounds", "utf8.RuneCountInString(tag)", boundCharacters)
-	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "len(out.ProductIdentity)", boundItems)
+	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "continuityReadIdentityTx", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems)
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)

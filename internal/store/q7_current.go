@@ -70,16 +70,9 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	if direction != "oldest_first" && direction != "newest_first" {
 		return out, newFailure(KindInvalidFilter, "PM1.Q7", "direction must be oldest_first or newest_first", false, "choose a closed record direction")
 	}
-	kinds := slices.Clone(req.RecordKinds)
-	if len(kinds) == 0 {
-		kinds = slices.Clone(q7RecordKinds)
-	}
-	slices.Sort(kinds)
-	kinds = slices.Compact(kinds)
-	for _, kind := range kinds {
-		if !slices.Contains(q7RecordKinds, kind) {
-			return out, newFailure(KindInvalidFilter, "PM1.Q7", "record kind is not recognized", false, "choose lifecycle, relation, phase_exit, or evidence_binding")
-		}
+	kinds, err := currentQ7Kinds(req.RecordKinds)
+	if err != nil {
+		return out, err
 	}
 	tx, err := beginRead(ctx, s, "PM1.Q7")
 	if err != nil {
@@ -166,6 +159,21 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"effect_seq", "entry_kind", "entry_id"})
 	out.NextCursor = next
 	return out, err
+}
+
+func currentQ7Kinds(requested []string) ([]string, error) {
+	kinds := slices.Clone(requested)
+	if len(kinds) == 0 {
+		kinds = slices.Clone(q7RecordKinds)
+	}
+	slices.Sort(kinds)
+	kinds = slices.Compact(kinds)
+	for _, kind := range kinds {
+		if !slices.Contains(q7RecordKinds, kind) {
+			return nil, newFailure(KindInvalidFilter, "PM1.Q7", "record kind is not recognized", false, "choose lifecycle, relation, phase_exit, or evidence_binding")
+		}
+	}
+	return kinds, nil
 }
 
 func q7EntryHasCurrentFields(entry HistoryEntry) bool {

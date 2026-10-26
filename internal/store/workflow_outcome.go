@@ -116,55 +116,69 @@ func ValidateWorkflowPredicate(predicate OutcomePredicate) error {
 	if !validPredicateKind(predicate.Kind) {
 		return workflowOutcomeFailure("predicate kind is unknown")
 	}
-	if predicate.Kind == PredicateExists || predicate.Kind == PredicateAbsent {
-		if predicate.Allowed != nil || predicate.DecisionRecord != nil || predicate.CheckRef != "" || predicate.ImmutableSubjectRef != "" || predicate.ExpectedResult != "" {
-			return workflowOutcomeFailure("predicate contains fields from another union member")
+	switch predicate.Kind {
+	case PredicateExists, PredicateAbsent:
+		return validateWorkflowPresencePredicate(predicate)
+	case PredicateOutcome:
+		return validateWorkflowOutcomePredicate(predicate)
+	case PredicateCheck:
+		return validateWorkflowCheckPredicate(predicate)
+	}
+	return nil
+}
+
+func validateWorkflowPresencePredicate(predicate OutcomePredicate) error {
+	if predicate.Allowed != nil || predicate.DecisionRecord != nil || predicate.CheckRef != "" || predicate.ImmutableSubjectRef != "" || predicate.ExpectedResult != "" {
+		return workflowOutcomeFailure("predicate contains fields from another union member")
+	}
+	if !workflowSurfacePattern.MatchString(predicate.Surface) || !validSubjectSet(predicate.Subjects) {
+		return workflowOutcomeFailure("predicate surface or subjects are invalid")
+	}
+	if predicate.Kind == PredicateExists && len(predicate.DistinguishFrom) != 0 {
+		return workflowOutcomeFailure("exists predicate has absent-only fields")
+	}
+	if predicate.Kind == PredicateAbsent {
+		if len(predicate.DistinguishFrom) < 1 || len(predicate.DistinguishFrom) > 4 || !uniqueStrings(predicate.DistinguishFrom) {
+			return workflowOutcomeFailure("absent predicate distinction rules are invalid")
 		}
-		if !workflowSurfacePattern.MatchString(predicate.Surface) || !validSubjectSet(predicate.Subjects) {
-			return workflowOutcomeFailure("predicate surface or subjects are invalid")
-		}
-		if predicate.Kind == PredicateExists && len(predicate.DistinguishFrom) != 0 {
-			return workflowOutcomeFailure("exists predicate has absent-only fields")
-		}
-		if predicate.Kind == PredicateAbsent {
-			if len(predicate.DistinguishFrom) < 1 || len(predicate.DistinguishFrom) > 4 || !uniqueStrings(predicate.DistinguishFrom) {
-				return workflowOutcomeFailure("absent predicate distinction rules are invalid")
-			}
-			for _, value := range predicate.DistinguishFrom {
-				if !slices.Contains([]string{"archived", "relocated", "renamed", "disabled"}, value) {
-					return workflowOutcomeFailure("absent predicate distinction rule is unknown")
-				}
+		for _, value := range predicate.DistinguishFrom {
+			if !slices.Contains([]string{"archived", "relocated", "renamed", "disabled"}, value) {
+				return workflowOutcomeFailure("absent predicate distinction rule is unknown")
 			}
 		}
 	}
-	if predicate.Kind == PredicateOutcome {
-		if predicate.Surface != "" || predicate.Subjects != nil || predicate.DistinguishFrom != nil || predicate.CheckRef != "" || predicate.ImmutableSubjectRef != "" || predicate.ExpectedResult != "" {
-			return workflowOutcomeFailure("predicate contains fields from another union member")
-		}
-		if len(predicate.Allowed) < 1 || len(predicate.Allowed) > 8 || !uniqueStrings(predicate.Allowed) {
-			return workflowOutcomeFailure("outcome predicate allowed tokens are invalid")
-		}
-		for _, token := range predicate.Allowed {
-			if !validOutcomeToken(token) {
-				return workflowOutcomeFailure("outcome predicate token is unknown")
-			}
-		}
-		if predicate.DecisionRecord != nil {
-			if err := validateDecisionRecord(*predicate.DecisionRecord); err != nil {
-				return err
-			}
-			if len(predicate.Allowed) == 1 && predicate.DecisionRecord.Decision != predicate.Allowed[0] {
-				return workflowOutcomeFailure("decision record token does not match the outcome predicate")
-			}
+	return nil
+}
+
+func validateWorkflowOutcomePredicate(predicate OutcomePredicate) error {
+	if predicate.Surface != "" || predicate.Subjects != nil || predicate.DistinguishFrom != nil || predicate.CheckRef != "" || predicate.ImmutableSubjectRef != "" || predicate.ExpectedResult != "" {
+		return workflowOutcomeFailure("predicate contains fields from another union member")
+	}
+	if len(predicate.Allowed) < 1 || len(predicate.Allowed) > 8 || !uniqueStrings(predicate.Allowed) {
+		return workflowOutcomeFailure("outcome predicate allowed tokens are invalid")
+	}
+	for _, token := range predicate.Allowed {
+		if !validOutcomeToken(token) {
+			return workflowOutcomeFailure("outcome predicate token is unknown")
 		}
 	}
-	if predicate.Kind == PredicateCheck {
-		if predicate.Surface != "" || predicate.Subjects != nil || predicate.DistinguishFrom != nil || predicate.Allowed != nil || predicate.DecisionRecord != nil {
-			return workflowOutcomeFailure("predicate contains fields from another union member")
+	if predicate.DecisionRecord != nil {
+		if err := validateDecisionRecord(*predicate.DecisionRecord); err != nil {
+			return err
 		}
-		if !workflowCheckPattern.MatchString(predicate.CheckRef) || !workflowSubjectPattern.MatchString(predicate.ImmutableSubjectRef) || !slices.Contains([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, predicate.ExpectedResult) {
-			return workflowOutcomeFailure("check predicate fields are invalid")
+		if len(predicate.Allowed) == 1 && predicate.DecisionRecord.Decision != predicate.Allowed[0] {
+			return workflowOutcomeFailure("decision record token does not match the outcome predicate")
 		}
+	}
+	return nil
+}
+
+func validateWorkflowCheckPredicate(predicate OutcomePredicate) error {
+	if predicate.Surface != "" || predicate.Subjects != nil || predicate.DistinguishFrom != nil || predicate.Allowed != nil || predicate.DecisionRecord != nil {
+		return workflowOutcomeFailure("predicate contains fields from another union member")
+	}
+	if !workflowCheckPattern.MatchString(predicate.CheckRef) || !workflowSubjectPattern.MatchString(predicate.ImmutableSubjectRef) || !slices.Contains([]string{"true", "false", "pass", "fail", "present", "absent", "healthy", "unhealthy", "accepted", "rejected"}, predicate.ExpectedResult) {
+		return workflowOutcomeFailure("check predicate fields are invalid")
 	}
 	return nil
 }

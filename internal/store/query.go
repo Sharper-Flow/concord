@@ -703,40 +703,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	}
 	filter, projectArgs := productWorkScopeSQL(projectIDs)
 	args := scopeArgs(req.Product, projectArgsToIDs(projectArgs))
-	placeholders := ""
-	stateArgs := []any{}
-	if len(states) > 0 {
-		ph := make([]string, len(states))
-		for i, state := range states {
-			ph[i] = "?"
-			stateArgs = append(stateArgs, state)
-		}
-		placeholders = " AND lifecycle IN (" + strings.Join(ph, ",") + ")"
-	}
-	if req.Kind != "" {
-		placeholders += " AND kind = ?"
-		stateArgs = append(stateArgs, req.Kind)
-	}
-	if len(req.WorkIDs) > 0 {
-		ph := make([]string, len(req.WorkIDs))
-		for i := range ph {
-			ph[i] = "?"
-			stateArgs = append(stateArgs, req.WorkIDs[i])
-		}
-		placeholders += " AND id IN (" + strings.Join(ph, ",") + ")"
-	}
-	if req.PriorityMin != nil {
-		placeholders += " AND priority >= ?"
-		stateArgs = append(stateArgs, *req.PriorityMin)
-	}
-	if req.PriorityMax != nil {
-		placeholders += " AND priority <= ?"
-		stateArgs = append(stateArgs, *req.PriorityMax)
-	}
-	if req.TerminalSince != nil {
-		placeholders += " AND terminal_time >= ?"
-		stateArgs = append(stateArgs, *req.TerminalSince)
-	}
+	placeholders, stateArgs := q3FilterSQL(req, states)
 	cursorSQL := ""
 	cursorArgs := []any{}
 	if req.Cursor != "" {
@@ -774,19 +741,8 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	if req.Detail == "full" {
-		if err := attachRecordedIntent(ctx, tx, items); err != nil {
+		if err := attachQ3FullDetail(ctx, tx, items); err != nil {
 			return out, err
-		}
-		for i := range items {
-			pin, pinErr := ReadWorkPinTx(ctx, tx, items[i].ID)
-			if pinErr != nil {
-				var failure *Failure
-				if errors.As(pinErr, &failure) && failure.Kind == KindProjectionNotFound {
-					continue
-				}
-				return out, pinErr
-			}
-			items[i].WorkPin = &pin
 		}
 	}
 	out.Items = items
@@ -798,6 +754,62 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	return out.LimitPage(req, limit)
+}
+
+func q3FilterSQL(req Q3Request, states []string) (string, []any) {
+	placeholders := ""
+	stateArgs := []any{}
+	if len(states) > 0 {
+		ph := make([]string, len(states))
+		for i, state := range states {
+			ph[i] = "?"
+			stateArgs = append(stateArgs, state)
+		}
+		placeholders = " AND lifecycle IN (" + strings.Join(ph, ",") + ")"
+	}
+	if req.Kind != "" {
+		placeholders += " AND kind = ?"
+		stateArgs = append(stateArgs, req.Kind)
+	}
+	if len(req.WorkIDs) > 0 {
+		ph := make([]string, len(req.WorkIDs))
+		for i := range ph {
+			ph[i] = "?"
+			stateArgs = append(stateArgs, req.WorkIDs[i])
+		}
+		placeholders += " AND id IN (" + strings.Join(ph, ",") + ")"
+	}
+	if req.PriorityMin != nil {
+		placeholders += " AND priority >= ?"
+		stateArgs = append(stateArgs, *req.PriorityMin)
+	}
+	if req.PriorityMax != nil {
+		placeholders += " AND priority <= ?"
+		stateArgs = append(stateArgs, *req.PriorityMax)
+	}
+	if req.TerminalSince != nil {
+		placeholders += " AND terminal_time >= ?"
+		stateArgs = append(stateArgs, *req.TerminalSince)
+	}
+	return placeholders, stateArgs
+}
+
+func attachQ3FullDetail(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
+	if err := attachRecordedIntent(ctx, tx, items); err != nil {
+		return err
+	}
+	for i := range items {
+		pin, pinErr := ReadWorkPinTx(ctx, tx, items[i].ID)
+		if pinErr != nil {
+			var failure *Failure
+			if errors.As(pinErr, &failure) && failure.Kind == KindProjectionNotFound {
+				continue
+			}
+			return pinErr
+		}
+		items[i].WorkPin = &pin
+	}
+	return nil
 }
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each
@@ -1337,64 +1349,81 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	}
 	defer tx.Rollback()
 	if req.Work != "" {
-		if err := publishedWorkAbsenceInScopeQ(ctx, tx, req.Work, req.Product, req.Project, "PM1.Q6"); err != nil {
-			return out, err
+		return queryQ6WorkTx(ctx, tx, req)
+	}
+	return queryQ6ProjectTx(ctx, tx, req)
+}
+
+func queryQ6WorkTx(ctx context.Context, tx *sql.Tx, req Q6Request) (Q6Result, error) {
+	var out Q6Result
+	if err := publishedWorkAbsenceInScopeQ(ctx, tx, req.Work, req.Product, req.Project, "PM1.Q6"); err != nil {
+		return out, err
+	}
+	w, err := readOneWork(ctx, tx, req.Work)
+	if err != nil {
+		return out, err
+	}
+	if err := validateQ6WorkScopeTx(ctx, tx, req); err != nil {
+		return out, err
+	}
+	w.Projects, err = readWorkProjects(ctx, tx, req.Work)
+	if err != nil {
+		return out, err
+	}
+	items, err := attachDerivedFlags(ctx, tx, []WorkItem{w})
+	if err != nil {
+		return out, err
+	}
+	w = items[0]
+	out.Work = &w
+	out.Result = &Q6WorkResultPayload{Work: out.Work}
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{WorkID: req.Work}, []string{"work_id", "project_role", "project_id"})
+	return out, err
+}
+
+func validateQ6WorkScopeTx(ctx context.Context, tx *sql.Tx, req Q6Request) error {
+	if req.Product != "" {
+		if _, err := readProduct(ctx, tx, req.Product); err != nil {
+			return err
 		}
-		w, err := readOneWork(ctx, tx, req.Work)
-		if err != nil {
-			return out, err
-		}
-		if req.Product != "" {
-			if _, err := readProduct(ctx, tx, req.Product); err != nil {
-				return out, err
-			}
-			var inScope bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		var inScope bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
 				SELECT 1
 				FROM work_projects wp
 				JOIN product_projects pp ON pp.project_id = wp.project_id
 				WHERE wp.work_id = ? AND pp.product_id = ?
 			)`, req.Work, req.Product).Scan(&inScope); err != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q6", "cannot validate work Product scope", true, "retry once the database is readable", err)
-			}
-			if !inScope {
-				return out, unknownScope("PM1.Q6", "work item is not in the explicit Product scope")
-			}
+			return wrapFailure(KindUnavailable, "PM1.Q6", "cannot validate work Product scope", true, "retry once the database is readable", err)
 		}
-		if req.Project != "" {
-			var inScope bool
-			query := `SELECT EXISTS (SELECT 1 FROM work_projects WHERE work_id = ? AND project_id = ?)`
-			args := []any{req.Work, req.Project}
-			if req.Product != "" {
-				query = `SELECT EXISTS (
+		if !inScope {
+			return unknownScope("PM1.Q6", "work item is not in the explicit Product scope")
+		}
+	}
+	if req.Project != "" {
+		var inScope bool
+		query := `SELECT EXISTS (SELECT 1 FROM work_projects WHERE work_id = ? AND project_id = ?)`
+		args := []any{req.Work, req.Project}
+		if req.Product != "" {
+			query = `SELECT EXISTS (
 					SELECT 1
 					FROM work_projects wp
 					JOIN product_projects pp ON pp.project_id = wp.project_id
 					WHERE wp.work_id = ? AND wp.project_id = ? AND pp.product_id = ?
 				)`
-				args = append(args, req.Product)
-			}
-			if err := tx.QueryRowContext(ctx, query, args...).Scan(&inScope); err != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q6", "cannot validate work Project scope", true, "retry once the database is readable", err)
-			}
-			if !inScope {
-				return out, unknownScope("PM1.Q6", "work item is not in the explicit Project scope")
-			}
+			args = append(args, req.Product)
 		}
-		w.Projects, err = readWorkProjects(ctx, tx, req.Work)
-		if err != nil {
-			return out, err
+		if err := tx.QueryRowContext(ctx, query, args...).Scan(&inScope); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q6", "cannot validate work Project scope", true, "retry once the database is readable", err)
 		}
-		items, err := attachDerivedFlags(ctx, tx, []WorkItem{w})
-		if err != nil {
-			return out, err
+		if !inScope {
+			return unknownScope("PM1.Q6", "work item is not in the explicit Project scope")
 		}
-		w = items[0]
-		out.Work = &w
-		out.Result = &Q6WorkResultPayload{Work: out.Work}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{WorkID: req.Work}, []string{"work_id", "project_role", "project_id"})
-		return out, err
 	}
+	return nil
+}
+
+func queryQ6ProjectTx(ctx context.Context, tx *sql.Tx, req Q6Request) (Q6Result, error) {
+	var out Q6Result
 	if req.Product != "" {
 		if _, err := readProduct(ctx, tx, req.Product); err != nil {
 			return out, err

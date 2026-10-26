@@ -703,30 +703,7 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	if claimErr != nil && claimErr != sql.ErrNoRows {
 		return native, nil, wrapFailure(KindUnavailable, "worktree_claim", "cannot read the claim operation", true, "retry once the database is readable", claimErr)
 	}
-	var location WorktreeLocation
-	var locateErr error
-	if claimErr == sql.ErrNoRows {
-		// The first creation's base resolution shares the preflight window:
-		// the default-ref read and the pinned-base probe run under the same
-		// fixed deadline the fetch ran under (CD-0088 D2). The window closes
-		// once the base is resolved, before any branch or worktree exists.
-		repo, repoErr := s.ProjectCanonicalPath(ctx, req.ProjectID)
-		if repoErr != nil {
-			return native, nil, repoErr
-		}
-		preflight, preflightErr := startCreationPreflight(ctx, runner, repo)
-		if preflightErr != nil {
-			return native, nil, wrapFailure(KindGitUnreachable, "worktree_claim", "origin default branch refresh failed before claim; no branch or worktree was created", true, "restore access to the origin remote and retry the same claim", preflightErr)
-		}
-		location, locateErr = locateWorktree(preflight.ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
-		deadlineTripped := preflight.tripped(ctx)
-		preflight.close()
-		if locateErr != nil && deadlineTripped {
-			return native, nil, freshnessDeadlineRefusal("worktree_claim")
-		}
-	} else {
-		location, locateErr = locateWorktree(ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
-	}
+	location, locateErr := s.locateClaimWorktree(ctx, runner, req, claimErr == sql.ErrNoRows)
 	if locateErr != nil {
 		return native, nil, locateErr
 	}
@@ -746,6 +723,36 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}); err != nil {
 		return native, nil, err
 	}
+	return createClaimWorktree(ctx, runner, req, native)
+}
+
+func (s *Store) locateClaimWorktree(ctx context.Context, runner GitRunner, req WorktreeClaimRequest, first bool) (WorktreeLocation, error) {
+	if first {
+		// The first creation's base resolution shares the preflight window:
+		// the default-ref read and the pinned-base probe run under the same
+		// fixed deadline the fetch ran under (CD-0088 D2). The window closes
+		// once the base is resolved, before any branch or worktree exists.
+		repo, repoErr := s.ProjectCanonicalPath(ctx, req.ProjectID)
+		if repoErr != nil {
+			return WorktreeLocation{}, repoErr
+		}
+		preflight, preflightErr := startCreationPreflight(ctx, runner, repo)
+		if preflightErr != nil {
+			return WorktreeLocation{}, wrapFailure(KindGitUnreachable, "worktree_claim", "origin default branch refresh failed before claim; no branch or worktree was created", true, "restore access to the origin remote and retry the same claim", preflightErr)
+		}
+		location, locateErr := locateWorktree(preflight.ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
+		deadlineTripped := preflight.tripped(ctx)
+		preflight.close()
+		if locateErr != nil && deadlineTripped {
+			return WorktreeLocation{}, freshnessDeadlineRefusal("worktree_claim")
+		}
+		return location, locateErr
+	}
+	return locateWorktree(ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
+}
+
+func createClaimWorktree(ctx context.Context, runner GitRunner, req WorktreeClaimRequest, native WorktreeClaimNative) (WorktreeClaimNative, *WorktreeClaimCreation, error) {
+	location := native.Location
 	// Probe before creating or retrying. Git worktree creation is not
 	// idempotent; the probe owns retry safety for an interrupted create.
 	created, facts, probeErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
@@ -778,7 +785,7 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}
 	// From this point the tree is this operation's own creation, so every
 	// later failure is compensated from these facts.
-	createdTree := &WorktreeClaimCreation{MemberID: memberID, WorkID: req.WorkID, ProjectID: req.ProjectID, ClaimOpID: req.OpID, RepoRoot: location.Repo, Path: location.Path, Branch: location.Branch, Base: req.BaseSHA, CreatedBranch: native.CreatedBranch, generation: native.generation}
+	createdTree := &WorktreeClaimCreation{MemberID: native.memberID, WorkID: req.WorkID, ProjectID: req.ProjectID, ClaimOpID: req.OpID, RepoRoot: location.Repo, Path: location.Path, Branch: location.Branch, Base: req.BaseSHA, CreatedBranch: native.CreatedBranch, generation: native.generation}
 	created, facts, verifyErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
 	if verifyErr != nil {
 		return native, createdTree, verifyErr
@@ -810,7 +817,7 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 	if memberID != native.memberID {
 		return out, newFailure(KindUnauthorized, "worktree_claim", "member binding changed after native preparation", false, "refresh the recorded assignment before claiming")
 	}
-	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
+	derivedBranch, derivedPath := location.Branch, location.Path
 	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
 		return out, err
 	}
@@ -822,70 +829,15 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
-
-	// Phase 1: the durable claim, re-validated against the probed intent. An
-	// existing row for this OpID reconciles with its pinned intent; the
-	// pinned values win over later arguments so a retry can never redirect
-	// the operation.
-	var state, pinnedBranch, pinnedBase, pinnedPath string
-	err = tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=? AND work_id=? AND project_id=? AND member_id=?`, req.OpID, req.WorkID, req.ProjectID, memberID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
-	switch {
-	case err == nil:
-		if pinnedBranch != derivedBranch || pinnedBase != req.BaseSHA || pinnedPath != derivedPath {
-			return out, newFailure(KindInvalidOperation, "worktree_claim", "retry does not match the derived pinned intent", false, "retry with the same work and Project identity")
-		}
-		if state == worktreeStateVerified || state == worktreeStateReclaimed {
-			// Idempotent replay: return the folded state without side effects.
-			entry, readErr := worktreeEntryByClaim(ctx, tx, req.OpID)
-			if readErr != nil {
-				return out, readErr
-			}
-			if state == worktreeStateReclaimed && entry.State != worktreeEntryReclaimed {
-				return out, newFailure(KindInvalidOperation, "worktree_claim", "claim is reclaimed but its entry is not", false, "contact_operator")
-			}
-			out.Entry = entry
-			out.Reconciled = true
-			return out, nil
-		}
-		out.Reconciled = true
-	case err == sql.ErrNoRows:
-		if err := checkClaimNativeGeneration(ctx, tx, native); err != nil {
-			return out, err
-		}
-		// A second active worktree for one Project is refused before git is
-		// ever invoked (CD-0008 D1: at most one active per affected Project).
-		// The native add ran before this transaction under CD-0195 D2, so a
-		// refusal here is the caller's signal to compensate the creation.
-		var active int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE work_id=? AND project_id=? AND member_id=? AND state IN ('pending','verified')`, req.WorkID, req.ProjectID, memberID).Scan(&active); err != nil {
-			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read active claims", true, "retry once the database is readable", err)
-		}
-		if active > 0 {
-			return out, newFailure(KindProjectionConflict, "worktree_claim", "work already holds an active worktree for this Project", false, "reclaim the existing worktree before claiming another")
-		}
-		// The branch slot is unique per repository: the branch name derives
-		// from the work identity alone, so two Projects of one work item on
-		// two repositories share it and both claims must hold. A lost race
-		// against a committed slot holder is a typed conflict, not a retryable
-		// storage failure.
-		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,member_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			req.OpID, req.WorkID, req.ProjectID, setID, repoRoot, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), memberID); err != nil {
-			if isUniqueViolation(err) {
-				return out, newFailure(KindProjectionConflict, "worktree_claim", "another active claim already pins this repository's branch or this native path", false, "reclaim the holding worktree before claiming again")
-			}
-			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)
-		}
-	default:
-		return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read claim", true, "retry once the database is readable", err)
+	complete, err := pinWorktreeClaimTx(ctx, tx, req, native, memberID, now, &out)
+	if err != nil || complete {
+		return out, err
 	}
 
 	if err := checkClaimNativeGeneration(ctx, tx, native); err != nil {
 		return out, err
 	}
-	// The occupancy row's process start time is derived from /proc here, on
-	// the live path only: the fold replays the recorded value and never
-	// re-derives it. A bounded single-file read stays inside the transaction
-	// (CD-0195 D2 scope).
+	// The live path derives process start time once; the event records it for replay.
 	var hostPIDStart uint64
 	if req.HostPID > 0 {
 		start, startErr := hostlease.ProcessStart(req.HostPID)
@@ -904,6 +856,68 @@ func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequ
 	}
 	out.Entry = entry
 	return out, nil
+}
+
+func pinWorktreeClaimTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, native WorktreeClaimNative, memberID string, now time.Time, out *WorktreeClaimResult) (bool, error) {
+	derivedBranch, derivedPath, repoRoot := native.Location.Branch, native.Location.Path, native.Location.Repo
+	setID := WorktreeSetID(req.WorkID)
+
+	// Phase 1: the durable claim, re-validated against the probed intent. An
+	// existing row for this OpID reconciles with its pinned intent; the
+	// pinned values win over later arguments so a retry can never redirect
+	// the operation.
+	var state, pinnedBranch, pinnedBase, pinnedPath string
+	err := tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=? AND work_id=? AND project_id=? AND member_id=?`, req.OpID, req.WorkID, req.ProjectID, memberID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
+	switch {
+	case err == nil:
+		if pinnedBranch != derivedBranch || pinnedBase != req.BaseSHA || pinnedPath != derivedPath {
+			return false, newFailure(KindInvalidOperation, "worktree_claim", "retry does not match the derived pinned intent", false, "retry with the same work and Project identity")
+		}
+		if state == worktreeStateVerified || state == worktreeStateReclaimed {
+			// Idempotent replay: return the folded state without side effects.
+			entry, readErr := worktreeEntryByClaim(ctx, tx, req.OpID)
+			if readErr != nil {
+				return false, readErr
+			}
+			if state == worktreeStateReclaimed && entry.State != worktreeEntryReclaimed {
+				return false, newFailure(KindInvalidOperation, "worktree_claim", "claim is reclaimed but its entry is not", false, "contact_operator")
+			}
+			out.Entry = entry
+			out.Reconciled = true
+			return true, nil
+		}
+		out.Reconciled = true
+	case err == sql.ErrNoRows:
+		if err := checkClaimNativeGeneration(ctx, tx, native); err != nil {
+			return false, err
+		}
+		// A second active worktree for one Project is refused before git is
+		// ever invoked (CD-0008 D1: at most one active per affected Project).
+		// The native add ran before this transaction under CD-0195 D2, so a
+		// refusal here is the caller's signal to compensate the creation.
+		var active int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE work_id=? AND project_id=? AND member_id=? AND state IN ('pending','verified')`, req.WorkID, req.ProjectID, memberID).Scan(&active); err != nil {
+			return false, wrapFailure(KindUnavailable, "worktree_claim", "cannot read active claims", true, "retry once the database is readable", err)
+		}
+		if active > 0 {
+			return false, newFailure(KindProjectionConflict, "worktree_claim", "work already holds an active worktree for this Project", false, "reclaim the existing worktree before claiming another")
+		}
+		// The branch slot is unique per repository: the branch name derives
+		// from the work identity alone, so two Projects of one work item on
+		// two repositories share it and both claims must hold. A lost race
+		// against a committed slot holder is a typed conflict, not a retryable
+		// storage failure.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at,member_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			req.OpID, req.WorkID, req.ProjectID, setID, repoRoot, derivedBranch, req.BaseSHA, derivedPath, worktreeStatePending, req.PrincipalRef, req.RequestID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), memberID); err != nil {
+			if isUniqueViolation(err) {
+				return false, newFailure(KindProjectionConflict, "worktree_claim", "another active claim already pins this repository's branch or this native path", false, "reclaim the holding worktree before claiming again")
+			}
+			return false, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)
+		}
+	default:
+		return false, wrapFailure(KindUnavailable, "worktree_claim", "cannot read claim", true, "retry once the database is readable", err)
+	}
+	return false, nil
 }
 
 // claimWorktreePhase3Tx is the durable half of a claim: the verified locator
@@ -1954,58 +1968,68 @@ func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeRec
 	// normal gates, which is what converges a failed removal on retry.
 	branchOut, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD")
 	if entry.State == worktreeEntryReclaimed {
-		// The reclamation event is already durable, so its recorded plan is
-		// the authority a retry replays (CD-0212 D4). The pinned deletions
-		// re-derive from the recorded facts — never a fresh plan — and the
-		// durable outcome rows retire the deletions already settled or
-		// protected. A directory phase that failed re-owes only the removal,
-		// under the live-HEAD identity the plan recorded: a surviving
-		// directory whose content changed refuses instead of repinning, and
-		// the recorded force flag replays without the retry's own authority.
-		plan, planErr := decodeRecordedRemovalPlan(entry.GitFacts, op)
-		if planErr != nil {
-			return WorktreeReclaimProbe{}, planErr
-		}
-		probe.AlreadyConverged = true
-		probe.Deletions = pendingRecordedDeletions(plan.BranchDeletions, priorOutcomes)
-		probe.ReplayForce = plan.Forced
-		// The recorded default spelling — never the retry's own — feeds the
-		// boundary's default-ownership revalidation when the plan still owes
-		// deletions (CD-0212 D4).
-		probe.DefaultRef = plan.DefaultRef
-		if probeErr == nil {
-			// The directory survived a failed removal phase. Its current
-			// live HEAD must still match the identity the plan recorded: a
-			// freshly observed tip authorizes nothing, so content that
-			// arrived after the committed plan keeps the refusal boundary.
-			current := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
-			if current.Branch == "HEAD" {
-				current.Detached, current.Branch = true, ""
-			}
-			tipOut, tipErr := runner.Run(ctx, entry.Path, "rev-parse", "HEAD")
-			if tipErr != nil {
-				return WorktreeReclaimProbe{}, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD tip of the worktree", true, "retry once the worktree is reachable", tipErr)
-			}
-			current.Tip = strings.TrimSpace(string(tipOut))
-			recorded := worktreeLiveHead{}
-			if plan.LiveHead != nil {
-				recorded = worktreeLiveHead{Branch: plan.LiveHead.Branch, Detached: plan.LiveHead.Detached, Tip: plan.LiveHead.Tip}
-			}
-			if current.Tip == "" || recorded.Tip == "" || current.Tip != recorded.Tip || current.Detached != recorded.Detached || current.Branch != recorded.Branch {
-				return WorktreeReclaimProbe{}, newFailure(KindProjectionConflict, op,
-					fmt.Sprintf("the surviving worktree changed after the recorded removal plan (recorded %s, now %s); the retry refuses to remove unproven content", recorded.label(), current.label()),
-					false, "inspect the worktree content and reclaim it through its gates once accounted for")
-			}
-			probe.LiveHead = recorded
-			probe.DirectoryPending = true
-		}
-		return probe, nil
+		return probeRecordedWorktreeRemoval(ctx, runner, op, probe, branchOut, probeErr, priorOutcomes)
 	}
 	if probeErr != nil {
 		probe.AlreadyAbsent = true
 		probe.Facts = jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive, OperatorOverride: approvalFactRef(req)})
 		return probe, nil
 	}
+	return probeLiveWorktreeReclaim(ctx, runner, req, op, probe, branchOut)
+}
+
+func probeRecordedWorktreeRemoval(ctx context.Context, runner GitRunner, op string, probe WorktreeReclaimProbe, branchOut []byte, probeErr error, priorOutcomes []worktreeRefOutcome) (WorktreeReclaimProbe, error) {
+	entry := probe.Entry
+	// The reclamation event is already durable, so its recorded plan is
+	// the authority a retry replays (CD-0212 D4). The pinned deletions
+	// re-derive from the recorded facts — never a fresh plan — and the
+	// durable outcome rows retire the deletions already settled or
+	// protected. A directory phase that failed re-owes only the removal,
+	// under the live-HEAD identity the plan recorded: a surviving
+	// directory whose content changed refuses instead of repinning, and
+	// the recorded force flag replays without the retry's own authority.
+	plan, planErr := decodeRecordedRemovalPlan(entry.GitFacts, op)
+	if planErr != nil {
+		return WorktreeReclaimProbe{}, planErr
+	}
+	probe.AlreadyConverged = true
+	probe.Deletions = pendingRecordedDeletions(plan.BranchDeletions, priorOutcomes)
+	probe.ReplayForce = plan.Forced
+	// The recorded default spelling — never the retry's own — feeds the
+	// boundary's default-ownership revalidation when the plan still owes
+	// deletions (CD-0212 D4).
+	probe.DefaultRef = plan.DefaultRef
+	if probeErr == nil {
+		// The directory survived a failed removal phase. Its current
+		// live HEAD must still match the identity the plan recorded: a
+		// freshly observed tip authorizes nothing, so content that
+		// arrived after the committed plan keeps the refusal boundary.
+		current := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
+		if current.Branch == "HEAD" {
+			current.Detached, current.Branch = true, ""
+		}
+		tipOut, tipErr := runner.Run(ctx, entry.Path, "rev-parse", "HEAD")
+		if tipErr != nil {
+			return WorktreeReclaimProbe{}, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD tip of the worktree", true, "retry once the worktree is reachable", tipErr)
+		}
+		current.Tip = strings.TrimSpace(string(tipOut))
+		recorded := worktreeLiveHead{}
+		if plan.LiveHead != nil {
+			recorded = worktreeLiveHead{Branch: plan.LiveHead.Branch, Detached: plan.LiveHead.Detached, Tip: plan.LiveHead.Tip}
+		}
+		if current.Tip == "" || recorded.Tip == "" || current.Tip != recorded.Tip || current.Detached != recorded.Detached || current.Branch != recorded.Branch {
+			return WorktreeReclaimProbe{}, newFailure(KindProjectionConflict, op,
+				fmt.Sprintf("the surviving worktree changed after the recorded removal plan (recorded %s, now %s); the retry refuses to remove unproven content", recorded.label(), current.label()),
+				false, "inspect the worktree content and reclaim it through its gates once accounted for")
+		}
+		probe.LiveHead = recorded
+		probe.DirectoryPending = true
+	}
+	return probe, nil
+}
+
+func probeLiveWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeReclaimRequest, op string, probe WorktreeReclaimProbe, branchOut []byte) (WorktreeReclaimProbe, error) {
+	entry, repoRoot := probe.Entry, probe.RepoRoot
 	// One immutable live-HEAD observation feeds every gate below: the branch
 	// (or detached marker), the tip, and the clean-tree fact.
 	live := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
@@ -2817,24 +2841,7 @@ func parseWorktreeInventory(out []byte) (*worktreeInventory, error) {
 		if current == nil {
 			return nil
 		}
-		switch {
-		case current.bare:
-			// A bare record's disposition is its bareness alone: it carries
-			// no HEAD, branch, or detached attribute.
-			if current.branch != "" || current.detached || attrSeen["HEAD"] {
-				return malformed
-			}
-		case current.branch != "":
-			if current.detached || !attrSeen["HEAD"] {
-				return malformed
-			}
-		case current.detached:
-			if !attrSeen["HEAD"] {
-				return malformed
-			}
-		default:
-			// Neither bare, nor attached, nor detached: the entry never
-			// observed its HEAD's identity.
+		if !worktreeInventoryHeadComplete(*current, attrSeen["HEAD"]) {
 			return malformed
 		}
 		inv.entries = append(inv.entries, *current)
@@ -2873,41 +2880,12 @@ func parseWorktreeInventory(out []byte) (*worktreeInventory, error) {
 			return nil, malformed
 		}
 		boundary = false
-		switch key {
-		case "HEAD":
-			if attrSeen[key] || !isWorktreeOID(value) {
-				return nil, malformed
-			}
-			attrSeen[key] = true
-		case "branch":
-			if value == "" || !strings.HasPrefix(value, "refs/") || current.branch != "" {
-				return nil, malformed
-			}
-			current.branch = value
-		case "bare":
-			if value != "" || current.bare {
-				return nil, malformed
-			}
-			current.bare = true
-		case "detached":
-			if value != "" || current.detached {
-				return nil, malformed
-			}
-			current.detached = true
-		case "locked", "prunable":
-			// Presentational attributes with an optional free-text value,
-			// carried once by a complete record.
-			if attrSeen[key] {
-				return nil, malformed
-			}
-			attrSeen[key] = true
-		default:
-			return nil, malformed
+		if err := readWorktreeInventoryAttribute(current, attrSeen, key, value, malformed); err != nil {
+			return nil, err
 		}
 	}
 	if !boundary {
-		// The output did not end on the terminating boundary of its last
-		// record, or held no complete record at all.
+		// The output must end on the terminating boundary of its last record.
 		return nil, malformed
 	}
 	if err := complete(); err != nil {
@@ -2917,6 +2895,54 @@ func parseWorktreeInventory(out []byte) (*worktreeInventory, error) {
 		return nil, malformed
 	}
 	return inv, nil
+}
+
+func worktreeInventoryHeadComplete(current worktreeCheckoutEntry, hasHead bool) bool {
+	switch {
+	case current.bare:
+		return current.branch == "" && !current.detached && !hasHead
+	case current.branch != "":
+		return !current.detached && hasHead
+	case current.detached:
+		return hasHead
+	default:
+		return false
+	}
+}
+
+func readWorktreeInventoryAttribute(current *worktreeCheckoutEntry, attrSeen map[string]bool, key, value string, malformed error) error {
+	switch key {
+	case "HEAD":
+		if attrSeen[key] || !isWorktreeOID(value) {
+			return malformed
+		}
+		attrSeen[key] = true
+	case "branch":
+		if value == "" || !strings.HasPrefix(value, "refs/") || current.branch != "" {
+			return malformed
+		}
+		current.branch = value
+	case "bare":
+		if value != "" || current.bare {
+			return malformed
+		}
+		current.bare = true
+	case "detached":
+		if value != "" || current.detached {
+			return malformed
+		}
+		current.detached = true
+	case "locked", "prunable":
+		// Presentational attributes with an optional free-text value,
+		// carried once by a complete record.
+		if attrSeen[key] {
+			return malformed
+		}
+		attrSeen[key] = true
+	default:
+		return malformed
+	}
+	return nil
 }
 
 // observeListedWorktreeHead reads one listed worktree's symbolic HEAD live:
@@ -3027,6 +3053,13 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 		return out, nil, err
 	}
 	op := reclaimOperation(req)
+	if err := validateReclaimLifecycleTx(ctx, tx, req, op); err != nil {
+		return out, nil, err
+	}
+	return reclaimWorktreeEntryTx(ctx, tx, req, probe, op)
+}
+
+func validateReclaimLifecycleTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string) error {
 	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
 	// Non-terminal work refuses typed unless the operator approved this
 	// exact removal.
@@ -3034,16 +3067,16 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
 		if err == sql.ErrNoRows {
-			return out, nil, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+			return newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
 		}
 		if err != nil {
-			return out, nil, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
 		if !isTerminalLifecycle(lifecycle) && req.OperatorApprovalRef == "" {
-			return out, nil, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
+			return newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
 		}
 		if req.Destructive && req.OperatorApprovalRef == "" {
-			return out, nil, newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
+			return newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
 		}
 	}
 	// CD-0118: unstarted work reclaims without approval when the worktree
@@ -3053,16 +3086,20 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
 		if err == sql.ErrNoRows {
-			return out, nil, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+			return newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
 		}
 		if err != nil {
-			return out, nil, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
 		if lifecycle != "needed" && req.OperatorApprovalRef == "" {
-			return out, nil, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
+			return newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
 		}
 	}
+	return nil
+}
 
+func reclaimWorktreeEntryTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, probe WorktreeReclaimProbe, op string) (WorktreeEntry, *WorktreeNativeRemoval, error) {
+	var out WorktreeEntry
 	entry, err := worktreeReclaimEntry(ctx, tx, req)
 	if err != nil {
 		return out, nil, err
@@ -4768,21 +4805,9 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 			}
 			repoRoots[e.projectID] = repoRoot
 		}
-		defaultRef, ok := defaultRefs[e.projectID]
-		if !ok {
-			resolved, resErr := worktreeAuditDefaultRef(ctx, runner, repoRoot, defaultRefOverride)
-			if resErr != nil {
-				if !refRequired {
-					// A read cannot evaluate the class without the
-					// ref and must not refuse the whole page (issue
-					// #831): the project contributes no rows.
-					defaultRefs[e.projectID] = ""
-					continue
-				}
-				return nil, resErr
-			}
-			defaultRef = resolved
-			defaultRefs[e.projectID] = defaultRef
+		defaultRef, err := unstartedWorktreeDefaultRef(ctx, runner, repoRoot, e.projectID, defaultRefOverride, refRequired, defaultRefs)
+		if err != nil {
+			return nil, err
 		}
 		if defaultRef == "" {
 			continue
@@ -4798,16 +4823,41 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 			continue
 		}
 		row := WorktreeDrift{claimOpID: e.claimOpID, Class: WorktreeDriftUnstartedPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, ClaimState: worktreeStateVerified, Lifecycle: "needed", CommitsAhead: 0, RecoveryAction: WorktreeRecoveryReclaim, HeadBranch: head.Branch, HeadDetached: head.Detached}
-		if observed := claimObservedAt[e.workID]; observed != "" {
-			if claimed, parseErr := time.Parse(time.RFC3339Nano, observed); parseErr == nil {
-				if age := int64(now.Sub(claimed).Seconds()); age > 0 {
-					row.ClaimAgeSeconds = age
-				}
-			}
-		}
+		row.ClaimAgeSeconds = worktreeClaimAgeSeconds(now, claimObservedAt[e.workID])
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func unstartedWorktreeDefaultRef(ctx context.Context, runner GitRunner, repoRoot, projectID, override string, required bool, refs map[string]string) (string, error) {
+	if ref, ok := refs[projectID]; ok {
+		return ref, nil
+	}
+	ref, err := worktreeAuditDefaultRef(ctx, runner, repoRoot, override)
+	if err != nil {
+		if required {
+			return "", err
+		}
+		// A read cannot evaluate this Project's class without the ref.
+		refs[projectID] = ""
+		return "", nil
+	}
+	refs[projectID] = ref
+	return ref, nil
+}
+
+func worktreeClaimAgeSeconds(now time.Time, observed string) int64 {
+	if observed == "" {
+		return 0
+	}
+	claimed, err := time.Parse(time.RFC3339Nano, observed)
+	if err != nil {
+		return 0
+	}
+	if age := int64(now.Sub(claimed).Seconds()); age > 0 {
+		return age
+	}
+	return 0
 }
 
 // classifyWorktreeContent derives content risk from the live-HEAD
@@ -5351,6 +5401,11 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err := probeWorktreeReachable(ctx, runner, "worktree_verify", entry); err != nil {
 		return WorktreeVerifyResult{}, err
 	}
+	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command}
+	return s.verifyWorktreeCommand(ctx, req, entry, runner, runCommand, maxOutput, now, string(commandJSON), result)
+}
+
+func (s *Store) verifyWorktreeCommand(ctx context.Context, req WorktreeVerifyRequest, entry WorktreeEntry, runner GitRunner, runCommand func(context.Context, string, []string, int) (int, []byte, bool, error), maxOutput int, now time.Time, commandJSON string, result WorktreeVerifyResult) (WorktreeVerifyResult, error) {
 	before, err := snapshotTrackedFiles(ctx, runner, entry.Path)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
@@ -5359,19 +5414,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	acquireTx, err := beginOrdinaryTx(ctx, s.db)
-	if err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
-	}
-	defer acquireTx.Rollback()
-	liveEntry, err := activeWorktreeEntryForProject(ctx, acquireTx, "worktree_verify", req.WorkID, req.ProjectID)
-	if err != nil {
-		return WorktreeVerifyResult{}, err
-	}
-	if liveEntry.Path != entry.Path || liveEntry.Branch != entry.Branch || liveEntry.ClaimOpID != entry.ClaimOpID {
-		return WorktreeVerifyResult{}, wrapFailure(KindProjectionConflict, "worktree_verify", "worktree changed under the verify probe", true, "retry the same operation with the same lease id", nil)
-	}
-	if err := acquireVerifyLeaseTx(ctx, acquireTx, req, liveEntry, string(commandJSON), now); err != nil {
+	if err := s.acquireCommandVerifyLease(ctx, req, entry, commandJSON, now); err != nil {
 		var completed *worktreeVerifyCompleted
 		if errors.As(err, &completed) {
 			// The lease already reached its durable outcome (the crash
@@ -5380,9 +5423,6 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 			return completed.result, completed.failure
 		}
 		return WorktreeVerifyResult{}, err
-	}
-	if err := acquireTx.Commit(); err != nil {
-		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err), SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1})
 	}
 	leaseRef := SubjectCurrentVersion{SubjectType: "worktree_verify_lease", SubjectID: req.LeaseID, Version: 1}
 	// From here to the committed release the lease is durably held: every
@@ -5394,19 +5434,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 
 	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
-	cancelErr := ctx.Err()
-	if cancelErr == nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
-		cancelErr = runErr
-	}
-	if runErr != nil {
-		// A command that cannot run is a run outcome, not a store failure:
-		// the release below still records and reports it.
-		exitCode = -1
-		output = append([]byte(runErr.Error()+"\n"), output...)
-	}
-	if cancelErr != nil {
-		exitCode = -1
-	}
+	exitCode, output, cancelErr := normalizeWorktreeVerifyOutcome(ctx, exitCode, output, runErr)
 
 	// The after snapshot runs before the release transaction opens: a git
 	// subprocess must never span a write transaction (CD-0195 D2). Ending
@@ -5438,7 +5466,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if outputTruncated {
 		truncated = true
 	}
-	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
+	result.ExitCode, result.Output, result.OutputTruncated, result.TrackedFilesChanged = exitCode, boundedOutput, truncated, changed
 	result.SubjectRef = oracleVerifySubject(beforeSubject, afterSubject, changed)
 	resultJSON, _ := json.Marshal(result)
 	releasedAt := nowFromClock(nil)
@@ -5450,7 +5478,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		// Only a passing run may stand as verification authority. A failed or
 		// mutated run stays history in worktree_verify_leases and names no
 		// producer operation, so the completion gate cannot consume it.
-		if err := recordWorktreeVerifyAuthorityTx(ctx, releaseTx, req, string(commandJSON), now, releasedAt, string(resultJSON)); err != nil {
+		if err := recordWorktreeVerifyAuthorityTx(ctx, releaseTx, req, commandJSON, now, releasedAt, string(resultJSON)); err != nil {
 			return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 		}
 	}
@@ -5466,6 +5494,44 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), leaseRef)
 	}
 	return result, nil
+}
+
+func normalizeWorktreeVerifyOutcome(ctx context.Context, exitCode int, output []byte, runErr error) (int, []byte, error) {
+	cancelErr := ctx.Err()
+	if cancelErr == nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
+		cancelErr = runErr
+	}
+	if runErr != nil {
+		// Failure to run is still a run outcome that the lease release records.
+		exitCode = -1
+		output = append([]byte(runErr.Error()+"\n"), output...)
+	}
+	if cancelErr != nil {
+		exitCode = -1
+	}
+	return exitCode, output, cancelErr
+}
+
+func (s *Store) acquireCommandVerifyLease(ctx context.Context, req WorktreeVerifyRequest, entry WorktreeEntry, commandJSON string, now time.Time) error {
+	tx, err := beginOrdinaryTx(ctx, s.db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
+	}
+	defer tx.Rollback()
+	live, err := activeWorktreeEntryForProject(ctx, tx, "worktree_verify", req.WorkID, req.ProjectID)
+	if err != nil {
+		return err
+	}
+	if live.Path != entry.Path || live.Branch != entry.Branch || live.ClaimOpID != entry.ClaimOpID {
+		return wrapFailure(KindProjectionConflict, "worktree_verify", "worktree changed under the verify probe", true, "retry the same operation with the same lease id", nil)
+	}
+	if err := acquireVerifyLeaseTx(ctx, tx, req, live, commandJSON, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify lease", true, "retry the same operation with the same lease id", err), nativeLeaseRef(req.LeaseID))
+	}
+	return nil
 }
 
 // worktreeVerifyFinalizeTimeout bounds both normal and abandoned release.
@@ -5683,48 +5749,52 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 		}
 		return nil
 	case err == sql.ErrNoRows:
-		owner := req.nativeLeaseOwner
-		if req.Oracle == nil {
-			owner = currentProcessIdentity()
-		}
-		// The watermark is the event-order position at which the run
-		// starts: this work item's effect frontier (work_items.effect_seq), read by the
-		// INSERT's own subquery so no second read can split it from the
-		// lease. Leases predating the column carry NULL, and attribution
-		// reports their population as unavailable.
-		insertLease := func() error {
-			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started,native_plan_json,native_plan_sha256,event_watermark) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?,?,?,(SELECT COALESCE((SELECT effect_seq FROM work_items WHERE id=?),0)))`,
-				req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano), owner.pid, owner.started, nullableText(req.nativePlanJSON), nullableText(req.nativePlanSHA256), req.WorkID)
-			return insertErr
-		}
-		if insertErr := insertLease(); insertErr != nil {
-			// The one-held partial index refused: name the actual holder,
-			// and reclaim the lease when that holder's process is provably
-			// gone (crash, SIGKILL). A live holder keeps the typed refusal.
-			holderLeaseID, holder, holderOwner, held, holderErr := heldWorktreeVerifyLeaseTx(ctx, tx, entry.Path)
-			if holderErr != nil {
-				return holderErr
-			}
-			if held && verifyOwnerProcessGone(holderOwner) {
-				if _, reclaimErr := tx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, outcome='aborted' WHERE lease_id=? AND state='held'`,
-					now.Format(time.RFC3339Nano), holderLeaseID); reclaimErr != nil {
-					return wrapFailure(KindUnavailable, "worktree_verify", "cannot reclaim the verify lease of a dead holder process", true, "retry the same operation with the same lease id", reclaimErr)
-				}
-				if insertErr := insertLease(); insertErr != nil {
-					return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the reclaimed verify lease", true, "retry the same operation with the same lease id", insertErr)
-				}
-				return nil
-			}
-			if held {
-				return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
-					"worktree "+entry.Path+" holds an active verify lease held by session "+sessionOwnerLabel(holder), true, "retry_same_request")
-			}
-			return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the verify lease", true, "retry the same operation with the same lease id", insertErr)
-		}
-		return nil
+		return insertVerifyLeaseTx(ctx, tx, req, entry, commandJSON, now, now.Format(time.RFC3339Nano))
 	default:
 		return wrapFailure(KindUnavailable, "worktree_verify", "cannot read the verify lease", true, "retry once the database is readable", err)
 	}
+}
+
+func insertVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, entry WorktreeEntry, commandJSON string, now time.Time, acquiredAt string) error {
+	owner := req.nativeLeaseOwner
+	if req.Oracle == nil {
+		owner = currentProcessIdentity()
+	}
+	// The watermark is the event-order position at which the run
+	// starts: this work item's effect frontier (work_items.effect_seq), read by the
+	// INSERT's own subquery so no second read can split it from the
+	// lease. Leases predating the column carry NULL, and attribution
+	// reports their population as unavailable.
+	insertLease := func() error {
+		_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started,native_plan_json,native_plan_sha256,event_watermark) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?,?,?,(SELECT COALESCE((SELECT effect_seq FROM work_items WHERE id=?),0)))`,
+			req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, acquiredAt, owner.pid, owner.started, nullableText(req.nativePlanJSON), nullableText(req.nativePlanSHA256), req.WorkID)
+		return insertErr
+	}
+	if insertErr := insertLease(); insertErr != nil {
+		// The one-held partial index refused: name the actual holder,
+		// and reclaim the lease when that holder's process is provably
+		// gone (crash, SIGKILL). A live holder keeps the typed refusal.
+		holderLeaseID, holder, holderOwner, held, holderErr := heldWorktreeVerifyLeaseTx(ctx, tx, entry.Path)
+		if holderErr != nil {
+			return holderErr
+		}
+		if held && verifyOwnerProcessGone(holderOwner) {
+			if _, reclaimErr := tx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, outcome='aborted' WHERE lease_id=? AND state='held'`,
+				now.Format(time.RFC3339Nano), holderLeaseID); reclaimErr != nil {
+				return wrapFailure(KindUnavailable, "worktree_verify", "cannot reclaim the verify lease of a dead holder process", true, "retry the same operation with the same lease id", reclaimErr)
+			}
+			if insertErr := insertLease(); insertErr != nil {
+				return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the reclaimed verify lease", true, "retry the same operation with the same lease id", insertErr)
+			}
+			return nil
+		}
+		if held {
+			return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
+				"worktree "+entry.Path+" holds an active verify lease held by session "+sessionOwnerLabel(holder), true, "retry_same_request")
+		}
+		return wrapFailure(KindUnavailable, "worktree_verify", "cannot persist the verify lease", true, "retry the same operation with the same lease id", insertErr)
+	}
+	return nil
 }
 
 // heldWorktreeVerifyLeaseTx reports the lease and the session holding the

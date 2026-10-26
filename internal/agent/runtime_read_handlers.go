@@ -460,19 +460,9 @@ func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, bi
 	if cursor.Work == "" || (cursor.Digest != "" && !validSHA256Proof(cursor.Digest)) || cursor.NextByteOffset < 0 {
 		return coreError(base, "invalid_cursor", "continuity projection cursor is malformed", "restart_query", false), nil
 	}
-	var snapshot store.ContinuitySnapshot
-	if captured != nil {
-		snapshot = *captured
-	} else {
-		continuityReq := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor}
-		if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
-			continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
-		}
-		read, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
-		if err != nil {
-			return base, err
-		}
-		snapshot = read
+	snapshot, err := r.continuityProjectionSnapshot(ctx, limit, cursor, captured)
+	if err != nil {
+		return base, err
 	}
 	doc, digest, err := ContinuityCanonicalDocument(snapshot)
 	if err != nil {
@@ -556,6 +546,17 @@ func (r runtime) continuityProjectionPage(ctx context.Context, base Envelope, bi
 	}
 	response, _, err := at(length)
 	return response, err
+}
+
+func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (store.ContinuitySnapshot, error) {
+	if captured != nil {
+		return *captured, nil
+	}
+	req := store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor}
+	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
+		req.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
+	}
+	return store.ReadWorkflowContinuity(ctx, r.Store, req)
 }
 
 // researchPackReadV2 is the version 2 pack read result: the full pack when no
@@ -712,33 +713,9 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	// the exact per-source outcome rides the typed Q9 request, and Q9
 	// degrades that source through its owning per-source path. Without
 	// allow_degraded the same error refuses, as before.
-	var demandFailures []store.KnowledgeDemandFailure
-	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-		if !in.AllowDegraded {
-			return failureEnvelope(base, err), nil
-		}
-		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
-	}
-	registrationsUnread := false
-	if in.ProductID != "" {
-		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
-		if srcErr != nil && !in.AllowDegraded {
-			return failureEnvelope(base, srcErr), nil
-		}
-		if srcErr != nil {
-			registrationsUnread = true
-		}
-		for _, source := range sources {
-			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
-				continue
-			}
-			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
-				if !in.AllowDegraded {
-					return failureEnvelope(base, err), nil
-				}
-				demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, FailureKind: demandFailureKind(err)})
-			}
-		}
+	demandFailures, registrationsUnread, err := r.knowledgeSearchDemand(ctx, in, home)
+	if err != nil {
+		return failureEnvelope(base, err), nil
 	}
 	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures, RegistrationsUnread: registrationsUnread})
 	if err != nil {
@@ -750,6 +727,38 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	}
 	response.Omissions = boundedNotices(response.Omissions, knowledgeSourceNotices(q.SourceOmissions))
 	return r.wrapCursor(ctx, response, string(binding), "summary")
+}
+
+func (r runtime) knowledgeSearchDemand(ctx context.Context, in knowledgeSearchInput, home store.KnowledgeHome) ([]store.KnowledgeDemandFailure, bool, error) {
+	var demandFailures []store.KnowledgeDemandFailure
+	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		if !in.AllowDegraded {
+			return nil, false, err
+		}
+		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
+	}
+	registrationsUnread := false
+	if in.ProductID != "" {
+		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
+		if srcErr != nil && !in.AllowDegraded {
+			return nil, false, srcErr
+		}
+		if srcErr != nil {
+			registrationsUnread = true
+		}
+		for _, source := range sources {
+			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
+				continue
+			}
+			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
+				if !in.AllowDegraded {
+					return nil, false, err
+				}
+				demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, FailureKind: demandFailureKind(err)})
+			}
+		}
+	}
+	return demandFailures, registrationsUnread, nil
 }
 
 func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []Notice {

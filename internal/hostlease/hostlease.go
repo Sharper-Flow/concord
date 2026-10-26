@@ -436,12 +436,7 @@ func acquireMaintenanceLock(
 		file, err := open(dataRoot)
 		if err != nil {
 			if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
-				// The open itself refused, without following the path;
-				// the lstat only names the reason for the operator.
-				if info, statErr := os.Lstat(dataRoot); statErr == nil && info.Mode()&os.ModeSymlink != 0 { //nolint:gosec // dataRoot is the operator's data root; the lstat only names the reason for the operator.
-					return nil, fmt.Errorf("hostlease: refusing symlinked data root %s", dataRoot)
-				}
-				return nil, fmt.Errorf("hostlease: refusing data root %s: it is not a directory", dataRoot)
+				return nil, maintenanceRootOpenRefusal(dataRoot)
 			}
 			if errors.Is(err, os.ErrNotExist) && attempt < maintenanceAcquireAttempts {
 				continue
@@ -481,6 +476,14 @@ func acquireMaintenanceLock(
 		return file, nil
 	}
 	return nil, fmt.Errorf("%w: %s", ErrMaintenanceRootReplaced, dataRoot)
+}
+
+func maintenanceRootOpenRefusal(dataRoot string) error {
+	// The open refused without following the path; lstat only names the reason.
+	if info, statErr := os.Lstat(dataRoot); statErr == nil && info.Mode()&os.ModeSymlink != 0 { //nolint:gosec // dataRoot is the operator's data root; the lstat only names the reason for the operator.
+		return fmt.Errorf("hostlease: refusing symlinked data root %s", dataRoot)
+	}
+	return fmt.Errorf("hostlease: refusing data root %s: it is not a directory", dataRoot)
 }
 
 // sameFile compares two file identities by device and inode, the pair that

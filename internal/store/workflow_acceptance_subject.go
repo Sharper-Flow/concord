@@ -28,46 +28,11 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		subjects = append(subjects, result.Review.OutputCandidate.Commit)
 	}
 	for _, ref := range evidenceRefs {
-		receipt, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
+		resolved, err := workflowAcceptanceEvidenceSubjects(ctx, q, workID, ref)
 		if err != nil {
 			return err
 		}
-		if receipt != nil {
-			subjects = append(subjects, strings.TrimPrefix(receipt.SubjectRef, "commit:"))
-			continue
-		}
-		// Resolve the bound producer, not a commit claimed by the caller or a
-		// locator that merely looks like a native operation reference.
-		rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings
- WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref)
-		if err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot read the bound verdict producers", true, "retry once the database is readable", err)
-		}
-		var runs []string
-		for rows.Next() {
-			var run string
-			if err := rows.Scan(&run); err != nil {
-				rows.Close()
-				return wrapFailure(KindUnavailable, "workflow_action", "cannot scan the bound verdict producers", true, "retry once the database is readable", err)
-			}
-			runs = append(runs, run)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate the bound verdict producers", true, "retry once the database is readable", err)
-		}
-		if err := rows.Close(); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot close the bound verdict producers", true, "retry once the database is readable", err)
-		}
-		for _, run := range runs {
-			receipt, err := readOracleVerifySubjectReceipt(ctx, q, workID, run)
-			if err != nil {
-				return err
-			}
-			if receipt != nil {
-				subjects = append(subjects, strings.TrimPrefix(receipt.SubjectRef, "commit:"))
-			}
-		}
+		subjects = append(subjects, resolved...)
 	}
 	if len(subjects) == 0 {
 		return nil
@@ -82,6 +47,50 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 		}
 	}
 	return nil
+}
+
+func workflowAcceptanceEvidenceSubjects(ctx context.Context, q queryer, workID, ref string) ([]string, error) {
+	receipt, err := readOracleVerifySubjectReceipt(ctx, q, workID, ref)
+	if err != nil {
+		return nil, err
+	}
+	if receipt != nil {
+		return []string{strings.TrimPrefix(receipt.SubjectRef, "commit:")}, nil
+	}
+	// Resolve the bound producer, not a commit claimed by the caller or a
+	// locator that merely looks like a native operation reference.
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.producer_run_ref') FROM workflow_evidence_bindings
+ WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, ref)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the bound verdict producers", true, "retry once the database is readable", err)
+	}
+	var runs []string
+	for rows.Next() {
+		var run string
+		if err := rows.Scan(&run); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the bound verdict producers", true, "retry once the database is readable", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate the bound verdict producers", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot close the bound verdict producers", true, "retry once the database is readable", err)
+	}
+	var subjects []string
+	for _, run := range runs {
+		receipt, err := readOracleVerifySubjectReceipt(ctx, q, workID, run)
+		if err != nil {
+			return nil, err
+		}
+		if receipt != nil {
+			subjects = append(subjects, strings.TrimPrefix(receipt.SubjectRef, "commit:"))
+		}
+	}
+	return subjects, nil
 }
 
 // WorkflowActionRequiresSubjectFreshness is the closed terminal-gate set the

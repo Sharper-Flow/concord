@@ -296,53 +296,57 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 		}
 	}
 	if !combinatorSatisfied(keyword, matches, branches) {
-		// allOf requires every branch, so the first branch failure is the
-		// whole reason. Returning it unwrapped keeps the offending field at
-		// the front of the message, where a schema factored through $defs
-		// would otherwise stack one identical frame per composition level.
-		if keyword == "allOf" {
-			if failure := firstBranchFailure(branchFailures); failure != nil {
-				return failure
-			}
-			return fmt.Errorf("allOf mismatch at %s", path)
-		}
-		// Several branches matched a oneOf: no branch failure exists, the
-		// alternatives genuinely remain, and the variant list labels them.
-		if keyword == "oneOf" && matches > 1 {
-			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
-		}
-		live, failures := applicableBranchFailures(value, branches, branchFailures, root)
-		if len(live) > 0 && len(live) < failures {
-			// The value's discriminator or fieldset ruled branches out, so
-			// the surviving failures are the applicable ones. One survivor
-			// is the whole reason and returns unwrapped; several survivors
-			// are alternatives that genuinely remain and stay labeled.
-			if len(live) == 1 {
-				return branchFailures[live[0]]
-			}
-			messages := make([]error, 0, len(live))
-			labeled := labelBranchFailures(branches, branchFailures, root)
-			for _, index := range live {
-				messages = append(messages, labeled[index])
-			}
-			return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), messages)
-		}
-		branchFailures = labelBranchFailures(branches, branchFailures, root)
-		if keyword == "oneOf" {
-			if matches == 0 && len(errorStrings(branchFailures)) > 0 {
-				return joinSchemaFailures(fmt.Sprintf("oneOf mismatch at %s: ", path), branchFailures, fmt.Sprintf("; expected exactly one accepted variant {%s}", strings.Join(schemaVariantDescriptions(branches, root), "; ")))
-			}
-			return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
-		}
-		if len(errorStrings(branchFailures)) > 0 {
-			return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), branchFailures)
-		}
-		return fmt.Errorf("%s mismatch at %s", keyword, path)
+		return combinatorMismatch(value, keyword, branches, branchFailures, matches, root, path)
 	}
 	for key := range matchedEvaluated {
 		evaluated[key] = true
 	}
 	return nil
+}
+
+func combinatorMismatch(value any, keyword string, branches []any, branchFailures []error, matches int, root map[string]any, path string) error {
+	// allOf requires every branch, so the first branch failure is the
+	// whole reason. Returning it unwrapped keeps the offending field at
+	// the front of the message, where a schema factored through $defs
+	// would otherwise stack one identical frame per composition level.
+	if keyword == "allOf" {
+		if failure := firstBranchFailure(branchFailures); failure != nil {
+			return failure
+		}
+		return fmt.Errorf("allOf mismatch at %s", path)
+	}
+	// Several branches matched a oneOf: no branch failure exists, the
+	// alternatives genuinely remain, and the variant list labels them.
+	if keyword == "oneOf" && matches > 1 {
+		return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
+	}
+	live, failures := applicableBranchFailures(value, branches, branchFailures, root)
+	if len(live) > 0 && len(live) < failures {
+		// The value's discriminator or fieldset ruled branches out, so
+		// the surviving failures are the applicable ones. One survivor
+		// is the whole reason and returns unwrapped; several survivors
+		// are alternatives that genuinely remain and stay labeled.
+		if len(live) == 1 {
+			return branchFailures[live[0]]
+		}
+		messages := make([]error, 0, len(live))
+		labeled := labelBranchFailures(branches, branchFailures, root)
+		for _, index := range live {
+			messages = append(messages, labeled[index])
+		}
+		return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), messages)
+	}
+	branchFailures = labelBranchFailures(branches, branchFailures, root)
+	if keyword == "oneOf" {
+		if matches == 0 && len(errorStrings(branchFailures)) > 0 {
+			return joinSchemaFailures(fmt.Sprintf("oneOf mismatch at %s: ", path), branchFailures, fmt.Sprintf("; expected exactly one accepted variant {%s}", strings.Join(schemaVariantDescriptions(branches, root), "; ")))
+		}
+		return fmt.Errorf("oneOf mismatch at %s: expected exactly one accepted variant {%s}", path, strings.Join(schemaVariantDescriptions(branches, root), "; "))
+	}
+	if len(errorStrings(branchFailures)) > 0 {
+		return joinSchemaFailures(fmt.Sprintf("%s mismatch at %s: ", keyword, path), branchFailures)
+	}
+	return fmt.Errorf("%s mismatch at %s", keyword, path)
 }
 
 // Keep attribution attached to each guided failure, rather than only in a
@@ -397,6 +401,18 @@ func applicableBranchFailures(value any, branches []any, branchFailures []error,
 		resolved[i] = resolveSchemaRef(branch, root)
 	}
 	ruledOut := make([]bool, len(branches))
+	ruleOutContradictedBranches(object, resolved, ruledOut)
+	ruleOutForeignFieldsets(object, resolved, branchFailures, root, ruledOut)
+	live := make([]int, 0, failures)
+	for i, failure := range branchFailures {
+		if failure != nil && !ruledOut[i] {
+			live = append(live, i)
+		}
+	}
+	return live, failures
+}
+
+func ruleOutContradictedBranches(object map[string]any, resolved []map[string]any, ruledOut []bool) {
 	for _, name := range sortedKeys(object) {
 		supplied := object[name]
 		pinning := []int{}
@@ -420,7 +436,10 @@ func applicableBranchFailures(value any, branches []any, branchFailures []error,
 			}
 		}
 	}
-	for i := range branches {
+}
+
+func ruleOutForeignFieldsets(object map[string]any, resolved []map[string]any, branchFailures []error, root map[string]any, ruledOut []bool) {
+	for i := range resolved {
 		if ruledOut[i] || i >= len(branchFailures) || branchFailures[i] == nil {
 			continue
 		}
@@ -428,7 +447,7 @@ func applicableBranchFailures(value any, branches []any, branchFailures []error,
 		if len(unknown) == 0 {
 			continue
 		}
-		for j := range branches {
+		for j := range resolved {
 			if j == i || ruledOut[j] || branchPinsContradictedValue(object, resolved[j]) {
 				continue
 			}
@@ -438,13 +457,6 @@ func applicableBranchFailures(value any, branches []any, branchFailures []error,
 			}
 		}
 	}
-	live := make([]int, 0, failures)
-	for i, failure := range branchFailures {
-		if failure != nil && !ruledOut[i] {
-			live = append(live, i)
-		}
-	}
-	return live, failures
 }
 
 // A shared unknown member must not revive a branch that additionally rejects
@@ -630,33 +642,8 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 	evaluated := map[string]bool{}
 	properties, _ := schema["properties"].(map[string]any)
 	patterns, _ := schema["patternProperties"].(map[string]any)
-	segments := make([]error, 0)
-	if required, ok := schema["required"].([]any); ok {
-		for _, raw := range required {
-			name, _ := raw.(string)
-			if _, exists := object[name]; !exists {
-				segments = append(segments, withGuidance(fmt.Errorf("missing required %s.%s", path, name), schemaPropertyName(schema, name)))
-			}
-		}
-	}
-	if additionalPropertiesFalse, ok := schema["additionalProperties"].(bool); ok && !additionalPropertiesFalse {
-		unknown := make([]string, 0)
-		for key := range object {
-			if _, exists := properties[key]; exists {
-				continue
-			}
-			if matchesPattern(patterns, key) {
-				continue
-			}
-			unknown = append(unknown, key)
-		}
-		sort.Strings(unknown)
-		for _, key := range unknown {
-			segments = append(segments, unknownPropertyError(path, key, schema))
-		}
-	}
-	if len(segments) > 0 {
-		return nil, joinSchemaFailures("", segments)
+	if err := validateObjectFieldset(object, schema, properties, patterns, path); err != nil {
+		return nil, err
 	}
 	if err := validateAdditionalProperties(object, schema, properties, patterns, root, path, evaluated); err != nil {
 		return nil, err
@@ -683,6 +670,38 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 		return nil, fmt.Errorf("maxProperties at %s", path)
 	}
 	return evaluated, nil
+}
+
+func validateObjectFieldset(object, schema, properties, patterns map[string]any, path string) error {
+	segments := make([]error, 0)
+	if required, ok := schema["required"].([]any); ok {
+		for _, raw := range required {
+			name, _ := raw.(string)
+			if _, exists := object[name]; !exists {
+				segments = append(segments, withGuidance(fmt.Errorf("missing required %s.%s", path, name), schemaPropertyName(schema, name)))
+			}
+		}
+	}
+	if additionalPropertiesFalse, ok := schema["additionalProperties"].(bool); ok && !additionalPropertiesFalse {
+		unknown := make([]string, 0)
+		for key := range object {
+			if _, exists := properties[key]; exists {
+				continue
+			}
+			if matchesPattern(patterns, key) {
+				continue
+			}
+			unknown = append(unknown, key)
+		}
+		sort.Strings(unknown)
+		for _, key := range unknown {
+			segments = append(segments, unknownPropertyError(path, key, schema))
+		}
+	}
+	if len(segments) > 0 {
+		return joinSchemaFailures("", segments)
+	}
+	return nil
 }
 
 // validateAdditionalProperties enforces the additionalProperties keyword in
@@ -1030,35 +1049,42 @@ func matchesAnyType(value any, raw any) bool {
 		}
 	}
 	for _, kind := range types {
-		switch kind {
-		case "object":
-			if _, ok := value.(map[string]any); ok {
-				return true
-			}
-		case "array":
-			if _, ok := value.([]any); ok {
-				return true
-			}
-		case "string":
-			if _, ok := value.(string); ok {
-				return true
-			}
-		case "boolean":
-			if _, ok := value.(bool); ok {
-				return true
-			}
-		case "null":
-			if value == nil {
-				return true
-			}
-		case "number":
-			if _, ok := value.(json.Number); ok {
-				return true
-			}
-		case "integer":
-			if number, ok := value.(json.Number); ok && !strings.ContainsAny(string(number), ".eE") {
-				return true
-			}
+		if matchesType(value, kind) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesType(value any, kind string) bool {
+	switch kind {
+	case "object":
+		if _, ok := value.(map[string]any); ok {
+			return true
+		}
+	case "array":
+		if _, ok := value.([]any); ok {
+			return true
+		}
+	case "string":
+		if _, ok := value.(string); ok {
+			return true
+		}
+	case "boolean":
+		if _, ok := value.(bool); ok {
+			return true
+		}
+	case "null":
+		if value == nil {
+			return true
+		}
+	case "number":
+		if _, ok := value.(json.Number); ok {
+			return true
+		}
+	case "integer":
+		if number, ok := value.(json.Number); ok && !strings.ContainsAny(string(number), ".eE") {
+			return true
 		}
 	}
 	return false

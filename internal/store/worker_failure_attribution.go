@@ -1332,23 +1332,7 @@ func verifyCoordinatorFailureAttributionTx(ctx context.Context, q queryer, workI
 		return workerFailureBoundFailure("a correction completion's recorded failure_attribution carries the core-derived identity")
 	}
 	if block.Identity.Kind == WorkerFailureIdentityIntegration {
-		derived, err := deriveWorkerFailureIntegration(ctx, q, workID, block.Observation)
-		if err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(derived, block.Identity) {
-			return workerFailureBoundFailure("failure_attribution integration identity does not equal the identity the cited combined run derives; the recorded population, run reference, and digest are the reader's answer")
-		}
-		inputRefs := make(map[string]bool, len(block.Identity.Integration.InputResults))
-		for _, input := range block.Identity.Integration.InputResults {
-			inputRefs[input.ResultRef] = true
-		}
-		for _, source := range block.Observation.Sources {
-			if err := verifyWorkerFailureIntegrationResultSourceTx(ctx, q, workID, source, inputRefs, beforeSeq); err != nil {
-				return err
-			}
-		}
-		return nil
+		return verifyCoordinatorIntegrationAttributionTx(ctx, q, workID, block, beforeSeq)
 	}
 	if block.Observation.Phase != WorkerFailurePhaseResultReview {
 		return workerFailureBoundFailure("failure_attribution attempt identity rides the result_review phase; the integration phase names the combined run")
@@ -1393,6 +1377,26 @@ func verifyCoordinatorFailureAttributionTx(ctx context.Context, q queryer, workI
 		return workerFailureBoundFailure("result_review omits the observed delivery subject " + available.Locator + " the attempt's completed event records; name the subject the review resolved")
 	}
 	return verifyWorkerFailureObservedDeliverySubject(ctx, q, workID, workerAttemptID, block.Identity.Attempt.Subject)
+}
+
+func verifyCoordinatorIntegrationAttributionTx(ctx context.Context, q queryer, workID string, block *WorkerFailureAttribution, beforeSeq int64) error {
+	derived, err := deriveWorkerFailureIntegration(ctx, q, workID, block.Observation)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(derived, block.Identity) {
+		return workerFailureBoundFailure("failure_attribution integration identity does not equal the identity the cited combined run derives; the recorded population, run reference, and digest are the reader's answer")
+	}
+	inputRefs := make(map[string]bool, len(block.Identity.Integration.InputResults))
+	for _, input := range block.Identity.Integration.InputResults {
+		inputRefs[input.ResultRef] = true
+	}
+	for _, source := range block.Observation.Sources {
+		if err := verifyWorkerFailureIntegrationResultSourceTx(ctx, q, workID, source, inputRefs, beforeSeq); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // deriveCoordinatorCorrectionAttributionTx derives one coordinator
@@ -1441,35 +1445,11 @@ func deriveCoordinatorCorrectionAttributionTx(ctx context.Context, q queryer, wo
 		}
 		identity = derived
 	case WorkerFailurePhaseResultReview:
-		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-		if attemptID == "" {
-			return nil, workerFailureBoundFailure("failure_attribution result_review names the exact action attempt; " + actionID + " carries no attempt to review")
-		}
-		window, err := findAuthorizedDispatchWindowCore(ctx, q, workID, attemptID)
-		if err != nil {
-			var failure *Failure
-			if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
-				return nil, workerFailureBoundFailure("failure_attribution result_review names no authorized dispatch window for attempt " + attemptID)
-			}
-			return nil, err
-		}
-		attempt, err := workerAttemptByIDCore(ctx, q, attemptID)
+		derived, err := deriveCoordinatorReviewIdentityTx(ctx, q, workID, actionID, fields)
 		if err != nil {
 			return nil, err
 		}
-		if attempt.WorkID != workID {
-			return nil, workerFailureBoundFailure("failure_attribution result_review names an attempt of another work item")
-		}
-		job, err := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
-		if err != nil {
-			return nil, err
-		}
-		identity = workerFailureAttemptIdentity(attemptID, attempt.LaneID, window, job)
-		subject, err := workerFailureObservedDeliverySubject(ctx, q, workID, attemptID)
-		if err != nil {
-			return nil, err
-		}
-		identity.Attempt.Subject = subject
+		identity = derived
 	}
 	block := &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &observation, Identity: identity}
 	if err := ValidateWorkerFailureAttribution(block); err != nil {
@@ -1495,6 +1475,39 @@ func deriveCoordinatorCorrectionAttributionTx(ctx context.Context, q queryer, wo
 		}
 	}
 	return block, nil
+}
+
+func deriveCoordinatorReviewIdentityTx(ctx context.Context, q queryer, workID, actionID string, fields map[string]json.RawMessage) (*WorkerFailureIdentity, error) {
+	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+	if attemptID == "" {
+		return nil, workerFailureBoundFailure("failure_attribution result_review names the exact action attempt; " + actionID + " carries no attempt to review")
+	}
+	window, err := findAuthorizedDispatchWindowCore(ctx, q, workID, attemptID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return nil, workerFailureBoundFailure("failure_attribution result_review names no authorized dispatch window for attempt " + attemptID)
+		}
+		return nil, err
+	}
+	attempt, err := workerAttemptByIDCore(ctx, q, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	if attempt.WorkID != workID {
+		return nil, workerFailureBoundFailure("failure_attribution result_review names an attempt of another work item")
+	}
+	job, err := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	identity := workerFailureAttemptIdentity(attemptID, attempt.LaneID, window, job)
+	subject, err := workerFailureObservedDeliverySubject(ctx, q, workID, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	identity.Attempt.Subject = subject
+	return identity, nil
 }
 
 // WorkerFailureAttributionRecord is one attempt's resolved terminal

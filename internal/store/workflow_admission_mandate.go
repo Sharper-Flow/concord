@@ -50,27 +50,36 @@ func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string,
 			return result, err
 		}
 		if result.AddedByContract {
-			switch {
-			case state.ContractCorrectionAvailable:
-				result.CorrectionAction = "supersede_contract"
-			case rejected:
-				result.CorrectionAction = "reject_worker_result"
-			default:
-				failed := state.WorkerFailureRecovery
-				if stepDeclaresAction(definition, step, "record_worker_failure") {
-					failed, err = workflowFailedWorkerAttempt(ctx, q, workID, step, subject, true)
-					if err != nil {
-						return result, err
-					}
-				}
-				if failed {
-					result.CorrectionAction = "record_worker_failure"
-				}
+			result.CorrectionAction, err = workflowMandateCorrectionAction(ctx, q, workID, definition, step, subject, state, rejected)
+			if err != nil {
+				return result, err
 			}
 		}
 		return result, nil
 	}
 	return result, nil
+}
+
+func workflowMandateCorrectionAction(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState, rejected bool) (string, error) {
+	switch {
+	case state.ContractCorrectionAvailable:
+		return "supersede_contract", nil
+	case rejected:
+		return "reject_worker_result", nil
+	default:
+		failed := state.WorkerFailureRecovery
+		if stepDeclaresAction(definition, step, "record_worker_failure") {
+			var err error
+			failed, err = workflowFailedWorkerAttempt(ctx, q, workID, step, subject, true)
+			if err != nil {
+				return "", err
+			}
+		}
+		if failed {
+			return "record_worker_failure", nil
+		}
+	}
+	return "", nil
 }
 
 func workflowAdmitMandate(definition WorkflowDefinition, step string, state workflowMandateAdmission, actionID, subject string) *Failure {

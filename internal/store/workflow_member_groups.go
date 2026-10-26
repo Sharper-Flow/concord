@@ -297,6 +297,13 @@ func deriveWorkflowMemberGroup(ctx context.Context, q queryer, workID, operation
 		memberID := workflowMemberID(group.GroupID, binding)
 		group.Members = append(group.Members, workflowGroupMember{MemberID: memberID, WorkerJobBinding: binding, ProjectID: job.ProjectScope})
 	}
+	if err := validateWorkflowMemberJobIndependence(ctx, q, workID, bindings, jobs); err != nil {
+		return nil, err
+	}
+	return group, nil
+}
+
+func validateWorkflowMemberJobIndependence(ctx context.Context, q queryer, workID string, bindings []WorkerJobBinding, jobs []*WorkerJobRecordedPayload) error {
 	for i, job := range jobs {
 		var dependent bool
 		ids := make([]string, 0, len(bindings))
@@ -310,10 +317,10 @@ func deriveWorkflowMemberGroup(ctx context.Context, q queryer, workID, operation
 		 UNION SELECT json_extract(p.value,'$.job_id'),json_extract(p.value,'$.revision')
 		 FROM dependencies d JOIN worker_job_revisions j ON j.work_id=?2 AND j.job_id=d.job_id AND j.revision=d.revision JOIN json_each(j.prerequisites) p
 		) SELECT EXISTS(SELECT 1 FROM dependencies WHERE job_id IN (SELECT value FROM json_each(?3)))`, workflowJSON(job.Prerequisites), workID, workflowJSON(ids)).Scan(&dependent); err != nil {
-			return nil, err
+			return err
 		}
 		if dependent {
-			return nil, memberGroupFailure("dependent jobs cannot be simultaneous siblings")
+			return memberGroupFailure("dependent jobs cannot be simultaneous siblings")
 		}
 		for _, other := range jobs[:i] {
 			if job.ProjectScope != other.ProjectScope {
@@ -321,12 +328,12 @@ func deriveWorkflowMemberGroup(ctx context.Context, q queryer, workID, operation
 			}
 			for _, path := range job.PathScope {
 				if workerJobPathsIntersect(other.PathScope, path) {
-					return nil, memberGroupFailure("overlapping job path scopes cannot be simultaneous siblings")
+					return memberGroupFailure("overlapping job path scopes cannot be simultaneous siblings")
 				}
 			}
 		}
 	}
-	return group, nil
+	return nil
 }
 
 func validateWorkflowMemberBinding(ctx context.Context, q queryer, workID, controller string, binding workflowMemberBinding, operationID string) error {

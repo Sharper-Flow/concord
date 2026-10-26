@@ -478,16 +478,8 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	laws := make([]indexedLaw, 0)
 	seen := map[string]bool{}
 	seenPaths := map[string]bool{}
-	for _, notePath := range paths {
-		note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, notePath, "")
-		if err != nil {
-			return err
-		}
-		if seen[note.ID] {
-			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "two valid canonical notes claim the same stable ID", false, "resolve duplicate canonical note identities")
-		}
-		seen[note.ID], seenPaths[note.NotePath] = true, true
-		notes = append(notes, note)
+	if err := collectCommittedKnowledgeNotes(ctx, home, commit, paths, &notes, seen, seenPaths); err != nil {
+		return err
 	}
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home)
 	if err != nil {
@@ -505,35 +497,15 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
-	// CD-0200: both federated roles validate their cross-source law
-	// relations over the Product's verified source set at the rebuild
-	// boundary — the registered source, and the designated shared-law home.
-	// A shared-home cross-source conflicts_with edge refuses here instead of
-	// passing rebuild and vanishing at projection, so conflicts stay
-	// blocking; a source that later declares one leaves its watermark stale,
-	// which the consequential boundaries refuse.
+	// Both federated roles validate relations before the projection transaction.
 	if !manifestMissing && productID != "" {
 		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest, productID, designated); err != nil {
 			return err
 		}
 	}
 	if !manifestMissing {
-		for _, record := range manifest.Records {
-			if seen[record.ID] {
-				return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same stable ID", false, "assign distinct stable IDs across knowledge populations")
-			}
-			if seenPaths[record.Path] {
-				return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same canonical path", false, "assign distinct canonical paths across knowledge populations")
-			}
-			body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
-			if err != nil {
-				return err
-			}
-			seen[record.ID], seenPaths[record.Path] = true, true
-			notes = append(notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
-			if manifestLawBearingKinds[record.Kind] {
-				laws = append(laws, indexedLaw{record: record, body: body})
-			}
+		if err := collectManifestKnowledgeNotes(ctx, home, commit, manifest, &notes, &laws, seen, seenPaths); err != nil {
+			return err
 		}
 	}
 	tx, err := beginOrdinaryTx(ctx, s.db)
@@ -546,6 +518,42 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot commit the knowledge index rebuild", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+func collectCommittedKnowledgeNotes(ctx context.Context, home KnowledgeHome, commit string, paths []string, notes *[]VerifiedNote, seen, seenPaths map[string]bool) error {
+	for _, notePath := range paths {
+		note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, notePath, "")
+		if err != nil {
+			return err
+		}
+		if seen[note.ID] {
+			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "two valid canonical notes claim the same stable ID", false, "resolve duplicate canonical note identities")
+		}
+		seen[note.ID], seenPaths[note.NotePath] = true, true
+		*notes = append(*notes, note)
+	}
+	return nil
+}
+
+func collectManifestKnowledgeNotes(ctx context.Context, home KnowledgeHome, commit string, manifest KnowledgeManifest, notes *[]VerifiedNote, laws *[]indexedLaw, seen, seenPaths map[string]bool) error {
+	for _, record := range manifest.Records {
+		if seen[record.ID] {
+			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same stable ID", false, "assign distinct stable IDs across knowledge populations")
+		}
+		if seenPaths[record.Path] {
+			return newFailure(KindKnowledgeAmbiguous, "rebuild_knowledge_index", "manifest and work-note populations claim the same canonical path", false, "assign distinct canonical paths across knowledge populations")
+		}
+		body, err := verifyManifestBlob(ctx, home.RepoPath, commit, record)
+		if err != nil {
+			return err
+		}
+		seen[record.ID], seenPaths[record.Path] = true, true
+		*notes = append(*notes, manifestRecordNote(record, commit, manifest.SchemaVersion))
+		if manifestLawBearingKinds[record.Kind] {
+			*laws = append(*laws, indexedLaw{record: record, body: body})
+		}
 	}
 	return nil
 }
@@ -603,6 +611,44 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			}
 		}
 	}
+	if err := clearKnowledgeIndexRowsTx(ctx, tx, home, productID, designated); err != nil {
+		return err
+	}
+	if err := insertKnowledgeIndexNotes(ctx, tx, home, notes, laws, commit); err != nil {
+		return err
+	}
+	if !manifestMissing {
+		if err := insertKnowledgeIndexDomains(ctx, tx, home, commit, laws, domainProjectionData); err != nil {
+			return err
+		}
+	}
+	if err := insertKnowledgeLawRelations(ctx, tx, home, commit, laws); err != nil {
+		return err
+	}
+	if err := insertKnowledgeArchitecture(ctx, tx, home, commit, laws, architecture); err != nil {
+		return err
+	}
+	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
+		return err
+	}
+	// Content identity controls freshness; omitted Domain rows keep the watermark incomplete.
+	complete := 1
+	if domainProjectionData.DomainRowsOmitted {
+		complete = 0
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, complete, knowledgeProjectionVersion); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
+	}
+	if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(knowledgeProjectionVersion)); err != nil {
+		return err
+	}
+	if err := leaveWrite(ctx, tx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func clearKnowledgeIndexRowsTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome, productID string, designated bool) error {
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_domains", "archived_work_tags", "archived_work"} {
 		// Every scope row carries its own home pair: the same work id can
 		// project in more than one registered source, so the clear deletes
@@ -645,47 +691,6 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err)
-	}
-	if err := insertKnowledgeIndexNotes(ctx, tx, home, notes, laws, commit); err != nil {
-		return err
-	}
-	if !manifestMissing {
-		if err := insertKnowledgeIndexDomains(ctx, tx, home, commit, laws, domainProjectionData); err != nil {
-			return err
-		}
-	}
-	if err := insertKnowledgeLawRelations(ctx, tx, home, commit, laws); err != nil {
-		return err
-	}
-	if err := insertKnowledgeArchitecture(ctx, tx, home, commit, laws, architecture); err != nil {
-		return err
-	}
-	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
-		return err
-	}
-	// The commit identity is the deterministic observation value. It avoids
-	// rebuild-only wall-clock churn while the query result still exposes the
-	// current observation time in its transient envelope. The content digest
-	// is what freshness compares: it names the projected objects, so a later
-	// commit that changes none of them leaves this row authoritative. The
-	// projection version is what admission compares: a binary older than the
-	// one that stamped this row refuses to rebuild over it. A source
-	// projection that omitted its law Domain rows over the shared home's
-	// absent registry stamps complete=0 (CD-0200 reconstruction): the
-	// watermark never reads fresh, and the demand-freshness rebuild backfills
-	// the omitted rows once the registry exists.
-	complete := 1
-	if domainProjectionData.DomainRowsOmitted {
-		complete = 0
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, complete, knowledgeProjectionVersion); err != nil {
-		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
-	}
-	if err := recordRuntimeStateWriter(ctx, tx, knowledgeStateWriter(knowledgeProjectionVersion)); err != nil {
-		return err
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		return err
 	}
 	return nil
 }

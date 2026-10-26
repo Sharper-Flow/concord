@@ -306,11 +306,7 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 	// SQL.
 	if len(sample.readings) > 0 && !acceptance {
 		proof.readings = sample.readings
-		resolutionRunner := request.Runner
-		if resolutionRunner == nil {
-			resolutionRunner = CommittedReadGitRunner{}
-		}
-		if err := resolveDispatchReadingWitnesses(ctx, resolutionRunner, proof.readings); err != nil {
+		if err := resolveWorkerDispatchReadings(ctx, request.Runner, proof.readings); err != nil {
 			return nil, err
 		}
 	}
@@ -331,17 +327,27 @@ func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request Prepar
 	}
 	proof.observation = observation
 	if entry.MemberID == "" && observation.State == "clean" && len(sample.memberAncestors) != 0 {
-		probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
-		defer cancel()
-		proof.memberCandidate = true
-		for _, ancestor := range sample.memberAncestors {
-			if _, err := runner.Run(probeCtx, probePath, "merge-base", "--is-ancestor", ancestor, observation.Commit); err != nil {
-				proof.memberCandidate = false
-				break
-			}
-		}
+		proof.memberCandidate = dispatchSubjectIncludesMembers(ctx, runner, probePath, observation.Commit, sample.memberAncestors)
 	}
 	return &WorkerDispatchPreparation{proof: proof}, nil
+}
+
+func resolveWorkerDispatchReadings(ctx context.Context, runner GitRunner, readings []dispatchReadingWitness) error {
+	if runner == nil {
+		runner = CommittedReadGitRunner{}
+	}
+	return resolveDispatchReadingWitnesses(ctx, runner, readings)
+}
+
+func dispatchSubjectIncludesMembers(ctx context.Context, runner GitRunner, probePath, commit string, ancestors []string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
+	defer cancel()
+	for _, ancestor := range ancestors {
+		if _, err := runner.Run(probeCtx, probePath, "merge-base", "--is-ancestor", ancestor, commit); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // selectDispatchClaimEntry resolves the active claim entry whose canonical
@@ -460,35 +466,8 @@ func (p *WorkerDispatchPreparation) observationMatches(subject string) bool {
 // and the derived dispatch.
 func (p *WorkerDispatchPreparation) revalidateDispatchIdentitiesTx(ctx context.Context, tx *sql.Tx, workID string, full bool) error {
 	if full {
-		version, lifecycleErr := workflowInstanceStateVersionTx(ctx, tx, workID)
-		if lifecycleErr != nil {
-			return lifecycleErr
-		}
-		if version != p.proof.workVersion {
-			return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the work item changed under the dispatch subject observation", true, "prepare the same dispatch again against the current work")
-		}
-		if p.proof.instanceFound {
-			var currentStep string
-			if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-				if err == sql.ErrNoRows {
-					return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the workflow instance left the work under the dispatch subject observation", true, "prepare the same dispatch again against the current workflow")
-				}
-				return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read the workflow step", true, "retry once the workflow projection is readable", err)
-			}
-			if currentStep != p.proof.currentStep {
-				return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the workflow step changed under the dispatch subject observation", true, "prepare the same dispatch again against the current workflow")
-			}
-			contractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, workerDispatchFreshnessOp)
-			if contractErr != nil && contractErr != sql.ErrNoRows {
-				return contractErr
-			}
-			effective := int64(0)
-			if contractErr == nil {
-				effective = contractVersion
-			}
-			if effective != p.proof.contractVersion {
-				return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the active workflow contract changed under the dispatch subject observation", true, "prepare the same dispatch again against the current contract")
-			}
+		if err := p.revalidateDispatchWorkflowTx(ctx, tx, workID); err != nil {
+			return err
 		}
 	}
 	view, viewErr := readWorkContextView(ctx, tx, workID)
@@ -508,6 +487,41 @@ func (p *WorkerDispatchPreparation) revalidateDispatchIdentitiesTx(ctx context.C
 		}
 	}
 	return p.revalidateDispatchClaimTx(ctx, tx, workID)
+}
+
+func (p *WorkerDispatchPreparation) revalidateDispatchWorkflowTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	version, lifecycleErr := workflowInstanceStateVersionTx(ctx, tx, workID)
+	if lifecycleErr != nil {
+		return lifecycleErr
+	}
+	if version != p.proof.workVersion {
+		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the work item changed under the dispatch subject observation", true, "prepare the same dispatch again against the current work")
+	}
+	if !p.proof.instanceFound {
+		return nil
+	}
+	var currentStep string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the workflow instance left the work under the dispatch subject observation", true, "prepare the same dispatch again against the current workflow")
+		}
+		return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read the workflow step", true, "retry once the workflow projection is readable", err)
+	}
+	if currentStep != p.proof.currentStep {
+		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the workflow step changed under the dispatch subject observation", true, "prepare the same dispatch again against the current workflow")
+	}
+	contractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, workerDispatchFreshnessOp)
+	if contractErr != nil && contractErr != sql.ErrNoRows {
+		return contractErr
+	}
+	effective := int64(0)
+	if contractErr == nil {
+		effective = contractVersion
+	}
+	if effective != p.proof.contractVersion {
+		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the active workflow contract changed under the dispatch subject observation", true, "prepare the same dispatch again against the current contract")
+	}
+	return nil
 }
 
 // revalidateDispatchClaimTx is the SQL-only claim revalidation: the durable

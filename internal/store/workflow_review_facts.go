@@ -156,18 +156,19 @@ func advanceWorkflowReviewAcceptanceTx(ctx context.Context, tx *sql.Tx, event Ev
 // Migration-only selection preserves the old ordered dispatch/terminal/accept
 // walk, not a reconstruction from latest dispositions. The caller owns the
 // migration transaction and its single fold guard scope.
+type workflowReviewBackfillRecord struct {
+	workID, kind, actor, ref string
+	raw                      []byte
+}
+
 func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 	rows, err := q.QueryContext(ctx, `SELECT e.subject_id,e.kind,e.actor,e.event_id,e.payload FROM domain_events e JOIN work_items w ON w.id=e.subject_id WHERE e.subject_type='work_item' AND e.kind IN (?,?) ORDER BY e.subject_id,e.seq`, WorkflowActionCompleted, WorkerCompleted)
 	if err != nil {
 		return err
 	}
-	type record struct {
-		workID, kind, actor, ref string
-		raw                      []byte
-	}
-	var records []record
+	var records []workflowReviewBackfillRecord
 	for rows.Next() {
-		var row record
+		var row workflowReviewBackfillRecord
 		if err := rows.Scan(&row.workID, &row.kind, &row.actor, &row.ref, &row.raw); err != nil {
 			rows.Close()
 			return err
@@ -183,49 +184,57 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 	}
 	for start := 0; start < len(records); {
 		workID := records[start].workID
-		state := WorkflowReviewState{Findings: []WorkerReviewFinding{}}
-		dispatches := map[string]workflowActionCompletedPayload{}
-		completions := map[string]WorkerCompletedPayload{}
-		reports := map[string]string{}
 		end := start
 		for end < len(records) && records[end].workID == workID {
-			row := records[end]
 			end++
-			if row.kind == WorkerCompleted {
-				var result WorkerCompletedPayload
-				if err := json.Unmarshal(row.raw, &result); err != nil {
-					return err
-				}
-				completions[result.AttemptID] = result
-				if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
-					reports[result.AttemptID] = row.ref
-					observeWorkflowReviewReport(&state, result.Review)
-				}
-				continue
-			}
-			var action workflowActionCompletedPayload
-			if err := json.Unmarshal(row.raw, &action); err != nil {
-				return err
-			}
-			if action.ActionID == "dispatch_worker" {
-				dispatches[action.WorkerAttemptID] = action
-				continue
-			}
-			if action.ActionID == "accept_worker_result" {
-				if result, found := completions[action.WorkerAttemptID]; found {
-					auth := dispatches[result.AttemptID]
-					candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
-					if err != nil {
-						return err
-					}
-					acceptWorkflowReviewResult(&state, auth, result, candidate, reports[result.AttemptID], row.actor)
-				}
-			}
 		}
-		if err := writeWorkflowReviewFacts(ctx, q, workID, state); err != nil {
+		if err := backfillWorkflowReviewWork(ctx, q, workID, records[start:end]); err != nil {
 			return err
 		}
 		start = end
+	}
+	return nil
+}
+
+func backfillWorkflowReviewWork(ctx context.Context, q migrationRunner, workID string, records []workflowReviewBackfillRecord) error {
+	state := WorkflowReviewState{Findings: []WorkerReviewFinding{}}
+	dispatches := map[string]workflowActionCompletedPayload{}
+	completions := map[string]WorkerCompletedPayload{}
+	reports := map[string]string{}
+	for _, row := range records {
+		if row.kind == WorkerCompleted {
+			var result WorkerCompletedPayload
+			if err := json.Unmarshal(row.raw, &result); err != nil {
+				return err
+			}
+			completions[result.AttemptID] = result
+			if result.Review != nil && dispatches[result.AttemptID].WorkerCapabilityClass == "review" {
+				reports[result.AttemptID] = row.ref
+				observeWorkflowReviewReport(&state, result.Review)
+			}
+			continue
+		}
+		var action workflowActionCompletedPayload
+		if err := json.Unmarshal(row.raw, &action); err != nil {
+			return err
+		}
+		if action.ActionID == "dispatch_worker" {
+			dispatches[action.WorkerAttemptID] = action
+			continue
+		}
+		if action.ActionID == "accept_worker_result" {
+			if result, found := completions[action.WorkerAttemptID]; found {
+				auth := dispatches[result.AttemptID]
+				candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
+				if err != nil {
+					return err
+				}
+				acceptWorkflowReviewResult(&state, auth, result, candidate, reports[result.AttemptID], row.actor)
+			}
+		}
+	}
+	if err := writeWorkflowReviewFacts(ctx, q, workID, state); err != nil {
+		return err
 	}
 	return nil
 }

@@ -248,6 +248,18 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
 		return false, heldNegative("the approving contract is not Product-changing")
 	}
+	admitted, err := knowledgeContractAdmitsLawTx(ctx, tx, record, lawModifies)
+	if err != nil {
+		return false, err
+	}
+	if !admitted {
+		return false, heldNegative("names the law in no admitted legislative field")
+	}
+	return false, nil
+}
+
+func knowledgeContractAdmitsLawTx(ctx context.Context, tx *sql.Tx, record KnowledgeRecord, lawModifies string) (bool, error) {
+	workID, version := record.Authority.LegislatedBy, record.Authority.ContractVersion
 	predicates, err := readWorkflowContractPredicates(ctx, tx, workID, version)
 	if err != nil {
 		return false, err
@@ -280,10 +292,7 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 			}
 		}
 	}
-	if !admitted {
-		return false, heldNegative("names the law in no admitted legislative field")
-	}
-	return false, nil
+	return admitted, nil
 }
 
 // workflowContractLawAdditionIDs reads the contract's persisted architecture

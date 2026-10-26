@@ -167,6 +167,10 @@ func planSchema(schema map[string]any, root map[string]any, visited map[string]b
 			}
 		}
 	}
+	return planKeywordSchemas(schema, root, visited, seen, depth, path, bounds, plannedBounds, plan)
+}
+
+func planKeywordSchemas(schema map[string]any, root map[string]any, visited map[string]bool, seen map[uintptr]bool, depth int, path string, bounds bool, plannedBounds map[uintptr]bool, plan *[]pendingGuidance) error {
 	for _, key := range []string{"items", "additionalProperties", "propertyNames", "contains", "if", "then", "else", "not", "allOf", "anyOf", "oneOf", "prefixItems"} {
 		// items, additional properties, and positional entries are value
 		// positions like named fields; the frame keywords are not.
@@ -436,32 +440,7 @@ func guidanceAllOfExample(schema map[string]any, composed []any, root map[string
 			continue
 		}
 		source := guidanceSource(frame, root)
-		for key, value := range source {
-			switch key {
-			case "$ref", "description", "examples":
-				continue
-			case "required":
-				merged[key] = guidanceUnionStrings(merged[key], value)
-			case "properties", "patternProperties":
-				combined := map[string]any{}
-				if existing, ok := merged[key].(map[string]any); ok {
-					for name, child := range existing {
-						combined[name] = child
-					}
-				}
-				additions, _ := value.(map[string]any)
-				for name, child := range additions {
-					combined[name] = child
-				}
-				merged[key] = combined
-			default:
-				if existing, exists := merged[key]; exists && guidanceStricterBound(key, value, existing) {
-					merged[key] = value
-				} else if !exists {
-					merged[key] = value
-				}
-			}
-		}
+		mergeGuidanceFrame(merged, source)
 	}
 	example, err := guidanceExample(merged, root, depth+1)
 	if err != nil {
@@ -471,6 +450,35 @@ func guidanceAllOfExample(schema map[string]any, composed []any, root map[string
 		return nil, fmt.Errorf("no example satisfies every composed frame")
 	}
 	return example, nil
+}
+
+func mergeGuidanceFrame(merged, source map[string]any) {
+	for key, value := range source {
+		switch key {
+		case "$ref", "description", "examples":
+			continue
+		case "required":
+			merged[key] = guidanceUnionStrings(merged[key], value)
+		case "properties", "patternProperties":
+			combined := map[string]any{}
+			if existing, ok := merged[key].(map[string]any); ok {
+				for name, child := range existing {
+					combined[name] = child
+				}
+			}
+			additions, _ := value.(map[string]any)
+			for name, child := range additions {
+				combined[name] = child
+			}
+			merged[key] = combined
+		default:
+			if existing, exists := merged[key]; exists && guidanceStricterBound(key, value, existing) {
+				merged[key] = value
+			} else if !exists {
+				merged[key] = value
+			}
+		}
+	}
 }
 
 func guidanceUnionStrings(present any, additions any) any {
@@ -738,11 +746,7 @@ func writePatternLiteral(re *syntax.Regexp, builder *strings.Builder, depth int,
 		if len(re.Sub) == 0 {
 			return false
 		}
-		for i := 0; i < 1+extra; i++ {
-			if !writePatternLiteral(re.Sub[0], builder, depth+1, preferred, extra) {
-				return false
-			}
-		}
+		return writePatternCopies(re, builder, depth, preferred, 1+extra, extra)
 	case syntax.OpConcat:
 		for _, sub := range re.Sub {
 			if !writePatternLiteral(sub, builder, depth+1, preferred, extra) {
@@ -761,33 +765,9 @@ func writePatternLiteral(re *syntax.Regexp, builder *strings.Builder, depth int,
 			return writePatternLiteral(re.Sub[0], builder, depth+1, preferred, extra-1)
 		}
 	case syntax.OpStar:
-		for i := 0; i < extra; i++ {
-			if len(re.Sub) == 0 || !writePatternLiteral(re.Sub[0], builder, depth+1, preferred, extra) {
-				return false
-			}
-		}
+		return writePatternCopies(re, builder, depth, preferred, extra, extra)
 	case syntax.OpRepeat:
-		minimum := re.Min
-		if minimum > guidancePatternRepeatMax {
-			minimum = guidancePatternRepeatMax
-		}
-		if re.Max == -1 || re.Max > guidancePatternRepeatMax {
-			// extra extends an unbounded repeat only; a bounded one keeps
-			// its declared maximum.
-			if re.Max != -1 {
-				extra = 0
-			}
-		} else if minimum+extra > re.Max {
-			extra = re.Max - minimum
-			if extra < 0 {
-				extra = 0
-			}
-		}
-		for i := 0; i < minimum+extra; i++ {
-			if len(re.Sub) == 0 || !writePatternLiteral(re.Sub[0], builder, depth+1, preferred, extra) {
-				return false
-			}
-		}
+		return writePatternRepeat(re, builder, depth, preferred, extra)
 	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText,
 		syntax.OpWordBoundary, syntax.OpNoWordBoundary, syntax.OpEmptyMatch:
 		// Anchors and empty matches emit nothing.
@@ -795,6 +775,35 @@ func writePatternLiteral(re *syntax.Regexp, builder *strings.Builder, depth int,
 		return false
 	default:
 		return false
+	}
+	return true
+}
+
+func writePatternRepeat(re *syntax.Regexp, builder *strings.Builder, depth int, preferred rune, extra int) bool {
+	minimum := re.Min
+	if minimum > guidancePatternRepeatMax {
+		minimum = guidancePatternRepeatMax
+	}
+	if re.Max == -1 || re.Max > guidancePatternRepeatMax {
+		// extra extends an unbounded repeat only; a bounded one keeps
+		// its declared maximum.
+		if re.Max != -1 {
+			extra = 0
+		}
+	} else if minimum+extra > re.Max {
+		extra = re.Max - minimum
+		if extra < 0 {
+			extra = 0
+		}
+	}
+	return writePatternCopies(re, builder, depth, preferred, minimum+extra, extra)
+}
+
+func writePatternCopies(re *syntax.Regexp, builder *strings.Builder, depth int, preferred rune, count, extra int) bool {
+	for i := 0; i < count; i++ {
+		if len(re.Sub) == 0 || !writePatternLiteral(re.Sub[0], builder, depth+1, preferred, extra) {
+			return false
+		}
 	}
 	return true
 }
@@ -866,6 +875,18 @@ func guidanceShape(schema map[string]any, root map[string]any, depth int) string
 		}
 		return "one of " + strings.Join(values, ", ")
 	}
+	head := guidanceTypeShape(source, root, depth)
+	if depth > 0 {
+		return head
+	}
+	bounds := guidanceBoundsText(source)
+	if bounds == "" {
+		return head
+	}
+	return head + "; " + bounds
+}
+
+func guidanceTypeShape(source, root map[string]any, depth int) string {
 	kind := guidanceNodeType(source)
 	var head string
 	switch kind {
@@ -892,14 +913,7 @@ func guidanceShape(schema map[string]any, root map[string]any, depth int) string
 	default:
 		head = "value"
 	}
-	if depth > 0 {
-		return head
-	}
-	bounds := guidanceBoundsText(source)
-	if bounds == "" {
-		return head
-	}
-	return head + "; " + bounds
+	return head
 }
 
 func guidanceBoundsText(source map[string]any) string {

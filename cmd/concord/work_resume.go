@@ -139,30 +139,11 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			return workResumeRefusalExit
 		}
 		// A missing active tree may bootstrap; removed execution may not.
-		if _, err := s.ReadWorkItemSummary(ctx, input.WorkID); err != nil {
+		entry, err = bootstrapResumeWorktree(ctx, s, input, resolution)
+		if err != nil {
 			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
 			return storeFailureExit(err)
 		}
-		var ref string
-		if !resolution.MainWorktree {
-			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
-				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(unclaimedOriginHint(err, "work "+input.WorkID+" has no active worktree; run work-resume from the default checkout "+resolution.Repository.CanonicalPath+" to create it")))
-				return storeFailureExit(err)
-			}
-			ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
-			if err != nil {
-				writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))
-				return storeFailureExit(err)
-			}
-		}
-		result, bootstrapErr := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{
-			ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref, SessionRef: input.SessionRef,
-		}, nil)
-		if bootstrapErr != nil {
-			writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(bootstrapErr))
-			return storeFailureExit(bootstrapErr)
-		}
-		entry = result.Entry
 	}
 	// The target is derived before the origin gate: a session that already
 	// runs in the item's own worktree chains from no origin, so the move is
@@ -174,6 +155,34 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			return storeFailureExit(err)
 		}
 	}
+	return finishWorkResume(ctx, s, input, entry, out, errOut)
+}
+
+func bootstrapResumeWorktree(ctx context.Context, s *store.Store, input workResumeInput, resolution store.ProjectResolution) (store.WorktreeEntry, error) {
+	if _, err := s.ReadWorkItemSummary(ctx, input.WorkID); err != nil {
+		return store.WorktreeEntry{}, err
+	}
+	var ref string
+	if !resolution.MainWorktree {
+		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
+			return store.WorktreeEntry{}, unclaimedOriginHint(err, "work "+input.WorkID+" has no active worktree; run work-resume from the default checkout "+resolution.Repository.CanonicalPath+" to create it")
+		}
+		var err error
+		ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
+		if err != nil {
+			return store.WorktreeEntry{}, err
+		}
+	}
+	result, err := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{
+		ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID, Ref: ref, SessionRef: input.SessionRef,
+	}, nil)
+	if err != nil {
+		return store.WorktreeEntry{}, err
+	}
+	return result.Entry, nil
+}
+
+func finishWorkResume(ctx context.Context, s *store.Store, input workResumeInput, entry store.WorktreeEntry, out, errOut io.Writer) int {
 	restoration, err := s.RestoreResumeWorktree(ctx, input.WorkID, entry, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", diagnosticText(err))

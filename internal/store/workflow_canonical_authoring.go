@@ -111,15 +111,6 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 	for _, field := range fields {
 		declared[field.Name] = true
 	}
-	declaredCount := func(names []string) int {
-		count := 0
-		for _, name := range names {
-			if declared[name] {
-				count++
-			}
-		}
-		return count
-	}
 	cross := WorkflowActionCrossFieldRules(actionID)
 	projected := WorkflowActionCrossField{}
 	if len(cross.Combinations) != 0 && len(cross.Alternatives) != 0 {
@@ -129,23 +120,14 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 		if !declared[combination.Field] {
 			continue
 		}
-		projectedCombination := WorkflowPayloadCombination{Field: combination.Field, Value: combination.Value, Remedy: combination.Remedy}
-		for _, name := range combination.Requires {
-			if !declared[name] {
-				return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: combination on %s requires undeclared field %s", actionID, combination.Field, name)
-			}
-			projectedCombination.Requires = append(projectedCombination.Requires, name)
-		}
-		for _, name := range combination.Forbids {
-			if !declared[name] {
-				continue
-			}
-			projectedCombination.Forbids = append(projectedCombination.Forbids, name)
+		projectedCombination, err := workflowCanonicalCombination(actionID, declared, combination)
+		if err != nil {
+			return WorkflowActionCrossField{}, err
 		}
 		projected.Combinations = append(projected.Combinations, projectedCombination)
 	}
 	for _, group := range cross.Alternatives {
-		switch declaredCount(group.Fields) {
+		switch workflowDeclaredFieldCount(declared, group.Fields) {
 		case 0:
 			continue
 		case len(group.Fields):
@@ -170,6 +152,32 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 			return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: kind match %s/%s partially overlaps the declared fields", actionID, match.Field, match.Object)
 		default:
 			projected.KindMatches = append(projected.KindMatches, match)
+		}
+	}
+	return projected, nil
+}
+
+func workflowDeclaredFieldCount(declared map[string]bool, names []string) int {
+	count := 0
+	for _, name := range names {
+		if declared[name] {
+			count++
+		}
+	}
+	return count
+}
+
+func workflowCanonicalCombination(actionID string, declared map[string]bool, combination WorkflowPayloadCombination) (WorkflowPayloadCombination, error) {
+	projected := WorkflowPayloadCombination{Field: combination.Field, Value: combination.Value, Remedy: combination.Remedy}
+	for _, name := range combination.Requires {
+		if !declared[name] {
+			return WorkflowPayloadCombination{}, fmt.Errorf("canonical cross-field projection for %s: combination on %s requires undeclared field %s", actionID, combination.Field, name)
+		}
+		projected.Requires = append(projected.Requires, name)
+	}
+	for _, name := range combination.Forbids {
+		if declared[name] {
+			projected.Forbids = append(projected.Forbids, name)
 		}
 	}
 	return projected, nil

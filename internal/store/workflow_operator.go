@@ -217,32 +217,43 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot inspect recorded investigation artifacts", true, "retry once the workflow evidence is readable", err)
 	}
 	for _, refs := range candidates {
-		namesDomain := false
-		namesWork := false
-		for _, ref := range refs {
-			if !namesDomain {
-				current, err := investigationRefIsCurrentDomain(ctx, q, workID, ref)
-				if err != nil {
-					return err
-				}
-				namesDomain = current
-			}
-			if !namesWork && ref != workID {
-				known, err := investigationRefIsKnownWork(ctx, q, ref)
-				if err != nil {
-					return err
-				}
-				namesWork = known
-			}
-			if namesDomain && (namesWork || !comparisonRequired) {
-				return nil
-			}
+		qualified, err := investigationRefsQualified(ctx, q, workID, refs, comparisonRequired)
+		if err != nil {
+			return err
+		}
+		if qualified {
+			return nil
 		}
 	}
 	if comparisonRequired {
 		return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item", false, "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain and the id of another work item")
 	}
 	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product; its ref must hold the bare domain_id of the current Domain", false, "call concord_work_define.observation_record with this work_id and refs containing the bare domain_id of a current Product Domain")
+}
+
+func investigationRefsQualified(ctx context.Context, q queryer, workID string, refs []string, comparisonRequired bool) (bool, error) {
+	namesDomain := false
+	namesWork := false
+	for _, ref := range refs {
+		if !namesDomain {
+			current, err := investigationRefIsCurrentDomain(ctx, q, workID, ref)
+			if err != nil {
+				return false, err
+			}
+			namesDomain = current
+		}
+		if !namesWork && ref != workID {
+			known, err := investigationRefIsKnownWork(ctx, q, ref)
+			if err != nil {
+				return false, err
+			}
+			namesWork = known
+		}
+		if namesDomain && (namesWork || !comparisonRequired) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // productHoldsAnotherWorkItem reports whether the work item's Product holds a
@@ -436,6 +447,10 @@ func validateWorkflowOperatorSelectionCoreTx(ctx context.Context, tx *sql.Tx, en
 		}
 		return nil
 	}
+	return validateWorkflowHumanSelectionTx(ctx, tx, entry, request, confirmation, currentStep, workVersion, contract)
+}
+
+func validateWorkflowHumanSelectionTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, request WorkflowActionPreflightRequest, confirmation workflowConfirmationFold, currentStep string, workVersion int64, contract WorkflowReadContract) error {
 	if !workflowDigestPattern.MatchString(request.DecisionContextDigest) {
 		return newFailure(KindInvalidPayload, "workflow_operator_question", "confirm_premise requires a valid decision_context_digest", false, "reread the workflow question")
 	}

@@ -97,7 +97,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	defer func() { _ = scope.close(ctx) }()
+	return completeWorkflowInScopeTx(ctx, tx, registry, event, scope, payload)
+}
 
+func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, payload workflowCompletedPayload) error {
 	// The expected version is checked before clause 1.  This is the lock/fence
 	// boundary described by the contract; every subsequent mutation uses the
 	// same transaction and therefore sees one consistent projection.
@@ -132,11 +135,31 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 
+	if err := verifyWorkflowCompletionEvidenceAndScopeTx(ctx, tx, event.SubjectID, contract, definition, evidenceCutoff); err != nil {
+		return err
+	}
+	if err := verifyWorkflowCompletionVerdictsTx(ctx, tx, event.SubjectID, contract); err != nil {
+		return err
+	}
+	if err := verifyWorkflowCompletionPremiseTx(ctx, tx, event.SubjectID, contract, definition); err != nil {
+		return err
+	}
+	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
+		return workflowClauseError(err, 6)
+	}
+	warnings, err := workflowStalenessWarnings(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence)
+	if err != nil {
+		return workflowClauseError(err, 6)
+	}
+	return appendWorkflowCompletionTx(ctx, tx, event, scope, payload, contract.Version, warnings)
+}
+
+func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition, evidenceCutoff int64) error {
 	// Clause 1: durable, event-folded evidence bound to the approved contract.
-	if err := requireReviewedClosureQ(ctx, tx, event.SubjectID); err != nil {
+	if err := requireReviewedClosureQ(ctx, tx, workID); err != nil {
 		return workflowClauseError(err, 1)
 	}
-	if err := verifyCompletionEvidence(ctx, tx, event.SubjectID, contract.RequiredEvidence, definition.RequiredEvidenceKinds, evidenceCutoff); err != nil {
+	if err := verifyCompletionEvidence(ctx, tx, workID, contract.RequiredEvidence, definition.RequiredEvidenceKinds, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 1)
 	}
 
@@ -144,7 +167,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// evidence are validated by the condition folds; completion only consumes
 	// that authoritative projection.
 	var openConditions int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, event.SubjectID).Scan(&openConditions); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, workID).Scan(&openConditions); err != nil {
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect workflow conditions", true, "retry once the database is readable", err), 2)
 	}
 	if openConditions != 0 {
@@ -154,7 +177,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// Clause 3: modifying edges must be covered by the approved candidate scope
 	// and every declared mandate must have durable evidence.  There is no
 	// inferred or response-wording authority here.
-	if err := verifyCompletionScopeAndMandates(ctx, tx, event.SubjectID, contract, evidenceCutoff); err != nil {
+	if err := verifyCompletionScopeAndMandates(ctx, tx, workID, contract, evidenceCutoff); err != nil {
 		return workflowClauseError(err, 3)
 	}
 	// Completion never treats an amendment declaration as permission to leave a
@@ -164,17 +187,20 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
 		}
-		if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, mandated, contract.LawModifies, false); err != nil {
+		if err := checkMandatedLawsTx(ctx, tx, workID, mandated, contract.LawModifies, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
-		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, event.SubjectID, contract.LawChange, contract.ArchitectureBinding); err != nil {
+		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, workID, contract.LawChange, contract.ArchitectureBinding); err != nil {
 			return workflowClauseError(err, 3)
 		}
 	}
+	return nil
+}
 
+func verifyWorkflowCompletionVerdictsTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData) error {
 	// Clause 4: every approved predicate has one latest verdict at this contract
 	// version, with the complete pinned actor tuple and durable evidence.
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, event.SubjectID, contract.Version)
+	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
 	if err != nil {
 		return err
 	}
@@ -187,10 +213,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		if verdict == nil {
 			return workflowClauseFailure(KindMissingEvidence, 4, "workflow verdict is missing for approved predicate "+predicate.PredicateID, "provide_evidence")
 		}
-		if err := workflowCompletionActorDistinct(ctx, tx, event.SubjectID, verdict.VerdictActorRef); err != nil {
+		if err := workflowCompletionActorDistinct(ctx, tx, workID, verdict.VerdictActorRef); err != nil {
 			return workflowClauseError(err, 4)
 		}
-		if err := verifyWorkflowCriterionAssociation(ctx, tx, event.SubjectID, *verdict); err != nil {
+		if err := verifyWorkflowCriterionAssociation(ctx, tx, workID, *verdict); err != nil {
 			return workflowClauseError(err, 4)
 		}
 	}
@@ -200,13 +226,16 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 			return workflowClauseFailure(KindOutcomeMismatch, 6, "delivered predicate "+verdict.PredicateID+" is not approved by the contract", "contact_operator")
 		}
 	}
+	return nil
+}
 
+func verifyWorkflowCompletionPremiseTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData, definition WorkflowDefinition) error {
 	// Clause 5: the premise confirmation carries the authority the contract's
 	// declared decision fact demands — a verified operator for decision-bearing
 	// work, and under consequence_v1 an authenticated non-worker coordinator
 	// for engineering. Legacy contracts keep the operator requirement.
 	var confirmedBy string
-	if err := tx.QueryRowContext(ctx, `SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, event.SubjectID, contract.Version).Scan(&confirmedBy); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, workID, contract.Version).Scan(&confirmedBy); err != nil {
 		if err == sql.ErrNoRows {
 			if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 && workflowPremiseContractIsEngineering(contract) {
 				return workflowClauseFailure(KindMissingEvidence, 5, "workflow premise is not confirmed", "record the coordinator confirmation")
@@ -215,22 +244,17 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		}
 		return workflowClauseError(wrapFailure(KindUnavailable, "complete_workflow", "cannot inspect premise confirmation", true, "retry once the database is readable", err), 5)
 	}
-	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, event.SubjectID, confirmedBy); err != nil {
+	if err := workflowPremiseConfirmationAuthority(ctx, tx, definition, contract, workID, confirmedBy); err != nil {
 		return workflowClauseError(err, 5)
 	}
+	return nil
+}
 
-	if err := verifyBlockingStaleness(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence); err != nil {
-		return workflowClauseError(err, 6)
-	}
-	warnings, err := workflowStalenessWarnings(ctx, tx, event.SubjectID, definition, contract.RequiredEvidence)
-	if err != nil {
-		return workflowClauseError(err, 6)
-	}
-
+func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload, contractVersion int64, warnings []string) error {
 	// Clause 7: derive and append every required notice and completion event in
 	// this transaction.  Notice conflicts are returned before the completion
 	// append, so the caller's rollback removes all prior writes.
-	notices, err := completionNoticeEvents(ctx, tx, event.SubjectID, contract.Version, payload.ImpactVerdict, event)
+	notices, err := completionNoticeEvents(ctx, tx, event.SubjectID, contractVersion, payload.ImpactVerdict, event)
 	if err != nil {
 		return workflowClauseError(err, 7)
 	}

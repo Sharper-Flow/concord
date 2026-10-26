@@ -324,55 +324,10 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		return base, errors.New("unsupported tool operation")
 	}
 	if op.ID == "concord_work_transition.workflow_action" {
-		// Generated outer-shape validation rejects duplicate or missing action
-		// fields. Semantic workflow payload validation remains below the registry
-		// availability check.
-		if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
-			return coreError(base, "invalid_input", err.Error(), "correct_request", false), nil
-		}
-		var strictAction actionMutationInput
-		if err := decodeOperationInput(request.Input, &strictAction); err != nil {
-			return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
-		}
-		if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
-			return coreError(base, "invalid_input", "workflow action work_id is malformed", "reread_entities", false), nil
-		}
-		if s == nil || authority == nil {
-			return coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true), nil
-		}
-		// The workflow actor tuple and the idempotency partition both key on
-		// principal_ref, which CD-0080 D1 derives rather than accepts. Identity
-		// authorization therefore precedes the preflight; Product and Project
-		// scope stay out of it, because scope is validated after the budget.
-		actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation}
-		actor, actorErr := authority.Authorize(ctx, actorInv)
-		if actorErr != nil {
-			return failureEnvelope(base, actorErr), nil
-		}
-		if err := s.CheckMemberOperation(ctx, memberWorkflowActor(actor), memberOperationScope(request.Input, env, op)); err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
-		if availabilityErr != nil {
-			return failureEnvelope(base, availabilityErr), nil
-		}
-		if !available {
-			// The refusal names the unverifiable pin's cause and migration
-			// route (CD-0242 D13).
-			message := "workflow action registry is unavailable"
-			if _, verifyErr := store.VerifyWorkflowInstanceDefinition(ctx, s, registry, strictAction.WorkID); verifyErr != nil {
-				var failure *store.Failure
-				if errors.As(verifyErr, &failure) && failure.Detail != "" {
-					message += ": " + failure.Detail
-				}
-			}
-			return coreError(base, "invalid_transition", message, "reread_entities", false), nil
-		}
-		if strictAction.ActionID == "dispatch_worker" {
-			ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
-		}
-		if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
-			return failureEnvelope(base, err), nil
+		var refusal *Envelope
+		ctx, refusal = preflightDispatchWorkflowAction(ctx, s, authority, request, env, registry, op, base)
+		if refusal != nil {
+			return *refusal, nil
 		}
 	} else if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "correct_request", false), nil
@@ -397,6 +352,70 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
+	return dispatchAuthorizedRequest(ctx, s, authority, request, env, registry, op, base, budget)
+}
+
+func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op ContractOperation, base Envelope) (context.Context, *Envelope) {
+	refuse := func(out Envelope) (context.Context, *Envelope) { return ctx, &out }
+	// Generated outer-shape validation rejects duplicate or missing action
+	// fields. Semantic workflow payload validation remains below the registry
+	// availability check.
+	if err := ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
+		return refuse(coreError(base, "invalid_input", err.Error(), "correct_request", false))
+	}
+	var strictAction actionMutationInput
+	if err := decodeOperationInput(request.Input, &strictAction); err != nil {
+		return refuse(coreError(base, "invalid_input", err.Error(), "reread_entities", false))
+	}
+	if len(strictAction.WorkID) < 2 || len(strictAction.WorkID) > 128 {
+		return refuse(coreError(base, "invalid_input", "workflow action work_id is malformed", "reread_entities", false))
+	}
+	if s == nil || authority == nil {
+		return refuse(coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true))
+	}
+	// The workflow actor tuple and the idempotency partition both key on
+	// principal_ref, which CD-0080 D1 derives rather than accepts. Identity
+	// authorization therefore precedes the preflight; Product and Project
+	// scope stay out of it, because scope is validated after the budget.
+	actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation}
+	actor, actorErr := authority.Authorize(ctx, actorInv)
+	if actorErr != nil {
+		return refuse(failureEnvelope(base, actorErr))
+	}
+	if err := s.CheckMemberOperation(ctx, memberWorkflowActor(actor), memberOperationScope(request.Input, env, op)); err != nil {
+		return refuse(failureEnvelope(base, err))
+	}
+	available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
+	if availabilityErr != nil {
+		return refuse(failureEnvelope(base, availabilityErr))
+	}
+	if !available {
+		// The refusal names the unverifiable pin's cause and migration
+		// route (CD-0242 D13).
+		message := workflowRegistryUnavailableMessage(ctx, s, registry, strictAction.WorkID)
+		return refuse(coreError(base, "invalid_transition", message, "reread_entities", false))
+	}
+	if strictAction.ActionID == "dispatch_worker" {
+		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
+	}
+	if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
+		return refuse(failureEnvelope(base, err))
+	}
+	return ctx, nil
+}
+
+func workflowRegistryUnavailableMessage(ctx context.Context, s *store.Store, registry store.DefinitionRegistry, workID string) string {
+	message := "workflow action registry is unavailable"
+	if _, verifyErr := store.VerifyWorkflowInstanceDefinition(ctx, s, registry, workID); verifyErr != nil {
+		var failure *store.Failure
+		if errors.As(verifyErr, &failure) && failure.Detail != "" {
+			message += ": " + failure.Detail
+		}
+	}
+	return message
+}
+
+func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op ContractOperation, base Envelope, budget budgetInput) (Envelope, error) {
 	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
@@ -550,6 +569,19 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			return err
 		}
 	}
+	if err := validateKnowledgeReferenceScope(ctx, s, env, grant, fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["product_id"]; ok {
+		var product string
+		if json.Unmarshal(raw, &product) == nil && product != "" && !slices.Contains(grant.ProductScope, product) {
+			return newRuntimeFailure("unauthorized", "Product is outside grant scope", "contact_operator", false)
+		}
+	}
+	return validateProjectReferenceScope(ctx, s, env, grant, kind, fields)
+}
+
+func validateKnowledgeReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, fields map[string]json.RawMessage) error {
 	if raw, ok := fields["knowledge_id"]; ok {
 		var id string
 		if json.Unmarshal(raw, &id) == nil && id != "" {
@@ -565,12 +597,10 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			}
 		}
 	}
-	if raw, ok := fields["product_id"]; ok {
-		var product string
-		if json.Unmarshal(raw, &product) == nil && product != "" && !slices.Contains(grant.ProductScope, product) {
-			return newRuntimeFailure("unauthorized", "Product is outside grant scope", "contact_operator", false)
-		}
-	}
+	return nil
+}
+
+func validateProjectReferenceScope(ctx context.Context, s *store.Store, env CallEnvelope, grant Authority, kind OperationKind, fields map[string]json.RawMessage) error {
 	if raw, ok := fields["project_ids"]; ok {
 		var projectIDs []string
 		if json.Unmarshal(raw, &projectIDs) == nil && len(projectIDs) > 0 {
@@ -854,88 +884,96 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	}
 	var sf *store.Failure
 	if errors.As(err, &sf) {
-		kind := mapFailureKind(sf.Kind)
-		recovery := publicRecovery(kind, sf.RecoveryAction)
-		if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
-			recovery = publicRecovery(kind, "")
-			if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
-				recovery = "reconcile_operation"
-			}
-		}
-		refs := sf.RecoveryRefs
-		if recovery != "use_declared_route" {
-			// Route refs ride the declared-route action alone; any other
-			// action would carry refs the envelope contract never asked for.
-			refs = nil
-		} else if len(refs) == 0 {
-			// A route naming no action cannot marshal. The kind's standing
-			// default keeps the refusal the core decided deliverable.
-			recovery = publicRecovery(kind, "")
-			refs = nil
-		}
-		// Candidate identities ride the error at construction, before the
-		// envelope's first validation: an ambiguous_scope refusal the caller
-		// cannot act on is one that never marshals. The store carries them on
-		// every ambiguous-scope refusal it mints.
-		message := sf.Detail
-		if kind == "unreachable" && sf.Err != nil {
-			// The cause tells contention from a full disk or a corrupt file;
-			// the detail alone reads the same for all three.
-			message += ": " + sf.Err.Error()
-		}
-		out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
-		// The store authors free remedy prose in RecoveryAction — the exact
-		// command a caller must run. publicRecovery projects that field onto
-		// the closed action vocabulary, and the projection alone drops the
-		// prose; a coupled kind keeps its coupled action (the coupling is not
-		// weakened), so the authored text rides the bounded, schema-valid
-		// details surface unchanged beside it.
-		if prose := sf.RecoveryAction; prose != "" && !publicRecoveryActions[prose] {
-			if out.Error.Details == nil {
-				out.Error.Details = map[string]any{}
-			}
-			out.Error.Details["recovery_detail"] = boundedErrorMessage(prose)
-		}
-		// Carry typed current-version carriers into the agent envelope so
-		// callers can recover the live projection version structurally without
-		// having to parse the human detail string. Mirrors the same path for
-		// typed violations: see D5.
-		for _, current := range sf.CurrentVersions {
-			out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
-		}
-		for _, action := range sf.InterveningActions {
-			out.Error.InterveningActions = append(out.Error.InterveningActions, InterveningAction{ActionID: action.ActionID, SessionRef: action.SessionRef})
-		}
-		if len(sf.Violations) > 0 {
-			out.Error.Violations = append(out.Error.Violations, sf.Violations...)
-		}
-		if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
-			out.Error.EffectState = EffectPossible
-			out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
-		}
-		if sf.StaleLawRevision != nil {
-			out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
-		}
-		if sf.DomainOverlap != nil {
-			out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
-			for _, overlap := range sf.DomainOverlap.Overlaps {
-				// The envelope contract requires an array for every shared list.
-				// An architecture-only overlap carries empty law, modification,
-				// and relation lists; a nil slice marshals as null and makes the
-				// refusal undeliverable.
-				converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
-				for _, tuple := range overlap.SharedRelationTuples {
-					converted.SharedRelationTuples = append(converted.SharedRelationTuples, DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
-				}
-				out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
-			}
-		}
-		if sf.ExternalRefConflict != nil {
-			out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
-		}
-		return out
+		return storeFailureEnvelope(base, sf)
 	}
 	return coreError(base, "internal_error", err.Error(), "contact_operator", false)
+}
+
+func storeFailureEnvelope(base Envelope, sf *store.Failure) Envelope {
+	kind := mapFailureKind(sf.Kind)
+	recovery := publicRecovery(kind, sf.RecoveryAction)
+	if recovery == "correct_request" && (kind != "invalid_input" || sf.RetrySafe || sf.EffectPossible || len(sf.CommittedRefs) > 0) {
+		recovery = publicRecovery(kind, "")
+		if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
+			recovery = "reconcile_operation"
+		}
+	}
+	refs := sf.RecoveryRefs
+	if recovery != "use_declared_route" {
+		// Route refs ride the declared-route action alone; any other
+		// action would carry refs the envelope contract never asked for.
+		refs = nil
+	} else if len(refs) == 0 {
+		// A route naming no action cannot marshal. The kind's standing
+		// default keeps the refusal the core decided deliverable.
+		recovery = publicRecovery(kind, "")
+		refs = nil
+	}
+	// Candidate identities ride the error at construction, before the
+	// envelope's first validation: an ambiguous_scope refusal the caller
+	// cannot act on is one that never marshals. The store carries them on
+	// every ambiguous-scope refusal it mints.
+	message := sf.Detail
+	if kind == "unreachable" && sf.Err != nil {
+		// The cause tells contention from a full disk or a corrupt file;
+		// the detail alone reads the same for all three.
+		message += ": " + sf.Err.Error()
+	}
+	out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+	// The store authors free remedy prose in RecoveryAction — the exact
+	// command a caller must run. publicRecovery projects that field onto
+	// the closed action vocabulary, and the projection alone drops the
+	// prose; a coupled kind keeps its coupled action (the coupling is not
+	// weakened), so the authored text rides the bounded, schema-valid
+	// details surface unchanged beside it.
+	if prose := sf.RecoveryAction; prose != "" && !publicRecoveryActions[prose] {
+		if out.Error.Details == nil {
+			out.Error.Details = map[string]any{}
+		}
+		out.Error.Details["recovery_detail"] = boundedErrorMessage(prose)
+	}
+	// Carry typed current-version carriers into the agent envelope so
+	// callers can recover the live projection version structurally without
+	// having to parse the human detail string. Mirrors the same path for
+	// typed violations: see D5.
+	for _, current := range sf.CurrentVersions {
+		out.Error.CurrentVersions = append(out.Error.CurrentVersions, ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
+	}
+	for _, action := range sf.InterveningActions {
+		out.Error.InterveningActions = append(out.Error.InterveningActions, InterveningAction{ActionID: action.ActionID, SessionRef: action.SessionRef})
+	}
+	if len(sf.Violations) > 0 {
+		out.Error.Violations = append(out.Error.Violations, sf.Violations...)
+	}
+	if sf.EffectPossible || len(sf.CommittedRefs) > 0 {
+		out.Error.EffectState = EffectPossible
+		out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
+	}
+	projectStoreFailureDetails(&out, sf)
+	return out
+}
+
+func projectStoreFailureDetails(out *Envelope, sf *store.Failure) {
+	if sf.StaleLawRevision != nil {
+		out.Error.StaleLawRevision = &StaleLawRevision{OldLawID: sf.StaleLawRevision.OldLawID, OldContentHash: sf.StaleLawRevision.OldContentHash, RecoveryActions: append([]string(nil), sf.StaleLawRevision.RecoveryActions...)}
+	}
+	if sf.DomainOverlap != nil {
+		out.Error.DomainOverlap = &DomainOverlap{TotalOverlaps: sf.DomainOverlap.TotalOverlaps, ReturnedOverlaps: sf.DomainOverlap.ReturnedOverlaps, Truncated: sf.DomainOverlap.Truncated}
+		for _, overlap := range sf.DomainOverlap.Overlaps {
+			// The envelope contract requires an array for every shared list.
+			// An architecture-only overlap carries empty law, modification,
+			// and relation lists; a nil slice marshals as null and makes the
+			// refusal undeliverable.
+			converted := DomainOverlapDetail{ProductID: overlap.ProductID, FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, FromContractVersion: overlap.FromContractVersion, ToContractVersion: overlap.ToContractVersion, SharedAffectedDomainIDs: nonNilStrings(overlap.SharedAffectedDomainIDs), SharedLawIDs: nonNilStrings(overlap.SharedLawIDs), SharedDomainModifications: nonNilStrings(overlap.SharedDomainModifications), SharedRelationTuples: []DomainOverlapRelationTuple{}, OverlapClasses: nonNilStrings(overlap.OverlapClasses), ResolutionState: overlap.ResolutionState, ResolutionKind: overlap.ResolutionKind, RecoveryActions: nonNilStrings(overlap.RecoveryActions), SharedAffectedDomainCount: overlap.SharedAffectedDomainCount, SharedLawCount: overlap.SharedLawCount, SharedDomainModificationCount: overlap.SharedDomainModificationCount, SharedRelationTupleCount: overlap.SharedRelationTupleCount, DetailTruncated: overlap.DetailTruncated}
+			for _, tuple := range overlap.SharedRelationTuples {
+				converted.SharedRelationTuples = append(converted.SharedRelationTuples, DomainOverlapRelationTuple{SourceDomainID: tuple.SourceDomainID, Kind: tuple.Kind, TargetDomainID: tuple.TargetDomainID})
+			}
+			out.Error.DomainOverlap.Overlaps = append(out.Error.DomainOverlap.Overlaps, converted)
+		}
+	}
+	if sf.ExternalRefConflict != nil {
+		out.Error.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
+	}
 }
 
 func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]ChangedRef {

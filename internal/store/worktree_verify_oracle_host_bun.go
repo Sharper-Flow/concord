@@ -617,11 +617,8 @@ func extractNativeBunPackage(ctx context.Context, rooted *os.Root, dir string, t
 	top := ""
 	kinds := map[string]byte{}
 	var manifest []byte
-	if strings.Count(dir, "/")+1 > nativeBunMaxDepth {
-		return nil, nativeBunLimit("path-depth")
-	}
-	if len(dir) > nativeBunMaxPathBytes {
-		return nil, nativeBunLimit("path-length")
+	if err := nativeBunExtractionPathBounds(dir, strings.Count(dir, "/")+1); err != nil {
+		return nil, err
 	}
 	if err := rooted.MkdirAll(dir, 0755); err != nil {
 		return nil, refuse("cannot be placed: " + err.Error())
@@ -644,113 +641,151 @@ func extractNativeBunPackage(ctx context.Context, rooted *os.Root, dir string, t
 		if hdr.Typeflag == tar.TypeXGlobalHeader {
 			continue
 		}
-		name := hdr.Name
-		isDir := hdr.Typeflag == tar.TypeDir
-		switch hdr.Typeflag {
-		case tar.TypeReg, tar.TypeDir:
-		default:
-			return nil, refuse("holds an unsupported entry type (link, device, FIFO, or sparse): " + name)
+		rel, target, err := nativeBunArchivePath(hdr, dir, &top, refuse)
+		if err != nil {
+			return nil, err
 		}
-		if isDir {
-			name = strings.TrimSuffix(name, "/")
-		}
-		if name == "" || strings.ContainsAny(name, "\\\x00") || path.IsAbs(name) || path.Clean(name) != name {
-			return nil, refuse("holds a non-canonical entry name: " + hdr.Name)
-		}
-		segments := strings.Split(name, "/")
-		if slices.ContainsFunc(segments, func(s string) bool { return s == "" || s == "." || s == ".." }) {
-			return nil, refuse("holds a traversing entry name: " + hdr.Name)
-		}
-		if top == "" {
-			top = segments[0]
-		} else if segments[0] != top {
-			return nil, refuse("holds more than one top directory")
-		}
-		rest := segments[1:]
-		if len(rest) == 0 {
-			if !isDir {
-				return nil, refuse("holds a file in place of its top directory")
-			}
+		if rel == "" {
 			continue
 		}
-		if slices.Contains(rest, "node_modules") {
-			return nil, refuse("bundles a node_modules path: " + hdr.Name)
-		}
-		rel := strings.Join(rest, "/")
-		target := dir + "/" + rel
-		if len(rest)+strings.Count(dir, "/")+1 > nativeBunMaxDepth {
-			return nil, nativeBunLimit("path-depth")
-		}
-		if len(target) > nativeBunMaxPathBytes {
-			return nil, nativeBunLimit("path-length")
-		}
-		for i := 1; i < len(rest); i++ {
-			ancestor := strings.Join(rest[:i], "/")
-			if kinds[ancestor] == 'f' {
-				return nil, refuse("holds a file and a directory at one path: " + ancestor)
-			}
-			kinds[ancestor] = 'd'
-		}
-		if _, seen := kinds[rel]; seen {
-			if !isDir || kinds[rel] != 'd' {
-				return nil, refuse("holds a duplicate or conflicting entry: " + rel)
-			}
+		isDir := hdr.Typeflag == tar.TypeDir
+		if err := nativeBunClaimArchivePath(rel, isDir, kinds, refuse); err != nil {
+			return nil, err
 		}
 		if isDir {
-			kinds[rel] = 'd'
 			if err := rooted.MkdirAll(target, 0755); err != nil {
 				return nil, refuse("directory cannot be written: " + err.Error())
 			}
 			continue
 		}
-		kinds[rel] = 'f'
-		budget.files++
-		if budget.files > nativeBunMaxFiles {
-			return nil, nativeBunLimit("file-count")
-		}
-		if hdr.Size < 0 || hdr.Size > nativeBunMaxBytes-budget.bytes {
-			return nil, nativeBunLimit("extracted-size")
-		}
-		budget.bytes += hdr.Size
-		if err := rooted.MkdirAll(path.Dir(target), 0755); err != nil {
-			return nil, refuse("directory cannot be written: " + err.Error())
-		}
-		mode := os.FileMode(0644)
-		if hdr.Mode&0111 != 0 {
-			mode = 0755
-		}
-		out, err := rooted.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		data, err := writeNativeBunArchiveFile(rooted, target, rel, hdr, tr, budget, refuse)
 		if err != nil {
-			return nil, refuse("entry cannot be written: " + err.Error())
-		}
-		// The create mode passes through the process umask; the declared
-		// mode is set on the open file itself.
-		if err := out.Chmod(mode); err != nil {
-			_ = out.Close()
-			return nil, refuse("entry cannot be written: " + err.Error())
-		}
-		var keep bytes.Buffer
-		var w io.Writer = out
-		if rel == "package.json" {
-			if hdr.Size > nativeBunMaxManifest {
-				_ = out.Close()
-				return nil, refuse("package.json exceeds 1 MiB")
-			}
-			w = io.MultiWriter(out, &keep)
-		}
-		_, copyErr := io.CopyN(w, tr, hdr.Size)
-		closeErr := out.Close()
-		if copyErr != nil || closeErr != nil {
-			return nil, refuse("entry cannot be written: " + errors.Join(copyErr, closeErr).Error())
+			return nil, err
 		}
 		if rel == "package.json" {
-			manifest = keep.Bytes()
+			manifest = data
 		}
 	}
 	if manifest == nil {
 		return nil, refuse("holds no package.json")
 	}
 	return manifest, nil
+}
+
+func nativeBunArchivePath(hdr *tar.Header, dir string, top *string, refuse func(string) error) (string, string, error) {
+	name := hdr.Name
+	isDir := hdr.Typeflag == tar.TypeDir
+	switch hdr.Typeflag {
+	case tar.TypeReg, tar.TypeDir:
+	default:
+		return "", "", refuse("holds an unsupported entry type (link, device, FIFO, or sparse): " + name)
+	}
+	if isDir {
+		name = strings.TrimSuffix(name, "/")
+	}
+	if name == "" || strings.ContainsAny(name, "\\\x00") || path.IsAbs(name) || path.Clean(name) != name {
+		return "", "", refuse("holds a non-canonical entry name: " + hdr.Name)
+	}
+	segments := strings.Split(name, "/")
+	if slices.ContainsFunc(segments, func(s string) bool { return s == "" || s == "." || s == ".." }) {
+		return "", "", refuse("holds a traversing entry name: " + hdr.Name)
+	}
+	if *top == "" {
+		*top = segments[0]
+	} else if segments[0] != *top {
+		return "", "", refuse("holds more than one top directory")
+	}
+	rest := segments[1:]
+	if len(rest) == 0 {
+		if !isDir {
+			return "", "", refuse("holds a file in place of its top directory")
+		}
+		return "", "", nil
+	}
+	if slices.Contains(rest, "node_modules") {
+		return "", "", refuse("bundles a node_modules path: " + hdr.Name)
+	}
+	rel := strings.Join(rest, "/")
+	target := dir + "/" + rel
+	if err := nativeBunExtractionPathBounds(target, len(rest)+strings.Count(dir, "/")+1); err != nil {
+		return "", "", err
+	}
+	return rel, target, nil
+}
+
+func nativeBunExtractionPathBounds(target string, depth int) error {
+	if depth > nativeBunMaxDepth {
+		return nativeBunLimit("path-depth")
+	}
+	if len(target) > nativeBunMaxPathBytes {
+		return nativeBunLimit("path-length")
+	}
+	return nil
+}
+
+func nativeBunClaimArchivePath(rel string, isDir bool, kinds map[string]byte, refuse func(string) error) error {
+	rest := strings.Split(rel, "/")
+	for i := 1; i < len(rest); i++ {
+		ancestor := strings.Join(rest[:i], "/")
+		if kinds[ancestor] == 'f' {
+			return refuse("holds a file and a directory at one path: " + ancestor)
+		}
+		kinds[ancestor] = 'd'
+	}
+	if _, seen := kinds[rel]; seen {
+		if !isDir || kinds[rel] != 'd' {
+			return refuse("holds a duplicate or conflicting entry: " + rel)
+		}
+	}
+	if isDir {
+		kinds[rel] = 'd'
+	} else {
+		kinds[rel] = 'f'
+	}
+	return nil
+}
+
+func writeNativeBunArchiveFile(rooted *os.Root, target, rel string, hdr *tar.Header, tr *tar.Reader, budget *nativeBunBudget, refuse func(string) error) ([]byte, error) {
+	budget.files++
+	if budget.files > nativeBunMaxFiles {
+		return nil, nativeBunLimit("file-count")
+	}
+	if hdr.Size < 0 || hdr.Size > nativeBunMaxBytes-budget.bytes {
+		return nil, nativeBunLimit("extracted-size")
+	}
+	budget.bytes += hdr.Size
+	if err := rooted.MkdirAll(path.Dir(target), 0755); err != nil {
+		return nil, refuse("directory cannot be written: " + err.Error())
+	}
+	mode := os.FileMode(0644)
+	if hdr.Mode&0111 != 0 {
+		mode = 0755
+	}
+	out, err := rooted.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return nil, refuse("entry cannot be written: " + err.Error())
+	}
+	// The create mode passes through the process umask; the declared
+	// mode is set on the open file itself.
+	if err := out.Chmod(mode); err != nil {
+		_ = out.Close()
+		return nil, refuse("entry cannot be written: " + err.Error())
+	}
+	var keep bytes.Buffer
+	var w io.Writer = out
+	if rel == "package.json" {
+		if hdr.Size > nativeBunMaxManifest {
+			_ = out.Close()
+			return nil, refuse("package.json exceeds 1 MiB")
+		}
+		w = io.MultiWriter(out, &keep)
+	}
+	_, copyErr := io.CopyN(w, tr, hdr.Size)
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil {
+		return nil, refuse("entry cannot be written: " + errors.Join(copyErr, closeErr).Error())
+	}
+	return keep.Bytes(), nil
 }
 
 // nativeBunTreeDigest fingerprints one materialized node_modules tree: every

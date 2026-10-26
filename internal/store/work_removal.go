@@ -341,28 +341,7 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 	var state string
 	err = tx.QueryRowContext(ctx, `SELECT state FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&state)
 	if err == nil {
-		stored, readErr := readWorkRemovalAuditQ(ctx, tx, req.OperationID)
-		if readErr != nil {
-			return WorkRemovalReceipt{}, readErr
-		}
-		storedLinear, _ := linearConfirmationJSON(stored.Linear)
-		if stored.IdempotencyKey != req.IdempotencyKey || stored.WorkID != req.WorkID || stored.ExpectedVersion != req.ExpectedVersion || stored.Reason != req.Reason || stored.Actor != req.Actor || stored.ProductID != req.ProductID || stored.HandoffDigest != digest || storedLinear != linearJSON {
-			return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal operation")
-		}
-		if state == "committed" {
-			stored.Replayed = true
-			return stored, nil
-		}
-		if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
-			return WorkRemovalReceipt{}, err
-		}
-		if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
-			return WorkRemovalReceipt{}, err
-		}
-		if req.Linear != nil && (req.Linear.HandoffDigest != digest || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "") {
-			return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "Linear confirmation does not match the handoff", false, "confirm the exact Product, issue, destination, and handoff digest")
-		}
-		return stored, nil
+		return replayPreparedWorkRemovalTx(ctx, tx, req, state, digest, linearJSON)
 	}
 	if err != sql.ErrNoRows {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read removal operation", true, "retry once the removal operation is readable", err)
@@ -397,6 +376,31 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 		return WorkRemovalReceipt{}, err
 	}
 	return WorkRemovalReceipt{OperationID: req.OperationID, IdempotencyKey: req.IdempotencyKey, WorkID: req.WorkID, ExpectedVersion: req.ExpectedVersion, Reason: req.Reason, Actor: req.Actor, ProductID: req.ProductID, Linear: req.Linear, Handoff: req.Handoff, HandoffDigest: digest, State: "prepared"}, nil
+}
+
+func replayPreparedWorkRemovalTx(ctx context.Context, tx *sql.Tx, req WorkRemovalRequest, state, digest, linearJSON string) (WorkRemovalReceipt, error) {
+	stored, readErr := readWorkRemovalAuditQ(ctx, tx, req.OperationID)
+	if readErr != nil {
+		return WorkRemovalReceipt{}, readErr
+	}
+	storedLinear, _ := linearConfirmationJSON(stored.Linear)
+	if stored.IdempotencyKey != req.IdempotencyKey || stored.WorkID != req.WorkID || stored.ExpectedVersion != req.ExpectedVersion || stored.Reason != req.Reason || stored.Actor != req.Actor || stored.ProductID != req.ProductID || stored.HandoffDigest != digest || storedLinear != linearJSON {
+		return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal operation")
+	}
+	if state == "committed" {
+		stored.Replayed = true
+		return stored, nil
+	}
+	if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
+		return WorkRemovalReceipt{}, err
+	}
+	if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
+		return WorkRemovalReceipt{}, err
+	}
+	if req.Linear != nil && (req.Linear.HandoffDigest != digest || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "") {
+		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "Linear confirmation does not match the handoff", false, "confirm the exact Product, issue, destination, and handoff digest")
+	}
+	return stored, nil
 }
 
 func (s *Store) validateRemovalDestination(ctx context.Context, req WorkRemovalRequest) error {
@@ -607,42 +611,8 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "work_size_overrides", "work_size_assessments", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
-		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list above and the work ID stays parameter-bound.
-		if deleteErr == nil {
-			continue
-		}
-		// Tables with a different owner column are handled explicitly below.
-		switch table {
-		case "workflow_impact_notices":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_notices WHERE source_work_id=? OR target_work_id=? OR edge_owner_work_id=?`, workID, workID, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "workflow_impact_edges":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, workID, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "work_messages":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM work_messages WHERE sender_work_id=? OR recipient_work_id=?`, workID, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "relations":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "workflow_law_addition_reservations":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_law_addition_reservations WHERE owner_work_id=?`, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "work_projects":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "resource_claims":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM resource_claims WHERE holder_work_id=?`, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		default:
-			return projectionDeleteFailure(table, deleteErr)
+		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
+			return err
 		}
 	}
 	for _, statement := range []struct {
@@ -670,6 +640,47 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_items WHERE id=?`, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the work item", false, "reconcile remaining foreign-key owners", err)
+	}
+	return nil
+}
+
+func deleteWorkProjectionTx(ctx context.Context, tx *sql.Tx, table, workID string) error {
+	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list in deleteWorkOwnedProjections and the work ID stays parameter-bound.
+	if deleteErr == nil {
+		return nil
+	}
+	// Tables with a different owner column are handled explicitly below.
+	switch table {
+	case "workflow_impact_notices":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_notices WHERE source_work_id=? OR target_work_id=? OR edge_owner_work_id=?`, workID, workID, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "workflow_impact_edges":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, workID, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "work_messages":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM work_messages WHERE sender_work_id=? OR recipient_work_id=?`, workID, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "relations":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "workflow_law_addition_reservations":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_law_addition_reservations WHERE owner_work_id=?`, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "work_projects":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	case "resource_claims":
+		if _, err := tx.ExecContext(ctx, `DELETE FROM resource_claims WHERE holder_work_id=?`, workID); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+	default:
+		return projectionDeleteFailure(table, deleteErr)
 	}
 	return nil
 }

@@ -99,34 +99,41 @@ func pruneManagedSnapshots(dataRoot, newSnapshot string, now time.Time) (snapsho
 			report.DeferredReason = reason
 			return report, err
 		}
-		if !sameSnapshotMember(root, snapshot.name, snapshot.database) || !sameSnapshotMember(root, snapshot.name+".manifest.json", snapshot.manifest) {
-			return report, fmt.Errorf("snapshot pair %s changed during retention", snapshot.name)
-		}
-		currentSidecars, ok := snapshotSidecars(root, snapshot.name)
-		if !ok || len(currentSidecars) != len(snapshot.sidecars) {
-			return report, fmt.Errorf("snapshot sidecars %s changed during retention", snapshot.name)
-		}
-		for name, info := range snapshot.sidecars {
-			if !sameSnapshotMember(root, name, info) {
-				return report, fmt.Errorf("snapshot sidecar %s changed during retention", name)
-			}
-		}
-		// Unlink the database first. A failed second unlink leaves inventory
-		// only, never an unmanifested database advertised as recoverable.
-		if err := root.Remove(snapshot.name); err != nil {
-			return report, fmt.Errorf("remove snapshot %s: %w", snapshot.name, err)
-		}
-		if err := root.Remove(snapshot.name + ".manifest.json"); err != nil {
-			return report, fmt.Errorf("snapshot %s removed but manifest cleanup failed: %w", snapshot.name, err)
-		}
-		for name := range snapshot.sidecars {
-			if err := root.Remove(name); err != nil {
-				return report, fmt.Errorf("snapshot %s removed but sidecar cleanup failed: %w", snapshot.name, err)
-			}
+		if err := removeManagedSnapshot(root, snapshot); err != nil {
+			return report, err
 		}
 		report.Deleted = append(report.Deleted, filepath.Join(backups, snapshot.name))
 	}
 	return report, nil
+}
+
+func removeManagedSnapshot(root *os.Root, snapshot managedSnapshot) error {
+	if !sameSnapshotMember(root, snapshot.name, snapshot.database) || !sameSnapshotMember(root, snapshot.name+".manifest.json", snapshot.manifest) {
+		return fmt.Errorf("snapshot pair %s changed during retention", snapshot.name)
+	}
+	currentSidecars, ok := snapshotSidecars(root, snapshot.name)
+	if !ok || len(currentSidecars) != len(snapshot.sidecars) {
+		return fmt.Errorf("snapshot sidecars %s changed during retention", snapshot.name)
+	}
+	for name, info := range snapshot.sidecars {
+		if !sameSnapshotMember(root, name, info) {
+			return fmt.Errorf("snapshot sidecar %s changed during retention", name)
+		}
+	}
+	// Unlink the database first. A failed second unlink leaves inventory
+	// only, never an unmanifested database advertised as recoverable.
+	if err := root.Remove(snapshot.name); err != nil {
+		return fmt.Errorf("remove snapshot %s: %w", snapshot.name, err)
+	}
+	if err := root.Remove(snapshot.name + ".manifest.json"); err != nil {
+		return fmt.Errorf("snapshot %s removed but manifest cleanup failed: %w", snapshot.name, err)
+	}
+	for name := range snapshot.sidecars {
+		if err := root.Remove(name); err != nil {
+			return fmt.Errorf("snapshot %s removed but sidecar cleanup failed: %w", snapshot.name, err)
+		}
+	}
+	return nil
 }
 
 func verifiedManagedSnapshot(root *os.Root, backups, name string) (managedSnapshot, bool) {

@@ -454,11 +454,18 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if durabilityErr != nil {
 		return coreError(base, "invariant_violation", durabilityErr.Error(), "contact_operator", false), true, nil
 	}
-	durable := declaredDurability.replay
+	durable, durabilityErr := mutationReplayDurability(declaredDurability.replay, op, authorizedScope, r.Envelope.SelectedProductID)
+	if durabilityErr != nil {
+		return coreError(base, "invariant_violation", durabilityErr.Error(), "contact_operator", false), true, nil
+	}
+	return r.replayAuthorizedMutation(ctx, base, raw, op, record, authorizedScope, idempotency, durable, opID)
+}
+
+func mutationReplayDurability(durable bool, op ContractOperation, authorizedScope map[string]any, selectedProduct string) (bool, error) {
 	if rawDurability, present := authorizedScope["durable_commit"]; present {
 		committedDurably, valid := rawDurability.(bool)
 		if !valid {
-			return coreError(base, "invariant_violation", "stored mutation durability binding is malformed", "contact_operator", false), true, nil
+			return false, errors.New("stored mutation durability binding is malformed")
 		}
 		durable = durable || committedDurably
 	} else if op.Approval == ApprovalClass("conditional") {
@@ -467,17 +474,21 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	}
 	// Cross-Product authority requires approval even when the operation's
 	// base class does not. Replays use the stored, re-authorized Product set.
-	if products, present := authorizedScope["product_ids"].([]any); present && r.Envelope.SelectedProductID != "" {
+	if products, present := authorizedScope["product_ids"].([]any); present && selectedProduct != "" {
 		for _, rawProduct := range products {
 			product, valid := rawProduct.(string)
 			if !valid || product == "" {
-				return coreError(base, "invariant_violation", "stored mutation Product binding is malformed", "contact_operator", false), true, nil
+				return false, errors.New("stored mutation Product binding is malformed")
 			}
-			if product != r.Envelope.SelectedProductID {
+			if product != selectedProduct {
 				durable = true
 			}
 		}
 	}
+	return durable, nil
+}
+
+func (r runtime) replayAuthorizedMutation(ctx context.Context, base Envelope, raw []byte, op ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool, opID string) (Envelope, bool, error) {
 	// Consent admission reads only the committed response snapshot.
 	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(base, raw, record); admissionErr != nil {
 		return Envelope{}, false, admissionErr
@@ -1165,6 +1176,15 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 		return replay, nil
 	}
+	mutation := workflowActionMutation{runtime: r, base: base, in: in, grant: grant, registry: registry, preflight: preflight, boundary: boundary, scope: scope, versions: versions, digest: digest, operationID: operationID, approval: approval, approvalConsequence: approvalConsequence, operatorVerdict: operatorVerdict, selectedPacks: selectedPacks}
+	return mutation.execute(ctx, action)
+}
+
+func (m *workflowActionMutation) execute(ctx context.Context, action store.WorkflowActionDefinition) (Envelope, error) {
+	r, base, in, grant := m.runtime, m.base, m.in, m.grant
+	preflight, scope, versions, boundary := m.preflight, m.scope, m.versions, m.boundary
+	digest, operationID, approval, approvalConsequence := m.digest, m.operationID, m.approval, m.approvalConsequence
+	payload, registry, contractVersion := preflight.Payload, m.registry, boundary.ContractVersion
 	takeover, err := r.supersededAttemptBindings(ctx, action, preflight, scope, versions)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -1204,33 +1224,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	if requiresApproval && approval == "" {
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-		var challengeRef string
-		txErr := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
-			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-			return err
-		})
-		if txErr != nil {
-			return failureEnvelope(base, txErr), nil
-		}
-		response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
-		// CD-0037 D2: a challenge was minted, so the refusal carries the typed
-		// summary derived from the same spec the challenge binds.
-		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-		premiseSummary := ""
-		if in.ActionID == "confirm_premise" {
-			if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
-				premiseSummary = contract.Premise
-			}
-		}
-		if len([]rune(premiseSummary)) > 256 {
-			premiseSummary = string([]rune(premiseSummary)[:256])
-		}
-		if premiseSummary == "" {
-			premiseSummary = "Workflow action " + in.ActionID
-		}
-		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
-		return response, nil
+		return r.workflowActionChallenge(ctx, base, host, inv, spec, in, contractVersion)
 	}
 	if in.ActionID == "complete" {
 		actorRef := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
@@ -1239,11 +1233,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		}
 	}
 
-	var execution store.WorkflowActionExecutionResult
-	var operatorActor *store.WorkflowActor
-	var operatorApprovalRef string
-	var result Envelope
-	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, ApprovedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
@@ -1281,66 +1270,131 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
-		// Changed boundary facts, classification, or verified pin refuse
-		// before any approval consumption or idempotency write; the store's
-		// preflight, version, state, and attempt fences below stay authoritative.
-		rechecked, recheckErr := store.ReadWorkflowApprovalBoundaryTx(ctx, tx, registry, preflight)
-		if recheckErr != nil {
-			return recheckErr
-		}
-		if workflowApprovalBoundaryChanged(boundary, rechecked) {
-			return newRuntimeFailure("version_conflict", "workflow approval boundary facts changed before the action", "reread_entities", false)
-		}
-		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings, selectedPacks); err != nil {
-			return err
-		}
-		if requiresApproval || (boundary.Policy.Class == store.WorkflowApprovalClassLegacy && operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || (in.ActionID == "approve_contract" && boundary.Policy.Policy == store.WorkflowApprovalPolicyConsequenceV1) || takeover != nil})
-			if err != nil {
-				return err
-			}
-			operatorApprovalRef = consumedApprovalRef
-			if in.ActionID == "confirm_premise" || operatorVerdict || (in.ActionID == "supersede_contract" && boundary.Policy.Class == store.WorkflowApprovalClassLegacy) {
-				operatorActor = &verifiedOperator
-			}
-		}
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: digest, OperationID: operationID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: string(scopeJSON), ObservedAt: r.Authority.now()})
+	m.host, m.inv, m.scopeJSON, m.requiresApproval, m.takeover, m.request = host, inv, string(scopeJSON), requiresApproval, takeover, actionRequest
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &m.result, &m.resultRejected), func(tx *store.Transaction) error {
+		return m.authorizeTx(ctx, tx)
 	}, func(tx *store.Transaction) error {
-		actionRequest.OperatorActor = operatorActor
-		actionRequest.OperatorApprovalRef = operatorApprovalRef
+		return m.applyTx(ctx, tx)
+	})
+	if err != nil {
+		if m.resultRejected {
+			return m.result, nil
+		}
+		return failureEnvelope(m.base, err), nil
+	}
+	return m.result, nil
+}
+
+func (r runtime) workflowActionChallenge(ctx context.Context, base Envelope, host store.ResolvedProjectHost, inv Invocation, spec ApprovalChallengeSpec, in actionMutationInput, contractVersion int64) (Envelope, error) {
+	var challengeRef string
+	txErr := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 		var err error
-		execution, err = store.ApplyWorkflowActionTx(ctx, tx, registry, actionRequest)
+		challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+		return err
+	})
+	if txErr != nil {
+		return failureEnvelope(base, txErr), nil
+	}
+	response := coreError(base, "approval_required", "core approval is required for this workflow action", "request_approval", false)
+	// CD-0037 D2: a challenge was minted, so the refusal carries the typed
+	// summary derived from the same spec the challenge binds.
+	response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+	premiseSummary := ""
+	if in.ActionID == "confirm_premise" {
+		if contract, err := r.Store.ActiveWorkflowContract(ctx, in.WorkID); err == nil {
+			premiseSummary = contract.Premise
+		}
+	}
+	if len([]rune(premiseSummary)) > 256 {
+		premiseSummary = string([]rune(premiseSummary)[:256])
+	}
+	if premiseSummary == "" {
+		premiseSummary = "Workflow action " + in.ActionID
+	}
+	response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": spec.OperationDigest, "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
+	return response, nil
+}
+
+type workflowActionMutation struct {
+	runtime
+	base                                                          Envelope
+	in                                                            actionMutationInput
+	grant                                                         Authority
+	registry                                                      store.DefinitionRegistry
+	preflight                                                     store.WorkflowActionPreflightRequest
+	boundary                                                      store.WorkflowApprovalBoundaryState
+	host                                                          store.ResolvedProjectHost
+	inv                                                           Invocation
+	scope, versions                                               map[string]any
+	scopeJSON, digest, operationID, approval, approvalConsequence string
+	requiresApproval, operatorVerdict                             bool
+	takeover                                                      *store.WorkflowStartTakeover
+	selectedPacks                                                 []string
+	request                                                       store.WorkflowActionExecutionRequest
+	operatorActor                                                 *store.WorkflowActor
+	operatorApprovalRef                                           string
+	result                                                        Envelope
+	resultRejected                                                bool
+}
+
+func (m *workflowActionMutation) authorizeTx(ctx context.Context, tx *store.Transaction) error {
+	r, in, grant := m.runtime, m.in, m.grant
+	// Changed boundary facts, classification, or verified pin refuse
+	// before any approval consumption or idempotency write; the store's
+	// preflight, version, state, and attempt fences below stay authoritative.
+	rechecked, recheckErr := store.ReadWorkflowApprovalBoundaryTx(ctx, tx, m.registry, m.preflight)
+	if recheckErr != nil {
+		return recheckErr
+	}
+	if workflowApprovalBoundaryChanged(m.boundary, rechecked) {
+		return newRuntimeFailure("version_conflict", "workflow approval boundary facts changed before the action", "reread_entities", false)
+	}
+	if err := r.authorizeWorkflowActionTx(ctx, tx, m.host, m.inv, in.ResearchBindings, m.selectedPacks); err != nil {
+		return err
+	}
+	if m.requiresApproval || (m.boundary.Policy.Class == store.WorkflowApprovalClassLegacy && m.operatorVerdict && m.approval != "") {
+		verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, m.host, m.inv, grant, ApprovalCheck{ApprovalRef: m.approval, OperationDigest: m.digest, Scope: boundedApprovalScope(m.scope), Versions: m.versions, Consequence: m.approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || m.operatorVerdict || in.ActionID == "supersede_contract" || (in.ActionID == "approve_contract" && m.boundary.Policy.Policy == store.WorkflowApprovalPolicyConsequenceV1) || m.takeover != nil})
 		if err != nil {
 			return err
 		}
-		changedVersion := execution.ResultingVersion
-		if changedVersion == 0 {
-			changedVersion = in.ExpectedVersion + 1
+		m.operatorApprovalRef = consumedApprovalRef
+		if in.ActionID == "confirm_premise" || m.operatorVerdict || (in.ActionID == "supersede_contract" && m.boundary.Policy.Class == store.WorkflowApprovalClassLegacy) {
+			m.operatorActor = &verifiedOperator
 		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
-		base.ResolvedScope = scopeFromMap(scope)
-		resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
-		if enrichErr != nil {
-			return enrichErr
-		}
-		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-		result = r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...)
-		if result.Outcome == OutcomeError {
-			resultRejected = true
-			return errors.New("mutation result rejected")
-		}
-		changedJSON, _ := json.Marshal(changed)
-		responseScope, _ := json.Marshal(mutationResponseScope(scope, result, pinless, operatorApprovalRef != ""))
-		return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: digest, OperationID: operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
-	})
-	if err != nil {
-		if resultRejected {
-			return result, nil
-		}
-		return failureEnvelope(base, err), nil
 	}
-	return result, nil
+	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: m.scopeJSON, ObservedAt: r.Authority.now()})
+}
+
+func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
+	r, in, grant := m.runtime, m.in, m.grant
+	base := m.base
+	m.request.OperatorActor = m.operatorActor
+	m.request.OperatorApprovalRef = m.operatorApprovalRef
+	execution, err := store.ApplyWorkflowActionTx(ctx, tx, m.registry, m.request)
+	if err != nil {
+		return err
+	}
+	changedVersion := execution.ResultingVersion
+	if changedVersion == 0 {
+		changedVersion = in.ExpectedVersion + 1
+	}
+	changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
+	base.ResolvedScope = scopeFromMap(m.scope)
+	m.base = base
+	resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
+	if enrichErr != nil {
+		return enrichErr
+	}
+	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+	m.base = base
+	m.result = r.mutationResult(base, resultPayload, changed, derivedIntents, pinless...)
+	if m.result.Outcome == OutcomeError {
+		m.resultRejected = true
+		return errors.New("mutation result rejected")
+	}
+	changedJSON, _ := json.Marshal(changed)
+	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, m.result, pinless, m.operatorApprovalRef != ""))
+	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
 // The dispatch admission is the one live subject-freshness owner, so an
@@ -1519,17 +1573,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		plan.governingConflict = missing
 		plan.declareInitialDurability(true)
 	}
-	productIDs := make([]string, 0, len(productsByProject))
-	seenProducts := make(map[string]struct{})
-	for _, products := range productsByProject {
-		for _, product := range products {
-			if _, seen := seenProducts[product]; seen {
-				continue
-			}
-			seenProducts[product] = struct{}{}
-			productIDs = append(productIDs, product)
-		}
-	}
+	productIDs := captureProductIDs(productsByProject)
 	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
@@ -1545,68 +1589,85 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 			return failureEnvelope(base, sizeErr), nil, true
 		}
 	}
-	for _, products := range productsByProject {
-		for _, product := range products {
-			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-				plan.requiresApproval = true
-				plan.declareInitialDurability(true)
-			}
+	for _, product := range productIDs {
+		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
+			plan.requiresApproval = true
+			plan.declareInitialDurability(true)
 		}
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		priority := in.Priority
-		urgency := in.Urgency
-		if urgency == "" {
-			urgency = "standard"
-		}
-		// A captured task rides the work.created payload into the same
-		// intent_json.task projection a revise writes, so one call persists
-		// the operator's instruction identically to a later revise. The
-		// defect intake rides the same payload at the current version; the
-		// membership fold owns its admission.
-		payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
-		if in.DefectIntake != nil {
-			payloadFields["defect_intake"] = in.DefectIntake
-		}
-		if in.Task != nil {
-			payloadFields["task"] = *in.Task
-		}
-		payload, _ := json.Marshal(payloadFields)
-		memberships := make([]storeMembership, len(in.ProjectIDs))
-		for i, project := range in.ProjectIDs {
-			role := "secondary"
-			if i == 0 {
-				role = "primary"
+		return r.applyCaptureTx(ctx, tx, grant, in, digest, workID, registeredDefinition, sizePlan)
+	}
+	return Envelope{}, nil, false
+}
+
+func captureProductIDs(productsByProject map[string][]string) []string {
+	productIDs := make([]string, 0, len(productsByProject))
+	seenProducts := make(map[string]struct{})
+	for _, products := range productsByProject {
+		for _, product := range products {
+			if _, seen := seenProducts[product]; seen {
+				continue
 			}
-			memberships[i] = storeMembership{ProjectID: project, Role: role}
+			seenProducts[product] = struct{}{}
+			productIDs = append(productIDs, product)
 		}
-		membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
-		now := r.Authority.now()
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
-			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 4, Payload: payload},
-			{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
-		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
+	}
+	return productIDs
+}
+
+func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan) (json.RawMessage, []string, []ChangedRef, error) {
+	priority := in.Priority
+	urgency := in.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	// A captured task rides the work.created payload into the same
+	// intent_json.task projection a revise writes, so one call persists
+	// the operator's instruction identically to a later revise. The
+	// defect intake rides the same payload at the current version; the
+	// membership fold owns its admission.
+	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+	if in.DefectIntake != nil {
+		payloadFields["defect_intake"] = in.DefectIntake
+	}
+	if in.Task != nil {
+		payloadFields["task"] = *in.Task
+	}
+	payload, _ := json.Marshal(payloadFields)
+	memberships := make([]storeMembership, len(in.ProjectIDs))
+	for i, project := range in.ProjectIDs {
+		role := "secondary"
+		if i == 0 {
+			role = "primary"
+		}
+		memberships[i] = storeMembership{ProjectID: project, Role: role}
+	}
+	membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
+	now := r.Authority.now()
+	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
+		{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 4, Payload: payload},
+		{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
+	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
+		return nil, nil, nil, err
+	}
+	eventIDs := result.EventIDs
+	if sizePlan != nil {
+		sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
-			return nil, nil, nil, err
-		}
-		eventIDs := result.EventIDs
-		if sizePlan != nil {
-			sized, err := store.RecordWorkSizeTx(ctx, tx, sizePlan, workID, digest+":sized", grant.PrincipalRef, now)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			eventIDs = append(eventIDs, sized...)
-		}
-		// work.sized does not change the work item's version.
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
-		return mutationPayload(changed, nil), eventIDs, changed, nil
+		eventIDs = append(eventIDs, sized...)
 	}
-	return Envelope{}, nil, false
+	// work.sized does not change the work item's version.
+	changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
+	return mutationPayload(changed, nil), eventIDs, changed, nil
 }
 
 // planReviseIntent plans concord_work_define.revise_intent.
@@ -1653,69 +1714,73 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
-		if existingErr != nil {
-			return nil, nil, nil, existingErr
-		}
-		switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
-		// A changed definition digest refreshes the instance's current family
-		// without restarting its step. Version numbers carry no freshness.
-		carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionDigest != registeredDefinition.Digest
-		urgency := in.Urgency
-		if urgency == "" {
-			urgency = "standard"
-		}
-		payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
-		if in.Task != nil {
-			payloadFields["task"] = *in.Task
-		}
-		payload, _ := json.Marshal(payloadFields)
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-		changedVersion := in.ExpectedVersion + 1
-		switch {
-		case in.WorkflowTypeRef != "" && !definitionFound:
-			if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
-				return nil, nil, nil, err
-			}
-			changedVersion += 2
-		case switchingFamily || carryingForward:
-			if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
-				return nil, nil, nil, err
-			}
-			changedVersion++
-		}
-		eventIDs := result.EventIDs
-		var revision store.WorkSizeRevisionResult
-		switch {
-		case in.SizeInputs != nil:
-			revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
-		case in.OperatorSize != nil:
-			consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
-			approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
-			approvalVersionsJSON, _ := json.Marshal(plan.versions)
-			revision, err = store.OverrideWorkSizeTx(ctx, tx, store.WorkSizeOverrideRequest{
-				WorkID: in.WorkID, ExpectedVersion: changedVersion, Size: *in.OperatorSize, Reason: in.Reason,
-				EventID: digest + ":size-override", OccurredAt: r.Authority.now(),
-				ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
-				ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON),
-				ApprovalConsequence: plan.consequence,
-			})
-		}
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		eventIDs = append(eventIDs, revision.EventIDs...)
-		if revision.WorkVersion != 0 {
-			changedVersion = revision.WorkVersion
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
-		return mutationPayload(changed, plan.intents), eventIDs, changed, nil
+		return r.applyReviseIntentTx(ctx, tx, grant, in, digest, registeredDefinition, sizePlan, plan)
 	}
 	return Envelope{}, nil, false
+}
+
+func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, sizePlan *store.WorkSizePlan, plan *mutationPlan) (json.RawMessage, []string, []ChangedRef, error) {
+	definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
+	if existingErr != nil {
+		return nil, nil, nil, existingErr
+	}
+	switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
+	// A changed definition digest refreshes the instance's current family
+	// without restarting its step. Version numbers carry no freshness.
+	carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionDigest != registeredDefinition.Digest
+	urgency := in.Urgency
+	if urgency == "" {
+		urgency = "standard"
+	}
+	payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+	if in.Task != nil {
+		payloadFields["task"] = *in.Task
+	}
+	payload, _ := json.Marshal(payloadFields)
+	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	changedVersion := in.ExpectedVersion + 1
+	switch {
+	case in.WorkflowTypeRef != "" && !definitionFound:
+		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
+			return nil, nil, nil, err
+		}
+		changedVersion += 2
+	case switchingFamily || carryingForward:
+		if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
+			return nil, nil, nil, err
+		}
+		changedVersion++
+	}
+	eventIDs := result.EventIDs
+	var revision store.WorkSizeRevisionResult
+	switch {
+	case in.SizeInputs != nil:
+		revision, err = store.RerunWorkSizeTx(ctx, tx, store.WorkSizeRerunRequest{Plan: sizePlan, WorkID: in.WorkID, EventID: digest + ":sized", Actor: actor, Now: r.Authority.now()})
+	case in.OperatorSize != nil:
+		consumedApprovalRef, _ := plan.scope["approval_ref"].(string)
+		approvalScopeJSON, _ := json.Marshal(boundedApprovalScope(plan.scope))
+		approvalVersionsJSON, _ := json.Marshal(plan.versions)
+		revision, err = store.OverrideWorkSizeTx(ctx, tx, store.WorkSizeOverrideRequest{
+			WorkID: in.WorkID, ExpectedVersion: changedVersion, Size: *in.OperatorSize, Reason: in.Reason,
+			EventID: digest + ":size-override", OccurredAt: r.Authority.now(),
+			ApprovalRef: consumedApprovalRef, ApprovalOperationDigest: digest,
+			ApprovalScopeJSON: string(approvalScopeJSON), ApprovalVersionsJSON: string(approvalVersionsJSON),
+			ApprovalConsequence: plan.consequence,
+		})
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	eventIDs = append(eventIDs, revision.EventIDs...)
+	if revision.WorkVersion != 0 {
+		changedVersion = revision.WorkVersion
+	}
+	changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
+	return mutationPayload(changed, plan.intents), eventIDs, changed, nil
 }
 
 // workProductForSize names the one Product whose knowledge home sizes the
@@ -2015,137 +2080,7 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 	var response Envelope
 	durable := false
 	mutation := func(tx *store.Transaction) error {
-		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
-		if inv.HostAssertionDigest == "" {
-			inv.HostAssertionDigest = digest
-		}
-		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-		if err != nil {
-			return err
-		}
-		if !slices.Contains(grant.ProductScope, in.ProductID) {
-			return newRuntimeFailure("unauthorized", "research retirement Product is outside grant scope", "contact_operator", false)
-		}
-		key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
-		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, key)
-		if err != nil {
-			return err
-		}
-		if found && prior.CanonicalDigest != digest {
-			return storeIdempotencyConflict(r.Operation, in.IdempotencyKey)
-		}
-		var result store.RetireResearchPacksResult
-		if found {
-			if err := json.Unmarshal([]byte(prior.ResultPayload), &result); err != nil {
-				return err
-			}
-		} else {
-			result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates, DryRun: true})
-			if err != nil {
-				return err
-			}
-		}
-		owners := make([]string, 0, len(result.Candidates))
-		for _, candidate := range result.Candidates {
-			owners = append(owners, candidate.OwnerWorkID)
-		}
-		scope := map[string]any{"product_id": in.ProductID, "work_ids": normalizeScopeList(owners)}
-		byOwner, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
-		if err != nil {
-			return err
-		}
-		for _, owner := range owners {
-			if !slices.Contains(byOwner[owner], in.ProductID) {
-				return newRuntimeFailure("unauthorized", "research retirement owner is outside the requested Product", "contact_operator", false)
-			}
-		}
-		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
-		if err != nil {
-			return err
-		}
-		base.ResolvedScope = scopeFromMap(scope)
-		if found {
-			originalScope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
-			if err != nil {
-				return err
-			}
-			if !scopeWithinAuthority(originalScope, grant) {
-				return newRuntimeFailure("unauthorized", "original research retirement scope is no longer authorized", "contact_operator", false)
-			}
-			originalDurable, _ := originalScope["durable_commit"].(bool)
-			if (crossProduct || originalDurable) && !durable {
-				return errApprovalDurabilityRequired
-			}
-			var changed []ChangedRef
-			if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
-				return err
-			}
-			changed, omission := boundResultChangedRefs(changed)
-			if omission != nil {
-				base.Omissions = append(base.Omissions, *omission)
-			}
-			base.Replayed = true
-			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, nil)
-			if response.Outcome == OutcomeError {
-				return errors.New("research retirement replay result rejected")
-			}
-			return store.TouchMutationIdempotencyTx(ctx, tx, key, r.Authority.now())
-		}
-		if r.Budget.CeilingRefused {
-			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
-			return nil
-		}
-		if crossProduct && !in.DryRun {
-			if !durable {
-				return errApprovalDurabilityRequired
-			}
-			// The canonical digest binds every candidate's version fence.
-			// Approval version bindings admit Work and operation roles, not packs.
-			versions := map[string]any{}
-			if in.Approval == nil {
-				response, err = r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, base, digest, scope, versions, string(op.Consequence), nil)
-				return err
-			}
-			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
-			if err != nil {
-				response = failureEnvelope(base, err)
-				return err
-			}
-		}
-		if !in.DryRun {
-			result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates})
-			if err != nil {
-				return err
-			}
-		}
-		changed := []ChangedRef{}
-		for _, candidate := range result.Candidates {
-			if candidate.Classification == store.ResearchRetirementRetired {
-				changed = append(changed, ChangedRef{EntityKind: "research_pack", ID: candidate.PackID, Version: strconv.FormatInt(candidate.CurrentVersion, 10)})
-			}
-		}
-		payload, err := json.Marshal(result)
-		if err != nil {
-			return err
-		}
-		// The payload reports every candidate. The envelope's auxiliary
-		// changed-reference list has a smaller capacity than a retirement batch.
-		boundedChanged, omission := boundResultChangedRefs(changed)
-		if omission != nil {
-			base.Omissions = append(base.Omissions, *omission)
-		}
-		response = r.mutationResult(base, payload, boundedChanged, nil)
-		if response.Outcome == OutcomeError {
-			return errors.New("research retirement result rejected")
-		}
-		if in.DryRun {
-			return nil
-		}
-		changedJSON, _ := json.Marshal(changed)
-		authorizedSnapshot := boundedApprovalScope(scope)
-		authorizedSnapshot["durable_commit"] = durable
-		authorizedScope, _ := json.Marshal(authorizedSnapshot)
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+		return r.retireResearchTx(ctx, tx, &base, in, op, digest, host, durable, &response)
 	}
 	if in.DryRun {
 		err = r.Store.ReadTransaction(ctx, mutation)
@@ -2159,6 +2094,148 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 	return response, nil
+}
+
+func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, base *Envelope, in researchRetireMutation, op ContractOperation, digest string, host store.ResolvedProjectHost, durable bool, response *Envelope) error {
+	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(grant.ProductScope, in.ProductID) {
+		return newRuntimeFailure("unauthorized", "research retirement Product is outside grant scope", "contact_operator", false)
+	}
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
+	prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, key)
+	if err != nil {
+		return err
+	}
+	if found && prior.CanonicalDigest != digest {
+		return storeIdempotencyConflict(r.Operation, in.IdempotencyKey)
+	}
+	var result store.RetireResearchPacksResult
+	if found {
+		if err := json.Unmarshal([]byte(prior.ResultPayload), &result); err != nil {
+			return err
+		}
+	} else {
+		result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates, DryRun: true})
+		if err != nil {
+			return err
+		}
+	}
+	owners := make([]string, 0, len(result.Candidates))
+	for _, candidate := range result.Candidates {
+		owners = append(owners, candidate.OwnerWorkID)
+	}
+	scope := map[string]any{"product_id": in.ProductID, "work_ids": normalizeScopeList(owners)}
+	byOwner, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
+	if err != nil {
+		return err
+	}
+	for _, owner := range owners {
+		if !slices.Contains(byOwner[owner], in.ProductID) {
+			return newRuntimeFailure("unauthorized", "research retirement owner is outside the requested Product", "contact_operator", false)
+		}
+	}
+	crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
+	if err != nil {
+		return err
+	}
+	base.ResolvedScope = scopeFromMap(scope)
+	if found {
+		return r.replayResearchRetirementTx(ctx, tx, base, prior, grant, key, crossProduct, durable, response)
+	}
+	if r.Budget.CeilingRefused {
+		*response = r.budgetRefusal(*base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+		return nil
+	}
+	if crossProduct && !in.DryRun {
+		if !durable {
+			return errApprovalDurabilityRequired
+		}
+		// The canonical digest binds every candidate's version fence.
+		// Approval version bindings admit Work and operation roles, not packs.
+		versions := map[string]any{}
+		if in.Approval == nil {
+			*response, err = r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, *base, digest, scope, versions, string(op.Consequence), nil)
+			return err
+		}
+		_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+		if err != nil {
+			*response = failureEnvelope(*base, err)
+			return err
+		}
+	}
+	if !in.DryRun {
+		result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates})
+		if err != nil {
+			return err
+		}
+	}
+	return r.recordResearchRetirementTx(ctx, tx, base, in, result, scope, key, digest, durable, response)
+}
+
+func (r runtime) replayResearchRetirementTx(ctx context.Context, tx *store.Transaction, base *Envelope, prior store.MutationIdempotencyRecord, grant Authority, key store.MutationIdempotencyKey, crossProduct, durable bool, response *Envelope) error {
+	originalScope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
+	if err != nil {
+		return err
+	}
+	if !scopeWithinAuthority(originalScope, grant) {
+		return newRuntimeFailure("unauthorized", "original research retirement scope is no longer authorized", "contact_operator", false)
+	}
+	originalDurable, _ := originalScope["durable_commit"].(bool)
+	if (crossProduct || originalDurable) && !durable {
+		return errApprovalDurabilityRequired
+	}
+	var changed []ChangedRef
+	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
+		return err
+	}
+	changed, omission := boundResultChangedRefs(changed)
+	if omission != nil {
+		base.Omissions = append(base.Omissions, *omission)
+	}
+	base.Replayed = true
+	*response = r.mutationResult(*base, json.RawMessage(prior.ResultPayload), changed, nil)
+	if response.Outcome == OutcomeError {
+		return errors.New("research retirement replay result rejected")
+	}
+	return store.TouchMutationIdempotencyTx(ctx, tx, key, r.Authority.now())
+}
+
+func (r runtime) recordResearchRetirementTx(ctx context.Context, tx *store.Transaction, base *Envelope, in researchRetireMutation, result store.RetireResearchPacksResult, scope map[string]any, key store.MutationIdempotencyKey, digest string, durable bool, response *Envelope) error {
+	changed := []ChangedRef{}
+	for _, candidate := range result.Candidates {
+		if candidate.Classification == store.ResearchRetirementRetired {
+			changed = append(changed, ChangedRef{EntityKind: "research_pack", ID: candidate.PackID, Version: strconv.FormatInt(candidate.CurrentVersion, 10)})
+		}
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	// The payload reports every candidate. The envelope's auxiliary
+	// changed-reference list has a smaller capacity than a retirement batch.
+	boundedChanged, omission := boundResultChangedRefs(changed)
+	if omission != nil {
+		base.Omissions = append(base.Omissions, *omission)
+	}
+	*response = r.mutationResult(*base, payload, boundedChanged, nil)
+	if response.Outcome == OutcomeError {
+		return errors.New("research retirement result rejected")
+	}
+	if in.DryRun {
+		return nil
+	}
+	changedJSON, _ := json.Marshal(changed)
+	authorizedSnapshot := boundedApprovalScope(scope)
+	authorizedSnapshot["durable_commit"] = durable
+	authorizedScope, _ := json.Marshal(authorizedSnapshot)
+	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
 }
 
 // planSingleWorkEvent plans a mutation whose whole effect is one event on
@@ -2354,49 +2431,7 @@ func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []b
 		}
 		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "external_observations", QueryID: "CD-0040.R1", ReasonCode: "verify_external_observation", RequiredFields: []string{"work_id"}}}
 		plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-			if in.External.Kind == "capture" {
-				// The reviewed policy references are derived from the
-				// subject kind before validation, which requires the
-				// record to carry exactly the reviewed policy.
-				policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
-				capture := store.ExternalObservationCapture{
-					ObservationID:         in.External.ObservationID,
-					SubjectKind:           in.External.SubjectKind,
-					SubjectRef:            in.External.SubjectRef,
-					CaptureMethod:         store.CaptureTrustedClientReport,
-					CapturedAt:            in.External.CapturedAt,
-					ReportingAuthorityRef: "client:" + grant.ClientRef,
-					SubjectDigest:         in.External.SubjectDigest,
-					ObservedUniverse:      *in.External.ObservedUniverse,
-					FreshnessPolicyRef:    store.PolicyRef(policy),
-					DivergencePolicyRef:   store.PolicyRef(policy),
-				}
-				if err := store.ValidateExternalObservationCapture(capture); err != nil {
-					return nil, nil, nil, err
-				}
-				if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
-					return nil, nil, nil, err
-				}
-				changed := []ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
-				return mutationPayload(changed, plan.intents), []string{capture.ObservationID}, changed, nil
-			}
-			verification := store.ExternalObservationVerification{
-				ObservationID:         in.External.ObservationID,
-				VerificationMethod:    store.VerifyTrustedClientReport,
-				VerifiedAt:            in.External.VerifiedAt,
-				VerifyingAuthorityRef: "client:" + grant.ClientRef,
-				Result:                store.VerificationResultKind(in.External.Result),
-				CurrentDigest:         in.External.CurrentDigest,
-				Omissions:             in.External.Omissions,
-			}
-			if err := store.ValidateExternalObservationVerification(verification); err != nil {
-				return nil, nil, nil, err
-			}
-			if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
-				return nil, nil, nil, err
-			}
-			changed := []ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
-			return mutationPayload(changed, plan.intents), []string{verification.ObservationID}, changed, nil
+			return r.applyExternalObservationTx(ctx, tx, grant, in, plan.intents)
 		}
 	default:
 		plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "verify_observation_visible", RequiredFields: []string{"work_id"}}}
@@ -2415,6 +2450,52 @@ func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []b
 		}
 	}
 	return Envelope{}, nil, false
+}
+
+func (r runtime) applyExternalObservationTx(ctx context.Context, tx *store.Transaction, grant Authority, in observationRecordInput, intents []NextIntent) (json.RawMessage, []string, []ChangedRef, error) {
+	if in.External.Kind == "capture" {
+		// The reviewed policy references are derived from the
+		// subject kind before validation, which requires the
+		// record to carry exactly the reviewed policy.
+		policy, _ := store.ExternalSubjectPolicyFor(in.External.SubjectKind)
+		capture := store.ExternalObservationCapture{
+			ObservationID:         in.External.ObservationID,
+			SubjectKind:           in.External.SubjectKind,
+			SubjectRef:            in.External.SubjectRef,
+			CaptureMethod:         store.CaptureTrustedClientReport,
+			CapturedAt:            in.External.CapturedAt,
+			ReportingAuthorityRef: "client:" + grant.ClientRef,
+			SubjectDigest:         in.External.SubjectDigest,
+			ObservedUniverse:      *in.External.ObservedUniverse,
+			FreshnessPolicyRef:    store.PolicyRef(policy),
+			DivergencePolicyRef:   store.PolicyRef(policy),
+		}
+		if err := store.ValidateExternalObservationCapture(capture); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := store.AppendExternalObservationCaptureTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), capture); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "external_observation", ID: capture.ObservationID, Version: "1"}}
+		return mutationPayload(changed, intents), []string{capture.ObservationID}, changed, nil
+	}
+	verification := store.ExternalObservationVerification{
+		ObservationID:         in.External.ObservationID,
+		VerificationMethod:    store.VerifyTrustedClientReport,
+		VerifiedAt:            in.External.VerifiedAt,
+		VerifyingAuthorityRef: "client:" + grant.ClientRef,
+		Result:                store.VerificationResultKind(in.External.Result),
+		CurrentDigest:         in.External.CurrentDigest,
+		Omissions:             in.External.Omissions,
+	}
+	if err := store.ValidateExternalObservationVerification(verification); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := store.AppendExternalObservationVerificationTx(ctx, tx, in.WorkID, grant.PrincipalRef, r.Authority.now(), verification); err != nil {
+		return nil, nil, nil, err
+	}
+	changed := []ChangedRef{{EntityKind: "external_observation", ID: verification.ObservationID, Version: "2"}}
+	return mutationPayload(changed, intents), []string{verification.ObservationID}, changed, nil
 }
 
 // planIssueLinkRecord plans concord_work_define.issue_link_record: record the
@@ -2780,158 +2861,162 @@ func (r runtime) planSessionVacate(_ context.Context, base Envelope, raw []byte,
 	}
 	plan.scope["project_ids"] = []string{project}
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		return r.applySessionVacateTx(ctx, tx, grant, raw, digest, project, plan.intents)
+	}
+	return Envelope{}, nil, false
+}
+
+func (r runtime) applySessionVacateTx(ctx context.Context, tx *store.Transaction, grant Authority, raw []byte, digest, project string, intents []NextIntent) (json.RawMessage, []string, []ChangedRef, error) {
 	resolvePayload := func(target store.SessionVacateReplayTarget) (json.RawMessage, error) {
 		return json.Marshal(map[string]any{
 			"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
-			"next_valid_intents":    mutationResultIntents(plan.intents),
+			"next_valid_intents":    mutationResultIntents(intents),
 			"work_id":               target.WorkID,
 			"project_id":            target.ProjectID,
 			"source_directory":      target.SourceDirectory,
 			"destination_directory": target.DestinationDirectory,
 		})
 	}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		// The replay decision reads the idempotency record inside this
-		// transaction: the caller's own commit is the state the replay must
-		// re-read, and a read outside the transaction could miss it.
-		key := idempotencyKey(raw)
-		prior, replayed, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if replayed && prior.CanonicalDigest != digest {
-			return nil, nil, nil, storeIdempotencyConflict(r.Operation, key)
-		}
-		if replayed {
-			// A same-key replay never appends and never answers from the
-			// cached success: it re-reads the committed request's state and
-			// resolves or refuses from it. A pending request resolves from
-			// the verified destination or from its source worktree, a
-			// completed request resolves while the session holds no rows,
-			// and a later claim's rows refuse with effect none — the host
-			// mover never runs on the refusal, so the session stays where it
-			// sits (CD-0190 D2/D3).
-			var recorded struct {
-				WorkID string `json:"work_id"`
-			}
-			_ = json.Unmarshal([]byte(prior.ResultPayload), &recorded)
-			target, rerr := store.ResolveSessionVacateReplayTx(ctx, tx, project, grant.Worktree, grant.SessionRef, recorded.WorkID)
-			if rerr != nil {
-				return nil, nil, nil, rerr
-			}
-			payload, merr := resolvePayload(target)
-			return payload, nil, []ChangedRef{}, merr
-		}
-		// CD-0190 D3: session_vacate called again re-reads the committed
-		// request's state whatever idempotency key the retry carries. A
-		// still-pending version 2 request whose source worktree is this one
-		// is the same relocation: the call answers through the replay
-		// resolution and appends nothing, so a retry under a new key never
-		// records a second relocation request for one move. A request its
-		// recorded landing already completed resolves no pending request
-		// here, so the fresh-request path below still records a re-occupied
-		// worktree's own new relocation (CD-0190 D2).
-		// Only a confirmed absence falls through to a fresh request: an
-		// unreadable or undecodable pending request refuses, so a failed
-		// lookup never records a second relocation request for one move.
-		pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-		if perr == nil {
-			result, merr := resolvePayload(pending)
-			return result, nil, []ChangedRef{}, merr
-		}
-		var pendingFailure *store.Failure
-		if !errors.As(perr, &pendingFailure) || pendingFailure.Kind != store.KindProjectionNotFound {
-			return nil, nil, nil, perr
-		}
-		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-		if err != nil {
-			// A vacate whose host move landed without a recorded landing
-			// leaves the session outside every active worktree with the
-			// relocation request standing. The replay from the verified
-			// destination is the recovery: the core resolves it to the
-			// committed request and appends nothing, and the adapter-only
-			// vacate-landing verb records the landing and releases the
-			// session's rows in its own transaction, so no stale row strands
-			// the session from claiming other work.
-			var failure *store.Failure
-			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-				pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
-				if perr == nil {
-					result, merr := resolvePayload(pending)
-					return result, nil, []ChangedRef{}, merr
-				}
-				// The replay resolves a pending request, and a committed
-				// request whose recorded landing already completed resolves
-				// too while the session holds no rows: the caller's
-				// readback-verified landing call then replays idempotently
-				// with no event, so an uncertain landing result recovers
-				// (CD-0190 D3). Once a later claim's rows stand the completed
-				// request refuses with its completed state, not the generic
-				// no-active-worktree error, so the session learns its rows
-				// belong to that claim; no event appends either way.
-				var replayFailure *store.Failure
-				if errors.As(perr, &replayFailure) && replayFailure.Kind == store.KindInvalidOperation {
-					return nil, nil, nil, perr
-				}
-			}
-			return nil, nil, nil, err
-		}
-		// The request digest is caller-constant here: mutationDigest strips
-		// session identity and idempotency key by design, and the vacate
-		// input carries nothing else, so digest alone names no one. The event
-		// id must name the relocating session and the worktree's work item,
-		// or the first vacate ever recorded owns the id for every later
-		// session and each one refuses as a conflicting replay (CD-0120 D4).
-		// One relocation request of one work item by one session is the unit
-		// of identity: the recorded vacate count is the ordinal of this
-		// request. This event records the relocation request before the
-		// adapter moves the host session and leaves every occupancy row
-		// standing: the release waits for the verified landing the
-		// adapter-only vacate-landing verb records after the host readback
-		// names the destination, so a refused move, a destination mismatch,
-		// or an unreadable landing never leaves a live session in a worktree
-		// recorded as empty. Read-only work resume writes no event and no
-		// occupancy, and the worktree projection is identical before repeated
-		// vacates of the same work item by the same session, so the recorded
-		// operation count is the only projection that orders them.
-		vacated, err := store.CountWorkSessionVacatesTx(ctx, tx, target.WorkID, grant.SessionRef)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		eventID := fmt.Sprintf("%s:session-vacated:%s:%s:%d", digest, grant.SessionRef, target.WorkID, vacated+1)
-		payload, err := json.Marshal(map[string]any{
-			"work_id":               target.WorkID,
-			"project_id":            target.ProjectID,
-			"session_ref":           grant.SessionRef,
-			"source_directory":      target.SourceDirectory,
-			"destination_directory": target.DestinationDirectory,
-		})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{
-			EventID:        eventID,
-			Kind:           "work.session_vacated",
-			SubjectType:    store.SubjectWorkItem,
-			SubjectID:      target.WorkID,
-			Actor:          grant.PrincipalRef,
-			OccurredAt:     r.Authority.now(),
-			PayloadVersion: 2,
-			Payload:        payload,
-		}}}); err != nil {
-			return nil, nil, nil, err
-		}
-		result, err := json.Marshal(map[string]any{
-			"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
-			"next_valid_intents":    mutationResultIntents(plan.intents),
-			"work_id":               target.WorkID,
-			"project_id":            target.ProjectID,
-			"source_directory":      target.SourceDirectory,
-			"destination_directory": target.DestinationDirectory,
-		})
-		return result, []string{eventID}, []ChangedRef{}, err
+	// The replay decision reads the idempotency record inside this
+	// transaction: the caller's own commit is the state the replay must
+	// re-read, and a read outside the transaction could miss it.
+	key := idempotencyKey(raw)
+	prior, replayed, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	return Envelope{}, nil, false
+	if replayed && prior.CanonicalDigest != digest {
+		return nil, nil, nil, storeIdempotencyConflict(r.Operation, key)
+	}
+	if replayed {
+		// A same-key replay never appends and never answers from the
+		// cached success: it re-reads the committed request's state and
+		// resolves or refuses from it. A pending request resolves from
+		// the verified destination or from its source worktree, a
+		// completed request resolves while the session holds no rows,
+		// and a later claim's rows refuse with effect none — the host
+		// mover never runs on the refusal, so the session stays where it
+		// sits (CD-0190 D2/D3).
+		var recorded struct {
+			WorkID string `json:"work_id"`
+		}
+		_ = json.Unmarshal([]byte(prior.ResultPayload), &recorded)
+		target, rerr := store.ResolveSessionVacateReplayTx(ctx, tx, project, grant.Worktree, grant.SessionRef, recorded.WorkID)
+		if rerr != nil {
+			return nil, nil, nil, rerr
+		}
+		payload, merr := resolvePayload(target)
+		return payload, nil, []ChangedRef{}, merr
+	}
+	// CD-0190 D3: session_vacate called again re-reads the committed
+	// request's state whatever idempotency key the retry carries. A
+	// still-pending version 2 request whose source worktree is this one
+	// is the same relocation: the call answers through the replay
+	// resolution and appends nothing, so a retry under a new key never
+	// records a second relocation request for one move. A request its
+	// recorded landing already completed resolves no pending request
+	// here, so the fresh-request path below still records a re-occupied
+	// worktree's own new relocation (CD-0190 D2).
+	// Only a confirmed absence falls through to a fresh request: an
+	// unreadable or undecodable pending request refuses, so a failed
+	// lookup never records a second relocation request for one move.
+	pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+	if perr == nil {
+		result, merr := resolvePayload(pending)
+		return result, nil, []ChangedRef{}, merr
+	}
+	var pendingFailure *store.Failure
+	if !errors.As(perr, &pendingFailure) || pendingFailure.Kind != store.KindProjectionNotFound {
+		return nil, nil, nil, perr
+	}
+	target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+	if err != nil {
+		// A vacate whose host move landed without a recorded landing
+		// leaves the session outside every active worktree with the
+		// relocation request standing. The replay from the verified
+		// destination is the recovery: the core resolves it to the
+		// committed request and appends nothing, and the adapter-only
+		// vacate-landing verb records the landing and releases the
+		// session's rows in its own transaction, so no stale row strands
+		// the session from claiming other work.
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+			pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+			if perr == nil {
+				result, merr := resolvePayload(pending)
+				return result, nil, []ChangedRef{}, merr
+			}
+			// The replay resolves a pending request, and a committed
+			// request whose recorded landing already completed resolves
+			// too while the session holds no rows: the caller's
+			// readback-verified landing call then replays idempotently
+			// with no event, so an uncertain landing result recovers
+			// (CD-0190 D3). Once a later claim's rows stand the completed
+			// request refuses with its completed state, not the generic
+			// no-active-worktree error, so the session learns its rows
+			// belong to that claim; no event appends either way.
+			var replayFailure *store.Failure
+			if errors.As(perr, &replayFailure) && replayFailure.Kind == store.KindInvalidOperation {
+				return nil, nil, nil, perr
+			}
+		}
+		return nil, nil, nil, err
+	}
+	// The request digest is caller-constant here: mutationDigest strips
+	// session identity and idempotency key by design, and the vacate
+	// input carries nothing else, so digest alone names no one. The event
+	// id must name the relocating session and the worktree's work item,
+	// or the first vacate ever recorded owns the id for every later
+	// session and each one refuses as a conflicting replay (CD-0120 D4).
+	// One relocation request of one work item by one session is the unit
+	// of identity: the recorded vacate count is the ordinal of this
+	// request. This event records the relocation request before the
+	// adapter moves the host session and leaves every occupancy row
+	// standing: the release waits for the verified landing the
+	// adapter-only vacate-landing verb records after the host readback
+	// names the destination, so a refused move, a destination mismatch,
+	// or an unreadable landing never leaves a live session in a worktree
+	// recorded as empty. Read-only work resume writes no event and no
+	// occupancy, and the worktree projection is identical before repeated
+	// vacates of the same work item by the same session, so the recorded
+	// operation count is the only projection that orders them.
+	vacated, err := store.CountWorkSessionVacatesTx(ctx, tx, target.WorkID, grant.SessionRef)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	eventID := fmt.Sprintf("%s:session-vacated:%s:%s:%d", digest, grant.SessionRef, target.WorkID, vacated+1)
+	payload, err := json.Marshal(map[string]any{
+		"work_id":               target.WorkID,
+		"project_id":            target.ProjectID,
+		"session_ref":           grant.SessionRef,
+		"source_directory":      target.SourceDirectory,
+		"destination_directory": target.DestinationDirectory,
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{
+		EventID:        eventID,
+		Kind:           "work.session_vacated",
+		SubjectType:    store.SubjectWorkItem,
+		SubjectID:      target.WorkID,
+		Actor:          grant.PrincipalRef,
+		OccurredAt:     r.Authority.now(),
+		PayloadVersion: 2,
+		Payload:        payload,
+	}}}); err != nil {
+		return nil, nil, nil, err
+	}
+	result, err := json.Marshal(map[string]any{
+		"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
+		"next_valid_intents":    mutationResultIntents(intents),
+		"work_id":               target.WorkID,
+		"project_id":            target.ProjectID,
+		"source_directory":      target.SourceDirectory,
+		"destination_directory": target.DestinationDirectory,
+	})
+	return result, []string{eventID}, []ChangedRef{}, err
 }
 
 // planWorktreeDestroy plans concord_work_transition.worktree_destroy
@@ -3734,137 +3819,172 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 	consequence := string(op.Consequence)
 	intents := []NextIntent{{Tool: "concord_product_view", Operation: "snapshot", QueryID: "PM1.Q2", ReasonCode: "verify_product_project_link", RequiredFields: []string{"product_id"}}}
 
-	var response Envelope
-	var resultRejected bool
 	// The host probes before this mutation's transaction opens (CD-0195 D2);
 	// the authorization inside matches the probed host with SQL only.
 	host, hostErr := r.probeInvocationHost(ctx)
 	if hostErr != nil {
 		return failureEnvelope(base, hostErr), nil
 	}
+	mutation := productProjectLinkMutation{runtime: r, base: base, in: in, currentProducts: currentProducts, crossProduct: crossProduct, digest: digest, approval: approval, scope: scope, versions: versions, consequence: consequence, intents: intents, raw: raw, host: host}
 	err = r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
-		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
-		if !registered {
-			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
-		}
-		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
-		if inv.HostAssertionDigest == "" {
-			inv.HostAssertionDigest = digest
-		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-		if err != nil {
-			return err
-		}
-		// The preflight facts are re-read inside the transaction, so a Project
-		// Product scope that moved between the two reads refuses instead of
-		// linking.
-		byProjectTx, err := store.ProductsForProjectIDsTx(ctx, tx, []string{in.ProjectID})
-		if err != nil {
-			return err
-		}
-		txProducts := byProjectTx[in.ProjectID]
-		if !slices.Equal(currentProducts, txProducts) {
-			return newRuntimeFailure("version_conflict", "Project Product scope changed after authorization preflight", "reread_entities", false)
-		}
-		if !slices.Contains(txGrant.PolicyProjectScope, in.ProjectID) {
-			return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false)
-		}
-		for _, product := range txProducts {
-			if !slices.Contains(txGrant.PolicyProductScope, product) {
-				return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false)
-			}
-		}
-		if !slices.Contains(txGrant.PolicyProductScope, in.ProductID) {
-			return newRuntimeFailure("unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false)
-		}
-		if crossProduct && !containsCapability(txGrant.Capabilities, Capability("cross_scope")) {
-			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
-		}
-		key := idempotencyKey(raw)
-		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-		if err != nil {
-			return err
-		}
-		if found {
-			if prior.CanonicalDigest != digest {
-				return storeIdempotencyConflict(r.Operation, key)
-			}
-			var changed []ChangedRef
-			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
-			base.Replayed = true
-			base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
-			if response.Outcome == OutcomeError {
-				resultRejected = true
-				return errors.New("mutation result rejected")
-			}
-			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
-		}
-		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
-		// lookup, so a refused request records no idempotency effect and the
-		// same key may be reused with a lower budget.
-		if r.Budget.CeilingRefused {
-			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
-			resultRejected = true
-			return errors.New("budget admission refused")
-		}
-		challengeScope := boundedApprovalScope(scope)
-		// The existing-edge refusal sits after the replay window, so an exact
-		// replay of a recorded link keeps answering with its stored result.
-		if _, exists, err := store.ProductProjectMembershipRoleTx(ctx, tx, in.ProductID, in.ProjectID); err != nil {
-			return err
-		} else if exists {
-			return newRuntimeFailure("invalid_input", "Product membership already exists; changing an existing link role stays operator-owned", "reread_entities", false)
-		}
-		if approval == "" {
-			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-			if challengeErr != nil {
-				return challengeErr
-			}
-			response = coreError(base, "approval_required", "operator approval is required to link a Project into a Product", "request_approval", false)
-			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact Product, Project, role, and expected Product version for this link.", "operation_digest": digest, "product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role}
-			return nil
-		}
-		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		_, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck)
-		if approvalErr != nil {
-			response = failureEnvelope(base, approvalErr)
-			resultRejected = true
-			return errors.New("approval invalid")
-		}
-		scope["approval_ref"] = consumedApprovalRef
-		payload, payloadErr := json.Marshal(map[string]any{"product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
-		if payloadErr != nil {
-			return payloadErr
-		}
-		result, applyErr := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":product-project-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: in.ProductID, Actor: txGrant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, in.ProductID): in.ExpectedVersion}})
-		if applyErr != nil {
-			return applyErr
-		}
-		changed := []ChangedRef{{EntityKind: "product", ID: in.ProductID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		resultPayload, marshalErr := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs(changed), "next_valid_intents": mutationResultIntents(intents), "product_version": in.ExpectedVersion + 1, "affected_work_count": result.Impact.AffectedWorkCount, "total_affected_work_count": result.Impact.TotalAffectedWorkCount, "affected_work_ids": nonNilStrings(result.Impact.AffectedWorkIDs), "event_ids": nonNilStrings(result.EventIDs)})
-		if marshalErr != nil {
-			return marshalErr
-		}
-		base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-		response = r.mutationResult(base, resultPayload, changed, intents)
-		if response.Outcome == OutcomeError {
-			resultRejected = true
-			return errors.New("mutation result rejected")
-		}
-		changedJSON, _ := json.Marshal(changed)
-		responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, response, nil, true))
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(result.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
+		return mutation.applyTx(ctx, tx)
 	})
 	if err != nil {
-		if resultRejected {
-			return response, nil
+		if mutation.resultRejected {
+			return mutation.response, nil
 		}
-		return failureEnvelope(base, err), nil
+		return failureEnvelope(mutation.base, err), nil
 	}
-	return response, nil
+	return mutation.response, nil
+}
+
+type productProjectLinkMutation struct {
+	runtime
+	base                          Envelope
+	in                            productProjectAddInput
+	currentProducts               []string
+	crossProduct                  bool
+	digest, approval, consequence string
+	scope, versions               map[string]any
+	intents                       []NextIntent
+	raw                           []byte
+	host                          store.ResolvedProjectHost
+	response                      Envelope
+	resultRejected                bool
+}
+
+func (m *productProjectLinkMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
+	r, in, base := m.runtime, m.in, m.base
+	digest, approval, scope, versions, consequence, intents, raw, host := m.digest, m.approval, m.scope, m.versions, m.consequence, m.intents, m.raw, m.host
+	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	if !registered {
+		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+	}
+	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
+	// The preflight facts are re-read inside the transaction, so a Project
+	// Product scope that moved between the two reads refuses instead of
+	// linking.
+	if err := m.reauthorizeScopeTx(ctx, tx, txGrant); err != nil {
+		return err
+	}
+	key := idempotencyKey(raw)
+	prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+	if err != nil {
+		return err
+	}
+	if found {
+		if prior.CanonicalDigest != digest {
+			return storeIdempotencyConflict(r.Operation, key)
+		}
+		var changed []ChangedRef
+		_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+		base.Replayed = true
+		base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+		m.base = base
+		m.response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
+		if m.response.Outcome == OutcomeError {
+			m.resultRejected = true
+			return errors.New("mutation result rejected")
+		}
+		return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+	}
+	// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+	// lookup, so a refused request records no idempotency effect and the
+	// same key may be reused with a lower budget.
+	if r.Budget.CeilingRefused {
+		m.response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+		m.resultRejected = true
+		return errors.New("budget admission refused")
+	}
+	challengeScope := boundedApprovalScope(scope)
+	// The existing-edge refusal sits after the replay window, so an exact
+	// replay of a recorded link keeps answering with its stored result.
+	if _, exists, err := store.ProductProjectMembershipRoleTx(ctx, tx, in.ProductID, in.ProjectID); err != nil {
+		return err
+	} else if exists {
+		return newRuntimeFailure("invalid_input", "Product membership already exists; changing an existing link role stays operator-owned", "reread_entities", false)
+	}
+	if approval == "" {
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+		challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+		if challengeErr != nil {
+			return challengeErr
+		}
+		m.response = coreError(base, "approval_required", "operator approval is required to link a Project into a Product", "request_approval", false)
+		m.response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+		m.response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact Product, Project, role, and expected Product version for this link.", "operation_digest": digest, "product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role}
+		return nil
+	}
+	approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
+	_, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck)
+	if approvalErr != nil {
+		m.response = failureEnvelope(base, approvalErr)
+		m.resultRejected = true
+		return errors.New("approval invalid")
+	}
+	scope["approval_ref"] = consumedApprovalRef
+	return m.recordLinkTx(ctx, tx, txGrant, key, challengeScope)
+}
+
+func (m *productProjectLinkMutation) reauthorizeScopeTx(ctx context.Context, tx *store.Transaction, grant Authority) error {
+	in := m.in
+	byProject, err := store.ProductsForProjectIDsTx(ctx, tx, []string{in.ProjectID})
+	if err != nil {
+		return err
+	}
+	products := byProject[in.ProjectID]
+	if !slices.Equal(m.currentProducts, products) {
+		return newRuntimeFailure("version_conflict", "Project Product scope changed after authorization preflight", "reread_entities", false)
+	}
+	if !slices.Contains(grant.PolicyProjectScope, in.ProjectID) {
+		return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s is outside trusted client Project policy", in.ProjectID), "contact_operator", false)
+	}
+	for _, product := range products {
+		if !slices.Contains(grant.PolicyProductScope, product) {
+			return newRuntimeFailure("unauthorized", fmt.Sprintf("Project %s belongs to Product %s, which is outside trusted client Product policy", in.ProjectID, product), "contact_operator", false)
+		}
+	}
+	if !slices.Contains(grant.PolicyProductScope, in.ProductID) {
+		return newRuntimeFailure("unauthorized", fmt.Sprintf("destination Product %s is outside trusted client Product policy", in.ProductID), "contact_operator", false)
+	}
+	if m.crossProduct && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+		return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+	}
+	return nil
+}
+
+func (m *productProjectLinkMutation) recordLinkTx(ctx context.Context, tx *store.Transaction, txGrant Authority, key string, challengeScope map[string]any) error {
+	r, in, base, digest, intents := m.runtime, m.in, m.base, m.digest, m.intents
+	payload, payloadErr := json.Marshal(map[string]any{"product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role, "reason": in.Reason, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
+	if payloadErr != nil {
+		return payloadErr
+	}
+	result, applyErr := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":product-project-added", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: in.ProductID, Actor: txGrant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, in.ProductID): in.ExpectedVersion}})
+	if applyErr != nil {
+		return applyErr
+	}
+	changed := []ChangedRef{{EntityKind: "product", ID: in.ProductID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
+	resultPayload, marshalErr := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs(changed), "next_valid_intents": mutationResultIntents(intents), "product_version": in.ExpectedVersion + 1, "affected_work_count": result.Impact.AffectedWorkCount, "total_affected_work_count": result.Impact.TotalAffectedWorkCount, "affected_work_ids": nonNilStrings(result.Impact.AffectedWorkIDs), "event_ids": nonNilStrings(result.EventIDs)})
+	if marshalErr != nil {
+		return marshalErr
+	}
+	base.ResolvedScope = &Scope{ProductID: in.ProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+	m.base = base
+	m.response = r.mutationResult(base, resultPayload, changed, intents)
+	if m.response.Outcome == OutcomeError {
+		m.resultRejected = true
+		return errors.New("mutation result rejected")
+	}
+	changedJSON, _ := json.Marshal(changed)
+	responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, m.response, nil, true))
+	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(result.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
 }
 
 // stalePolicyConflict is the typed stale-policy refusal of the grant route.
@@ -3930,141 +4050,177 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 	consequence := string(op.Consequence)
 	intents := []NextIntent{}
 
-	var response Envelope
-	var resultRejected bool
 	// The host probes before this mutation's transaction opens (CD-0195 D2);
 	// the authorization inside matches the probed host with SQL only.
 	host, hostErr := r.probeInvocationHost(ctx)
 	if hostErr != nil {
 		return failureEnvelope(base, hostErr), nil
 	}
+	mutation := clientPolicyGrantMutation{runtime: r, base: base, in: in, additions: additions, proposal: proposal, digest: digest, approval: approval, challengeScope: challengeScope, versions: versions, consequence: consequence, intents: intents, raw: raw, host: host}
 	err = r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
-		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
-		if !registered {
-			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
-		}
-		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
-		if inv.HostAssertionDigest == "" {
-			inv.HostAssertionDigest = digest
-		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-		if err != nil {
-			return err
-		}
-		key := idempotencyKey(raw)
-		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-		if err != nil {
-			return err
-		}
-		if found {
-			// The replay window sits before the stale-policy gate: an exact
-			// replay of a recorded expansion keeps answering with its stored
-			// result even though the additions are now held and the derived
-			// diff would be empty.
-			if prior.CanonicalDigest != digest {
-				return storeIdempotencyConflict(r.Operation, key)
-			}
-			var changed []ChangedRef
-			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
-			base.Replayed = true
-			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, intents)
-			if response.Outcome == OutcomeError {
-				resultRejected = true
-				return errors.New("mutation result rejected")
-			}
-			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
-		}
-		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
-		// lookup, so a refused request records no idempotency effect and the
-		// same key may be reused with a lower budget.
-		if r.Budget.CeilingRefused {
-			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
-			resultRejected = true
-			return errors.New("budget admission refused")
-		}
-		// The proposal is re-derived inside the transaction against the stored
-		// policy, so an expansion applied by any route between the preflight
-		// and this read refuses instead of approving a stale diff.
-		txClient, _, err := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
-		if err != nil {
-			return err
-		}
-		txProposal, proposalErr := DeriveTrustedClientPolicyExpansion(txClient, additions)
-		if proposalErr != nil {
-			return proposalErr
-		}
-		if !equalPolicyExpansion(proposal, txProposal) {
-			response = stalePolicyConflict(base, txClient)
-			resultRejected = true
-			return errors.New("stale trusted client policy")
-		}
-		if approval != "" {
-			// The challenge binds the policy version its diff was derived
-			// against. A policy that moved between the mint and the approval
-			// means the operator approved a diff against a policy state that
-			// no longer exists, so the route refuses typed before the
-			// assertion check, leaving challenge and approval unconsumed.
-			if challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, approval); challengeErr == nil {
-				var recordedScope map[string]any
-				if json.Unmarshal([]byte(challenge.ScopeJSON), &recordedScope) == nil {
-					if minted, _ := recordedScope["policy_version"].(string); minted != "" && minted != txProposal.PolicyVersion {
-						response = stalePolicyConflict(base, txClient)
-						resultRejected = true
-						return errors.New("approval binds a stale policy version")
-					}
-				}
-			}
-		}
-		if approval == "" {
-			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-			if challengeErr != nil {
-				return challengeErr
-			}
-			response = coreError(base, "approval_required", "operator approval is required to widen the calling client's own policy", "request_approval", false)
-			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.", "operation_digest": digest, "client_ref": proposal.ClientRef, "policy_version": proposal.PolicyVersion, "reason": in.Reason}
-			return nil
-		}
-		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
-			response = failureEnvelope(base, approvalErr)
-			resultRejected = true
-			return errors.New("approval invalid")
-		}
-		if err := store.MutateTrustedClientPolicyTx(ctx, tx, r.Envelope.ClientRef, unionPolicyExpansion(r.Operation, canonicalPolicy(additions))); err != nil {
-			return err
-		}
-		// Read back what actually persisted so the result reports the stored
-		// policy version, not the intention.
-		stored, _, readErr := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
-		if readErr != nil {
-			return readErr
-		}
-		policyVersion := TrustedClientPolicyVersion(stored)
-		resultPayload, marshalErr := json.Marshal(map[string]any{"client_ref": stored.ClientRef, "policy_version": policyVersion, "added_capabilities": capabilityStrings(proposal.Capabilities), "added_product_scope": proposal.ProductScope, "added_project_scope": proposal.ProjectScope, "added_agent_scope": proposal.AgentScope})
-		if marshalErr != nil {
-			return marshalErr
-		}
-		changed := []ChangedRef{{EntityKind: "trusted_client", ID: stored.ClientRef, Version: policyVersion}}
-		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-		response = r.mutationResult(base, resultPayload, changed, intents)
-		if response.Outcome == OutcomeError {
-			resultRejected = true
-			return errors.New("mutation result rejected")
-		}
-		changedJSON, _ := json.Marshal(changed)
-		responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, response, nil, true))
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
+		return mutation.applyTx(ctx, tx)
 	})
 	if err != nil {
-		if resultRejected {
-			return response, nil
+		if mutation.resultRejected {
+			return mutation.response, nil
 		}
-		return failureEnvelope(base, err), nil
+		return failureEnvelope(mutation.base, err), nil
 	}
-	return response, nil
+	return mutation.response, nil
+}
+
+type clientPolicyGrantMutation struct {
+	runtime
+	base                          Envelope
+	in                            clientPolicyGrantRequestInput
+	additions                     TrustedClientPolicy
+	proposal                      PolicyExpansionProposal
+	digest, approval, consequence string
+	challengeScope, versions      map[string]any
+	intents                       []NextIntent
+	raw                           []byte
+	host                          store.ResolvedProjectHost
+	response                      Envelope
+	resultRejected                bool
+}
+
+func (m *clientPolicyGrantMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
+	r, in, base := m.runtime, m.in, m.base
+	digest, approval, challengeScope, versions, consequence, raw, host := m.digest, m.approval, m.challengeScope, m.versions, m.consequence, m.raw, m.host
+	contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
+	if !registered {
+		return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
+	}
+	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
+	key := idempotencyKey(raw)
+	prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+	if err != nil {
+		return err
+	}
+	if found {
+		// The replay window sits before the stale-policy gate: an exact
+		// replay of a recorded expansion keeps answering with its stored
+		// result even though the additions are now held and the derived
+		// diff would be empty.
+		if prior.CanonicalDigest != digest {
+			return storeIdempotencyConflict(r.Operation, key)
+		}
+		var changed []ChangedRef
+		_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+		base.Replayed = true
+		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+		m.base = base
+		m.response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, m.intents)
+		if m.response.Outcome == OutcomeError {
+			m.resultRejected = true
+			return errors.New("mutation result rejected")
+		}
+		return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+	}
+	// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+	// lookup, so a refused request records no idempotency effect and the
+	// same key may be reused with a lower budget.
+	if r.Budget.CeilingRefused {
+		m.response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+		m.resultRejected = true
+		return errors.New("budget admission refused")
+	}
+	// The proposal is re-derived inside the transaction against the stored
+	// policy, so an expansion applied by any route between the preflight
+	// and this read refuses instead of approving a stale diff.
+	if err := m.recheckProposalTx(ctx, tx); err != nil {
+		return err
+	}
+	if approval == "" {
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+		challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+		if challengeErr != nil {
+			return challengeErr
+		}
+		m.response = coreError(base, "approval_required", "operator approval is required to widen the calling client's own policy", "request_approval", false)
+		m.response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+		m.response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.", "operation_digest": digest, "client_ref": m.proposal.ClientRef, "policy_version": m.proposal.PolicyVersion, "reason": in.Reason}
+		return nil
+	}
+	approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
+	if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
+		m.response = failureEnvelope(base, approvalErr)
+		m.resultRejected = true
+		return errors.New("approval invalid")
+	}
+	if err := store.MutateTrustedClientPolicyTx(ctx, tx, r.Envelope.ClientRef, unionPolicyExpansion(r.Operation, canonicalPolicy(m.additions))); err != nil {
+		return err
+	}
+	return m.recordExpansionTx(ctx, tx, txGrant, key)
+}
+
+func (m *clientPolicyGrantMutation) recheckProposalTx(ctx context.Context, tx *store.Transaction) error {
+	r := m.runtime
+	txClient, _, err := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
+	if err != nil {
+		return err
+	}
+	txProposal, proposalErr := DeriveTrustedClientPolicyExpansion(txClient, m.additions)
+	if proposalErr != nil {
+		return proposalErr
+	}
+	if !equalPolicyExpansion(m.proposal, txProposal) {
+		m.response = stalePolicyConflict(m.base, txClient)
+		m.resultRejected = true
+		return errors.New("stale trusted client policy")
+	}
+	if m.approval == "" {
+		return nil
+	}
+	// A policy that moved after minting refuses before the assertion check,
+	// leaving challenge and approval unconsumed.
+	challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, m.approval)
+	if challengeErr != nil {
+		return nil
+	}
+	var recordedScope map[string]any
+	if json.Unmarshal([]byte(challenge.ScopeJSON), &recordedScope) != nil {
+		return nil
+	}
+	if minted, _ := recordedScope["policy_version"].(string); minted != "" && minted != txProposal.PolicyVersion {
+		m.response = stalePolicyConflict(m.base, txClient)
+		m.resultRejected = true
+		return errors.New("approval binds a stale policy version")
+	}
+	return nil
+}
+
+func (m *clientPolicyGrantMutation) recordExpansionTx(ctx context.Context, tx *store.Transaction, txGrant Authority, key string) error {
+	r, base, proposal, digest, intents, challengeScope := m.runtime, m.base, m.proposal, m.digest, m.intents, m.challengeScope
+	// Read back what actually persisted so the result reports the stored
+	// policy version, not the intention.
+	stored, _, readErr := store.TrustedClientWithKeyTx(ctx, tx, r.Envelope.ClientRef)
+	if readErr != nil {
+		return readErr
+	}
+	policyVersion := TrustedClientPolicyVersion(stored)
+	resultPayload, marshalErr := json.Marshal(map[string]any{"client_ref": stored.ClientRef, "policy_version": policyVersion, "added_capabilities": capabilityStrings(proposal.Capabilities), "added_product_scope": proposal.ProductScope, "added_project_scope": proposal.ProjectScope, "added_agent_scope": proposal.AgentScope})
+	if marshalErr != nil {
+		return marshalErr
+	}
+	changed := []ChangedRef{{EntityKind: "trusted_client", ID: stored.ClientRef, Version: policyVersion}}
+	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+	m.base = base
+	m.response = r.mutationResult(base, resultPayload, changed, intents)
+	if m.response.Outcome == OutcomeError {
+		m.resultRejected = true
+		return errors.New("mutation result rejected")
+	}
+	changedJSON, _ := json.Marshal(changed)
+	responseScope, _ := json.Marshal(mutationResponseScope(challengeScope, m.response, nil, true))
+	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: txGrant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ObservedAt: r.Authority.now()})
 }
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
@@ -4410,110 +4566,142 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		claimScope["head_ref"] = resolvedHome.HeadRef
 	}
 	acceptedScope, _ := json.Marshal(claimScope)
-	var changed []ChangedRef
-	var resultPayload json.RawMessage
-	var retainedPinless []string
-	var result Envelope
-	captureResult := func(tx *store.Transaction) error {
-		pin, available, pinErr := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, workID, nil)
-		if pinErr != nil {
-			return pinErr
-		}
-		// Compaction archives a note without advancing the live work version.
-		changed = []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}}
-		var pins []store.WorkPin
-		var pinless []string
-		if available {
-			pins = []store.WorkPin{pin}
-		} else {
-			pinless = []string{workID}
-		}
-		var intents []NextIntent
-		var err error
-		resultPayload, intents, err = enrichMutationPayload(mutationPayload(changed, nil), pins)
-		if err != nil {
-			return err
-		}
-		retainedPinless = pinless
-		resultBase := base
-		resultBase.Omissions = append(resultBase.Omissions, mutationPinOmissions(pinless)...)
-		result = r.mutationResult(resultBase, resultPayload, changed, intents, pinless...)
-		if result.Outcome == OutcomeError {
-			return errors.New(result.Error.Message)
-		}
-		return nil
-	}
+	mutation := compactionMutation{runtime: r, base: base, raw: raw, digest: digest, op: op, publishInput: publish, reconcileInput: reconcile, key: key, workID: workID, opID: opID, scope: scope, resolvedHome: resolvedHome, inv: inv, host: host, grant: grant, acceptedScope: string(acceptedScope)}
 	if op.ID == "concord_work_compact.publish" {
-		if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
-			challengeScope := boundedApprovalScope(scope)
-			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			var challengeRef string
-			if err := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
-				var err error
-				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-				return err
-			}); err != nil {
-				return failureEnvelope(base, err), nil
-			}
-			response := coreError(base, "approval_required", "core approval is required for publication", "request_approval", false)
-			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest}
-			return response, nil
-		}
-		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
-		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-			// CD-0222 D7: publication is consequential, so the claim refuses
-			// before any git note is written when the contract's law revision
-			// pins or its active Domain overlaps no longer validate.
-			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
-				return err
-			}
-			if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
-				return err
-			}
-			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
-			return err
-		})
-		if claimErr != nil {
-			return failureEnvelope(base, claimErr), nil
-		}
-		if claim.ResultKind == store.ResultCompleted {
-			changed := decodeChangedRefs(claim.ChangedRefs)
-			base.Replayed = claim.Replayed
-			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
-			resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(claim.ResultPayload), changed)
-			if enrichErr != nil {
-				return failureEnvelope(base, enrichErr), nil
-			}
-			return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, derivedIntents, pinless), nil
-		}
-		var committed store.CommittedNote
-		var verified store.VerifiedNote
-		completed, failedStep, publishErr := r.runPublication([]publicationStep{
-			{ID: "git_write", Phase: "git_publish", Run: func() (err error) {
-				committed, err = store.PublishCanonicalNote(ctx, resolvedHome, workID, publish.Content, publish.ContentDigest)
-				return err
-			}},
-			{ID: "commit_verification", Phase: "verify_commit", Run: func() (err error) {
-				verified, err = store.VerifyCommittedNote(ctx, resolvedHome.RepoPath, committed.CommitOID, committed.NotePath, publish.ContentDigest)
-				return err
-			}},
-			{ID: "sqlite_link", Phase: "record_locator", Run: func() error {
-				return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish", WithinTx: captureResult})
-			}},
-		})
-		if publishErr != nil {
-			return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
-		}
-		changedJSON, _ := json.Marshal(changed[0])
-		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(resultPayload, retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
-		if completeErr != nil {
-			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
-		}
-		base.Replayed = complete.Replayed
-		return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, *result.NextValidIntents, retainedPinless), nil
+		return mutation.publish(ctx)
 	}
+	return mutation.reconcile(ctx)
+}
+
+type compactionMutation struct {
+	runtime
+	base              Envelope
+	raw               []byte
+	digest            string
+	op                ContractOperation
+	publishInput      compactPublishInput
+	reconcileInput    compactReconcileInput
+	key, workID, opID string
+	scope             map[string]any
+	resolvedHome      store.KnowledgeHome
+	inv               Invocation
+	host              store.ResolvedProjectHost
+	grant             Authority
+	acceptedScope     string
+	changed           []ChangedRef
+	resultPayload     json.RawMessage
+	retainedPinless   []string
+	result            Envelope
+}
+
+func (m *compactionMutation) captureResultTx(ctx context.Context, tx *store.Transaction) error {
+	r, workID := m.runtime, m.workID
+	pin, available, pinErr := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, workID, nil)
+	if pinErr != nil {
+		return pinErr
+	}
+	// Compaction archives a note without advancing the live work version.
+	m.changed = []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(pin.Version, 10)}}
+	var pins []store.WorkPin
+	var pinless []string
+	if available {
+		pins = []store.WorkPin{pin}
+	} else {
+		pinless = []string{workID}
+	}
+	var intents []NextIntent
+	var err error
+	m.resultPayload, intents, err = enrichMutationPayload(mutationPayload(m.changed, nil), pins)
+	if err != nil {
+		return err
+	}
+	m.retainedPinless = pinless
+	resultBase := m.base
+	resultBase.Omissions = append(resultBase.Omissions, mutationPinOmissions(pinless)...)
+	m.result = r.mutationResult(resultBase, m.resultPayload, m.changed, intents, pinless...)
+	if m.result.Outcome == OutcomeError {
+		return errors.New(m.result.Error.Message)
+	}
+	return nil
+}
+
+func (m *compactionMutation) publish(ctx context.Context) (Envelope, error) {
+	r, publish, base, workID := m.runtime, m.publishInput, m.base, m.workID
+	digest, op, scope, inv, host, opID, grant, key, resolvedHome := m.digest, m.op, m.scope, m.inv, m.host, m.opID, m.grant, m.key, m.resolvedHome
+	if publish.Approval == nil || publish.Approval.ApprovalRef == "" {
+		challengeScope := boundedApprovalScope(scope)
+		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+		var challengeRef string
+		if err := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
+			var err error
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+			return err
+		}); err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		response := coreError(base, "approval_required", "core approval is required for publication", "request_approval", false)
+		response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
+		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest}
+		return response, nil
+	}
+	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
+	m.base = base
+	claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: m.acceptedScope, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
+	claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
+		// CD-0222 D7: publication is consequential, so the claim refuses
+		// before any git note is written when the contract's law revision
+		// pins or its active Domain overlaps no longer validate.
+		if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
+			return err
+		}
+		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
+			return err
+		}
+		_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+		return err
+	})
+	if claimErr != nil {
+		return failureEnvelope(base, claimErr), nil
+	}
+	if claim.ResultKind == store.ResultCompleted {
+		changed := decodeChangedRefs(claim.ChangedRefs)
+		base.Replayed = claim.Replayed
+		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{workID}, ScopeVersion: r.Envelope.ScopeVersion}
+		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(claim.ResultPayload), changed)
+		if enrichErr != nil {
+			return failureEnvelope(base, enrichErr), nil
+		}
+		return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, derivedIntents, pinless), nil
+	}
+	var committed store.CommittedNote
+	var verified store.VerifiedNote
+	completed, failedStep, publishErr := r.runPublication([]publicationStep{
+		{ID: "git_write", Phase: "git_publish", Run: func() (err error) {
+			committed, err = store.PublishCanonicalNote(ctx, resolvedHome, workID, publish.Content, publish.ContentDigest)
+			return err
+		}},
+		{ID: "commit_verification", Phase: "verify_commit", Run: func() (err error) {
+			verified, err = store.VerifyCommittedNote(ctx, resolvedHome.RepoPath, committed.CommitOID, committed.NotePath, publish.ContentDigest)
+			return err
+		}},
+		{ID: "sqlite_link", Phase: "record_locator", Run: func() error {
+			return store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: opID + ":link", WorkID: workID, ExpectedVersion: publish.ExpectedVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: resolvedHome, CommitOID: verified.CommitOID, NotePath: verified.NotePath, ExpectedHash: publish.ContentDigest, Reason: "agent compaction publish", WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }})
+		}},
+	})
+	if publishErr != nil {
+		return pendingCompaction(base, workID, claim, failedStep, completed, publishErr), nil
+	}
+	changedJSON, _ := json.Marshal(m.changed[0])
+	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(m.resultPayload, m.retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+	if completeErr != nil {
+		return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
+	}
+	base.Replayed = complete.Replayed
+	return r.finishPublishedCompaction(ctx, base, workID, m.resultPayload, m.changed, *m.result.NextValidIntents, m.retainedPinless), nil
+}
+
+func (m *compactionMutation) reconcile(ctx context.Context) (Envelope, error) {
+	r, base, reconcile := m.runtime, m.base, m.reconcileInput
 	if reconcile.OperationID == "" && reconcile.WorkID != "" {
 		if reconcile.ExpectedWorkVersion <= 0 {
 			return coreError(base, "invalid_input", "orphan discovery requires expected_work_version", "reread_entities", false), nil
@@ -4545,20 +4733,19 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		reconcile.WorkID = step.WorkID
 	}
 	if step.ResultKind == store.ResultCompleted {
-		changed := make([]ChangedRef, 0, len(step.ChangedRefs))
-		for _, rawRef := range step.ChangedRefs {
-			var ref ChangedRef
-			if json.Unmarshal([]byte(rawRef), &ref) == nil {
-				changed = append(changed, ref)
-			}
-		}
+		changed := decodeChangedRefs(step.ChangedRefs)
 		resultPayload, derivedIntents, pinless, enrichErr := r.replayMutationPayload(json.RawMessage(step.ResultPayload), changed)
 		if enrichErr != nil {
 			return failureEnvelope(base, enrichErr), nil
 		}
 		return r.finishPublishedCompaction(ctx, base, reconcile.WorkID, resultPayload, changed, derivedIntents, pinless), nil
 	}
-	claimScope = map[string]any{}
+	return m.reconcilePending(ctx, reconcile, step)
+}
+
+func (m *compactionMutation) reconcilePending(ctx context.Context, reconcile compactReconcileInput, step store.FenceResult) (Envelope, error) {
+	r, base, grant := m.runtime, m.base, m.grant
+	claimScope := map[string]any{}
 	_ = json.Unmarshal([]byte(step.AcceptedScopeSnapshot), &claimScope)
 	workVersion := reconcile.ExpectedWorkVersion
 	if workVersion == 0 {
@@ -4593,21 +4780,22 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if workVersion <= 0 {
 		return pendingCompaction(base, reconcile.WorkID, step, "resolve_work_version", nil, fmt.Errorf("durable publication did not retain terminal work version")), nil
 	}
-	workID = reconcile.WorkID
+	m.workID = reconcile.WorkID
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
+	m.base = base
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
 	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
-	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt, WithinTx: captureResult}); linkErr != nil {
+	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt, WithinTx: func(tx *store.Transaction) error { return m.captureResultTx(ctx, tx) }}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
 	}
-	changedJSON, _ := json.Marshal(changed[0])
-	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(resultPayload, retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
+	changedJSON, _ := json.Marshal(m.changed[0])
+	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(retainCompactionPinless(m.resultPayload, m.retainedPinless)), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(m.raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
 	}
 	base.Replayed = complete.Replayed
-	return r.finishPublishedCompaction(ctx, base, workID, resultPayload, changed, *result.NextValidIntents, retainedPinless), nil
+	return r.finishPublishedCompaction(ctx, base, m.workID, m.resultPayload, m.changed, *m.result.NextValidIntents, m.retainedPinless), nil
 }
 
 // Cleanup follows settlement, never the link callback. A deferred cleanup does
@@ -5093,13 +5281,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 }
 
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, plannedInitialDurability *bool, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
-	var response Envelope
-	var resultRejected bool
-	var cachedReplay bool
-	// A native finalize defers the idempotency record until the committed
-	// event's native work completes, so a failed removal never leaves a
-	// cached success for the same key to replay (CD-0195 D2).
-	var deferredInsert *store.MutationIdempotencyInsert
 	// Durability resolves before any effect: the operation's declaration is
 	// the baseline, a planner fact replaces it, and a missing or unknown
 	// declaration is an invariant failure, never an ordinary write.
@@ -5121,149 +5302,13 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	if hostErr != nil {
 		return Envelope{}, hostErr
 	}
-	baseApprovalRequirement := requiresApproval
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, versions: versions, consequence: consequence, approval: approval, baseApprovalRequirement: requiresApproval, governingConflict: governingConflict, intents: intents, effect: effect, host: host, contractOp: contractOp, nativeFinalize: nativeFinalize}
 	mutation := func(tx *store.Transaction) error {
-		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
-		if inv.HostAssertionDigest == "" {
-			inv.HostAssertionDigest = digest
-		}
-		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-		if err != nil {
-			return err
-		}
-		if err := store.CheckMemberOperationTx(ctx, tx, memberWorkflowActor(grant), memberOperationScope(raw, r.Envelope, contractOp)); err != nil {
-			return err
-		}
-		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
-		if err != nil {
-			return err
-		}
-		requiresApproval = baseApprovalRequirement || crossProduct
-		if crossProduct && !durable {
-			// SQL-only scope discovery runs before any effect or challenge.
-			// Reopen under FULL and revalidate scope before issuing authority.
-			return errApprovalDurabilityRequired
-		}
-		key := idempotencyKey(raw)
-		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-		if err != nil {
-			return err
-		}
-		replay := false
-		if found {
-			if prior.CanonicalDigest != digest {
-				return storeIdempotencyConflict(r.Operation, key)
-			}
-			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
-				// A refusal reuses the replay result-rejection path below:
-				// the open transaction rolls back with no receipt touch.
-				if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(base, raw, prior); admissionErr != nil {
-					return admissionErr
-				} else if refused {
-					response = refusal
-					resultRejected = true
-					return errors.New("mutation result rejected")
-				}
-				var replayErr error
-				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, grant, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
-				cachedReplay = replayErr == nil
-				return replayErr
-			}
-			// session_vacate and project_handoff_consume replay state-driven:
-			// the cached payload is stale the moment a later claim's occupancy
-			// rows stand, or the moment the consume bind names another
-			// receiving session or the active contract moved on, so the
-			// effect below re-reads the recorded state and resolves or
-			// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
-			// tail touches instead of inserting.
-			replay = true
-		}
-		// CD-0222 D7: every consequential boundary validates the contract's law
-		// revision pins and its active Domain overlaps. The guarded set is the
-		// action classes D7 names, and no wider: D7 also holds that read-only
-		// inspection remains available, and an operation that records no
-		// workflow state sits outside every class it lists.
-		if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
-			for _, workID := range mutationScopeWorkIDs(scope) {
-				if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
-					return err
-				}
-			}
-		}
-		// CD-0038 D3: the seconds ceiling is admitted after the idempotency
-		// lookup above, for the same reason the workflow-action path states.
-		// A refused request records no idempotency effect, so the same key may
-		// be reused with a lower budget.
-		if r.Budget.CeilingRefused {
-			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
-			resultRejected = true
-			return errors.New("budget admission refused")
-		}
-		if requiresApproval && approval == "" {
-			challenge, challengeErr := r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, base, digest, scope, versions, consequence, governingConflict)
-			if challengeErr != nil {
-				return challengeErr
-			}
-			response = challenge
-			return nil
-		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
-			return err
-		}
-		if requiresApproval {
-			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-			_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck)
-			if err != nil {
-				response = failureEnvelope(base, err)
-				resultRejected = true
-				return errors.New("approval invalid")
-			}
-			scope["approval_ref"] = consumedApprovalRef
-		}
-		// Admission rolls back before native reads. The execution transaction
-		// consumes approval only at commit.
-		payload, eventIDs, changed, err := effect(ctx, tx, grant)
-		if err != nil {
-			return err
-		}
-		payload, derivedIntents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, payload, changed, eventIDs...)
-		if err != nil {
-			return err
-		}
-		if derivedIntents != nil {
-			intents = derivedIntents
-		}
-		base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-		base.ResolvedScope = scopeFromMap(scope)
-		if base.ResolvedScope == nil {
-			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-		}
-		if replay {
-			base.Replayed = true
-		}
-		response = r.mutationResult(base, payload, changed, intents, pinless...)
-		if response.Outcome == OutcomeError {
-			resultRejected = true
-			return errors.New("mutation result rejected")
-		}
-		if replay {
-			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
-		}
-		// Retain the list the response reported: an effect that changed no
-		// auxiliary reference commits an explicit empty list, never null.
-		changedJSON, _ := json.Marshal(*response.ChangedRefs)
-		authorizedSnapshot := mutationResponseScope(scope, response, pinless, requiresApproval)
-		authorizedSnapshot["durable_commit"] = durable
-		authorizedScope, _ := json.Marshal(authorizedSnapshot)
-		insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
-		if nativeFinalize != nil {
-			// A cached success cannot precede the native removal it reports.
-			deferredInsert = &insert
-			return nil
-		}
-		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
+		return execution.executeTx(ctx, tx, durable)
 	}
 	err := r.executeAdmittedMutation(&ctx, &durable, mutation)
+	base, response := execution.base, execution.response
+	resultRejected, cachedReplay, deferredInsert := execution.resultRejected, execution.cachedReplay, execution.deferredInsert
 	transact := r.Store.Transact
 	if durable {
 		transact = r.Store.TransactDurable
@@ -5311,6 +5356,187 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		return failureEnvelope(base, err), nil
 	}
 	return response, nil
+}
+
+type mutationExecution struct {
+	runtime
+	base                                      Envelope
+	raw                                       []byte
+	digest, consequence, approval             string
+	scope, versions                           map[string]any
+	baseApprovalRequirement, requiresApproval bool
+	governingConflict                         []string
+	intents                                   []NextIntent
+	effect                                    mutationEffect
+	host                                      store.ResolvedProjectHost
+	contractOp                                ContractOperation
+	nativeFinalize                            func(context.Context) error
+	response                                  Envelope
+	resultRejected, cachedReplay              bool
+	// A native finalize defers the receipt until native work completes, so
+	// failed removal never leaves a cached success (CD-0195 D2).
+	deferredInsert *store.MutationIdempotencyInsert
+}
+
+func (m *mutationExecution) executeTx(ctx context.Context, tx *store.Transaction, durable bool) error {
+	r, raw, digest, scope := m.runtime, m.raw, m.digest, m.scope
+	inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: m.contractOp.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+	if inv.HostAssertionDigest == "" {
+		inv.HostAssertionDigest = digest
+	}
+	grant, err := r.Authority.AuthorizeTx(ctx, tx, m.host, inv)
+	if err != nil {
+		return err
+	}
+	if err := store.CheckMemberOperationTx(ctx, tx, memberWorkflowActor(grant), memberOperationScope(raw, r.Envelope, m.contractOp)); err != nil {
+		return err
+	}
+	crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
+	if err != nil {
+		return err
+	}
+	m.requiresApproval = m.baseApprovalRequirement || crossProduct
+	if crossProduct && !durable {
+		// SQL-only scope discovery runs before any effect or challenge.
+		// Reopen under FULL and revalidate scope before issuing authority.
+		return errApprovalDurabilityRequired
+	}
+	key := idempotencyKey(raw)
+	prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+	if err != nil {
+		return err
+	}
+	replay := false
+	if found {
+		if prior.CanonicalDigest != digest {
+			return storeIdempotencyConflict(r.Operation, key)
+		}
+		if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
+			return m.replayTx(ctx, tx, prior, grant, key)
+		}
+		// session_vacate and project_handoff_consume replay state-driven:
+		// the cached payload is stale the moment a later claim's occupancy
+		// rows stand, or the moment the consume bind names another
+		// receiving session or the active contract moved on, so the
+		// effect below re-reads the recorded state and resolves or
+		// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
+		// tail touches instead of inserting.
+		replay = true
+	}
+	if stop, err := m.admitTx(ctx, tx, inv, grant); err != nil || stop {
+		return err
+	}
+	return m.applyTx(ctx, tx, grant, key, replay, durable)
+}
+
+func (m *mutationExecution) replayTx(ctx context.Context, tx *store.Transaction, prior store.MutationIdempotencyRecord, grant Authority, key string) error {
+	r := m.runtime
+	// A refusal rolls back with no receipt touch.
+	if refusal, refused, admissionErr := r.replayRoutineClaimAdmission(m.base, m.raw, prior); admissionErr != nil {
+		return admissionErr
+	} else if refused {
+		m.response = refusal
+		m.resultRejected = true
+		return errors.New("mutation result rejected")
+	}
+	var replayErr error
+	m.response, m.resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, m.base, prior, grant, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+	m.cachedReplay = replayErr == nil
+	return replayErr
+}
+
+func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority) (bool, error) {
+	r, raw, base, scope := m.runtime, m.raw, m.base, m.scope
+	// CD-0222 D7: every consequential boundary validates the contract's law
+	// revision pins and its active Domain overlaps. The guarded set is the
+	// action classes D7 names, and no wider: D7 also holds that read-only
+	// inspection remains available, and an operation that records no
+	// workflow state sits outside every class it lists.
+	if mutationRequiresConsequentialBoundary(r.Tool, r.Operation, raw) {
+		for _, workID := range mutationScopeWorkIDs(scope) {
+			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
+				return false, err
+			}
+		}
+	}
+	// CD-0038 D3: the seconds ceiling is admitted after the idempotency
+	// lookup above, for the same reason the workflow-action path states.
+	// A refused request records no idempotency effect, so the same key may
+	// be reused with a lower budget.
+	if r.Budget.CeilingRefused {
+		m.response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+		m.resultRejected = true
+		return false, errors.New("budget admission refused")
+	}
+	if m.requiresApproval && m.approval == "" {
+		challenge, challengeErr := r.approvalChallengeEnvelopeTx(ctx, tx, m.host, inv, base, m.digest, scope, m.versions, m.consequence, m.governingConflict)
+		if challengeErr != nil {
+			return false, challengeErr
+		}
+		m.response = challenge
+		return true, nil
+	}
+	if _, err := r.Authority.AuthorizeTx(ctx, tx, m.host, inv); err != nil {
+		return false, err
+	}
+	if m.requiresApproval {
+		approvalCheck := ApprovalCheck{ApprovalRef: m.approval, OperationDigest: m.digest, Scope: boundedApprovalScope(scope), Versions: m.versions, Consequence: m.consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
+		_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, m.host, inv, grant, approvalCheck)
+		if err != nil {
+			m.response = failureEnvelope(base, err)
+			m.resultRejected = true
+			return false, errors.New("approval invalid")
+		}
+		scope["approval_ref"] = consumedApprovalRef
+	}
+	return false, nil
+}
+
+func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, grant Authority, key string, replay, durable bool) error {
+	r, scope, base := m.runtime, m.scope, m.base
+	// Admission rolls back before native reads. The execution transaction
+	// consumes approval only at commit.
+	payload, eventIDs, changed, err := m.effect(ctx, tx, grant)
+	if err != nil {
+		return err
+	}
+	payload, derivedIntents, pinless, err := r.enrichMutationPayloadTx(ctx, tx, payload, changed, eventIDs...)
+	if err != nil {
+		return err
+	}
+	if derivedIntents != nil {
+		m.intents = derivedIntents
+	}
+	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
+	base.ResolvedScope = scopeFromMap(scope)
+	if base.ResolvedScope == nil {
+		base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+	}
+	if replay {
+		base.Replayed = true
+	}
+	m.base = base
+	m.response = r.mutationResult(base, payload, changed, m.intents, pinless...)
+	if m.response.Outcome == OutcomeError {
+		m.resultRejected = true
+		return errors.New("mutation result rejected")
+	}
+	if replay {
+		return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+	}
+	// Retain the list the response reported: an effect that changed no
+	// auxiliary reference commits an explicit empty list, never null.
+	changedJSON, _ := json.Marshal(*m.response.ChangedRefs)
+	authorizedSnapshot := mutationResponseScope(scope, m.response, pinless, m.requiresApproval)
+	authorizedSnapshot["durable_commit"] = durable
+	authorizedScope, _ := json.Marshal(authorizedSnapshot)
+	insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: m.digest, OperationID: "mutation-" + m.digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
+	if m.nativeFinalize != nil {
+		// A cached success cannot precede the native removal it reports.
+		m.deferredInsert = &insert
+		return nil
+	}
+	return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 }
 
 // deriveAuthorizedProductsTx derives the mutation's Product scope inside the

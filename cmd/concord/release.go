@@ -365,67 +365,117 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// took the admission lock — is adopted with its own identity and is
 	// never this run's to remove; removal is identity-checked so a no-op or
 	// failed run cannot delete another operation's exclusion.
-	openedFenceID := ""
-	fenceIsOurs := false
+	boundary := upgradeFence{dataRoot: dataRoot}
 	if maintenanceRequired {
-		root, binary, err := selfRelease()
-		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		candidate, err := hostlease.NewFenceID()
-		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		ensured, err := hostlease.EnsureFence(dataRoot, hostlease.Fence{
-			FenceID:       candidate,
-			Operation:     hostlease.FenceOperationUpgrade,
-			ReleaseRoot:   root,
-			CoreBinary:    binary,
-			SchemaVersion: store.CurrentSchemaVersion(),
-			Notice:        "session admission reopens when the prepared release activates; activation command: " + activationCommandFor(dataRoot),
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		fenceIsOurs = ensured.FenceID == candidate
-		openedFenceID = ensured.FenceID
-		if !fenceIsOurs {
-			// An adopted boundary authorizes this migration only when it
-			// is provably this same command's own opening: the upgrade
-			// operation, this release root, this binary, this schema —
-			// the legitimate failed-migration and committed-migration
-			// recovery tie. Anything else — no operation, a foreign
-			// operation, another release's identity, or an uncertain
-			// hand-written record — stays untouched on disk and moves no
-			// migration.
-			if !ensured.AuthorizesNativeMigration(root, binary, store.CurrentSchemaVersion()) {
-				writeOperatorDiagnostic(errOut, "upgrade",
-					fmt.Sprintf("an open maintenance boundary at %s is not this binary's own upgrade boundary (operation %q, release root %q, core binary %q, schema %d); an unattributed or foreign boundary authorizes no migration and stays unchanged. Close it through the operator-owned offline bootstrap when no migration is in progress",
-						hostlease.FencePath(dataRoot), ensured.Operation, ensured.ReleaseRoot, ensured.CoreBinary, ensured.SchemaVersion))
-				return 1
-			}
+		var code int
+		boundary, code = openUpgradeFence(dataRoot, errOut)
+		if code != 0 {
+			return code
 		}
 	}
-	// closeOwnedFence closes only the boundary this run opened, by identity.
-	closeOwnedFence := func() {
-		if !fenceIsOurs {
-			return
+	held, code := boundary.observeSessions(maintenanceRequired, request.ConfirmSessionsStopped, errOut)
+	if code != 0 {
+		return code
+	}
+	// Every boundary-owned mutation requires a verified snapshot. A failed
+	// session check or snapshot applies no migration or cancellation.
+	snapshotPath := ""
+	if maintenanceRequired {
+		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
+			boundary.close(errOut)
+			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+			return 1
 		}
-		if removeErr := hostlease.RemoveFenceOwned(dataRoot, openedFenceID); removeErr != nil {
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
+		var present bool
+		snapshotPath, present, err = snapshotBeforeMutation(path, dataRoot, "upgrade", version.Value)
+		if err == nil && !present {
+			err = fmt.Errorf("source database %s disappeared before the snapshot", path)
+		}
+		if err != nil {
+			boundary.close(errOut)
+			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
+			return 1
 		}
 	}
+	report, err := store.Upgrade(context.Background(), path, held, options)
+	if err != nil {
+		return boundary.reportFailure(err, path, plan.PendingBreaking, options, snapshotPath, errOut)
+	}
+	return boundary.finish(report, plan.PendingBreaking, fenceBefore, snapshotPath, out, errOut)
+}
+
+// upgradeFence owns only the boundary this invocation opened. An adopted
+// boundary can authorize migration, but this invocation never removes it.
+type upgradeFence struct {
+	dataRoot string
+	id       string
+	owned    bool
+}
+
+func openUpgradeFence(dataRoot string, errOut io.Writer) (upgradeFence, int) {
+	boundary := upgradeFence{dataRoot: dataRoot}
+	root, binary, err := selfRelease()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+		return boundary, 1
+	}
+	candidate, err := hostlease.NewFenceID()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+		return boundary, 1
+	}
+	ensured, err := hostlease.EnsureFence(dataRoot, hostlease.Fence{
+		FenceID:       candidate,
+		Operation:     hostlease.FenceOperationUpgrade,
+		ReleaseRoot:   root,
+		CoreBinary:    binary,
+		SchemaVersion: store.CurrentSchemaVersion(),
+		Notice:        "session admission reopens when the prepared release activates; activation command: " + activationCommandFor(dataRoot),
+	})
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+		return boundary, 1
+	}
+	boundary.owned = ensured.FenceID == candidate
+	boundary.id = ensured.FenceID
+	if !boundary.owned {
+		// An adopted boundary authorizes this migration only when it
+		// is provably this same command's own opening: the upgrade
+		// operation, this release root, this binary, this schema —
+		// the legitimate failed-migration and committed-migration
+		// recovery tie. Anything else — no operation, a foreign
+		// operation, another release's identity, or an uncertain
+		// hand-written record — stays untouched on disk and moves no
+		// migration.
+		if !ensured.AuthorizesNativeMigration(root, binary, store.CurrentSchemaVersion()) {
+			writeOperatorDiagnostic(errOut, "upgrade",
+				fmt.Sprintf("an open maintenance boundary at %s is not this binary's own upgrade boundary (operation %q, release root %q, core binary %q, schema %d); an unattributed or foreign boundary authorizes no migration and stays unchanged. Close it through the operator-owned offline bootstrap when no migration is in progress",
+					hostlease.FencePath(dataRoot), ensured.Operation, ensured.ReleaseRoot, ensured.CoreBinary, ensured.SchemaVersion))
+			return boundary, 1
+		}
+	}
+	return boundary, 0
+}
+
+func (boundary upgradeFence) close(errOut io.Writer) {
+	if !boundary.owned {
+		return
+	}
+	if removeErr := hostlease.RemoveFenceOwned(boundary.dataRoot, boundary.id); removeErr != nil {
+		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
+	}
+}
+
+func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSessionsStopped bool, errOut io.Writer) ([]store.HeldSchema, int) {
+	dataRoot := boundary.dataRoot
 	// The lease list is read after the fence is in place, so the check
 	// store.Upgrade performs is the final one: no session can be admitted
 	// between it and the migration while the boundary is open.
 	live, err := hostlease.List(dataRoot)
 	if err != nil {
-		closeOwnedFence()
+		boundary.close(errOut)
 		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+diagnosticText(err))
-		return 1
+		return nil, 1
 	}
 	// A legacy lease names a core that admits sessions without reading the
 	// fence, so the boundary cannot exclude it: an unfenceable participant.
@@ -445,12 +495,12 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			legacy = append(legacy, holder)
 		}
 		if len(legacy) > 0 {
-			closeOwnedFence()
+			boundary.close(errOut)
 			writeOperatorDiagnostic(errOut, "upgrade",
 				"an incompatible migration requires every live session's release to honor the maintenance fence; unfenceable legacy participant(s) hold the boundary open: "+
 					strings.Join(legacy, "; ")+
 					"; end or move those sessions to this release, then re-run concord upgrade")
-			return 1
+			return nil, 1
 		}
 	}
 	// An installed release tree that carries no fence-protocol marker names a
@@ -463,23 +513,23 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	if maintenanceRequired {
 		selfRoot, _, err := selfRelease()
 		if err != nil {
-			closeOwnedFence()
+			boundary.close(errOut)
 			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
+			return nil, 1
 		}
 		unfenceable, err := unfenceableReleaseRoots(dataRoot, selfRoot)
 		if err != nil {
-			closeOwnedFence()
+			boundary.close(errOut)
 			writeOperatorDiagnostic(errOut, "upgrade", "cannot enumerate installed release trees: "+diagnosticText(err))
-			return 1
+			return nil, 1
 		}
-		if len(unfenceable) > 0 && !request.ConfirmSessionsStopped {
-			closeOwnedFence()
+		if len(unfenceable) > 0 && !confirmSessionsStopped {
+			boundary.close(errOut)
 			writeOperatorDiagnostic(errOut, "upgrade",
 				"release tree(s) without a fence-protocol marker can start a session the maintenance fence cannot exclude: "+
 					strings.Join(unfenceable, "; ")+
 					`; make sure no session runs on them, then re-run with {"confirm_sessions_stopped":true}`)
-			return 1
+			return nil, 1
 		}
 		if len(unfenceable) > 0 {
 			writeOperatorDiagnostic(errOut, "upgrade",
@@ -491,56 +541,42 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	for _, lease := range live {
 		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
-	// Every boundary-owned mutation requires a verified snapshot. A failed
-	// session check or snapshot applies no migration or cancellation.
-	snapshotPath := ""
-	if maintenanceRequired {
-		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
-			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
-			return 1
-		}
-		var present bool
-		snapshotPath, present, err = snapshotBeforeMutation(path, dataRoot, "upgrade", version.Value)
-		if err == nil && !present {
-			err = fmt.Errorf("source database %s disappeared before the snapshot", path)
-		}
-		if err != nil {
-			closeOwnedFence()
-			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %s", snapshotPath, diagnosticText(err)))
-			return 1
-		}
+	return held, 0
+}
+
+func (boundary upgradeFence) reportFailure(err error, path string, pendingBreaking []store.PendingMigration, options store.UpgradeOptions, snapshotPath string, errOut io.Writer) int {
+	dataRoot := boundary.dataRoot
+	diagnostic := diagnosticText(err)
+	if snapshotPath != "" {
+		diagnostic += "\nverified database snapshot: " + snapshotPath
 	}
-	report, err := store.Upgrade(context.Background(), path, held, options)
-	if err != nil {
-		diagnostic := diagnosticText(err)
-		if snapshotPath != "" {
-			diagnostic += "\nverified database snapshot: " + snapshotPath
-		}
-		// The error may sit after the commit: Upgrade applies every
-		// migration and then finishes the open, and a post-commit
-		// finishOpen refusal does not uncommit a breaking step. Re-read
-		// readiness and keep the boundary open when any pending breaking
-		// step committed: the older releases are unusable from here, and
-		// only the prepared candidate's activation may reopen admission.
-		if breakingCommittedAfterFailure(path, plan.PendingBreaking, options) {
-			if fence, fenceErr := hostlease.ReadFence(dataRoot); fenceErr == nil && fence != nil {
-				writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
-					"\nthe incompatible migration committed before this failure; session admission stays excluded until the prepared release activates; activation command: "+
-					activationCommandFor(dataRoot))
-				return 1
-			}
+	// The error may sit after the commit: Upgrade applies every
+	// migration and then finishes the open, and a post-commit
+	// finishOpen refusal does not uncommit a breaking step. Re-read
+	// readiness and keep the boundary open when any pending breaking
+	// step committed: the older releases are unusable from here, and
+	// only the prepared candidate's activation may reopen admission.
+	if breakingCommittedAfterFailure(path, pendingBreaking, options) {
+		if fence, fenceErr := hostlease.ReadFence(dataRoot); fenceErr == nil && fence != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
-				"\nthe incompatible migration committed before this failure, but the admission fence is not observable; treat admission as excluded and re-run the activation")
+				"\nthe incompatible migration committed before this failure; session admission stays excluded until the prepared release activates; activation command: "+
+				activationCommandFor(dataRoot))
 			return 1
 		}
-		closeOwnedFence()
-		writeOperatorDiagnostic(errOut, "upgrade", diagnostic)
+		writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
+			"\nthe incompatible migration committed before this failure, but the admission fence is not observable; treat admission as excluded and re-run the activation")
 		return 1
 	}
+	boundary.close(errOut)
+	writeOperatorDiagnostic(errOut, "upgrade", diagnostic)
+	return 1
+}
+
+func (boundary upgradeFence) finish(report store.UpgradeReport, pendingBreaking []store.PendingMigration, fenceBefore *hostlease.Fence, snapshotPath string, out, errOut io.Writer) int {
+	dataRoot := boundary.dataRoot
 	breakingCommitted := false
 	for _, version := range report.Applied {
-		for _, pending := range plan.PendingBreaking {
+		for _, pending := range pendingBreaking {
 			if version == pending.Version {
 				breakingCommitted = true
 			}
@@ -557,11 +593,11 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return 1
 		}
 		fence = current
-	} else if fenceIsOurs {
+	} else if boundary.owned {
 		// No breaking step committed under this run's boundary, so the
 		// boundary this run opened closes — by identity, so a boundary a
 		// concurrent operation opened in between survives untouched.
-		if removeErr := hostlease.RemoveFenceOwned(dataRoot, openedFenceID); removeErr != nil {
+		if removeErr := hostlease.RemoveFenceOwned(dataRoot, boundary.id); removeErr != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
 			return 1
 		}

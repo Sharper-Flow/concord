@@ -699,76 +699,89 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	// These parent-observed stamps record when the parent CLI recorded evidence, not when the child worked.
 	switch command {
 	case "worker-dispatch":
-		var request workerDispatchRequest
-		if err := decodeObject(raw, &request); err != nil {
+		return runWorkerDispatch(ctx, command, raw, s, service, clock, out, errOut)
+	case "worker-complete", "worker-fail", "worker-abandon":
+		return runWorkerTerminalCommand(ctx, command, raw, s, service, clock, out, errOut)
+	}
+	writeOperatorDiagnostic(errOut, command, "unsupported command")
+	return 2
+}
+
+func runWorkerDispatch(ctx context.Context, command string, raw []byte, s *store.Store, service *agent.Service, clock func() time.Time, out, errOut io.Writer) int {
+	var request workerDispatchRequest
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	lane, err := store.LookupLane(request.LaneID, request.LaneDigest)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	if err := store.ValidateWorkerHostProvenance(request.HostProvenance); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	if request.HostProvenance == nil {
+		writeOperatorDiagnostic(errOut, command, "worker-dispatch v3 evidence requires host_provenance (CD-0034: host injection is permitted only when recorded)")
+		return 1
+	}
+	// CD-0067 D6: the dispatch assertion quotes the digest the core
+	// recorded on the dispatch_worker authorization. The adapter
+	// never computes the digest itself, so the CLI is the seam that
+	// guarantees the value the assertion claims is the value the
+	// core recorded. A missing or malformed digest is a refused
+	// request — the gate then checks the recorded digest equals
+	// what the adapter signed.
+	if !workerPacketDigestPattern.MatchString(request.PacketDigest) {
+		writeOperatorDiagnostic(errOut, command, "worker-dispatch requires packet_digest (sha256:64 hex) — the canonical lane-packet digest the dispatch authorization recorded (CD-0067)")
+		return 1
+	}
+	binding := agent.WorkerEvidenceBinding{
+		Verb:                 agent.WorkerEvidenceVerbDispatch,
+		WorkID:               request.WorkID,
+		AttemptID:            request.AttemptID,
+		LaneID:               request.LaneID,
+		LaneDigest:           request.LaneDigest,
+		ReadbackModel:        request.ReadbackModel,
+		FailureKind:          request.TerminalFailureKind,
+		HostProvenanceDigest: request.HostProvenance.Digest,
+		PacketDigest:         request.PacketDigest,
+	}
+	if request.Terminal != "" && request.Terminal != "failed" {
+		writeOperatorDiagnostic(errOut, command, "worker-dispatch terminal must be empty or 'failed'")
+		return 1
+	}
+	if (request.Terminal == "failed") != (request.TerminalFailureKind != "") {
+		writeOperatorDiagnostic(errOut, command, "worker-dispatch terminal='failed' and terminal_failure_kind are declared together")
+		return 1
+	}
+	// only a born-failed terminal record carries attribution; an
+	// ordinary dispatch opens no terminal outcome to attribute.
+	if request.FailureAttribution != nil && request.Terminal != "failed" {
+		writeOperatorDiagnostic(errOut, command, "worker-dispatch carries failure_attribution only on a born-failed terminal record")
+		return 1
+	}
+	attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	binding.Version = attributionVersion
+	binding.ObservationDigest = attributionDigest
+	payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
+	if len(request.AuthorizedPacket) != 0 {
+		if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
 			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+			writeWorkerEvidenceFailure(out, errOut, err, nil)
 			return 1
 		}
-		lane, err := store.LookupLane(request.LaneID, request.LaneDigest)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if err := store.ValidateWorkerHostProvenance(request.HostProvenance); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if request.HostProvenance == nil {
-			writeOperatorDiagnostic(errOut, command, "worker-dispatch v3 evidence requires host_provenance (CD-0034: host injection is permitted only when recorded)")
-			return 1
-		}
-		// CD-0067 D6: the dispatch assertion quotes the digest the core
-		// recorded on the dispatch_worker authorization. The adapter
-		// never computes the digest itself, so the CLI is the seam that
-		// guarantees the value the assertion claims is the value the
-		// core recorded. A missing or malformed digest is a refused
-		// request — the gate then checks the recorded digest equals
-		// what the adapter signed.
-		if !workerPacketDigestPattern.MatchString(request.PacketDigest) {
-			writeOperatorDiagnostic(errOut, command, "worker-dispatch requires packet_digest (sha256:64 hex) — the canonical lane-packet digest the dispatch authorization recorded (CD-0067)")
-			return 1
-		}
-		binding := agent.WorkerEvidenceBinding{
-			Verb:                 agent.WorkerEvidenceVerbDispatch,
-			WorkID:               request.WorkID,
-			AttemptID:            request.AttemptID,
-			LaneID:               request.LaneID,
-			LaneDigest:           request.LaneDigest,
-			ReadbackModel:        request.ReadbackModel,
-			FailureKind:          request.TerminalFailureKind,
-			HostProvenanceDigest: request.HostProvenance.Digest,
-			PacketDigest:         request.PacketDigest,
-		}
-		if request.Terminal != "" && request.Terminal != "failed" {
-			writeOperatorDiagnostic(errOut, command, "worker-dispatch terminal must be empty or 'failed'")
-			return 1
-		}
-		if (request.Terminal == "failed") != (request.TerminalFailureKind != "") {
-			writeOperatorDiagnostic(errOut, command, "worker-dispatch terminal='failed' and terminal_failure_kind are declared together")
-			return 1
-		}
-		// only a born-failed terminal record carries attribution; an
-		// ordinary dispatch opens no terminal outcome to attribute.
-		if request.FailureAttribution != nil && request.Terminal != "failed" {
-			writeOperatorDiagnostic(errOut, command, "worker-dispatch carries failure_attribution only on a born-failed terminal record")
-			return 1
-		}
-		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		binding.Version = attributionVersion
-		binding.ObservationDigest = attributionDigest
-		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
-		if len(request.AuthorizedPacket) != 0 {
-			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
-				writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-				writeWorkerEvidenceFailure(out, errOut, err, nil)
-				return 1
-			}
-		}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+	}
+	return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.CurrentEventPayloadVersion(store.WorkerDispatched), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+}
+
+func runWorkerTerminalCommand(ctx context.Context, command string, raw []byte, s *store.Store, service *agent.Service, clock func() time.Time, out, errOut io.Writer) int {
+	switch command {
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -872,82 +885,9 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	}
 	var eventIDs []string
 	err := s.TransactDurable(ctx, func(tx *store.Transaction) error {
-		existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
-		if lookupErr != nil {
-			return lookupErr
-		}
-		if binding.Verb != agent.WorkerEvidenceVerbDispatch {
-			attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
-			if err != nil {
-				return err
-			}
-			if attempt.WorkID != binding.WorkID {
-				return errors.New("worker attempt belongs to a different work item")
-			}
-			if store.WorkerAttemptIsTerminal(attempt) && !found {
-				return errors.New("worker attempt already reached a terminal outcome")
-			}
-			binding.LaneID = attempt.LaneID
-			binding.LaneDigest = attempt.LaneDigest
-		}
-		if binding.Verb == agent.WorkerEvidenceVerbDispatch && !found {
-			// The dispatch window integrity check runs after the attempt
-			// lookup (a no-op for dispatch) and before the assertion
-			// validation: a worker that fails this gate cannot consume a
-			// signed assertion nonce. CD-0067 D6 makes packet digest part
-			// of the gate so evidence that quotes a different packet is
-			// refused before the signature is verified.
-			if err := store.ValidateWorkerDispatchWindow(ctx, tx, binding.WorkID, "", binding.AttemptID, binding.PacketDigest); err != nil {
-				return err
-			}
-		}
-		principal, err := service.ValidateWorkerEvidenceAssertionTx(ctx, tx, assertion, binding)
-		if err != nil {
-			return err
-		}
-		event.Actor = "client:" + assertion.ClientRef + ":" + principal
-		if found {
-			if err := store.ValidateWorkerEvidenceReplayWindow(ctx, tx, binding.WorkID, binding.AttemptID, binding.PacketDigest); err != nil {
-				return err
-			}
-			// CD-0208 D1: the acknowledgment compares against the stored
-			// event's original payload version and complete payload. The
-			// transport carries no user version, so the comparison event is
-			// reconstructed at the stored row's own version, with the
-			// lane-actor enrichment derived again from the authenticated
-			// identity when the original dispatch shape carried one.
-			acknowledgment, err := reconstructWorkerEvidenceAck(ctx, tx, existing, event, "principal:"+principal, "client:"+assertion.ClientRef)
-			if err != nil {
-				return err
-			}
-			if !sameWorkerEvidence(existing, acknowledgment) {
-				return errors.New("worker evidence event identity conflicts with an existing event")
-			}
-			eventIDs = []string{existing.EventID}
-			return nil
-		}
-		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
-			// Issue #800 / CD-0017 D4: the dispatched lane is the step's
-			// executing actor. The actor is recorded and pinned in the same
-			// transaction as the attempt, from the host identity that
-			// authenticated the dispatch.
-			prepared, prepareErr := store.PrepareLaneActorDispatch(ctx, tx, event, "principal:"+principal, "client:"+assertion.ClientRef)
-			if prepareErr != nil {
-				return prepareErr
-			}
-			result, applyErr := store.AppendLaneActorDispatchTx(ctx, tx, prepared)
-			if applyErr != nil {
-				return applyErr
-			}
-			eventIDs = result.EventIDs
-			return nil
-		}
-		result, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, event)
-		if err != nil {
-			return err
-		}
-		eventIDs = result.EventIDs
-		return nil
+		var ingestErr error
+		eventIDs, ingestErr = ingestWorkerEvidenceTx(ctx, tx, service, assertion, binding, event)
+		return ingestErr
 	})
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
@@ -962,6 +902,82 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		return 1
 	}
 	return writeOperatorResult(command, s, eventIDs, nil, out, errOut)
+}
+
+func ingestWorkerEvidenceTx(ctx context.Context, tx *store.Transaction, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event) ([]string, error) {
+	existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
+	if lookupErr != nil {
+		return nil, lookupErr
+	}
+	if binding.Verb != agent.WorkerEvidenceVerbDispatch {
+		attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
+		if err != nil {
+			return nil, err
+		}
+		if attempt.WorkID != binding.WorkID {
+			return nil, errors.New("worker attempt belongs to a different work item")
+		}
+		if store.WorkerAttemptIsTerminal(attempt) && !found {
+			return nil, errors.New("worker attempt already reached a terminal outcome")
+		}
+		binding.LaneID = attempt.LaneID
+		binding.LaneDigest = attempt.LaneDigest
+	}
+	if binding.Verb == agent.WorkerEvidenceVerbDispatch && !found {
+		// The dispatch window integrity check runs after the attempt
+		// lookup (a no-op for dispatch) and before the assertion
+		// validation: a worker that fails this gate cannot consume a
+		// signed assertion nonce. CD-0067 D6 makes packet digest part
+		// of the gate so evidence that quotes a different packet is
+		// refused before the signature is verified.
+		if err := store.ValidateWorkerDispatchWindow(ctx, tx, binding.WorkID, "", binding.AttemptID, binding.PacketDigest); err != nil {
+			return nil, err
+		}
+	}
+	principal, err := service.ValidateWorkerEvidenceAssertionTx(ctx, tx, assertion, binding)
+	if err != nil {
+		return nil, err
+	}
+	event.Actor = "client:" + assertion.ClientRef + ":" + principal
+	if found {
+		if err := store.ValidateWorkerEvidenceReplayWindow(ctx, tx, binding.WorkID, binding.AttemptID, binding.PacketDigest); err != nil {
+			return nil, err
+		}
+		// CD-0208 D1: the acknowledgment compares against the stored
+		// event's original payload version and complete payload. The
+		// transport carries no user version, so the comparison event is
+		// reconstructed at the stored row's own version, with the
+		// lane-actor enrichment derived again from the authenticated
+		// identity when the original dispatch shape carried one.
+		acknowledgment, err := reconstructWorkerEvidenceAck(ctx, tx, existing, event, "principal:"+principal, "client:"+assertion.ClientRef)
+		if err != nil {
+			return nil, err
+		}
+		if !sameWorkerEvidence(existing, acknowledgment) {
+			return nil, errors.New("worker evidence event identity conflicts with an existing event")
+		}
+		return []string{existing.EventID}, nil
+	}
+	if binding.Verb == agent.WorkerEvidenceVerbDispatch {
+		// CD-0017 D4: the dispatched lane is the step's
+		// executing actor. The actor is recorded and pinned in the same
+		// transaction as the attempt, from the host identity that
+		// authenticated the dispatch.
+		prepared, prepareErr := store.PrepareLaneActorDispatch(ctx, tx, event, "principal:"+principal, "client:"+assertion.ClientRef)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		result, applyErr := store.AppendLaneActorDispatchTx(ctx, tx, prepared)
+		if applyErr != nil {
+			return nil, applyErr
+		}
+		return result.EventIDs, nil
+	}
+	result, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, event)
+	if err != nil {
+		return nil, err
+	}
+	return result.EventIDs, nil
 }
 
 func mustMarshalWorkerPayload(value any) []byte {
@@ -1119,10 +1135,42 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 }
 
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
-	ctx := context.Background()
 	switch command {
 	case "client-show":
 		return runClientShow(raw, s, out, errOut)
+	case "client-register", "client-policy-update", "client-policy-expand":
+		return runClientPolicyCommand(command, raw, service, s, out, errOut)
+	case "client-key-rotate", "client-revoke":
+		return runClientKeyCommand(command, raw, service, s, out, errOut)
+	case "project-locator-add", "project-locator-update", "project-locator-remove":
+		return runProjectLocatorCommand(command, raw, s, out, errOut)
+	case "product-create":
+		return runProductCreate(command, raw, s, out, errOut)
+	case "resource-create", "resource-share", "domain-project-attachments-replace", "domain-resource-attachments-replace":
+		return runResourceDomainCommand(command, raw, s, clock, out, errOut)
+	case "project-create", "product-project-add", "product-stage-update":
+		return runProductProjectCommand(command, raw, s, out, errOut)
+	case "product-knowledge-home-designate", "product-knowledge-home-clear", "product-knowledge-source-register", "product-knowledge-source-remove":
+		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
+	case "backup":
+		return runBackup(command, raw, s, out, errOut)
+	case "worktree-locate":
+		return runWorktreeLocate(raw, s, out, errOut)
+	case "project-resolve":
+		return runProjectResolve(raw, s, out, errOut)
+	case "cd-reservations":
+		return runCDReservations(raw, s, out, errOut)
+	case "predecessor-import":
+		return runPredecessorImport(raw, s, out, errOut)
+	default:
+		writeOperatorDiagnostic(errOut, command, "unsupported command")
+		return 2
+	}
+}
+
+func runClientPolicyCommand(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
 	case "client-register":
 		var request struct {
 			ClientRef    string   `json:"client_ref"`
@@ -1196,6 +1244,15 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
+	default:
+		writeOperatorDiagnostic(errOut, command, "unsupported command")
+		return 2
+	}
+}
+
+func runClientKeyCommand(command string, raw []byte, service *agent.Service, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
 	case "client-key-rotate":
 		var request struct {
 			ClientRef string `json:"client_ref"`
@@ -1229,6 +1286,15 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, nil, out, errOut)
+	default:
+		writeOperatorDiagnostic(errOut, command, "unsupported command")
+		return 2
+	}
+}
+
+func runProjectLocatorCommand(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
 	case "project-locator-add", "project-locator-update":
 		var request struct {
 			ProjectID       string            `json:"project_id"`
@@ -1265,31 +1331,43 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, nil, []operatorRef{{EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
-	case "product-create":
-		var request struct {
-			ProductID          string `json:"product_id"`
-			DisplayName        string `json:"display_name"`
-			StageMaturity      string `json:"stage_maturity"`
-			StageAudience      string `json:"stage_audience_commitment"`
-			ProjectID          string `json:"project_id"`
-			ProjectDisplayName string `json:"project_display_name"`
-			Role               string `json:"role"`
-			MembershipReason   string `json:"reason"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		result, err := s.CreateProductWithProject(ctx, store.ProductCreation{
-			ProductID: request.ProductID, DisplayName: request.DisplayName, StageMaturity: request.StageMaturity,
-			StageAudienceCommitment: request.StageAudience, ProjectID: request.ProjectID,
-			ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+	default:
+		writeOperatorDiagnostic(errOut, command, "unsupported command")
+		return 2
+	}
+}
+
+func runProductCreate(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	var request struct {
+		ProductID          string `json:"product_id"`
+		DisplayName        string `json:"display_name"`
+		StageMaturity      string `json:"stage_maturity"`
+		StageAudience      string `json:"stage_audience_commitment"`
+		ProjectID          string `json:"project_id"`
+		ProjectDisplayName string `json:"project_display_name"`
+		Role               string `json:"role"`
+		MembershipReason   string `json:"reason"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	result, err := s.CreateProductWithProject(ctx, store.ProductCreation{
+		ProductID: request.ProductID, DisplayName: request.DisplayName, StageMaturity: request.StageMaturity,
+		StageAudienceCommitment: request.StageAudience, ProjectID: request.ProjectID,
+		ProjectDisplayName: request.ProjectDisplayName, Role: request.Role, Reason: request.MembershipReason,
+	})
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
+}
+
+func runResourceDomainCommand(command string, raw []byte, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`
@@ -1390,6 +1468,15 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	default:
+		writeOperatorDiagnostic(errOut, command, "unsupported command")
+		return 2
+	}
+}
+
+func runProductProjectCommand(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	switch command {
 	case "project-create":
 		var request struct {
 			ProjectID          string `json:"project_id"`
@@ -1433,8 +1520,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "product-knowledge-home-designate", "product-knowledge-home-clear", "product-knowledge-source-register", "product-knowledge-source-remove":
-		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
 	case "product-stage-update":
 		var request struct {
 			ProductID               string `json:"product_id"`
@@ -1456,40 +1541,35 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "backup":
-		var request struct {
-			Destination string `json:"destination"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if request.Destination == s.Path() {
-			writeOperatorDiagnostic(errOut, command, "backup destination equals the live database path; choose a separate snapshot path")
-			return 1
-		}
-		manifest, err := store.Backup(ctx, s, request.Destination)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
-			writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-			return 1
-		}
-		return writeJSON(out, manifest, errOut)
-	case "worktree-locate":
-		return runWorktreeLocate(raw, s, out, errOut)
-	case "project-resolve":
-		return runProjectResolve(raw, s, out, errOut)
-	case "cd-reservations":
-		return runCDReservations(raw, s, out, errOut)
-	case "predecessor-import":
-		return runPredecessorImport(raw, s, out, errOut)
 	default:
 		writeOperatorDiagnostic(errOut, command, "unsupported command")
 		return 2
 	}
+}
+
+func runBackup(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	ctx := context.Background()
+	var request struct {
+		Destination string `json:"destination"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	if request.Destination == s.Path() {
+		writeOperatorDiagnostic(errOut, command, "backup destination equals the live database path; choose a separate snapshot path")
+		return 1
+	}
+	manifest, err := store.Backup(ctx, s, request.Destination)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	return writeJSON(out, manifest, errOut)
 }
 
 // runPredecessorInventory validates a harvest snapshot and emits the bounded

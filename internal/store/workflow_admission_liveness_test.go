@@ -1360,7 +1360,7 @@ func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 				}
 				return
 			}
-			for _, witness := range admissionStrandedWitnesses(definition) {
+			for witness := range admissionStrandedWitnesses(definition) {
 				t.Errorf("%s: %s", definition.Ref, witness)
 			}
 		})
@@ -1378,17 +1378,20 @@ func TestReachableCheckNamesSeededStrandedState(t *testing.T) {
 			seeded.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
 		}
 	}
-	witnesses := admissionStrandedWitnesses(seeded)
-	if len(witnesses) == 0 {
-		t.Fatal("the seeded completion-free terminal step produced no stranded witness")
-	}
 	strand := fmt.Sprintf("state (step %q", seeded.StepGraph.TerminalSteps[0])
-	for _, witness := range witnesses {
+	var first string
+	for witness := range admissionStrandedWitnesses(seeded) {
+		if first == "" {
+			first = witness
+		}
 		if strings.Contains(witness, strand) {
 			return
 		}
 	}
-	t.Fatalf("no witness names the stranded terminal step; first witness: %s", witnesses[0])
+	if first == "" {
+		t.Fatal("the seeded completion-free terminal step produced no stranded witness")
+	}
+	t.Fatalf("no witness names the stranded terminal step; first witness: %s", first)
 }
 
 func mustBuiltinDefinition(t *testing.T, ref string) RegisteredDefinition {
@@ -1401,21 +1404,24 @@ func mustBuiltinDefinition(t *testing.T, ref string) RegisteredDefinition {
 }
 
 // admissionStrandedWitnesses walks every reachable state of one definition
-// version and returns a witness for each nonterminal state from which no
-// path reaches the completed instance.
-func admissionStrandedWitnesses(definition WorkflowDefinition) []string {
-	graph := admissionReachableGraph(definition, admissionModelStart(definition))
-	live := admissionLiveGraphStates(graph)
-	var witnesses []string
-	for i := range graph.keys {
-		state := graph.state(int32(i))
-		if state.done || live[i] {
-			continue
+// version and yields a witness for each nonterminal state from which no
+// path reaches the completed instance. Search and reachability remain exhaustive;
+// a consumer that has its witness can stop rendering the remaining diagnostics.
+func admissionStrandedWitnesses(definition WorkflowDefinition) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		graph := admissionReachableGraph(definition, admissionModelStart(definition))
+		live := admissionLiveGraphStates(graph)
+		for i := range graph.keys {
+			state := graph.state(int32(i))
+			if state.done || live[i] {
+				continue
+			}
+			if !yield(fmt.Sprintf("reachable nonterminal state %s reaches no terminal outcome; admitted moves: %s; path: %s",
+				state, strings.Join(admissionModelMoves(definition, state), ", "), admissionModelPath(graph, int32(i)))) {
+				return
+			}
 		}
-		witnesses = append(witnesses, fmt.Sprintf("reachable nonterminal state %s reaches no terminal outcome; admitted moves: %s; path: %s",
-			state, strings.Join(admissionModelMoves(definition, state), ", "), admissionModelPath(graph, int32(i))))
 	}
-	return witnesses
 }
 
 // admissionModelKey is a pointer-free encoding of one model state in two

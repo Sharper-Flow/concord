@@ -8,6 +8,7 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     "internal/store/durable.go",
+    "internal/store/internal/sqlitedb/write.go",
     "internal/store/agent_authority.go",
     "internal/agent/mutations.go",
     "cmd/concord/main.go"

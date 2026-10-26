@@ -87,6 +87,11 @@
       "role": "mixed"
     },
     {
+      "owner_domain_id": "durable-authority",
+      "path": "internal/store/internal/sqlitedb",
+      "role": "domain"
+    },
+    {
       "path": "internal/store/storetest",
       "role": "test_support"
     },

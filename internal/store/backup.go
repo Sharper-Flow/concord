@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 	"github.com/sharper-flow/concord/internal/version"
 	sqlite "modernc.org/sqlite"
 	sqlitelib "modernc.org/sqlite/lib"
@@ -90,11 +91,10 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 	if err := AdmitStorePath(path); err != nil {
 		return BackupManifest{}, err
 	}
-	db, err := sql.Open(driverName, readOnlyDataSource(path))
+	db, err := sqlitedb.Open(readOnlyDataSource(path))
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "cannot open the source database read-only", false, "supply a readable database", err)
 	}
-	db.SetMaxOpenConns(1)
 	s := &Store{db: db, path: path}
 	defer func() { _ = s.Close() }()
 	if _, err := Backup(ctx, s, destination); err != nil {
@@ -412,11 +412,10 @@ func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupMa
 // step cannot reopen the source transaction and restart its progress. The
 // driver owns the staging destination handle; no destination pool is opened.
 func runOnlineRestore(ctx context.Context, source, stage string) error {
-	db, err := sql.Open(driverName, readOnlyDataSource(source))
+	db, err := sqlitedb.Open(readOnlyDataSource(source))
 	if err != nil {
 		return wrapFailure(KindUnavailable, "restore_backup", "cannot open restore source database read-only", false, "supply a readable verified snapshot", err)
 	}
-	db.SetMaxOpenConns(1)
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		_ = db.Close()
@@ -514,11 +513,10 @@ func verifyRestoredStage(ctx context.Context, stage string, source BackupManifes
 	if err := contextErr(ctx); err != nil {
 		return RestoredDatabaseInventory{}, wrapFailure(KindUnavailable, "restore_backup", "restore verification was interrupted", true, "retry the restore", err)
 	}
-	stageDB, err := sql.Open(driverName, dataSourceName(stage))
+	stageDB, err := sqlitedb.Open(dataSourceName(stage))
 	if err != nil {
 		return RestoredDatabaseInventory{}, wrapFailure(KindUnavailable, "restore_backup", "cannot reopen restored staging database", true, "discard the staging database and retry", err)
 	}
-	stageDB.SetMaxOpenConns(1)
 	stageStore := &Store{db: stageDB, path: stage}
 	if err := stageStore.verifyPragmas(ctx); err != nil {
 		_ = stageDB.Close()
@@ -608,12 +606,11 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot hash backup snapshot", true, "check snapshot permissions", err)
 	}
-	db, err := sql.Open(driverName, readOnlyDataSource(destination))
+	db, err := sqlitedb.Open(readOnlyDataSource(destination))
 	if err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot open backup snapshot", false, "supply a readable SQLite snapshot", err)
 	}
 	defer func() { _ = db.Close() }()
-	db.SetMaxOpenConns(1)
 	var schema int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot read backup schema version", false, "supply a Concord SQLite snapshot", err)
@@ -737,7 +734,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 func manifestPath(destination string) string { return destination + ".manifest.json" }
 
 func readOnlyDataSource(path string) string {
-	return SQLiteFileURI(path) + "?mode=ro&_pragma=foreign_keys(1)"
+	return sqlitedb.ReadOnlyDataSource(path)
 }
 
 func fileSHA256(path string) (string, error) {

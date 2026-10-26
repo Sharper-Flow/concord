@@ -1,0 +1,23 @@
+{
+  "config_coupling": {
+    "effect": "Authority connections apply a 5000 millisecond SQLite busy timeout before selecting WAL mode. Readiness uses the same timeout; backup read-only connections do not add it to their DSN.",
+    "environments": [
+      "development",
+      "production",
+      "test"
+    ],
+    "read_by": {
+      "path": "internal/store/internal/sqlitedb/connection.go",
+      "project_id": "concord",
+      "symbol": "DSN"
+    },
+    "setting": "busy_timeout",
+    "source": "Compile-time sqlitedb.BusyTimeout constant; the value is fixed across environments."
+  },
+  "id": "sqlite-busy-timeout",
+  "kind": "config_coupling",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "internal/store/internal/sqlitedb",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

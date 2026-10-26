@@ -465,6 +465,17 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 			count: 0,
 		},
 		{
+			name:  "nested durable production code remains inside store",
+			files: map[string]string{"internal/store/internal/sqlitedb/read.go": "package sqlitedb\nimport \"database/sql\"\nfunc read(db *sql.DB) { db.BeginTx(nil, nil); _ = db.Query(`SELECT id FROM widgets`) }\n"},
+			count: 0,
+		},
+		{
+			name:     "nested durable production code is not test support",
+			files:    map[string]string{"internal/store/internal/sqlitedb/escape.go": "package sqlitedb\nfunc (s *Store) DB() *sql.DB { return nil }\n"},
+			contains: []string{"Store.DB method"},
+			count:    1,
+		},
+		{
 			name:     "Store.DB method is forbidden",
 			files:    map[string]string{"internal/store/owned.go": "package store\nfunc (s *Store) DB() *sql.DB { return nil }\n"},
 			contains: []string{"Store.DB method"},
@@ -509,6 +520,15 @@ func TestStoreBoundaryFixtureViolations(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStoreBoundaryDurableScope(t *testing.T) {
+	t.Parallel()
+	const path = "internal/store/internal/sqlitedb/connection.go"
+	scope, applies := boundaryScopeForPath(path)
+	if !applies || scope != boundaryScopeStore || testSupportPackage(filepath.Dir(path)) {
+		t.Fatalf("durable production root must retain the store boundary, not a test-support exemption: scope=%d, applies=%t", scope, applies)
 	}
 }
 

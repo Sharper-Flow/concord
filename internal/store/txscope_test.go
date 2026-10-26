@@ -46,7 +46,7 @@ func TestTxScope(t *testing.T) {
 	// non-test files; a count this low means discovery broke, not that the
 	// package shrank.
 	if analyzed < 30 {
-		t.Fatalf("transaction scope analysis reached %d files in internal/store; discovery is broken", analyzed)
+		t.Fatalf("transaction scope analysis reached %d files in internal/store and internal/store/internal/sqlitedb; discovery is broken", analyzed)
 	}
 	for _, finding := range findings {
 		t.Errorf("%s", finding)
@@ -87,31 +87,131 @@ func txScopeRepoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 }
 
-func scanTxScope(root string) ([]txScopeFinding, int) {
-	storeDir := filepath.Join(root, "internal", "store")
-	entries, err := os.ReadDir(storeDir)
-	if err != nil {
-		return []txScopeFinding{{Path: "internal/store", Line: 1, Identifier: "store", Property: 0, Message: "cannot read package: " + err.Error()}}, 0
+func TestTxScopeDurableTypesBite(t *testing.T) {
+	t.Parallel()
+	for _, handle := range []string{"Queryer", "WriteTx", "*WriteTx", "sqlitedb.Queryer", "sqlitedb.WriteTx", "*sqlitedb.WriteTx", "durable.Queryer", "*durable.WriteTx", "*dbsql.Tx"} {
+		t.Run(handle, func(t *testing.T) {
+			prefix := `package sqlitedb; import ("github.com/sharper-flow/concord/internal/store/internal/sqlitedb"; durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"; dbsql "database/sql"); `
+			cases := []struct {
+				property int
+				body     string
+			}{
+				{1, `func violates(q ` + handle + `, s *Store) { _ = q }`},
+				{4, `func violates(q ` + handle + `) { rows, _ := q.QueryContext(nil, ""); for rows.Next() { helper(q) } }`},
+			}
+			if strings.HasSuffix(handle, "Queryer") {
+				cases = append(cases, struct {
+					property int
+					body     string
+				}{3, `func violates(q ` + handle + `) { if nil == q { return } }`})
+			}
+			for _, fixture := range cases {
+				fset := token.NewFileSet()
+				file, err := parser.ParseFile(fset, "durable.go", prefix+fixture.body, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				findings := scanTxScopeFile("internal/store/internal/sqlitedb/durable.go", file, fset)
+				if len(findings) != 1 || findings[0].Property != fixture.property {
+					t.Fatalf("property %d: want one finding, got %v", fixture.property, findings)
+				}
+			}
+		})
 	}
+}
 
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+func TestTxScopeDurableDiscovery(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for path, source := range map[string]string{
+		"internal/store/parent.go":                        `package store; func bad(q queryer) { if q == nil {} }`,
+		"internal/store/internal/sqlitedb/durable.go":     `package sqlitedb; func bad(q Queryer) { if q == nil {} }`,
+		"internal/store/internal/sqlitedb/ignore_test.go": `this is not production Go`,
+	} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	findings, analyzed := scanTxScope(root)
+	if analyzed != 2 || len(findings) != 2 {
+		t.Fatalf("want two production files and two findings, got %d, %v", analyzed, findings)
+	}
+	want := []string{"internal/store/internal/sqlitedb/durable.go", "internal/store/parent.go"}
+	for i, finding := range findings {
+		if finding.Path != want[i] || finding.Property != 3 {
+			t.Fatalf("discovery finding %d: got %v, want path %s/property 3", i, finding, want[i])
+		}
+	}
+}
+
+func TestTxScopeUnrelatedQualifiedTypes(t *testing.T) {
+	t.Parallel()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "other.go", `package store; import sqlitedb "example.com/other"; func unrelated(q sqlitedb.Queryer, w *sqlitedb.WriteTx, s *Store) { if q == nil {}; _ = w; _ = s }`, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if findings := scanTxScopeFile("internal/store/other.go", file, fset); len(findings) != 0 {
+		t.Fatalf("unrelated import treated as durable handles: %v", findings)
+	}
+}
+
+func TestTxScopeDurablePoolBites(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{
+		`package sqlitedb; import "database/sql"; func violates(tx *WriteTx, db *sql.DB) { _ = tx }`,
+		`package sqlitedb; import dbsql "database/sql"; func violates(q Queryer, db *dbsql.DB) { _ = q }`,
+	} {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "pool.go", source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := scanTxScopeFile("internal/store/internal/sqlitedb/pool.go", file, fset)
+		if len(findings) != 1 || findings[0].Property != 1 {
+			t.Fatalf("live durable handle plus pool must refuse: %v", findings)
+		}
+	}
+}
+
+func scanTxScope(root string) ([]txScopeFinding, int) {
+	var paths []string
+	var findings []txScopeFinding
+	for _, dir := range []string{"internal/store", "internal/store/internal/sqlitedb"} {
+		entries, err := os.ReadDir(filepath.Join(root, dir))
+		if err != nil {
+			findings = append(findings, txScopeFinding{Path: dir, Line: 1, Identifier: dir, Property: 0, Message: "cannot read package: " + err.Error()})
 			continue
 		}
-		paths = append(paths, filepath.Join(storeDir, entry.Name()))
+		before := len(paths)
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+				continue
+			}
+			paths = append(paths, filepath.Join(root, dir, entry.Name()))
+		}
+		if len(paths) == before {
+			findings = append(findings, txScopeFinding{Path: dir, Line: 1, Identifier: dir, Property: 0, Message: "no production files discovered"})
+		}
 	}
 	sort.Strings(paths)
 
-	var findings []txScopeFinding
 	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			panic(err)
+		}
+		rel = filepath.ToSlash(rel)
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
-			findings = append(findings, txScopeFinding{Path: filepath.ToSlash(filepath.Join("internal/store", filepath.Base(path))), Line: 1, Identifier: filepath.Base(path), Property: 0, Message: "cannot parse: " + err.Error()})
+			findings = append(findings, txScopeFinding{Path: rel, Line: 1, Identifier: filepath.Base(path), Property: 0, Message: "cannot parse: " + err.Error()})
 			continue
 		}
-		rel := filepath.ToSlash(filepath.Join("internal/store", filepath.Base(path)))
 		findings = append(findings, scanTxScopeFile(rel, file, fset)...)
 	}
 	sort.Slice(findings, func(i, j int) bool {
@@ -128,6 +228,7 @@ func scanTxScope(root string) ([]txScopeFinding, int) {
 
 func scanTxScopeFile(path string, file *ast.File, fset *token.FileSet) []txScopeFinding {
 	var findings []txScopeFinding
+	aliases := txSubprocessImportAliases(file)
 	var inspect func(ast.Node, []string)
 	inspect = func(node ast.Node, enclosingStores []string) {
 		if node == nil {
@@ -135,15 +236,17 @@ func scanTxScopeFile(path string, file *ast.File, fset *token.FileSet) []txScope
 		}
 		switch n := node.(type) {
 		case *ast.FuncDecl:
-			params := txScopeParams(n.Recv, n.Type.Params)
+			params := txScopeParams(n.Recv, n.Type.Params, aliases)
 			findings = append(findings, scanTxScopeFunction(path, n.Body, params, fset)...)
 			stores := txScopeStoreNames(params)
-			for _, decl := range n.Body.List {
-				inspect(decl, stores)
+			if n.Body != nil {
+				for _, decl := range n.Body.List {
+					inspect(decl, stores)
+				}
 			}
 			return
 		case *ast.FuncLit:
-			params := txScopeParams(nil, n.Type.Params)
+			params := txScopeParams(nil, n.Type.Params, aliases)
 			findings = append(findings, scanTxScopeFunction(path, n.Body, params, fset)...)
 			stores := append(append([]string(nil), enclosingStores...), txScopeStoreNames(params)...)
 			for _, decl := range n.Body.List {
@@ -193,7 +296,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 	}
 	for _, param := range params {
 		if param.kind == txScopeStore {
-			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function receives a *Store; use a tx-scoped core with only the live transaction handle"})
+			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function receives a *Store or *sql.DB; use a tx-scoped core with only the live transaction handle"})
 		}
 	}
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -205,7 +308,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 		}
 		ident, ok := node.(*ast.Ident)
 		if ok && stores[ident.Name] {
-			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store value; use tx-scoped query helpers instead"})
+			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store or *sql.DB value; use tx-scoped query helpers instead"})
 		}
 		return true
 	})
@@ -403,14 +506,14 @@ func txScopeIsTransactCall(call *ast.CallExpr) bool {
 	return ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable" || selector.Sel.Name == "readSnapshot" || selector.Sel.Name == "ReadTransaction")
 }
 
-func txScopeParams(recv *ast.FieldList, params *ast.FieldList) []txScopeParam {
+func txScopeParams(recv *ast.FieldList, params *ast.FieldList, aliases map[string]string) []txScopeParam {
 	var result []txScopeParam
 	for _, fields := range []*ast.FieldList{recv, params} {
 		if fields == nil {
 			continue
 		}
 		for _, field := range fields.List {
-			kind := txScopeTypeKind(field.Type)
+			kind := txScopeTypeKind(field.Type, aliases)
 			for _, name := range field.Names {
 				result = append(result, txScopeParam{name: name.Name, kind: kind, ident: name})
 			}
@@ -419,9 +522,22 @@ func txScopeParams(recv *ast.FieldList, params *ast.FieldList) []txScopeParam {
 	return result
 }
 
-func txScopeTypeKind(expr ast.Expr) string {
-	if ident, ok := expr.(*ast.Ident); ok && ident.Name == "queryer" {
+func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
+	if ident, ok := expr.(*ast.Ident); ok && (ident.Name == "queryer" || ident.Name == "Queryer") {
 		return txScopeQueryer
+	}
+	if ident, ok := expr.(*ast.Ident); ok && ident.Name == "WriteTx" {
+		return txScopeTx
+	}
+	if selector, ok := expr.(*ast.SelectorExpr); ok {
+		if base, ok := selector.X.(*ast.Ident); ok && aliases[base.Name] == "github.com/sharper-flow/concord/internal/store/internal/sqlitedb" {
+			switch selector.Sel.Name {
+			case "Queryer":
+				return txScopeQueryer
+			case "WriteTx":
+				return txScopeTx
+			}
+		}
 	}
 	star, ok := expr.(*ast.StarExpr)
 	if !ok {
@@ -431,15 +547,25 @@ func txScopeTypeKind(expr ast.Expr) string {
 		switch ident.Name {
 		case "Store":
 			return txScopeStore
-		case "Transaction", "writeTx":
+		case "Transaction", "writeTx", "WriteTx":
 			return txScopeTx
 		}
 	}
 	selector, ok := star.X.(*ast.SelectorExpr)
 	if ok {
 		selectorBase, baseOK := selector.X.(*ast.Ident)
-		if baseOK && selectorBase.Name == "sql" && selector.Sel.Name == "Tx" {
-			return txScopeTx
+		if baseOK {
+			if selectorBase.Name == "sql" || aliases[selectorBase.Name] == "database/sql" {
+				switch selector.Sel.Name {
+				case "Tx":
+					return txScopeTx
+				case "DB":
+					return txScopeStore
+				}
+			}
+			if aliases[selectorBase.Name] == "github.com/sharper-flow/concord/internal/store/internal/sqlitedb" && selector.Sel.Name == "WriteTx" {
+				return txScopeTx
+			}
 		}
 	}
 	return ""

@@ -18,8 +18,8 @@ import (
 // of that rule, beside txscope_test.go: it fails when a function that holds
 // a store write transaction reaches GitRunner.Run/RunStdin, exec.Command*,
 // or os.RemoveAll, directly or through any chain of package-local calls.
-// It scans internal/store and internal/agent, the two packages that open
-// store transactions. Receiver method calls stay untraced: a selector call
+// It scans internal/store, its internal/sqlitedb mechanism, and internal/agent.
+// Receiver method calls stay untraced: a selector call
 // on a non-import receiver cannot resolve without type information, so the
 // direct-call rule still covers those at the call site.
 
@@ -39,10 +39,10 @@ func TestTxSubprocessGuard(t *testing.T) {
 	root := txSubprocessRepoRoot()
 	findings, analyzed := scanTxSubprocess(root)
 	// A scan that reaches no files reports no findings, which would let this
-	// assertion pass while proving nothing. The two packages hold far more
+	// assertion pass while proving nothing. The scanned packages hold far more
 	// non-test files than this bound; a count below it means discovery broke.
 	if analyzed < 40 {
-		t.Fatalf("transaction subprocess analysis reached %d files across internal/store and internal/agent; discovery is broken", analyzed)
+		t.Fatalf("transaction subprocess analysis reached %d files across internal/store, internal/store/internal/sqlitedb and internal/agent; discovery is broken", analyzed)
 	}
 	for _, finding := range findings {
 		t.Errorf("%s", finding)
@@ -74,6 +74,30 @@ func plans(s *Store) { s.readSnapshot(nil, func(q queryer) error { return probe(
 func probe() error { exec.Command("git", "status"); return nil }`},
 		{"write transaction reaches a git runner", `package store
 func violates(tx *writeTx, r GitRunner) { r.Run(nil, "dir", "status") }`},
+		{"durable Queryer reaches a git runner", `package sqlitedb
+func violates(q Queryer, r GitRunner) { r.Run(nil, "dir", "status") }`},
+		{"durable WriteTx reaches a subprocess", `package sqlitedb
+func violates(tx *WriteTx) { exec.Command("git", "status") }`},
+		{"durable write admission reaches a subprocess", `package sqlitedb
+func BeginWrite() { exec.Command("git", "status") }`},
+		{"durable read admission reaches bulk removal", `package sqlitedb
+func BeginRead() { os.RemoveAll("path") }`},
+		{"durable value WriteTx reaches an aliased subprocess", `package sqlitedb
+import process "os/exec"
+func violates(tx WriteTx) { process.Command("git", "status") }`},
+		{"aliased durable Queryer reaches aliased bulk removal", `package store
+import (durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"; filesystem "os")
+func violates(q durable.Queryer) { filesystem.RemoveAll("path") }`},
+		{"qualified durable Queryer reaches a git runner", `package store
+import "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+func violates(q sqlitedb.Queryer, r GitRunner) { r.Run(nil, "dir", "status") }`},
+		{"aliased durable WriteTx reaches a subprocess through a helper", `package store
+import durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+func violates(tx *durable.WriteTx) { probe() }
+func probe() { exec.Command("git", "status") }`},
+		{"aliased durable Queryer closure removes a directory", `package store
+import durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+func plan() { _ = func(q durable.Queryer) { os.RemoveAll("path") } }`},
 		{"agent effect closure reaches a git runner", `package store
 func plan() { _ = func(tx *store.Transaction) error { _, err := runner.Run(nil, "dir", "worktree", "remove"); return err } }`},
 		{"nested cleanup in a transaction function", `package store
@@ -93,7 +117,7 @@ func commitHelper() error { exec.Command("git", "status"); return nil }`},
 			if err != nil {
 				t.Fatal(err)
 			}
-			graph := newTxSubprocessGraph([]parsedTxSubprocessFile{{Package: "store", Path: tt.name + ".go", FileSet: fset, File: file}})
+			graph := newTxSubprocessGraph([]parsedTxSubprocessFile{{Package: file.Name.Name, Path: tt.name + ".go", FileSet: fset, File: file}})
 			findings := graph.scan()
 			if len(findings) != 1 {
 				t.Fatalf("self-test found %d findings, want exactly one: %v", len(findings), findings)
@@ -104,6 +128,9 @@ func commitHelper() error { exec.Command("git", "status"); return nil }`},
 		name   string
 		source string
 	}{
+		{"unrelated qualified handles do not hold a transaction", `package store
+import sqlitedb "example.com/other"
+func probe(q sqlitedb.Queryer, w *sqlitedb.WriteTx) { exec.Command("git", "status") }`},
 		{"plain function may run git", `package store
 func probe(r GitRunner) { r.Run(nil, "dir", "status") }`},
 		{"command run with no arguments is not a git runner call", `package store
@@ -125,7 +152,7 @@ func secondHopSafe() { println("sql only") }`},
 			if err != nil {
 				t.Fatal(err)
 			}
-			graph := newTxSubprocessGraph([]parsedTxSubprocessFile{{Package: "store", Path: tt.name + ".go", FileSet: fset, File: file}})
+			graph := newTxSubprocessGraph([]parsedTxSubprocessFile{{Package: file.Name.Name, Path: tt.name + ".go", FileSet: fset, File: file}})
 			if findings := graph.scan(); len(findings) != 0 {
 				t.Fatalf("non-transaction scope flagged: %v", findings)
 			}
@@ -138,6 +165,40 @@ func txSubprocessRepoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 }
 
+func TestTxSubprocessDurableDiscovery(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for path, source := range map[string]string{
+		"internal/agent/effect.go":                        `package agent`,
+		"internal/store/parent.go":                        `package store; import durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"; func hold(q queryer) { durable.Probe() }`,
+		"internal/store/internal/sqlitedb/durable.go":     `package sqlitedb; func Probe() { exec.Command("git", "status") }; func hold(q Queryer) { Probe() }`,
+		"internal/store/internal/sqlitedb/ignore_test.go": `this is not production Go`,
+	} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	findings, analyzed := scanTxSubprocess(root)
+	if analyzed != 3 || len(findings) != 2 {
+		t.Fatalf("want three production files and two findings, got %d, %v", analyzed, findings)
+	}
+	want := map[string]bool{"internal/store/parent.go": true, "internal/store/internal/sqlitedb/durable.go": true}
+	for _, finding := range findings {
+		rel, err := filepath.Rel(root, finding.Path)
+		if err != nil || !want[filepath.ToSlash(rel)] {
+			t.Fatalf("unexpected discovery finding %v: %v", finding, err)
+		}
+		delete(want, filepath.ToSlash(rel))
+	}
+	if len(want) != 0 {
+		t.Fatalf("omitted findings: %v", want)
+	}
+}
+
 type parsedTxSubprocessFile struct {
 	Package string
 	Path    string
@@ -146,7 +207,7 @@ type parsedTxSubprocessFile struct {
 }
 
 func scanTxSubprocess(root string) ([]txSubprocessFinding, int) {
-	dirs := []string{filepath.Join(root, "internal", "store"), filepath.Join(root, "internal", "agent")}
+	dirs := []string{filepath.Join(root, "internal", "store"), filepath.Join(root, "internal", "store", "internal", "sqlitedb"), filepath.Join(root, "internal", "agent")}
 	packages := map[string]string{}
 	var paths []string
 	for _, dir := range dirs {
@@ -154,12 +215,16 @@ func scanTxSubprocess(root string) ([]txSubprocessFinding, int) {
 		if err != nil {
 			return []txSubprocessFinding{{Path: filepath.ToSlash(dir), Line: 1, Identifier: dir, Message: "cannot read package: " + err.Error()}}, 0
 		}
+		before := len(paths)
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 				continue
 			}
 			paths = append(paths, filepath.Join(dir, entry.Name()))
 			packages[filepath.Join(dir, entry.Name())] = filepath.Base(dir)
+		}
+		if len(paths) == before {
+			return []txSubprocessFinding{{Path: filepath.ToSlash(dir), Line: 1, Identifier: dir, Message: "no production files discovered"}}, len(paths)
 		}
 	}
 	sort.Strings(paths)
@@ -227,6 +292,7 @@ type txSubprocessGraph struct {
 func newTxSubprocessGraph(files []parsedTxSubprocessFile) *txSubprocessGraph {
 	g := &txSubprocessGraph{functions: map[string]map[string]*txSubprocessFunc{}}
 	for _, pf := range files {
+		aliases := txSubprocessImportAliases(pf.File)
 		if g.functions[pf.Package] == nil {
 			g.functions[pf.Package] = map[string]*txSubprocessFunc{}
 		}
@@ -243,7 +309,9 @@ func newTxSubprocessGraph(files []parsedTxSubprocessFile) *txSubprocessGraph {
 				Name:    decl.Name.Name,
 				Path:    pf.Path,
 				Line:    pf.FileSet.Position(decl.Pos()).Line,
-				holding: strings.HasSuffix(decl.Name.Name, "Tx") || txSubprocessHoldingParams(decl.Recv) || txSubprocessHoldingParams(decl.Type.Params),
+				holding: strings.HasSuffix(decl.Name.Name, "Tx") ||
+					(pf.Package == "sqlitedb" && (decl.Name.Name == "BeginRead" || decl.Name.Name == "BeginWrite")) ||
+					txSubprocessHoldingParams(decl.Recv, aliases) || txSubprocessHoldingParams(decl.Type.Params, aliases),
 			}
 			g.functions[pf.Package][fn.Name] = fn
 			g.order = append(g.order, fn)
@@ -361,7 +429,7 @@ func (g *txSubprocessGraph) classifyBody(fn *txSubprocessFunc, pkg string, alias
 		}
 		switch n := node.(type) {
 		case *ast.FuncLit:
-			walk(n.Body, holding || txSubprocessHoldingParams(n.Type.Params))
+			walk(n.Body, holding || txSubprocessHoldingParams(n.Type.Params, aliases))
 			return
 		case *ast.CallExpr:
 			if txScopeIsTransactCall(n) {
@@ -373,7 +441,7 @@ func (g *txSubprocessGraph) classifyBody(fn *txSubprocessFunc, pkg string, alias
 				}
 			}
 			target, cross := g.resolveCallee(pkg, n.Fun, aliases)
-			if txSubprocessForbiddenCall(n) {
+			if txSubprocessForbiddenCall(n, aliases) {
 				fn.directForbidden = true
 				if holding {
 					fn.directInTxFrames = true
@@ -435,7 +503,7 @@ func (g *txSubprocessGraph) resolveCallee(pkg string, fun ast.Expr, aliases map[
 // txSubprocessForbiddenCall reports whether a call expression is one of the
 // subprocess, command spawn, or bulk removal forms CD-0195 D2 forbids inside
 // an open transaction.
-func txSubprocessForbiddenCall(call *ast.CallExpr) bool {
+func txSubprocessForbiddenCall(call *ast.CallExpr, aliases map[string]string) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
@@ -444,11 +512,11 @@ func txSubprocessForbiddenCall(call *ast.CallExpr) bool {
 	case (selector.Sel.Name == "Run" || selector.Sel.Name == "RunStdin") && len(call.Args) >= 2:
 		return true
 	case selector.Sel.Name == "Command" || selector.Sel.Name == "CommandContext":
-		if base, ok := selector.X.(*ast.Ident); ok && base.Name == "exec" {
+		if base, ok := selector.X.(*ast.Ident); ok && (base.Name == "exec" || aliases[base.Name] == "os/exec") {
 			return true
 		}
 	case selector.Sel.Name == "RemoveAll":
-		if base, ok := selector.X.(*ast.Ident); ok && base.Name == "os" {
+		if base, ok := selector.X.(*ast.Ident); ok && (base.Name == "os" || aliases[base.Name] == "os") {
 			return true
 		}
 	}
@@ -473,11 +541,14 @@ func txSubprocessImportAliases(file *ast.File) map[string]string {
 // txSubprocessHoldingParams reports whether a parameter list makes a function
 // transaction-holding: any queryer, *sql.Tx, or *Transaction handle (the
 // agent package names the latter through the store selector).
-func txSubprocessHoldingParams(fields *ast.FieldList) bool {
+func txSubprocessHoldingParams(fields *ast.FieldList, aliases map[string]string) bool {
 	if fields == nil {
 		return false
 	}
 	for _, field := range fields.List {
+		if kind := txScopeTypeKind(field.Type, aliases); kind == txScopeQueryer || kind == txScopeTx {
+			return true
+		}
 		if expr := field.Type; expr != nil {
 			if star, ok := expr.(*ast.StarExpr); ok {
 				switch inner := star.X.(type) {

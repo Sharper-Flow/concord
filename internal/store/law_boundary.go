@@ -22,6 +22,9 @@ type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
 	revisions map[string]knowledgeSourceVerifiedRevision
+	// Single-home refresh errors belong to a nonempty mandate's boundary,
+	// not to law-free transitions that share the pre-transaction preparation.
+	refreshErr error
 }
 
 // knowledgeSourceVerifiedRevision keeps PM1 §3.3's two revisions apart. The
@@ -54,9 +57,8 @@ func knowledgeSourceSetProofFrom(ctx context.Context) *knowledgeSourceSetProof {
 // transaction-scoped law boundary entries. It must run before the
 // consequential transaction opens: a rebuild needs the connection the
 // transaction would hold, and a git probe must never run inside one
-// (CD-0195 D2). A one-source Product, and a work that resolves to no
-// registered source set, verify trivially and return the context unchanged,
-// so single-source Products keep their identical code path.
+// (CD-0195 D2). Single homes use the same demand-driven index refresh before
+// their transaction; source-set proof remains specific to federated homes.
 func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID string) (context.Context, error) {
 	if s == nil || s.db == nil {
 		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
@@ -74,12 +76,27 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 
 func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, homeProjectID, homeLocatorID string) (context.Context, error) {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
-	if err != nil || productID == "" {
+	if err != nil {
+		return ctx, nil
+	}
+	if productID == "" {
+		homes, err := projectCanonicalHomeCandidates(ctx, s.db, homeProjectID)
+		if err != nil {
+			return ctx, nil
+		}
+		for _, home := range homes {
+			if home.HomeLocatorID == homeLocatorID {
+				return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}), nil
+			}
+		}
 		return ctx, nil
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
-	if err != nil || len(sources) <= 1 {
+	if err != nil || len(sources) == 0 {
 		return ctx, nil
+	}
+	if len(sources) == 1 {
+		return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, sources[0])}), nil
 	}
 	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
@@ -220,6 +237,9 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	if len(mandated) == 0 {
 		return nil
 	}
+	if proof := knowledgeSourceSetProofFrom(ctx); proof != nil && proof.refreshErr != nil {
+		return proof.refreshErr
+	}
 	// CD-0200: a mandated law resolves across the Product's registered
 	// source set, by bare ID (unique across the set) or by the qualified
 	// project_id/law_id form (through its named source). A one-element set
@@ -326,9 +346,7 @@ func checkMandatedLawsAtSingleHome(ctx context.Context, q queryer, homeProjectID
 		}
 	}
 	if len(missing) != 0 {
-		failure := newFailure(KindProjectionNotFound, "check_mandated_laws", "a mandated law is unknown or not currently accepted: "+strings.Join(missing, ","), false, "publish and rebuild the accepted Git law projection")
-		failure.CandidateIDs = missing
-		return failure
+		return mandatedLawProjectionFailure(ctx, q, []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID, HeadRef: "HEAD"}}, missing)
 	}
 	if err := checkSingleHomeLawConflicts(ctx, q, homeProjectID, homeLocatorID, mandated, modified, authority, allowAmendment); err != nil {
 		return err
@@ -341,6 +359,66 @@ func checkMandatedLawsAtSingleHome(ctx context.Context, q queryer, homeProjectID
 		return revalidateKnowledgeCrossSourceRelations(ctx, q, sources, mandated)
 	}
 	return nil
+}
+
+// law_subjects contains only accepted law. The knowledge index retains other
+// manifest records, so an absent law subject alone proves neither a missing
+// record nor projection lag. Diagnose from those same projected rows without
+// probing Git inside the consequential transaction.
+func mandatedLawProjectionFailure(ctx context.Context, q queryer, sources []KnowledgeHome, missing []string) error {
+	watermarks := make([]string, 0, len(sources))
+	for _, source := range sources {
+		watermark, err := knowledgeIndexWatermark(ctx, q, source.HomeProjectID, source.HomeLocatorID, source.HeadRef)
+		if err != nil {
+			return err
+		}
+		if watermark == "" {
+			watermark = "unindexed"
+		}
+		watermarks = append(watermarks, source.HomeProjectID+"/"+source.HomeLocatorID+"@"+watermark)
+	}
+	absent := []string{}
+	nonaccepted := []string{}
+	for _, reference := range missing {
+		projectID, lawID, qualified, err := parseQualifiedKnowledgeID("check_mandated_laws", reference)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, source := range sources {
+			if qualified && source.HomeProjectID != projectID {
+				continue
+			}
+			var kind, status string
+			err := q.QueryRowContext(ctx, `SELECT type,outcome_tag FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, source.HomeProjectID, source.HomeLocatorID, lawID).Scan(&kind, &status)
+			if err == sql.ErrNoRows {
+				continue
+			}
+			if err != nil {
+				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot inspect a mandated knowledge record", true, "retry once the knowledge projection is readable", err)
+			}
+			found = true
+			identity := reference
+			if len(sources) > 1 {
+				identity = source.HomeProjectID + "/" + lawID
+			}
+			nonaccepted = append(nonaccepted, identity+" ("+kind+", "+status+")")
+		}
+		if !found {
+			absent = append(absent, reference)
+		}
+	}
+	details := []string{}
+	if len(absent) > 0 {
+		details = append(details, "mandated IDs have no law record in the checked Git knowledge projection: "+strings.Join(absent, ","))
+	}
+	if len(nonaccepted) > 0 {
+		details = append(details, "mandated records are not accepted law in the checked projection: "+strings.Join(nonaccepted, ","))
+	}
+	details = append(details, "checked source watermarks: "+strings.Join(watermarks, ","))
+	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs and record kinds against the knowledge manifest at the checked watermark before revising the mandate through the normal contract approval route; if the source is unreachable or unindexed, restore it and verify projection freshness with a knowledge search first")
+	failure.CandidateIDs = missing
+	return failure
 }
 
 func checkSingleHomeLawConflicts(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, authority map[string]string, allowAmendment bool) error {
@@ -823,16 +901,12 @@ func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []Kn
 	}
 	resolved := make(map[string]federatedLawResolution, len(mandated))
 	for _, reference := range mandated {
-		if r, ok := resolutions[reference]; ok && r.status == "accepted" {
+		if r, ok := resolutions[reference]; ok {
 			resolved[reference] = r
-		} else {
-			missing = append(missing, reference)
 		}
 	}
 	if len(missing) != 0 {
-		failure := newFailure(KindProjectionNotFound, "check_mandated_laws", "a mandated law is unknown or not currently accepted: "+strings.Join(missing, ","), false, "publish and rebuild the accepted Git law projection")
-		failure.CandidateIDs = missing
-		return failure
+		return mandatedLawProjectionFailure(ctx, q, sources, missing)
 	}
 	modifiedSet := make(map[string]bool, len(modified))
 	for _, id := range modified {

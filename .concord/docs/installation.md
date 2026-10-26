@@ -61,7 +61,9 @@ Versioned assets live under:
 ```text
 ${XDG_DATA_HOME:-$HOME/.local/share}/concord/v0.1.0/
 ├── adapter/opencode/
+├── agents/
 ├── bin/concord
+├── instructions/
 └── skills/
 ```
 
@@ -118,6 +120,33 @@ Restart OpenCode after installation or upgrade. OpenCode reads the registered
 stable `skills.paths` entry and the plugin entry module at startup. The
 installer manages only those two registrations; it does not modify unrelated
 configuration keys.
+
+### Shared requirements and Product knowledge
+
+The release ships generated primary profiles and worker lanes in its agents
+directory and the shared conduct corpus in its instructions directory. The
+installer owns these assets and registers the corpus through an absolute
+`current/instructions/*.md` pointer in each linked project's OpenCode configuration. It does not copy
+Concord's source documentation into the adopting Product.
+
+| Requirement | Canonical owner and authority | Applicability and delivery |
+|---|---|---|
+| Planning through Linear MCP | [CD-0213](decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
+| Lane source-edit boundary | [CD-0220](decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Reusable lane contract; the generator derives the operative boundary from the capability registry. |
+| Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus; editing and reviewing lanes identify its unique opening sentence, not a Product-relative file. |
+| Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific items 2 and 5 in [development authority](managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
+| An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and bound worker readings; not inherited from Concord's source checkout. |
+
+Decision identifiers in a generated profile identify Concord's governing source;
+they are not paths to similarly named files in the adopting Product. The profile
+states its required behavior without requiring that source checkout. Product law
+needed for an assignment still reaches workers through the declared bound reading
+route, with its own source identity and approval scope.
+
+Intentional user instruction entries continue to load alongside the installed
+corpus. A local `.concord/instructions/change.md` is not the shipped rule merely
+because its name matches; it loads only through a supported instruction entry.
+Delegated prompt provenance records the paths and content hashes it resolved.
 
 ### Customize agents without editing shipped files
 

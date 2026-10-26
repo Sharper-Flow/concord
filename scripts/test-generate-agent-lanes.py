@@ -837,10 +837,8 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
             with self.subTest(capabilities=capabilities):
                 boundary = self.boundary(self.lane(capabilities=capabilities))
                 self.assertIn("Authored `.concord/` files are repository sources", boundary)
-                self.assertIn(
-                    ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
-                    boundary,
-                )
+                self.assertIn("CD-0220", boundary)
+                self.assertNotIn(".concord/docs/", boundary)
 
     def test_editing_capability_yields_the_scoped_edit_boundary(self):
         boundary = self.boundary(self.lane(capabilities=self.EDITING))
@@ -944,7 +942,7 @@ class CommittedContentRuleTests(unittest.TestCase):
         return next(block for block in blocks if block.startswith(generator.COMMITTED_CONTENT_LEAD))
 
     def owner_reference(self):
-        return f'the conduct rule that opens "{generator.COMMITTED_CONTENT_LEAD}" in `.concord/instructions/change.md`'
+        return f'the loaded conduct rule that opens "{generator.COMMITTED_CONTENT_LEAD}"'
 
     def test_editing_lane_applies_the_owner_rule_by_reference(self):
         projection = " ".join(lane_projection(self.lane("implement", self.EDITING)).split())

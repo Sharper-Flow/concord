@@ -347,6 +347,16 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("intake boundary" in finding for finding in findings))
 
+    def test_intake_github_planning_write_grants_report(self) -> None:
+        for action in ("create", "edit", "comment"):
+            with self.subTest(action=action):
+                self.rewrite("concord-0.md", lambda text: text.replace(
+                    '    "gh issue view *": allow\n',
+                    f'    "gh issue view *": allow\n    "gh issue {action} *": allow\n',
+                ))
+                self.assertTrue(any("GitHub planning write" in finding for finding in self.findings()))
+                self.rewrite("concord-0.md", lambda text: text.replace(f'    "gh issue {action} *": allow\n', ""))
+
     def test_coordinator_task_boundary_loss_reports(self) -> None:
         self.rewrite(
             "Concord.md",

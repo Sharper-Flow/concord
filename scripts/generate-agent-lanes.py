@@ -505,8 +505,7 @@ def repository_edit_boundary(lane: dict) -> str:
             "as evidence."
         )
     text += (
-        " Authored `.concord/` files are repository sources. See "
-        "`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`."
+        " Authored `.concord/` files are repository sources (CD-0220)."
     )
     return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
 
@@ -532,7 +531,7 @@ def committed_content_instructions(lane: dict) -> str:
     # obligation without a new evidence kind.
     committed_content_rule()
     capabilities = lane.get("capabilities", [])
-    rule = f'the conduct rule that opens "{COMMITTED_CONTENT_LEAD}" in `.concord/instructions/change.md`'
+    rule = f'the loaded conduct rule that opens "{COMMITTED_CONTENT_LEAD}"'
     duties = []
     if edits_scoped_files(lane):
         duties.append(f"Apply {rule} to every comment and document you add or change.")

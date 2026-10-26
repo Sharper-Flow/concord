@@ -399,6 +399,9 @@ def check_primary_prompts(root: Path) -> list[str]:
     intake_permission = intake_frontmatter.split("task:", 1)[0]
     if '"*": deny' not in intake_permission:
         findings.append("concord-0.md frontmatter does not deny bash by default")
+    for action in ("create", "edit", "comment"):
+        if f'"gh issue {action} *": allow' in intake_permission:
+            findings.append(f"concord-0.md grants GitHub planning write {action!r}; Linear MCP owns planning")
     # Registry routing: the registry descriptions state what and when, so the
     # portable examples route by need and never hard-code a generated agent id.
     # An id here would fork the registry's routing authority into prose.

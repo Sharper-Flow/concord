@@ -17,6 +17,8 @@ defect-repair application when the workflow blocks safe repair.
 
 ## Contract
 
+### Reusable Concord requirements
+
 Planning facts live in Linear. Agents read and write them through the Linear
 MCP server. Concord keeps no planning copy, no planning mode, and no outbox.
 
@@ -51,6 +53,9 @@ participation remain host-owned. This contract does not change host roles.
 | Predecessor lessons | Public predecessor records | Reachable citations in [advance-predecessor-lessons.md](advance-predecessor-lessons.md) |
 
 ### Preserved boundaries
+
+Items 2 and 5 explicitly name Concord's public repository and predecessor state.
+The other boundaries retain their stated scope.
 
 1. Planning records do not silently amend accepted Product law.
 2. Concord's public repository retains public pull-request and required-check

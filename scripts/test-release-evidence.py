@@ -261,7 +261,7 @@ print(os.environ['MANAGED_PYTHON'])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / "path").read_text().strip(), str(managed))
             self.assertEqual([json.loads(line) for line in (root / "calls").read_text().splitlines()],
-                             [["python", "install", version], ["python", "find", "--managed-python", version]])
+                             [["python", "install", "--no-bin", version], ["python", "find", "--managed-python", version]])
             (root / "path").unlink()
             for override in ({"INSTALL_EXIT": "7"}, {"FIND_EXIT": "8"}, {"RECIPE_VERSION": "0.0.0"}):
                 result = subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=ROOT,

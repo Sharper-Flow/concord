@@ -550,7 +550,7 @@ jobs:
         # Install its existing exact pin before the offline test phase.
         run: |
           version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install "$version"
+          uv python install --no-bin "$version"
           python_path="$(uv python find --managed-python "$version")"
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
@@ -634,7 +634,7 @@ jobs:
         # Install its existing exact pin before the offline test phase.
         run: |
           version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install "$version"
+          uv python install --no-bin "$version"
           python_path="$(uv python find --managed-python "$version")"
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
@@ -718,7 +718,7 @@ jobs:
         # Install its existing exact pin before the offline test phase.
         run: |
           version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install "$version"
+          uv python install --no-bin "$version"
           python_path="$(uv python find --managed-python "$version")"
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
@@ -802,7 +802,7 @@ jobs:
         # Install its existing exact pin before the offline test phase.
         run: |
           version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install "$version"
+          uv python install --no-bin "$version"
           python_path="$(uv python find --managed-python "$version")"
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"
@@ -886,7 +886,7 @@ jobs:
         # Install its existing exact pin before the offline test phase.
         run: |
           version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
-          uv python install "$version"
+          uv python install --no-bin "$version"
           python_path="$(uv python find --managed-python "$version")"
           python_dir="$(dirname "$python_path")"
           test "$("$python_dir/python3" --version)" = "Python $version"

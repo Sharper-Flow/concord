@@ -28,6 +28,31 @@ sys.modules[_installer_spec.name] = _installer
 _installer_spec.loader.exec_module(_installer)
 ADAPTER_FILES = _installer.ADAPTER_FILES
 
+_public_spec = importlib.util.spec_from_file_location("concord_public_content", ROOT / "scripts/check-public-content.py")
+if _public_spec is None or _public_spec.loader is None:
+    raise RuntimeError("unable to load the public-content checks")
+_public_content = importlib.util.module_from_spec(_public_spec)
+_public_spec.loader.exec_module(_public_content)
+
+_primary_spec = importlib.util.spec_from_file_location("concord_primary_prompts", ROOT / "scripts/check-primary-prompts.py")
+if _primary_spec is None or _primary_spec.loader is None:
+    raise RuntimeError("unable to load the portable prompt checks")
+_primary_prompts = importlib.util.module_from_spec(_primary_spec)
+_primary_spec.loader.exec_module(_primary_prompts)
+
+ADMITTED_SKILLS = frozenset({"concord-domain-shape-stewardship"})  # CD-0245 D1
+SKILL_REFERENCES = {
+    "shape": ".concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md",
+    "admission": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+    "authority": ".concord/docs/managed-development-authority.md",
+    "publication": ".concord/docs/concord-knowledge-index.md",
+    "facts": "contracts/domain-fact.v1.schema.json",
+    "roots": "contracts/package-domains.v1.schema.json",
+    "tooling": "contracts/project-tooling.v1.schema.json",
+    "protocol": "contracts/domain-shape-check.v1.schema.json",
+}
+SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|blob)/([0-9a-f]{40})/([^#\s]+)(?:#[a-z0-9-]+)?")
+
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
 CURRENT_SCENARIO_IDS = [
@@ -644,22 +669,39 @@ def check_workflow_contracts() -> list[str]:
     return findings
 
 def _check_cd0043_lane_methodology() -> list[str]:
-    """Prove the shipped artifact carries no lane methodology (CD-0043 D1/D3).
+    """Check host-owned methodology and the CD-0245 admitted skill inventory.
 
-    The lane packet has no methodology property, and `skills/` ships as
-    README-only emptiness. CD-0242 D14 requires content identity without an
-    authored registry counter. Methodology reaching a worker is host instructions through
-    `CONCORD_HOST_INSTRUCTIONS` (D2), bound by CD-0034's provenance gate, so
-    nothing here re-checks that channel.
+    A skill operates Concord's structure, not a worker's lane methodology.
+    CD-0242 D14 requires content identity without an authored registry counter.
     """
     packet = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
     registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
     skills_dir = ROOT / "skills"
-    entries = sorted(entry.name for entry in skills_dir.iterdir()) if skills_dir.is_dir() else []
-    return cd0043_lane_methodology_findings(packet, registry, entries)
+    entries = sorted(entry.name for entry in skills_dir.iterdir()) if skills_dir.is_dir() and not skills_dir.is_symlink() else []
+    findings = cd0043_lane_methodology_findings(packet, registry, entries)
+    inventory = shipped_skill_inventory_findings(skills_dir)
+    findings.extend(inventory)
+    if inventory:
+        return findings  # Never read content through a redirected skill directory.
+    surface = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text(encoding="utf-8"))
+    operations = {operation for tool in surface["tools"] for operation in tool["operations"]}
+    commands = set(re.findall(r'Canonical: "([a-z][a-z-]+)"', (ROOT / "cmd/concord/main.go").read_text(encoding="utf-8")))
+    for name in sorted(ADMITTED_SKILLS):
+        path = skills_dir / name / "SKILL.md"
+        if not path.is_file() or path.is_symlink():
+            continue  # The inventory check owns missing or redirected files.
+        try:
+            content = path.read_text(encoding="utf-8")
+            content_findings = shipped_skill_content_findings(content, skill_name=name, commands=commands, operations=operations)
+            if not content_findings:
+                content_findings = shipped_skill_reference_findings(ROOT, content)
+            findings.extend(f"skills/{name}/SKILL.md: {finding}" for finding in content_findings)
+        except (OSError, UnicodeError) as exc:
+            findings.append(f"skills/{name}/SKILL.md: unreadable content: {exc}")
+    return findings
 
 def cd0043_lane_methodology_findings(packet_schema: object, registry: object, skills_entries: list[str]) -> list[str]:
-    """Pure form of the CD-0043 D1/D3 check, over already-parsed documents."""
+    """Pure methodology/admission check under CD-0043 D1 and CD-0245 D1."""
     findings: list[str] = []
     properties = packet_schema.get("properties", {}) if isinstance(packet_schema, dict) else {}
     if not isinstance(properties, dict):
@@ -673,10 +715,98 @@ def cd0043_lane_methodology_findings(packet_schema: object, registry: object, sk
         findings.append(
             "contracts/agent-lanes.v1.json: authored version counter is forbidden by CD-0242 D14"
         )
-    if sorted(skills_entries) != ["README.md"]:
+    if set(skills_entries) != {"README.md", *ADMITTED_SKILLS}:
         findings.append(
-            f"skills/: CD-0043 D3 ships the boundary as README.md only (a decided emptiness); found {sorted(skills_entries)}"
+            f"skills/: CD-0245 D1 requires the exact admitted inventory {sorted({'README.md', *ADMITTED_SKILLS})}; found {sorted(skills_entries)}"
         )
+    return findings
+
+
+def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
+    """Admission is explicit, including supporting files and empty directories."""
+    if skills_dir.is_symlink():
+        return ["skills/: symlink is not an admitted skill directory"]
+    expected = {"README.md", *(f"{name}/SKILL.md" for name in ADMITTED_SKILLS)}
+    directories = {str(parent) for name in expected for parent in Path(name).parents if str(parent) != "."}
+    findings: list[str] = []
+    present: set[str] = set()
+    for path in sorted(skills_dir.rglob("*")):
+        relative = path.relative_to(skills_dir).as_posix()
+        if path.is_symlink():
+            findings.append(f"skills/{relative}: symlink is not an admitted skill file")
+        elif path.is_file():
+            present.add(relative)
+        elif relative not in directories:
+            findings.append(f"skills/{relative}: unadmitted directory under CD-0245 D1")
+    findings.extend(f"skills/{name}: unadmitted file under CD-0245 D1" for name in sorted(present - expected))
+    findings.extend(f"skills/{name}: missing admitted file under CD-0245 D1" for name in sorted(expected - present))
+    return findings
+
+
+def shipped_skill_content_findings(content: str, *, skill_name: str, commands: set[str], operations: set[str]) -> list[str]:
+    """Check portable named surfaces; review still owns the prose's meaning."""
+    findings: list[str] = []
+    if not re.match(r"\A---\nname: " + re.escape(skill_name) + r"\ndescription: \S[^\n]{0,1023}\n---\n", content):
+        findings.append("frontmatter must name the admitted skill and supply its discovery description")
+    for number, line in enumerate(content.splitlines(), 1):
+        findings.extend(f"line {number}: {label}" for label, pattern in _public_content.PATTERNS if pattern.search(line))
+        if any(fragment in line for fragment in _primary_prompts.HOST_TOOL_FRAGMENTS):
+            findings.append(f"line {number}: host tool is not shipped or Product-declared (CD-0245 D3)")
+    invocations = re.findall(r"`([^`\n]+)`", content)
+    for language, block in re.findall(r"(?ms)^```([^\n]*)\n(.*?)^```", content):
+        if language in {"sh", "bash", "shell"}:
+            invocations.extend(line.strip() for line in block.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+        elif language != "json":
+            findings.append(f"executable example uses an unshipped interpreter: {language}")
+    for token in invocations:
+        words = token.split()
+        if token.startswith("concord "):
+            if len(words) < 2 or (words[1:] != ["--help"] and not (words[1] in commands and (len(words) == 2 or words[2:] == ["--help"]))):
+                findings.append(f"unshipped or flag-based command: {token}")
+        elif token.startswith("concord_") and token not in operations:
+            findings.append(f"unshipped operation: {token}")
+        elif " " in token and not re.fullmatch(r"[a-z_]+: [a-z_]+", token):
+            findings.append(f"unadmitted executable invocation: {token}")
+    references: set[str] = set()
+    revisions: set[str] = set()
+    for target in skill_reference_targets(content):
+        match = SKILL_REFERENCE.fullmatch(target)
+        if match:
+            revisions.add(match[1])
+            references.add(match[2])
+        else:
+            findings.append(f"reference must resolve to pinned public canonical content, not an adopting checkout: {target}")
+    if len(revisions) != 1:
+        findings.append("canonical references must name one source revision")
+    findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES.items() if path not in references)
+    return findings
+
+
+def skill_reference_targets(content: str) -> list[str]:
+    """Include inline links, reference definitions and autolinks."""
+    return (
+        re.findall(r"\[[^\]]+\]\(([^)]+)\)", content)
+        + re.findall(r"(?m)^ {0,3}\[[^\]]+\]:[ \t]*(\S+)", content)
+        + re.findall(r"<([A-Za-z][A-Za-z0-9+.-]*:[^>\s]+)>", content)
+    )
+
+
+def shipped_skill_reference_findings(root: Path, content: str) -> list[str]:
+    """Resolve canonical source pins locally; CI supplies the public Git history."""
+    references = {match.groups() for target in skill_reference_targets(content) if (match := SKILL_REFERENCE.fullmatch(target))}
+    findings: list[str] = []
+    try:
+        for revision in sorted({revision for revision, _ in references}):
+            result = subprocess.run(["git", "merge-base", "--is-ancestor", revision, "HEAD"], cwd=root, capture_output=True, timeout=10)
+            if result.returncode:
+                findings.append(f"reference revision {revision} must be an ancestor of this checkout; re-pin to delivered source")
+                continue
+            for _, path in sorted(reference for reference in references if reference[0] == revision):
+                result = subprocess.run(["git", "cat-file", "-e", f"{revision}:{path}"], cwd=root, capture_output=True, timeout=10)
+                if result.returncode:
+                    findings.append(f"reference path {path} does not exist at {revision}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        findings.append(f"reference resolution unavailable: {exc}")
     return findings
 
 def _check_evidence_obligation_vocabulary() -> list[str]:

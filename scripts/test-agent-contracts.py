@@ -959,7 +959,7 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
         return lane_checker.cd0043_lane_methodology_findings(
             copy.deepcopy(packet if packet is not None else packet_schema),
             copy.deepcopy(registry if registry is not None else lane_registry),
-            list(skills if skills is not None else ["README.md"]),
+            list(skills if skills is not None else ["README.md", "concord-domain-shape-stewardship"]),
         )
 
     def test_shipped_contracts_satisfy(self):
@@ -977,11 +977,158 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
 
     def test_extra_skill_entry_is_rejected(self):
         findings = self.findings(skills=["README.md", "review-rubric.md"])
-        self.assertTrue(any("README.md only" in f for f in findings))
+        self.assertTrue(any("exact admitted inventory" in f for f in findings))
         self.assertTrue(any("review-rubric.md" in f for f in findings))
 
     def test_empty_skills_boundary_is_rejected(self):
-        self.assertTrue(any("README.md only" in f for f in self.findings(skills=[])))
+        self.assertTrue(any("exact admitted inventory" in f for f in self.findings(skills=[])))
+
+class ShippedSkillTests(unittest.TestCase):
+    NAME = "concord-domain-shape-stewardship"
+    COMMANDS = {"product-knowledge-home-designate", "domain-shape-check"}
+    OPERATIONS = {"concord_domain.shape", "concord_domain.footprint"}
+
+    def content(self):
+        return (ROOT / "skills" / self.NAME / "SKILL.md").read_text(encoding="utf-8")
+
+    def findings(self, content):
+        return lane_checker.shipped_skill_content_findings(
+            content, skill_name=self.NAME, commands=self.COMMANDS, operations=self.OPERATIONS,
+        )
+
+    def test_shipped_content_satisfies_portability(self):
+        self.assertEqual(self.findings(self.content()), [])
+
+    def test_missing_or_wrong_frontmatter_is_rejected(self):
+        for content in (
+            self.content().split("---\n", 2)[2],
+            self.content().replace("name: " + self.NAME, "name: review-methodology"),
+            re.sub(r"(?m)^description:.*\n", "", self.content()),
+        ):
+            with self.subTest(content=content[:80]):
+                self.assertTrue(any("frontmatter" in f for f in self.findings(content)))
+
+    def test_private_content_uses_existing_public_content_patterns(self):
+        for forbidden in ("/" + "home" + "/synthetic/notes", "127." + "0.0.1", "gh" + "p_" + "a" * 32):
+            with self.subTest(forbidden=forbidden):
+                self.assertTrue(any("private" in f or "credential" in f for f in self.findings(self.content() + "\n" + forbidden)))
+
+    def test_host_tools_are_rejected(self):
+        for invocation in ("lgrep_search_semantic", "context7_query_docs", "exa_web_search", "github_get_file_contents"):
+            with self.subTest(invocation=invocation):
+                self.assertTrue(any("host tool" in f for f in self.findings(self.content() + "\n`" + invocation + "`")))
+
+    def test_unknown_concord_commands_and_operations_are_rejected(self):
+        for invocation in ("concord domain-shape-setup", "concord_domain.invented", "concord domain-shape-check --product alpha"):
+            with self.subTest(invocation=invocation):
+                self.assertTrue(any("operation" in f or "command" in f for f in self.findings(self.content() + "\n`" + invocation + "`")))
+
+    def test_unshipped_operations_are_not_assumed_from_the_skill(self):
+        self.assertTrue(lane_checker.shipped_skill_content_findings(
+            self.content(), skill_name=self.NAME, commands=set(), operations=set(),
+        ))
+
+    def test_executable_examples_cannot_introduce_another_tool(self):
+        findings = self.findings(self.content() + "\n```sh\narbitrary-tool check\n```\n")
+        self.assertTrue(any("executable" in f for f in findings))
+
+    def test_shipped_help_json_examples_and_field_values_are_not_host_tools(self):
+        content = self.content() + '\n`concord --help`\n`concord domain-shape-check --help`\n`kind: domain_shape`\n```json\n{"product_id":"alpha"}\n```\n'
+        self.assertEqual(self.findings(content), [])
+
+    def test_canonical_references_cannot_mix_revisions(self):
+        revision = re.search(r"concord/(?:tree|blob)/([0-9a-f]{40})/", self.content())[1]
+        content = self.content().replace(revision, ("b" if revision == "a" * 40 else "a") * 40, 1)
+        self.assertTrue(any("one source revision" in f for f in self.findings(content)))
+
+    def test_empty_concord_invocation_is_a_finding_not_a_crash(self):
+        self.assertTrue(any("command" in f for f in self.findings(self.content() + "\n`concord `")))
+
+    def test_field_spelling_cannot_hide_an_executable_invocation(self):
+        self.assertTrue(any("executable" in f for f in self.findings(self.content() + "\n`run: arbitrary-tool apply -f x`")))
+
+    def test_host_description_bound_is_checked(self):
+        content = re.sub(r"(?m)^description:.*$", "description: " + "x" * 1025, self.content())
+        self.assertTrue(any("frontmatter" in f for f in self.findings(content)))
+
+    def test_reference_resolution_requires_a_reachable_commit_and_existing_paths(self):
+        with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+            self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
+            self.assertEqual(run.call_args_list[0].args[0][:3], ["git", "merge-base", "--is-ancestor"])
+            self.assertGreaterEqual(run.call_count, 9)
+        with unittest.mock.patch.object(lane_checker.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+            self.assertTrue(any("ancestor" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+
+        def git_result(argv, **kwargs):
+            missing = argv[1] == "cat-file" and argv[-1].endswith(":contracts/domain-fact.v1.schema.json")
+            return subprocess.CompletedProcess(argv, 1 if missing else 0)
+
+        with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=git_result):
+            self.assertTrue(any("domain-fact.v1.schema.json" in f for f in lane_checker.shipped_skill_reference_findings(ROOT, self.content())))
+
+    def test_checkout_relative_mutable_and_unrelated_links_are_rejected(self):
+        for target in (
+            "../../.concord/docs/decisions/rule.md", "../references/schema.json",
+            "https://github.com/Sharper-Flow/concord/tree/main/contracts/domain-fact.v1.schema.json",
+            "https://github.com/example/" + "pr" + "ivate/tree/" + "a" * 40 + "/law.md",
+        ):
+            with self.subTest(target=target):
+                self.assertTrue(any("reference" in f for f in self.findings(self.content() + f"\n[Required]({target})")))
+
+    def test_reference_definitions_and_autolinks_are_checked(self):
+        for addition in (
+            "\n[required]: ../../.concord/docs/decisions/rule.md\n",
+            "\n<https://github.com/Sharper-Flow/concord/blob/main/README.md>\n",
+        ):
+            with self.subTest(addition=addition):
+                self.assertTrue(any("reference" in f for f in self.findings(self.content() + addition)))
+
+    def test_canonical_shape_authority_and_publication_references_are_required(self):
+        text = re.sub(r"\[Knowledge identity and publication\]\([^)]*\)", "Publication", self.content())
+        self.assertTrue(any("publication" in f for f in self.findings(text)))
+
+    def test_all_four_workflows_and_nine_audit_questions_are_present(self):
+        for heading in ("Initialize", "Migrate and reorganise", "Refine", "Audit"):
+            self.assertIn("## " + heading + "\n", self.content())
+        audit = self.content().split("## Audit\n", 1)[1].split("## Report", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^(\d+)\. ", audit), [str(n) for n in range(1, 10)])
+
+    def test_each_workflow_names_its_verifying_check_and_read(self):
+        sections = dict(re.findall(r"(?ms)^## ([^\n]+)\n(.*?)(?=^## |\Z)", self.content()))
+        for heading in ("Initialize", "Migrate and reorganise", "Refine", "Audit"):
+            with self.subTest(heading=heading):
+                self.assertIn("`concord domain-shape-check`", sections[heading])
+                self.assertIn("`concord_domain.", sections[heading])
+
+    def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skills = Path(temporary)
+            (skills / "README.md").write_text("# Skills\n")
+            entry = skills / self.NAME
+            entry.mkdir()
+            content = entry / "SKILL.md"
+            content.write_text(self.content())
+            self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [])
+            extra = entry / "unadmitted.md"
+            extra.write_text("Not admitted")
+            self.assertTrue(any("unadmitted.md" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
+            extra.unlink()
+            content.unlink()
+            self.assertTrue(any("missing" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
+            content.symlink_to(skills / "README.md")
+            self.assertTrue(any("symlink" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
+
+    def test_redirected_skills_directory_is_rejected_without_reading_its_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "outside"
+            target.mkdir()
+            skills = root / "skills"
+            skills.symlink_to(target, target_is_directory=True)
+            self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [
+                "skills/: symlink is not an admitted skill directory",
+            ])
+
 
 class EvidenceBoundParityTests(unittest.TestCase):
     """The request evidence declaration owns every evidence field bound.

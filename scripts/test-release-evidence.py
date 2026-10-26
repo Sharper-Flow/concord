@@ -209,6 +209,67 @@ class CIWorkflowDriftTests(unittest.TestCase):
         self.assertIs(with_block.get("persist-credentials"), False)
 
 
+class NativeRecipePrerequisiteTests(unittest.TestCase):
+    STEP = "Provision the committed adapter recipe Python"
+
+    def recipe_steps(self):
+        block = jobs(load_workflow(CI_WORKFLOW))
+        consumers = [block[f"verify-tests-store-{index}"] for index in range(1, STORE_SHARDS + 1)]
+        consumers += list(jobs(load_workflow(WORKFLOW_DIR / "nightly.yml")).values())
+        for job in consumers:
+            steps = job["steps"]
+            matches = [(i, step) for i, step in enumerate(steps) if step.get("name") == self.STEP]
+            self.assertEqual(len(matches), 1, "Every store shard and the full-tree nightly need the recipe runtime")
+            index, step = matches[0]
+            warm = next(i for i, s in enumerate(steps) if s.get("name") == "Warm the uv fixture cache from the committed lock")
+            self.assertLess(index, warm)
+            self.assertTrue(any("astral-sh/setup-uv@" in s.get("uses", "") for s in steps[:index]))
+            yield step["run"]
+
+    def test_every_store_consumer_provisions_the_recipe_before_offline_tests(self):
+        commands = list(self.recipe_steps())
+        self.assertEqual(len(commands), STORE_SHARDS + 1)
+        self.assertEqual(len(set(commands)), 1)
+
+    def test_provisioning_reads_pin_publishes_python3_and_refuses_unavailable_runtime(self):
+        command = next(self.recipe_steps())
+        version = json.loads((ROOT / ".concord/oracles/adapter/dispatch-acceptance.v1.json").read_text())["pin"]["python"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "bin"
+            binary.mkdir()
+            managed = root / "managed"
+            managed.mkdir()
+            uv = binary / "uv"
+            uv.write_text(f"#!{sys.executable}\n" + """import json, os, sys
+with open(os.environ['PROBE_LOG'], 'a') as log:
+    log.write(json.dumps(sys.argv[1:]) + '\\n')
+if sys.argv[1:3] == ['python', 'install']:
+    sys.exit(int(os.environ.get('INSTALL_EXIT', '0')))
+if os.environ.get('FIND_EXIT'):
+    sys.exit(int(os.environ['FIND_EXIT']))
+print(os.environ['MANAGED_PYTHON'])
+""")
+            uv.chmod(0o700)
+            python = managed / "python3"
+            python.write_text('#!/bin/sh\nprintf "Python %s\\n" "$RECIPE_VERSION"\n')
+            python.chmod(0o700)
+            env = dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}", GITHUB_PATH=str(root / "path"),
+                       MANAGED_PYTHON=str(python), PROBE_LOG=str(root / "calls"), RECIPE_VERSION=version)
+            result = subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=ROOT, env=env,
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "path").read_text().strip(), str(managed))
+            self.assertEqual([json.loads(line) for line in (root / "calls").read_text().splitlines()],
+                             [["python", "install", version], ["python", "find", "--managed-python", version]])
+            (root / "path").unlink()
+            for override in ({"INSTALL_EXIT": "7"}, {"FIND_EXIT": "8"}, {"RECIPE_VERSION": "0.0.0"}):
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=ROOT,
+                                        env=dict(env, **override), capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / "path").exists(), "A failed runtime must never enter PATH")
+
+
 class AdapterCIShardTests(unittest.TestCase):
     def test_aggregate_adapter_gate_refuses_every_non_success_result(self) -> None:
         gate = jobs(load_workflow(CI_WORKFLOW))["verify-adapter"]

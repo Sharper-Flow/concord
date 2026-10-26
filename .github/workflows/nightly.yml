@@ -44,8 +44,18 @@ jobs:
         with:
           version: 0.11.26
           enable-cache: "false"
+      - name: Provision the committed adapter recipe Python
+        # Any store shard can own the recipe test after sorted inventory changes.
+        # Install its existing exact pin before the offline test phase.
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
+          uv python install "$version"
+          python_path="$(uv python find --managed-python "$version")"
+          python_dir="$(dirname "$python_path")"
+          test "$("$python_dir/python3" --version)" = "Python $version"
+          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
       - name: Warm the uv fixture cache from the committed lock
-        # The only networked uv step. Both commands refuse a lock that no
+        # The package-network step. Both commands refuse a lock that no
         # longer matches its project, and the sync checks every wheel
         # against the lock's hashes. The store tests copy this cache into
         # private scratch and run uv offline, so the cache is made read-only.

@@ -126,6 +126,13 @@ class ReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lists of exact test names"):
             self.read(passing(), selection={"expected_tests": {"example/p": "TestParent"}})
 
+    def test_terminal_without_run_never_proves_named_execution(self):
+        result = self.read([event("start"), event("pass", "TestAbsentRun", Elapsed=1), event("pass")],
+            selection={"expected_tests": {"example/p": ["TestAbsentRun"]}})
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["selection"]["missing"], [{"package": "example/p", "name": "TestAbsentRun"}])
+        self.assertNotEqual(result["outcome"], "pass")
+
 
 FAKE_GO = '''#!{python}
 import json, os, signal, sys

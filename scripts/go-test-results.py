@@ -96,13 +96,13 @@ def read_go_results(raw_path: Path | str, process_exit_code: int | None,
         tests = packages.get(package, {}).get("tests", {})
         for name in names:
             test = tests.get(name)
-            if test is None or test["terminal"] is None:
+            if test is None or test["terminal"] is None or not test["observed_run"]:
                 missing.append({"package": package, "name": name})
             elif test["terminal"] == "skip":
                 skipped.append({"package": package, "name": name})
     complete = bool(packages) and not errors and process_exit_code is not None
     for pkg in packages.values():
-        pkg["complete"] = pkg["terminal"] is not None and all(t["terminal"] is not None for t in pkg["tests"].values())
+        pkg["complete"] = pkg["terminal"] is not None and all(t["terminal"] is not None and t["observed_run"] for t in pkg["tests"].values())
         complete = complete and pkg["complete"]
         for test in pkg["tests"].values():
             test["measurement"] = "reused" if pkg["cached"] is True else "current" if pkg["cached"] is False else "unknown"

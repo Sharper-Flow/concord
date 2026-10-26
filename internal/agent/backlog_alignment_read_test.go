@@ -93,12 +93,12 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					RelatedIDs []string `json:"related_ids"`
 				}
 				commits := s.DurableCommits()
+				slices.Sort(related)
 				for range 2 {
 					page := read()
 					if err := json.Unmarshal(page["backlog_alignment"], &alignment); err != nil {
 						t.Fatalf("recorded alignment absent or malformed: %s: %v", page["backlog_alignment"], err)
 					}
-					slices.Sort(related)
 					if alignment.Searched != searched || alignment.Outcome != outcome || alignment.RelatedIDs == nil || !slices.Equal(alignment.RelatedIDs, related) {
 						t.Fatalf("alignment facts differ: %+v", alignment)
 					}

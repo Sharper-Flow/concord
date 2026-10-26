@@ -96,7 +96,7 @@ func TestLiveReviewCandidateRefusesMissingMemberRoster(t *testing.T) {
 	}
 	auth := workflowActionCompletedPayload{WorkerCapabilityClass: "implementation", WorkerJob: &WorkerJobBinding{JobID: "job:missing", Revision: 1}}
 	result := WorkerCompletedPayload{ObservedDelivery: &WorkerObservedDelivery{State: "clean", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}}
-	if candidate, err := workflowAcceptedResultCandidate(t.Context(), db, "work-history", auth, result); err == nil || candidate != nil {
+	if candidate, err := workflowAcceptedResultCandidate(t.Context(), db, "work-history", auth, result); err == nil || candidate != nil || !strings.Contains(err.Error(), "no such table: workflow_group_members") {
 		t.Fatalf("missing live roster admitted a candidate: %+v, %v", candidate, err)
 	}
 }

@@ -104,11 +104,8 @@ func sampleDomainShapeReading(ctx context.Context, q queryer, product string, re
 	}
 	w = dispatchReadingWitness{arm: WorkContextSourceDomainShape, identity: home.HomeProjectID + "/domain_shape@" + reading.Source.CommitOID + "/" + reading.Source.ContentHash,
 		sourceProject: home.HomeProjectID, sourceLocator: home.HomeLocatorID, sourceRepo: home.RepoPath,
-		commitOID: selected.KnowledgeCommit, contentHash: reading.Source.ContentHash, sourceSetDigest: knowledgeSourceSetDigest(sources), shape: &selected}
-	if err := q.QueryRowContext(ctx, `SELECT created_at,updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&w.locatorCreatedAt, &w.locatorUpdatedAt); err != nil {
-		return w, err
-	}
-	if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, home.HomeProjectID).Scan(&w.projectVersion); err != nil {
+		commitOID: selected.KnowledgeCommit, contentHash: reading.Source.ContentHash, sourceSetDigest: knowledgeSourceSetDigest(sources), shape: &selected, shapeDomain: reading.DomainID}
+	if err := sampleDomainShapeSourceAuthority(ctx, q, home, product, &w); err != nil {
 		return w, err
 	}
 	if err := q.QueryRowContext(ctx, `SELECT scanned_commit_oid,scanned_content_digest,projection_version,complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&w.watermarkCommit, &w.watermarkDigest, &w.watermarkVersion, &w.watermarkComplete); err != nil {
@@ -117,8 +114,53 @@ func sampleDomainShapeReading(ctx context.Context, q queryer, product string, re
 	return w, nil
 }
 
+// A held packet already pins the selection. Sampling rechecks source authority,
+// not a projection that may now describe a later committed Product revision.
+func sampleHeldDomainShapeReading(ctx context.Context, q queryer, product string, reading WorkContextReading) (dispatchReadingWitness, error) {
+	var w dispatchReadingWitness
+	if err := validateWorkContextReading(reading); err != nil {
+		return w, err
+	}
+	home, err := resolveKnowledgeQueryHome(ctx, q, product, "", KnowledgeHome{}, workerDispatchReadingResolutionOp)
+	if err != nil {
+		return w, err
+	}
+	sources, err := resolveKnowledgeQuerySources(ctx, q, product, workerDispatchReadingResolutionOp)
+	if err != nil {
+		return w, err
+	}
+	if home.HomeProjectID != reading.Source.SourceID || !slices.ContainsFunc(sources, func(source KnowledgeHome) bool {
+		return source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID
+	}) {
+		return w, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape source is not the Product's registered designated home", false, "restore the original Product home registration")
+	}
+	w = dispatchReadingWitness{arm: WorkContextSourceDomainShape, identity: home.HomeProjectID + "/domain_shape@" + reading.Source.CommitOID + "/" + reading.Source.ContentHash,
+		sourceProject: home.HomeProjectID, sourceLocator: home.HomeLocatorID, sourceRepo: home.RepoPath,
+		commitOID: reading.Source.CommitOID, contentHash: reading.Source.ContentHash, sourceSetDigest: knowledgeSourceSetDigest(sources), shapeDomain: reading.DomainID,
+		shape: &DomainShapeResult{ProductID: product, HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, Selector: *reading.Source.Selector}}
+	err = sampleDomainShapeSourceAuthority(ctx, q, home, product, &w)
+	return w, err
+}
+
+func sampleDomainShapeSourceAuthority(ctx context.Context, q queryer, home KnowledgeHome, product string, w *dispatchReadingWitness) error {
+	if err := q.QueryRowContext(ctx, `SELECT created_at,updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&w.locatorCreatedAt, &w.locatorUpdatedAt); err != nil {
+		return err
+	}
+	if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, home.HomeProjectID).Scan(&w.projectVersion); err != nil {
+		return err
+	}
+	var member bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, product, home.HomeProjectID).Scan(&member); err != nil {
+		return err
+	}
+	if !member {
+		return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "domain_shape home Project is outside the work Product", false, "restore the Product's home Project membership")
+	}
+	return nil
+}
+
 func domainShapeReadingProofFailure() error {
-	return newFailure(KindInvalidNoteProof, workerDispatchReadingResolutionOp, "domain_shape projected content differs from its pinned committed inputs", false, "rebuild the Product knowledge projection and explicitly refresh the selection")
+	return newFailure(KindInvalidNoteProof, workerDispatchReadingResolutionOp, "domain_shape selected content differs from its pinned committed inputs", false, "restore the original local committed inputs; never repin an authorized packet")
 }
 
 // resolveDomainShapeReading proves the selected response, not a second lookup.
@@ -129,7 +171,6 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 	if w.shape == nil {
 		return nil, domainShapeReadingProofFailure()
 	}
-	s := w.shape
 	kind, err := runner.Run(ctx, w.sourceRepo, "cat-file", "-t", w.commitOID)
 	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
 		return nil, domainShapeReadingProofFailure()
@@ -147,8 +188,38 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 	}
 	projection := newDomainShapeProjection(w.commitOID, manifest, architecture)
 	snapshot := &projection.Snapshot
-	if err := proveDomainShapeReadingTooling(ctx, runner, w.sourceRepo, s, snapshot); err != nil {
+	if err := reconstructDomainShapeReadingSnapshot(ctx, runner, w, shards, snapshot); err != nil {
 		return nil, err
+	}
+	home := KnowledgeHome{HomeProjectID: w.sourceProject, HomeLocatorID: w.sourceLocator}
+	proved := selectDomainShape(*snapshot, home, w.shape.ProductID, w.shape.Selector)
+	proved.GoverningLaw = domainShapeManifestGoverningLaw(manifest, proved)
+	if w.shapeDomain != manifest.DomainRegistry.RootDomainID && (len(proved.DomainIDs) != 1 || proved.DomainIDs[0] != w.shapeDomain) {
+		return nil, domainShapeReadingProofFailure()
+	}
+	if err := proveDomainShapeGoverningLaw(ctx, runner, w, manifest, proved.GoverningLaw); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(proved)
+	if err != nil || len(raw) > DomainShapeResultMaxBytes || domainShapeBytesHash(raw) != w.contentHash {
+		return nil, domainShapeReadingProofFailure()
+	}
+	// Dispatch must prove the exact sampled SQL response as well as its hash.
+	// Held reads reconstruct without borrowing any moving projection metadata.
+	if w.shape.SnapshotContentHash != "" {
+		expected, err := json.Marshal(w.shape)
+		if err != nil || !bytes.Equal(raw, expected) {
+			return nil, domainShapeReadingProofFailure()
+		}
+	}
+	return raw, nil
+}
+
+func reconstructDomainShapeReadingSnapshot(ctx context.Context, runner GitRunner, w *dispatchReadingWitness, shards knowledgeShards, snapshot *DomainShapeSnapshot) error {
+	if len(shards.facts) != 0 {
+		if err := proveDomainShapeReadingTooling(ctx, runner, w.sourceRepo, snapshot); err != nil {
+			return err
+		}
 	}
 	names := make([]string, 0, len(shards.facts))
 	for name := range shards.facts {
@@ -159,65 +230,99 @@ func resolveDomainShapeReading(ctx context.Context, runner GitRunner, w *dispatc
 		raw := shards.facts[name]
 		var fact DomainFact
 		if err := decodeStrictKnowledgeJSON(raw, &fact); err != nil || name != fact.ID+".json" {
-			return nil, domainShapeReadingProofFailure()
+			return domainShapeReadingProofFailure()
 		}
 		snapshot.Facts = append(snapshot.Facts, fact)
 		snapshot.FactContentHashes[fact.ID] = domainShapeBytesHash(raw)
 	}
 	rawSnapshot, err := json.Marshal(snapshot)
-	if err != nil || domainShapeBytesHash(rawSnapshot) != s.SnapshotContentHash {
-		return nil, domainShapeReadingProofFailure()
+	if err != nil {
+		return err
 	}
-	snapshot.ContentHash = s.SnapshotContentHash
-	home := KnowledgeHome{HomeProjectID: w.sourceProject, HomeLocatorID: w.sourceLocator}
-	proved := selectDomainShape(*snapshot, home, s.ProductID, s.Selector)
-	proved.GoverningLaw = s.GoverningLaw
-	for _, law := range s.GoverningLaw {
+	snapshot.ContentHash = domainShapeBytesHash(rawSnapshot)
+	return nil
+}
+
+func proveDomainShapeGoverningLaw(ctx context.Context, runner GitRunner, w *dispatchReadingWitness, manifest KnowledgeManifest, laws []DomainLawRecord) error {
+	for _, law := range laws {
 		index := slices.IndexFunc(manifest.Records, func(r KnowledgeRecord) bool { return r.ID == law.LawID })
 		if index < 0 {
-			return nil, domainShapeReadingProofFailure()
+			return domainShapeReadingProofFailure()
 		}
 		r := manifest.Records[index]
 		if r.Kind != law.Kind || r.Title != law.Title || r.Path != law.Path || r.SHA256 != law.ContentHash || r.Status != "accepted" || law.ScannedCommit != w.commitOID {
-			return nil, domainShapeReadingProofFailure()
+			return domainShapeReadingProofFailure()
 		}
 		if _, err := verifyManifestRecordRunner(ctx, runner, w.sourceRepo, w.commitOID, r, manifestSharedHomeRole); err != nil {
-			return nil, err
-		}
-	}
-	raw, err := json.Marshal(proved)
-	expected, marshalErr := json.Marshal(s)
-	if err != nil || marshalErr != nil || len(raw) > DomainShapeResultMaxBytes || !bytes.Equal(raw, expected) || domainShapeBytesHash(raw) != w.contentHash {
-		return nil, domainShapeReadingProofFailure()
-	}
-	return raw, nil
-}
-
-func proveDomainShapeReadingTooling(ctx context.Context, runner GitRunner, repo string, selected *DomainShapeResult, snapshot *DomainShapeSnapshot) error {
-	snapshot.ToolingCommit, snapshot.ToolingContentHash = selected.ToolingCommit, selected.ToolingContentHash
-	if selected.ToolingContentHash != "" {
-		raw, err := readDomainShapePinnedBlob(ctx, runner, repo, selected.ToolingCommit, projectToolingManifestPath)
-		if err != nil {
 			return err
-		}
-		if domainShapeBytesHash(raw) != selected.ToolingContentHash {
-			return domainShapeReadingProofFailure()
-		}
-		tooling, err := ParseProjectToolingManifest(raw)
-		if err != nil {
-			return err
-		}
-		if tooling.DomainShape != nil {
-			snapshot.RequiredChecks = append(snapshot.RequiredChecks, tooling.DomainShape.RequiredChecks...)
-			slices.Sort(snapshot.RequiredChecks)
-		}
-	} else if selected.ToolingCommit != "" {
-		listing, err := runner.Run(ctx, repo, "ls-tree", "-z", selected.ToolingCommit, "--", projectToolingManifestPath)
-		if err != nil || len(listing) != 0 {
-			return domainShapeReadingProofFailure()
 		}
 	}
 	return nil
+}
+
+func proveDomainShapeReadingTooling(ctx context.Context, runner GitRunner, repo string, snapshot *DomainShapeSnapshot) error {
+	snapshot.ToolingCommit = snapshot.KnowledgeCommit
+	listing, err := runner.Run(ctx, repo, "ls-tree", "-z", snapshot.KnowledgeCommit, "--", projectToolingManifestPath)
+	if err != nil {
+		return err
+	}
+	if len(listing) == 0 {
+		return nil
+	}
+	entries, err := parseTreeEntries(listing)
+	if err != nil || len(entries) != 1 || entries[0].kind != "blob" || entries[0].mode != "100644" {
+		return domainShapeReadingProofFailure()
+	}
+	raw, err := readDomainShapePinnedBlob(ctx, runner, repo, snapshot.KnowledgeCommit, projectToolingManifestPath)
+	if err != nil {
+		return err
+	}
+	tooling, err := ParseProjectToolingManifest(raw)
+	if err != nil {
+		return err
+	}
+	snapshot.ToolingContentHash = domainShapeBytesHash(raw)
+	if tooling.DomainShape != nil {
+		snapshot.RequiredChecks = append(snapshot.RequiredChecks, tooling.DomainShape.RequiredChecks...)
+		slices.Sort(snapshot.RequiredChecks)
+	}
+	return nil
+}
+
+// This is the immutable equivalent of domainShapeGoverningLawTx's join: accepted
+// law must have a home, and match a selected Domain or ancestor, applicability,
+// or an explicit fact citation. Metadata comes only from the pinned manifest.
+func domainShapeManifestGoverningLaw(manifest KnowledgeManifest, selection DomainShapeResult) []DomainLawRecord {
+	parents := map[string]string{}
+	for _, domain := range manifest.DomainRegistry.Domains {
+		parents[domain.DomainID] = domain.ParentDomainID
+	}
+	governing := map[string]bool{}
+	for _, domain := range selection.DomainIDs {
+		for id := domain; id != "" && !governing[id]; id = parents[id] {
+			if _, exists := parents[id]; !exists {
+				break
+			}
+			governing[id] = true
+		}
+	}
+	explicit := map[string]bool{}
+	for _, item := range selection.Facts {
+		for _, law := range item.Fact.GoverningLawIDs {
+			explicit[law] = true
+		}
+	}
+	laws := []DomainLawRecord{}
+	for _, record := range manifest.Records {
+		if record.Status != "accepted" || !manifestLawBearingKinds[record.Kind] || record.HomeDomainID == "" {
+			continue
+		}
+		if explicit[record.ID] || governing[record.HomeDomainID] || slices.ContainsFunc(record.AppliesToDomainIDs, func(id string) bool { return governing[id] }) {
+			laws = append(laws, DomainLawRecord{LawID: record.ID, Kind: record.Kind, Title: record.Title, Path: record.Path, ContentHash: record.SHA256, ScannedCommit: selection.KnowledgeCommit})
+		}
+	}
+	slices.SortFunc(laws, func(a, b DomainLawRecord) int { return strings.Compare(a.LawID, b.LawID) })
+	return laws
 }
 
 func readDomainShapePinnedBlob(ctx context.Context, runner GitRunner, repo, commit, path string) ([]byte, error) {

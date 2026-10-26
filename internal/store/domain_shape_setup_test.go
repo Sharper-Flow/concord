@@ -307,6 +307,41 @@ func TestDomainShapeSetupRatchetModel(t *testing.T) {
 	}
 }
 
+func TestDomainShapeSetupSeedsDeclaredMixedRoots(t *testing.T) {
+	for _, version := range []string{"1.0", "1.1"} {
+		t.Run(version, func(t *testing.T) {
+			request := setupShapeRequest(t, "orchard")
+			plan, err := PrepareDomainShapeSetup(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := plan.Apply(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(request.RepoPath, domainShapeRatchetPath)); err != nil {
+				t.Fatal(err)
+			}
+			entry := `{"path":"fruit","domain_ids":["product-root:orchard"]}`
+			if version == "1.1" {
+				entry = `{"path":"fruit","role":"mixed","domain_ids":["product-root:orchard","fruit-care"]}`
+				writeSetupInput(t, request, knowledgeRegistryPath, `{"schema_version":"1.0","product_key":"orchard","root_domain_id":"product-root:orchard","domains":[{"domain_id":"product-root:orchard","name":"Orchard","purpose":"Shared behavior.","status":"current","architecture_relations":[]},{"domain_id":"fruit-care","name":"Care","purpose":"Care for fruit.","parent_domain_id":"product-root:orchard","status":"current","architecture_relations":[]}]}`)
+			}
+			writeSetupInput(t, request, knowledgePackageMapPath, fmt.Sprintf(`{"schema_version":%q,"packages":[%s]}`, version, entry))
+			if err := os.Mkdir(filepath.Join(request.RepoPath, "fruit"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			plan, err = PrepareDomainShapeSetup(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ratchet DomainShapeRatchet
+			if err := json.Unmarshal(plan.writes[domainShapeRatchetPath], &ratchet); err != nil || !reflect.DeepEqual(ratchet.MixedRoots, []string{"fruit"}) || len(ratchet.Imports) != 0 {
+				t.Fatalf("existing mixed roots were not seeded: %+v %v", ratchet, err)
+			}
+		})
+	}
+}
+
 func TestDomainShapeSetupPreservesDeclaredRootsFactsAndBaseline(t *testing.T) {
 	request := setupShapeRequest(t, "orchard")
 	registry := `{"schema_version":"1.0","product_key":"orchard","root_domain_id":"product-root:orchard","domains":[{"domain_id":"product-root:orchard","name":"Orchard","purpose":"Shared behavior.","status":"current","architecture_relations":[]},{"domain_id":"fruit-care","name":"Care","purpose":"Care for fruit.","parent_domain_id":"product-root:orchard","status":"current","architecture_relations":[]}]}`

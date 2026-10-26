@@ -434,7 +434,7 @@ func validateWorkContextDomain(ctx context.Context, tx queryer, workID, domainID
 	return nil
 }
 
-func validateWorkContextAffectedDomainTx(ctx context.Context, tx *sql.Tx, workID, domainID string) error {
+func validateWorkContextAffectedDomainTx(ctx context.Context, tx queryer, workID, domainID string) error {
 	// The approved contract's affected scope binds only when the work holds
 	// a contract with an architecture binding.
 	contractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "work_context_domain")

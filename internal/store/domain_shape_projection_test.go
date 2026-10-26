@@ -172,7 +172,7 @@ func TestDomainShapeProjectionRollbackAfterClear(t *testing.T) {
 }
 
 func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
-	for _, name := range []string{"foreign resource", "foreign project", "foreign law", "unknown check", "undeclared default check", "unknown domain", "missing invariant", "missing root", "file root", "symlink root", "symlink fact", "nested fact", "oversize fact"} {
+	for _, name := range []string{"foreign resource", "foreign project", "foreign law", "unknown check", "non-required check", "malformed tooling", "symlink tooling", "unknown domain", "missing invariant", "missing root", "file root", "symlink root", "symlink fact", "nested fact", "oversize fact"} {
 		t.Run(name, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := context.Background()
@@ -210,9 +210,18 @@ func TestDomainShapeProjectionRejectsInvalidFactsAndRoots(t *testing.T) {
 				fact.GoverningLawIDs = []string{"CD-0002"}
 			case "unknown check":
 				fact.Invariant.EnforcedBy[0].CheckID = "unknown"
-			case "undeclared default check":
+			case "non-required check":
 				fact.Invariant.EnforcedBy[0].CheckID = "candidate-check"
-				writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, `{"schema_version":"1.0","project":"synthetic","tools":[{"id":"candidate-check","invocation":"false"}],"domain_shape":{"required_checks":["candidate-check"]}}`)
+				writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, `{"schema_version":"1.0","project":"synthetic","tools":[{"id":"check-tests","invocation":"false"},{"id":"candidate-check","invocation":"false"}],"domain_shape":{"required_checks":["check-tests"]}}`)
+			case "malformed tooling":
+				writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, `{"schema_version":"1.0","project":"synthetic","tools":[],"domain_shape":{"required_checks":["unknown"]}}`)
+			case "symlink tooling":
+				if err := os.Remove(filepath.Join(home.RepoPath, projectToolingManifestPath)); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("docs/knowledge/manifest.json", filepath.Join(home.RepoPath, projectToolingManifestPath)); err != nil {
+					t.Fatal(err)
+				}
 			case "unknown domain":
 				fact.OwnerDomainID = "unknown"
 			case "missing invariant":
@@ -344,7 +353,67 @@ func TestDomainShapeProjectionHistoricalAndEmptyMaps(t *testing.T) {
 	}
 }
 
-func TestDomainShapeProjectionDefaultToolingFreshnessAndUnverifiedCode(t *testing.T) {
+func TestDomainShapeProjectionWithoutOriginRef(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	home, product := domainShapeProjectionFixture(t, s, "a")
+	runKnowledgeGit(t, home.RepoPath, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+	runKnowledgeGit(t, home.RepoPath, "update-ref", "-d", "refs/remotes/origin/main")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadDomainShapeSnapshot(ctx, home, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := headCommit(t, home.RepoPath)
+	raw := runKnowledgeGit(t, home.RepoPath, "show", commit+":"+projectToolingManifestPath)
+	if got.KnowledgeCommit != commit || got.ToolingCommit != commit || got.ToolingContentHash != domainShapeBytesHash([]byte(raw)) || !reflect.DeepEqual(got.RequiredChecks, []string{"check-tests"}) || got.ReferenceVerification != "unverified" || got.ExtractorVerification != "unverified" {
+		t.Fatalf("unpinned or overstated snapshot: %+v", got)
+	}
+}
+
+func TestDomainShapeProjectionLocalSameCommitCheckAndFact(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	home, product := domainShapeProjectionFixture(t, s, "a")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.ReadDomainShapeSnapshot(ctx, home, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tooling := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+projectToolingManifestPath)
+	tooling = strings.ReplaceAll(tooling, "check-tests", "local-check")
+	writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, tooling)
+	factPath := knowledgeFactTreeDir + "invariant-a.json"
+	fact := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+factPath)
+	fact = strings.ReplaceAll(fact, "check-tests", "local-check")
+	writeKnowledgeFile(t, home.RepoPath, factPath, fact)
+	commit := commitKnowledgeRepo(t, home.RepoPath, "local check and fact")
+	// A mutable declaration cannot replace the committed proof.
+	writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, "not JSON")
+	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadDomainShapeSnapshot(ctx, home, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.KnowledgeCommit != commit || got.ToolingCommit != commit || got.ToolingContentHash != domainShapeBytesHash([]byte(tooling)) || got.FactContentHashes["invariant-a"] != domainShapeBytesHash([]byte(fact)) || !reflect.DeepEqual(got.RequiredChecks, []string{"local-check"}) || got.ContentHash == before.ContentHash || got.ReferenceVerification != "unverified" || got.ExtractorVerification != "unverified" {
+		t.Fatalf("local declaration and fact were not pinned together: %+v", got)
+	}
+	defaultCommit, defaultHash, defaultChecks, err := domainShapeDefaultTooling(ctx, home)
+	if err != nil || defaultCommit != before.ToolingCommit || defaultHash != before.ToolingContentHash || !reflect.DeepEqual(defaultChecks, before.RequiredChecks) {
+		t.Fatalf("explicit-check default authority changed: %s %s %v %v", defaultCommit, defaultHash, defaultChecks, err)
+	}
+}
+
+func TestDomainShapeProjectionUnrelatedRemoteAdvance(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	home, product := domainShapeProjectionFixture(t, s, "a")
@@ -356,18 +425,32 @@ func TestDomainShapeProjectionDefaultToolingFreshnessAndUnverifiedCode(t *testin
 		t.Fatal(err)
 	}
 	// The code symbols in the fixture do not exist; structural indexing stays
-	// unverified. Advancing only the tooling default must still invalidate it.
+	// unverified. Fetching unrelated default tooling must not change its inputs.
 	raw := runKnowledgeGit(t, home.RepoPath, "show", "HEAD:"+projectToolingManifestPath)
 	writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, strings.Replace(raw, "false domain-shape-must-not-execute", "false different-required-invocation", 1))
 	toolCommit := commitKnowledgeRepo(t, home.RepoPath, "default tooling changes")
 	runKnowledgeGit(t, home.RepoPath, "update-ref", "refs/remotes/origin/main", toolCommit)
 	runKnowledgeGit(t, home.RepoPath, "checkout", "--detach", before.KnowledgeCommit)
+	watermark, err := readKnowledgeWatermark(ctx, s.db, home, before.KnowledgeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !watermark.Fresh {
+		t.Error("unrelated remote advance invalidated the knowledge digest")
+	}
 	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	after, err := s.ReadDomainShapeSnapshot(ctx, home, product)
-	if err != nil || before.KnowledgeCommit != after.KnowledgeCommit || after.ToolingCommit != toolCommit || before.ContentHash == after.ContentHash || before.ToolingContentHash == after.ToolingContentHash || after.ReferenceVerification != "unverified" {
-		t.Fatalf("tooling dependency was not refreshed: %+v %v", after, err)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("unrelated remote advance changed the snapshot: %+v %v", after, err)
+	}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := s.ReadDomainShapeSnapshot(ctx, home, product)
+	if err != nil || !reflect.DeepEqual(before, rebuilt) {
+		t.Fatalf("unrelated remote advance changed the rebuilt snapshot: %+v %v", rebuilt, err)
 	}
 }
 

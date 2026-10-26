@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,7 +134,7 @@ func designateDomainShapeTx(ctx context.Context, transaction *Transaction, reque
 // and competing-home preflight establish ownership; preserve valid existing keys
 // rather than renaming an adopting Product to match a database identifier.
 func domainShapeOperatorSetupIdentity(repo, product, project string) (DomainShapeSetupRequest, error) {
-	request := DomainShapeSetupRequest{RepoPath: repo, ProductKey: product, ProjectKey: project}
+	request := DomainShapeSetupRequest{RepoPath: repo, ProductKey: domainShapeAuthoredKey("product", product), ProjectKey: domainShapeAuthoredKey("project", project)}
 	root, err := openDomainShapeSetupRoot(repo)
 	if err != nil {
 		return request, err
@@ -184,6 +186,15 @@ func domainShapeOperatorSetupIdentity(repo, product, project string) (DomainShap
 		}
 	}
 	return request, nil
+}
+
+func domainShapeAuthoredKey(prefix, id string) string {
+	if validProductKey(id) {
+		return id
+	}
+	digest := sha256.Sum256([]byte(id))
+	// Unpadded base32 keeps the complete digest and prefix within 64 bytes.
+	return prefix + "-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
 }
 
 // DomainShapeOperatorCheck is an ephemeral operator report, not workflow evidence
@@ -284,25 +295,9 @@ func prepareDomainShapeOperatorInput(ctx context.Context, home KnowledgeHome, pr
 	if err != nil {
 		return input, nil, "", "", "", err
 	}
-	var tooling *ProjectToolingManifest
-	if snapshot.ToolingCommit != "" && (snapshot.ToolingCommit != commit || snapshot.ToolingContentHash != hash || !slices.Equal(snapshot.RequiredChecks, checks)) {
-		return input, nil, "", "", "", domainShapeSetupError("default tooling no longer matches the projected facts")
-	}
-	if hash != "" {
-		raw, err := runGit(ctx, home.RepoPath, "cat-file", "blob", commit+":"+projectToolingManifestPath)
-		if err != nil {
-			return input, nil, "", "", "", err
-		}
-		tooling, err = ParseProjectToolingManifest(raw)
-		if err != nil {
-			return input, nil, "", "", "", err
-		}
-		if tooling.DomainShape != nil {
-			tooling.DomainShape.RequiredChecks = checks
-		}
-		if err := validateDomainShapeOperatorInvocations(tooling); err != nil {
-			return input, nil, "", "", "", err
-		}
+	tooling, err := prepareDomainShapeOperatorTooling(ctx, home, snapshot.RequiredChecks, commit, hash, checks)
+	if err != nil {
+		return input, nil, "", "", "", err
 	}
 	input.RequiredChecks = checks
 	registryRaw, err := runGit(ctx, home.RepoPath, "cat-file", "blob", snapshot.KnowledgeCommit+":"+knowledgeRegistryPath)
@@ -326,18 +321,23 @@ func prepareDomainShapeOperatorInput(ctx context.Context, home KnowledgeHome, pr
 			}
 		}
 	}
-	ratchet, err := runGit(ctx, home.RepoPath, "cat-file", "blob", snapshot.KnowledgeCommit+":"+domainShapeRatchetPath)
+	ratchet, rawRatchet, err := readDomainShapeOperatorRatchet(ctx, home, snapshot.KnowledgeCommit, false)
 	if err != nil {
 		return input, nil, "", "", "", err
 	}
-	if err := domainShapeJSON(ratchet, &input.Ratchet); err != nil {
+	baseline, _, err := readDomainShapeOperatorRatchet(ctx, home, commit, true)
+	if err != nil {
 		return input, nil, "", "", "", err
 	}
+	if err := compareDomainShapeOperatorRatchet(ratchet, baseline); err != nil {
+		return input, nil, "", "", "", err
+	}
+	input.Ratchet = ratchet
 	packages := knowledgePackageMapDocument{SchemaVersion: packageMapShapeVersion, Packages: []knowledgePackageEntry{}}
 	for _, root := range input.Roots {
 		packages.Packages = append(packages.Packages, knowledgePackageEntry{Path: root.Path, Role: root.Role})
 	}
-	if err := validateSetupRatchet(ratchet, packages); err != nil {
+	if err := validateSetupRatchet(rawRatchet, packages); err != nil {
 		return input, nil, "", "", "", err
 	}
 	collectDomainShapeOperatorAnchors(&input)
@@ -352,7 +352,82 @@ func prepareDomainShapeOperatorInput(ctx context.Context, home KnowledgeHome, pr
 	}
 	input.Subject.ContentHash = domainShapeBytesHash(pinned)
 	input.Operation = "boundary"
-	return input, tooling, commit, hash, domainShapeBytesHash(ratchet), validateDomainShapeInput(input)
+	return input, tooling, commit, hash, domainShapeBytesHash(rawRatchet), validateDomainShapeInput(input)
+}
+
+func prepareDomainShapeOperatorTooling(ctx context.Context, home KnowledgeHome, candidateChecks []string, commit, hash string, checks []string) (*ProjectToolingManifest, error) {
+	for _, check := range candidateChecks {
+		if !slices.Contains(checks, check) {
+			return nil, domainShapeSetupError("candidate required check is not admitted by default tooling: " + check)
+		}
+	}
+	if hash == "" {
+		return nil, nil
+	}
+	raw, err := runGit(ctx, home.RepoPath, "cat-file", "blob", commit+":"+projectToolingManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	tooling, err := ParseProjectToolingManifest(raw)
+	if err != nil {
+		return nil, err
+	}
+	if tooling.DomainShape != nil {
+		tooling.DomainShape.RequiredChecks = checks
+	}
+	return tooling, validateDomainShapeOperatorInvocations(tooling)
+}
+
+// Absence is an empty baseline only after an exact immutable tree lookup proves
+// it. A failed lookup or a malformed blob must never erase baseline authority.
+func readDomainShapeOperatorRatchet(ctx context.Context, home KnowledgeHome, commit string, allowAbsent bool) (DomainShapeRatchet, []byte, error) {
+	ratchet := DomainShapeRatchet{SchemaVersion: DomainShapeProtocolVersion, MixedRoots: []string{}, Imports: []DomainShapeImport{}}
+	fail := func(err error) (DomainShapeRatchet, []byte, error) {
+		return ratchet, nil, domainShapeSetupError(fmt.Sprintf("%s at %s: %v", domainShapeRatchetPath, commit, err))
+	}
+	listing, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commit, "--", domainShapeRatchetPath)
+	if err != nil {
+		return fail(err)
+	}
+	entries, err := parseTreeEntries(listing)
+	if err != nil {
+		return fail(err)
+	}
+	if len(entries) == 0 && allowAbsent {
+		return ratchet, nil, nil
+	}
+	if len(entries) != 1 || entries[0].kind != "blob" || entries[0].mode != "100644" {
+		return fail(fmt.Errorf("ratchet must be a regular committed file"))
+	}
+	raw, err := runGit(ctx, home.RepoPath, "cat-file", "blob", entries[0].oid)
+	if err != nil {
+		return fail(err)
+	}
+	ratchet = DomainShapeRatchet{}
+	if err := domainShapeJSON(raw, &ratchet); err != nil {
+		return fail(err)
+	}
+	if ratchet.MixedRoots == nil || ratchet.Imports == nil {
+		return fail(fmt.Errorf("ratchet requires mixed_roots and imports arrays"))
+	}
+	if err := validateDomainShapeRatchet(ratchet); err != nil {
+		return fail(err)
+	}
+	return ratchet, raw, nil
+}
+
+func compareDomainShapeOperatorRatchet(candidate, baseline DomainShapeRatchet) error {
+	for _, root := range candidate.MixedRoots {
+		if !slices.Contains(baseline.MixedRoots, root) {
+			return domainShapeSetupError(domainShapeRatchetPath + ": candidate ratchet adds mixed root beyond pinned default baseline: " + root)
+		}
+	}
+	for _, edge := range candidate.Imports {
+		if !slices.Contains(baseline.Imports, edge) {
+			return domainShapeSetupError(domainShapeRatchetPath + ": candidate ratchet adds import beyond pinned default baseline: " + edge.SourceRoot + " -> " + edge.TargetRoot)
+		}
+	}
+	return nil
 }
 
 func collectDomainShapeOperatorAnchors(input *DomainShapeCheckInput) {

@@ -157,6 +157,69 @@ func TestDomainShapeOperatorCLIExecutesPinnedProductChecks(t *testing.T) {
 	}
 }
 
+func TestDomainShapeOperatorCLIDesignatesArbitraryDatabaseIDs(t *testing.T) {
+	t.Setenv(dbOverrideEnv, freshMigratedCLIDatabase(t))
+	repo := t.TempDir()
+	runCLIJSON(t, []string{"product-create"}, map[string]any{"product_id": "Product_7", "display_name": "Synthetic Product", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "project_id": "Project_7", "project_display_name": "Synthetic Project", "role": "primary"})
+	runCLIJSON(t, []string{"project-locator-add"}, map[string]any{"project_id": "Project_7", "locator_id": "synthetic-home", "kind": "canonical_path", "value": repo, "expected_version": 1})
+	request := map[string]any{"product_id": "Product_7", "project_id": "Project_7", "locator_id": "synthetic-home", "expected_version": 2}
+	for _, repeat := range []bool{false, true} {
+		if repeat {
+			request["expected_version"] = 3
+		}
+		raw := runCLIJSON(t, []string{"product-knowledge-home-designate"}, request)
+		assertChangedRefVersion(t, raw, "product", "Product_7", "3")
+		var result struct {
+			Setup map[string][]string `json:"setup"`
+		}
+		if err := json.Unmarshal(raw, &result); err != nil || len(result.Setup) != 2 || result.Setup["created"] == nil || result.Setup["updated"] == nil {
+			t.Fatalf("missing lowercase setup fields: %s %v", raw, err)
+		}
+		if repeat != (len(result.Setup["created"]) == 0) || len(result.Setup["updated"]) != 0 {
+			t.Fatalf("incorrect setup effects on repeat=%v: %s", repeat, raw)
+		}
+	}
+}
+
+func TestDomainShapeOperatorCLIPinnedRatchetBaseline(t *testing.T) {
+	for _, scenario := range []string{"mixed-widening", "import-widening", "reduced-ratchet", "candidate-required-check"} {
+		t.Run(scenario, func(t *testing.T) {
+			t.Setenv(dbOverrideEnv, freshMigratedCLIDatabase(t))
+			repo := shapeCLIHome(t, "alpha")
+			const ratchetPath = ".concord/docs/knowledge/domain-shape-ratchet.json"
+			const mixed = `{"schema_version":"1.0","mixed_roots":["pkg/a"],"imports":[]}`
+			want := "ratchet adds"
+			switch scenario {
+			case "mixed-widening", "reduced-ratchet":
+				shapeCLIWrite(t, repo, ".concord/docs/knowledge/package-domains.json", `{"schema_version":"1.1","packages":[{"path":"pkg/a","role":"mixed","domain_ids":["domain-a","domain-b"]},{"path":"pkg/b","role":"domain","owner_domain_id":"domain-b"}]}`)
+				shapeCLIWrite(t, repo, ratchetPath, mixed)
+				if scenario == "reduced-ratchet" {
+					shapeCLICommit(t, repo, true)
+					shapeCLIWrite(t, repo, ratchetPath, `{"schema_version":"1.0","mixed_roots":[],"imports":[]}`)
+					want = "outstanding"
+				}
+			case "import-widening":
+				shapeCLIWrite(t, repo, ratchetPath, `{"schema_version":"1.0","mixed_roots":[],"imports":[{"source_root":"pkg/a","target_root":"pkg/b"}]}`)
+			case "candidate-required-check":
+				name := ".concord/tooling.v1.json"
+				raw, err := os.ReadFile(filepath.Join(repo, name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				text := strings.Replace(string(raw), `"tools":[`, `"tools":[{"id":"candidate-only","invocation":"true"},`, 1)
+				text = strings.Replace(text, `"required_checks":[`, `"required_checks":["candidate-only",`, 1)
+				shapeCLIWrite(t, repo, name, text)
+				want = "required check"
+			}
+			shapeCLICommit(t, repo, false)
+			code, _, diagnostic := shapeCLICheck(t, "alpha", "")
+			if code == 0 || !strings.Contains(diagnostic, want) {
+				t.Fatalf("candidate bypassed pinned baseline: %d %s", code, diagnostic)
+			}
+		})
+	}
+}
+
 func TestDomainShapeOperatorCLIRejectsViolationsAndCommandFailures(t *testing.T) {
 	for _, scenario := range []string{"edge", "strict-ratchet", "missing-fact", "orphan-fact", "command", "subject", "external-harness"} {
 		t.Run(scenario, func(t *testing.T) {

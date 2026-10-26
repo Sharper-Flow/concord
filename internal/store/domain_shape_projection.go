@@ -93,7 +93,7 @@ func prepareDomainShapeProjection(ctx context.Context, home KnowledgeHome, commi
 		return nil, domainShapeProjectionFailure("fact shard count exceeds 512")
 	}
 	if len(shards.facts) != 0 {
-		toolingCommit, toolingHash, checks, err := domainShapeDefaultTooling(ctx, home)
+		toolingCommit, toolingHash, checks, err := domainShapeToolingAt(ctx, home, commit)
 		if err != nil {
 			return nil, err
 		}
@@ -149,6 +149,12 @@ func domainShapeDefaultTooling(ctx context.Context, home KnowledgeHome) (string,
 		return "", "", nil, err
 	}
 	commit := strings.TrimSpace(string(out))
+	return domainShapeToolingAt(ctx, home, commit)
+}
+
+// domainShapeToolingAt reads declarations, not execution evidence, from the
+// same immutable commit as its caller's other inputs.
+func domainShapeToolingAt(ctx context.Context, home KnowledgeHome, commit string) (string, string, []string, error) {
 	listing, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commit, "--", projectToolingManifestPath)
 	if err != nil {
 		return "", "", nil, err
@@ -287,8 +293,8 @@ func validateDomainShapeProjectionTx(ctx context.Context, q queryer, product str
 		shape.Snapshot.Facts = append(shape.Snapshot.Facts, fact)
 		shape.Snapshot.FactContentHashes[fact.ID] = domainShapeBytesHash(raw)
 	}
-	// Hash source identities, not a claimed check result. Include default tooling
-	// pins so explicit checks can later bind exactly the same input.
+	// Hash source identities, not a claimed check result. Tooling declarations
+	// share the facts' knowledge commit, independently of explicit check authority.
 	raw, err := json.Marshal(shape.Snapshot)
 	if err != nil {
 		return err
@@ -410,7 +416,7 @@ func readDomainShapeSnapshotTx(ctx context.Context, q queryer, home KnowledgeHom
 }
 
 // Shape references introduce dependencies outside the shard tree: committed
-// root directories and the default-ref tooling declaration. Keep their identity
+// root directories and the same-commit tooling declaration. Keep their identity
 // in freshness without changing historical-map digest semantics.
 func domainShapeKnowledgeDigest(ctx context.Context, home KnowledgeHome, commit, digest string, prepared *domainShapeProjection) (string, error) {
 	raw, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commit, "--", knowledgePackageMapPath, strings.TrimSuffix(knowledgeFactTreeDir, "/"))
@@ -456,7 +462,7 @@ func domainShapeKnowledgeDigest(ctx context.Context, home KnowledgeHome, commit,
 		if prepared != nil {
 			toolCommit, toolHash = prepared.Snapshot.ToolingCommit, prepared.Snapshot.ToolingContentHash
 		} else {
-			toolCommit, toolHash, _, err = domainShapeDefaultTooling(ctx, home)
+			toolCommit, toolHash, _, err = domainShapeToolingAt(ctx, home, commit)
 			if err != nil {
 				return "", err
 			}

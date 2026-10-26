@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -220,5 +222,149 @@ func TestDomainShapeOperatorPreparesAllFactAnchorsFromSelectedSnapshot(t *testin
 	}
 	if tooling.Project == home.HomeProjectID {
 		t.Fatal("fixture failed to distinguish repository key from SQLite Project ID")
+	}
+}
+
+func TestDomainShapeOperatorArbitraryDatabaseIdentities(t *testing.T) {
+	for _, id := range []string{"Upper_ID:123", "7b676308-7fda-43b4-9d8f-ea840bad0672", strings.Repeat("long", 20)} {
+		t.Run(id, func(t *testing.T) {
+			s := openTemp(t)
+			request, repo := shapeOperatorHome(t, s, id, id+"-source")
+			first, err := domainShapeOperatorSetupIdentity(repo, request.ProductID, request.ProjectID)
+			if err != nil || !validProductKey(first.ProductKey) || !validProductKey(first.ProjectKey) {
+				t.Fatalf("database IDs did not produce authored keys: %+v %v", first, err)
+			}
+			second, err := domainShapeOperatorSetupIdentity(repo, request.ProductID, request.ProjectID)
+			if err != nil || first != second || first.ProductKey == first.ProjectKey {
+				t.Fatalf("unstable/colliding keys: %+v %+v %v", first, second, err)
+			}
+			if _, err := s.DesignateProductDomainShape(context.Background(), request); err != nil {
+				t.Fatal(err)
+			}
+			request.ExpectedVersion = 3
+			if repeat, err := s.DesignateProductDomainShape(context.Background(), request); err != nil || len(repeat.Setup.Created)+len(repeat.Setup.Updated)+len(repeat.EventIDs) != 0 {
+				t.Fatalf("repeat: %+v %v", repeat, err)
+			}
+		})
+	}
+}
+
+func TestDomainShapeOperatorPreservesAuthoredKeysForArbitraryIDs(t *testing.T) {
+	s := openTemp(t)
+	request, repo := shapeOperatorHome(t, s, "Upper_Product", "Upper_Project")
+	plan, err := PrepareDomainShapeSetup(DomainShapeSetupRequest{RepoPath: repo, ProductKey: "authored-product", ProjectKey: "authored-project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	before := setupShapeSnapshot(t, repo)
+	if _, err := s.DesignateProductDomainShape(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, setupShapeSnapshot(t, repo)) {
+		t.Fatal("designation rewrote valid authored keys")
+	}
+}
+
+func TestDomainShapeOperatorPinsRatchetAndCheckAuthority(t *testing.T) {
+	const empty = `{"schema_version":"1.0","mixed_roots":[],"imports":[]}`
+	const mixed = `{"schema_version":"1.0","mixed_roots":["legacy"],"imports":[]}`
+	const imported = `{"schema_version":"1.0","mixed_roots":[],"imports":[{"source_root":"src","target_root":"cmd"}]}`
+	for _, test := range []struct{ name, baseline, candidate, want string }{
+		{"mixed-addition", empty, mixed, "ratchet adds"},
+		{"import-addition", empty, imported, "ratchet adds"},
+		{"mixed-removal", mixed, empty, ""},
+		{"import-removal", imported, empty, ""},
+		{"missing-baseline-empty", "", empty, ""},
+		{"missing-baseline-addition", "", mixed, "ratchet adds"},
+		{"malformed-baseline", `{}`, empty, domainShapeRatchetPath},
+		{"null-baseline", `{"schema_version":"1.0","mixed_roots":null,"imports":[]}`, empty, domainShapeRatchetPath},
+		{"duplicate-baseline", `{"schema_version":"1.0","mixed_roots":[],"mixed_roots":[],"imports":[]}`, empty, domainShapeRatchetPath},
+		{"invalid-baseline-root", `{"schema_version":"1.0","mixed_roots":["../outside"],"imports":[]}`, empty, domainShapeRatchetPath},
+		{"candidate-tooling", mixed, mixed, ""},
+		{"candidate-check", mixed, mixed, "required check"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home, product, snapshot, baseline := shapeOperatorAuthorityCandidate(t, test.name, test.baseline, test.candidate)
+			input, tooling, commit, _, hash, err := prepareDomainShapeOperatorInput(context.Background(), home, product, snapshot)
+			if test.want != "" {
+				var failure *Failure
+				if err == nil || !strings.Contains(err.Error(), test.want) || !errors.As(err, &failure) {
+					t.Fatalf("wanted typed %q refusal, got %v", test.want, err)
+				}
+				return
+			}
+			if err != nil || commit != baseline || hash != domainShapeBytesHash([]byte(test.candidate)) {
+				t.Fatalf("pinned input: commit=%s hash=%s err=%v", commit, hash, err)
+			}
+			var want DomainShapeRatchet
+			if err := json.Unmarshal([]byte(test.candidate), &want); err != nil || !reflect.DeepEqual(input.Ratchet, want) {
+				t.Fatalf("candidate reduction lost: %+v %v", input.Ratchet, err)
+			}
+			if test.name == "candidate-tooling" && tooling.Declared[0].Invocation != "false domain-shape-must-not-execute" {
+				t.Fatal("candidate command replaced default authority")
+			}
+		})
+	}
+}
+
+func shapeOperatorAuthorityCandidate(t *testing.T, name, baselineRatchet, candidateRatchet string) (KnowledgeHome, string, DomainShapeSnapshot, string) {
+	t.Helper()
+	s := openTemp(t)
+	home, product := domainShapeProjectionFixture(t, s, "authority")
+	if baselineRatchet != "" {
+		writeKnowledgeFile(t, home.RepoPath, domainShapeRatchetPath, baselineRatchet)
+	}
+	writeKnowledgeFile(t, home.RepoPath, "revision.txt", "baseline\n")
+	baseline := commitKnowledgeRepo(t, home.RepoPath, "Synthetic operator baseline")
+	runKnowledgeGit(t, home.RepoPath, "update-ref", "refs/remotes/origin/main", baseline)
+	writeKnowledgeFile(t, home.RepoPath, domainShapeRatchetPath, candidateRatchet)
+	writeKnowledgeFile(t, home.RepoPath, "revision.txt", "candidate\n")
+	if strings.HasPrefix(name, "candidate-") {
+		checks := `["check-tests"]`
+		if name == "candidate-check" {
+			checks = `["check-tests","candidate-only"]`
+		}
+		writeKnowledgeFile(t, home.RepoPath, projectToolingManifestPath, `{"schema_version":"1.0","project":"synthetic","tools":[{"id":"check-tests","invocation":"true"},{"id":"candidate-only","invocation":"true"}],"domain_shape":{"required_checks":`+checks+`}}`)
+	}
+	commitKnowledgeRepo(t, home.RepoPath, "Synthetic operator candidate")
+	if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := s.ReadDomainShapeSnapshot(context.Background(), home, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home, product, snapshot, baseline
+}
+
+func TestDomainShapeOperatorRatchetAbsenceRequiresTreeProof(t *testing.T) {
+	repo := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repo, "revision.txt", "baseline\n")
+	commit := commitKnowledgeRepo(t, repo, "Synthetic empty baseline")
+	home := KnowledgeHome{RepoPath: repo}
+	for _, test := range []struct {
+		name, commit string
+		allowAbsent  bool
+	}{
+		{"baseline-absence", commit, true},
+		{"candidate-absence", commit, false},
+		{"unavailable-baseline", strings.Repeat("f", 40), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ratchet, _, err := readDomainShapeOperatorRatchet(context.Background(), home, test.commit, test.allowAbsent)
+			if test.name == "baseline-absence" {
+				if err != nil || ratchet.MixedRoots == nil || ratchet.Imports == nil {
+					t.Fatalf("proved absence: %+v %v", ratchet, err)
+				}
+				return
+			}
+			var failure *Failure
+			if err == nil || !errors.As(err, &failure) || !strings.Contains(err.Error(), domainShapeRatchetPath) {
+				t.Fatalf("missing typed path refusal: %v", err)
+			}
+		})
 	}
 }

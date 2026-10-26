@@ -90,6 +90,7 @@ type dispatchReadingWitness struct {
 	// never this pointer.
 	projectedRecord *KnowledgeRecord
 	shape           *DomainShapeResult
+	shapeDomain     string
 
 	// sampled source authority shared by all arms: the locator row
 	// identity, the owning Project's version, the work's Product version,
@@ -151,6 +152,10 @@ func readingResolutionFailure(ordinal int, identity string, err error) error {
 // version, claim, and canonical context. It performs no Git and no
 // filesystem work.
 func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID string, readings []WorkContextReading) ([]dispatchReadingWitness, error) {
+	return sampleReadingIdentities(ctx, q, workID, readings, false)
+}
+
+func sampleReadingIdentities(ctx context.Context, q queryer, workID string, readings []WorkContextReading, held bool) ([]dispatchReadingWitness, error) {
 	productID, err := architectureBindingProductID(ctx, q, workID)
 	if err != nil {
 		return nil, err
@@ -190,10 +195,7 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 				return nil, readingResolutionFailure(ordinal, witness.identity, err)
 			}
 		case WorkContextSourceDomainShape:
-			if err := validateWorkContextDomain(ctx, q, workID, reading.DomainID, reading.ProductWideRationale); err != nil {
-				return nil, err
-			}
-			shapeWitness, err := sampleDomainShapeReading(ctx, q, productID, reading)
+			shapeWitness, err := sampleShapeReadingIdentity(ctx, q, workID, productID, reading, held)
 			if err != nil {
 				return nil, readingResolutionFailure(ordinal, reading.Source.SourceID+"/domain_shape@"+reading.Source.ContentHash, err)
 			}
@@ -206,6 +208,16 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 		witnesses = append(witnesses, witness)
 	}
 	return witnesses, nil
+}
+
+func sampleShapeReadingIdentity(ctx context.Context, q queryer, workID, productID string, reading WorkContextReading, held bool) (dispatchReadingWitness, error) {
+	if held {
+		return sampleHeldDomainShapeReading(ctx, q, productID, reading)
+	}
+	if err := validateWorkContextDomain(ctx, q, workID, reading.DomainID, reading.ProductWideRationale); err != nil {
+		return dispatchReadingWitness{}, err
+	}
+	return sampleDomainShapeReading(ctx, q, productID, reading)
 }
 
 func sampleRepositoryReadingIdentity(ctx context.Context, q queryer, productID string, witness *dispatchReadingWitness) error {

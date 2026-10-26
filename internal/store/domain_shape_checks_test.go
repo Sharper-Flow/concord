@@ -63,6 +63,10 @@ func TestDomainShapeBoundaryGraphAndStrictRatchet(t *testing.T) {
 	if err != nil || !slices.Contains(domainShapeCodes(result), "new_mixed_root") {
 		t.Fatalf("new mixed root admitted: %+v %v", result, err)
 	}
+	absent, err := EvaluateDomainShapeCheck(input, nil)
+	if err != nil || absent.State != "outstanding" || absent.Verification != "unverified" || !slices.Contains(domainShapeCodes(absent), "new_mixed_root") {
+		t.Fatalf("absent boundary checker hid a new mixed root: %+v %v", absent, err)
+	}
 	input.Ratchet.MixedRoots = []string{"src/mixed"}
 	input.Ratchet.Imports = append(input.Ratchet.Imports, DomainShapeImport{"src/ledger", "src/orders"})
 	result, err = EvaluateDomainShapeCheck(input, &output)

@@ -11,18 +11,22 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func designateOperatorDomainShape(ctx context.Context, s *store.Store, request store.ProductKnowledgeHomeDesignation) (store.ApplyOperationResult, error) {
+func designateOperatorDomainShape(ctx context.Context, s *store.Store, request store.ProductKnowledgeHomeDesignation, out, errOut io.Writer) int {
+	const command = "product-knowledge-home-designate"
 	result, err := s.DesignateProductDomainShape(ctx, request)
 	if err != nil {
 		// Include the paths even on failure: valid files can remain without a
 		// designation. No rollback may delete a user's authored files.
 		raw, marshalErr := json.Marshal(result.Setup)
 		if marshalErr != nil {
-			return result.ApplyOperationResult, fmt.Errorf("%w; cannot render setup effects: %v", err, marshalErr)
+			err = fmt.Errorf("%w; cannot render setup effects: %v", err, marshalErr)
+		} else {
+			err = fmt.Errorf("%w; filesystem effects: %s", err, raw)
 		}
-		return result.ApplyOperationResult, fmt.Errorf("%w; filesystem effects: %s", err, raw)
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
 	}
-	return result.ApplyOperationResult, nil
+	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut, result.Setup)
 }
 
 func runDomainShapeCheck(raw []byte, s *store.Store, out, errOut io.Writer) int {

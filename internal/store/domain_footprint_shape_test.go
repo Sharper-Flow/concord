@@ -68,9 +68,8 @@ func TestDomainFootprintShapeUsesSelectedCoreAndProductHome(t *testing.T) {
 	}
 }
 
-func TestDomainFootprintShapeRefusesOversizedSelection(t *testing.T) {
-	ctx := context.Background()
-	s := openTemp(t)
+func footprintOversizedShapeFixture(t *testing.T, s *Store) (KnowledgeHome, string) {
+	t.Helper()
 	home, product, facts := domainShapeGoldenFixture(t, s, "a")
 	for _, fact := range facts {
 		if fact.Kind != DomainFactInvariant {
@@ -83,12 +82,24 @@ func TestDomainFootprintShapeRefusesOversizedSelection(t *testing.T) {
 		}
 	}
 	commitKnowledgeRepo(t, home.RepoPath, "oversized footprint facts")
-	if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+	if err := s.EnsureKnowledgeIndexFresh(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
+	return home, product
+}
+
+func TestDomainFootprintShapeRefusesOversizedSelection(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	_, product := footprintOversizedShapeFixture(t, s)
 	got, err := s.QueryDomainFootprint(ctx, DomainFootprintRequest{Product: product, Paths: []string{"src/file.go"}})
 	assertFailureKind(t, err, KindLimitExceeded)
 	if !reflect.DeepEqual(got, DomainFootprintResult{}) {
 		t.Fatal("oversized footprint returned a partial selection")
+	}
+	shape, err := s.QueryDomainShape(ctx, product, DomainShapeSelector{Path: "src/file.go"})
+	assertFailureKind(t, err, KindLimitExceeded)
+	if !reflect.DeepEqual(shape, DomainShapeResult{}) {
+		t.Fatal("oversized shape returned a partial selection")
 	}
 }

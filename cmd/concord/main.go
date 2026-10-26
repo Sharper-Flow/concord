@@ -1109,10 +1109,10 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 	var err error
 	switch command {
 	case "product-knowledge-home-designate":
-		result, err = designateOperatorDomainShape(context.Background(), s, store.ProductKnowledgeHomeDesignation{
+		return designateOperatorDomainShape(context.Background(), s, store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
+		}, out, errOut)
 	case "product-knowledge-home-clear":
 		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
@@ -1618,11 +1618,12 @@ type operatorRef struct {
 }
 
 type operatorResponse struct {
-	OK          bool                 `json:"ok"`
-	ProductID   string               `json:"product_id,omitempty"`
-	ProjectID   string               `json:"project_id,omitempty"`
-	EventIDs    []string             `json:"event_ids,omitempty"`
-	ChangedRefs []operatorChangedRef `json:"changed_refs"`
+	OK          bool                          `json:"ok"`
+	ProductID   string                        `json:"product_id,omitempty"`
+	ProjectID   string                        `json:"project_id,omitempty"`
+	EventIDs    []string                      `json:"event_ids,omitempty"`
+	ChangedRefs []operatorChangedRef          `json:"changed_refs"`
+	Setup       *store.DomainShapeSetupResult `json:"setup,omitempty"`
 }
 
 type operatorChangedRef struct {
@@ -1631,9 +1632,12 @@ type operatorChangedRef struct {
 	Version    string `json:"version"`
 }
 
-func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer) int {
+func writeOperatorResult(command string, s *store.Store, eventIDs []string, refs []operatorRef, out, errOut io.Writer, setup ...store.DomainShapeSetupResult) int {
 	changed := make([]operatorChangedRef, 0, len(refs))
 	response := operatorResponse{OK: true, EventIDs: eventIDs, ChangedRefs: changed}
+	if len(setup) != 0 {
+		response.Setup = &setup[0]
+	}
 	for _, ref := range refs {
 		version, err := s.EntityVersion(context.Background(), ref.EntityKind, ref.ID)
 		if err != nil {

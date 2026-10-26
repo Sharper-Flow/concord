@@ -363,6 +363,9 @@ func EvaluateDomainShapeCheck(input DomainShapeCheckInput, output *DomainShapeCh
 	}
 	if output == nil {
 		result.Findings = append(result.Findings, DomainShapeFinding{"unmeasured", "checker_absent", input.Operation})
+		if input.Operation == "boundary" {
+			evaluateDomainShapeMixedRatchet(input, &result)
+		}
 		return result, nil
 	}
 	if err := validateDomainShapeObservedOutput(input, output); err != nil {
@@ -411,16 +414,21 @@ func (result *DomainShapeEvaluation) addFinding(code, subject string) {
 	result.Findings = append(result.Findings, DomainShapeFinding{"outstanding", code, subject})
 }
 
-func evaluateDomainShapeBoundary(input DomainShapeCheckInput, imports []DomainShapeImport, roots map[string]DomainShapeRoot, result *DomainShapeEvaluation) error {
-	allowed := map[DomainShapeEdge]bool{}
-	for _, edge := range input.DependsOn {
-		allowed[edge] = true
-	}
+// The mixed-root inventory is declared, not a source-language measurement.
+func evaluateDomainShapeMixedRatchet(input DomainShapeCheckInput, result *DomainShapeEvaluation) {
 	for _, root := range input.Roots {
 		if root.Role == "mixed" && input.Strict && !slices.Contains(input.Ratchet.MixedRoots, root.Path) {
 			result.addFinding("new_mixed_root", root.Path)
 		}
 	}
+}
+
+func evaluateDomainShapeBoundary(input DomainShapeCheckInput, imports []DomainShapeImport, roots map[string]DomainShapeRoot, result *DomainShapeEvaluation) error {
+	allowed := map[DomainShapeEdge]bool{}
+	for _, edge := range input.DependsOn {
+		allowed[edge] = true
+	}
+	evaluateDomainShapeMixedRatchet(input, result)
 	seen := map[DomainShapeImport]bool{}
 	for _, imp := range imports {
 		source, sourceOK := roots[imp.SourceRoot]

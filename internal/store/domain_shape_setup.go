@@ -33,8 +33,8 @@ type DomainShapeSetupRequest struct {
 // apply error. Created includes directories. Updated contains only tooling when
 // adding the optional empty declaration; existing identities are never rewritten.
 type DomainShapeSetupResult struct {
-	Created []string
-	Updated []string
+	Created []string `json:"created"`
+	Updated []string `json:"updated"`
 }
 
 type domainShapeSetupEntry struct {
@@ -98,9 +98,9 @@ func PrepareDomainShapeSetup(request DomainShapeSetupRequest) (*DomainShapeSetup
 	if err != nil {
 		return nil, err
 	}
-	// Setup never infers or adds baseline allowances. Strict execution remains
-	// the explicit check input's Strict=true, not a second ratchet vocabulary.
-	ratchetBytes := plan.defaultJSON(domainShapeRatchetPath, DomainShapeRatchet{SchemaVersion: DomainShapeProtocolVersion, MixedRoots: []string{}, Imports: []DomainShapeImport{}})
+	// Seed declared mixed roots only. Imports need explicit source measurements;
+	// setup neither executes a checker nor changes an existing ratchet.
+	ratchetBytes := plan.defaultJSON(domainShapeRatchetPath, initialDomainShapeRatchet(packages))
 	if err := validateSetupRatchet(ratchetBytes, packages); err != nil {
 		return nil, err
 	}
@@ -109,6 +109,17 @@ func PrepareDomainShapeSetup(request DomainShapeSetupRequest) (*DomainShapeSetup
 		return nil, err
 	}
 	return plan, nil
+}
+
+func initialDomainShapeRatchet(packages knowledgePackageMapDocument) DomainShapeRatchet {
+	ratchet := DomainShapeRatchet{SchemaVersion: DomainShapeProtocolVersion, MixedRoots: []string{}, Imports: []DomainShapeImport{}}
+	for _, entry := range packages.Packages {
+		if entry.Role == "mixed" || packages.SchemaVersion == packageMapSchemaVersion {
+			ratchet.MixedRoots = append(ratchet.MixedRoots, entry.Path)
+		}
+	}
+	sort.Strings(ratchet.MixedRoots)
+	return ratchet
 }
 
 func (p *DomainShapeSetupPlan) observeSetupHome(root *os.Root) error {

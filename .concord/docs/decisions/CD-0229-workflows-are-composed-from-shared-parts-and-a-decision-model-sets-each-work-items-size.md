@@ -167,9 +167,18 @@ goals.md §2 names. This record does not move that point.
   `internal/store.TestArchitectureReviewGuardsFirstAndContinuingDispatch`
   exercise the architecture ordering and review admission owned by CD-0242
   D4-D5. They do not prove a size-selected small implementation route.
-- `python3 scripts/check-law-coverage.py` keeps this record outstanding.
+- `python3 scripts/check-law-coverage.py` validates the outstanding coverage
+  pointer; it does not establish delivery.
+  Closure still needs proof that a `small` implementation item cannot ship
+  without its outcome contract, its footprint checks, and one review under
+  CD-0242 D5, that a re-sized item gains its newly required stages without
+  redoing completed work (D6), and that the define-start and merge-queue
+  records exist (D7).
+  [Concord (CON) issue 1347](https://linear.app/sharper-flow/issue/CON-1347)
+  owns the small-work proof gap under hybrid preparation;
   [Concord (CON) issue 1344](https://linear.app/sharper-flow/issue/CON-1344)
-  owns D5-D6's remaining required-stage progression proof;
+  owns the required-stage progression proof;
   [Concord (CON) issue 1306](https://linear.app/sharper-flow/issue/CON-1306)
-  owns D7's timing and adoption measurement. Neither a size record nor law
-  registration establishes those outcomes.
+  owns timing measurement and reconciliation of D7's define-start with its
+  approved capture-to-queue measurement. Neither a size record nor law
+  registration establishes these outcomes.

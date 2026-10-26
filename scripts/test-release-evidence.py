@@ -30,9 +30,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
@@ -384,7 +386,8 @@ class BunNativeResultTests(unittest.TestCase):
             "broken.test.ts": 'import { missing syntax !!!',
             "empty.test.ts": 'export const value = 1;\n',
             "hanging.test.ts": 'import {test} from "bun:test";\n'
-                               'test("hanging",()=>new Promise(()=>{}),30000);\n',
+                               'test("hanging",()=>{process.stdout.write("started\\n");'
+                               'return new Promise(()=>{});},30000);\n',
         }
         skipped = {"alpha": "skipped", "skip-me": "skipped"}
         scenarios = (
@@ -423,11 +426,25 @@ class BunNativeResultTests(unittest.TestCase):
                         observed[case.attrib["name"]] = outcomes[0] if outcomes else "pass"
                     self.assertEqual(observed, expected)
             report = root / "interrupted.xml"
-            with self.assertRaises(subprocess.TimeoutExpired):
-                subprocess.run(
-                    ["bun", "test", "hanging.test.ts", "--reporter=junit", f"--reporter-outfile={report}"],
-                    cwd=root, capture_output=True, text=True, timeout=1,
-                )
+            process = subprocess.Popen(
+                ["bun", "test", "hanging.test.ts", "--reporter=junit", f"--reporter-outfile={report}"],
+                cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                observed = b""
+                deadline = time.monotonic() + 10
+                while b"started\n" not in observed:
+                    remaining = deadline - time.monotonic()
+                    self.assertGreater(remaining, 0, observed)
+                    self.assertTrue(select.select([process.stdout], [], [], remaining)[0], observed)
+                    chunk = os.read(process.stdout.fileno(), 4096)
+                    self.assertTrue(chunk, "Bun exited before starting the fixture")
+                    observed += chunk
+                    self.assertLessEqual(len(observed), 8192)
+            finally:
+                process.kill()
+                stdout, stderr = process.communicate(timeout=5)
+            self.assertNotEqual(process.returncode, 0, stdout + stderr)
             self.assertFalse(report.exists(), "An interrupted process has no completed native report")
 
 

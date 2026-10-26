@@ -169,6 +169,8 @@ not silently bind it to the earlier commit. Prefer native caches over a second
 result cache. Go `-count=1` deliberately forces fresh tests; race instrumentation
 does not categorically disable caching, and timestamps alone cannot prove freshness.
 
+For Python, keep suite status and the complete log; record `python3 --version`.
+
 ### Read the shared Go results
 
 Required CI runs retain Go results through
@@ -202,8 +204,9 @@ the unchanged per-file timing artifacts. The CI run, job, checkout and pinned Bu
 setup supply provenance; console stdout/stderr remain in the same job's logs.
 There is no second collector, result cache or extra adapter execution.
 
-For an already justified named local run, use CI's pinned Bun version and retain
-both the native report and complete console output outside the repository:
+For an already justified local file selection, use CI's pinned Bun version and
+choose a new report path outside the repository. Retain complete console output
+as well; a stale report cannot establish the current execution:
 
 ```sh
 bin/oc-test broad -- bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
@@ -220,5 +223,3 @@ if the report is absent. A timing file cannot replace the native results.
 [`scripts/test-release-evidence.py`](scripts/test-release-evidence.py) checks the
 real CI commands against newly discovered synthetic files and verifies these
 native result boundaries with the exact pinned Bun runtime.
-
-For Python, keep suite status and the complete log; record `python3 --version`.

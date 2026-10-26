@@ -39,11 +39,13 @@ class ReaderTests(unittest.TestCase):
     def test_parallel_nested_levels_and_distinct_elapsed(self):
         events = [event("start"), event("run", "TestParent"),
             event("run", "TestParent/child"), event("pause", "TestParent/child"),
-            event("run", "TestOther"), event("cont", "TestParent/child"),
+            event("run", "TestOther"), event("attr", "TestOther", Key="k", Value="v"),
+            event("artifacts", "TestOther", Path="/tmp/a"), event("cont", "TestParent/child"),
             event("pass", "TestOther", Elapsed=8), event("pass", "TestParent/child", Elapsed=7),
             event("pass", "TestParent", Elapsed=9),
             event("output", Output="ok\texample/p\t10s\n"), event("pass", Elapsed=10)]
         result = self.read(events)
+        self.assertEqual(result["parser_errors"], [])
         self.assertTrue(result["complete"])
         pkg = result["packages"][0]
         self.assertEqual(pkg["elapsed_seconds"], 10)
@@ -75,6 +77,10 @@ class ReaderTests(unittest.TestCase):
                 self.assertEqual(result["outcome"], "fail")
                 self.assertEqual(result["process_exit_code"], 7)
                 self.assertEqual(result["parser_errors"], [])
+        summary = reader.bounded_summary(self.read([event("start"), event("run", "TestBad"),
+            event("fail", "TestBad"), event("run", "TestHung"), event("fail")], 1))
+        self.assertEqual(summary["failed_tests"], [{"package": "example/p", "name": "TestBad"}])
+        self.assertEqual(summary["unfinished_tests"], [{"package": "example/p", "name": "TestHung"}])
 
     def test_early_error_empty_interruption_and_unfinished_tests(self):
         for events, rc, suffix in (([], 1, ""), ([], 0, ""), (passing(), None, ""),
@@ -116,20 +122,26 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(summary["full_results"], "results.json")
         self.assertEqual(summary["raw_events"], "events.jsonl")
 
+    def test_invalid_expected_inventory_is_not_split_into_characters(self):
+        with self.assertRaisesRegex(ValueError, "lists of exact test names"):
+            self.read(passing(), selection={"expected_tests": {"example/p": "TestParent"}})
+
 
 FAKE_GO = '''#!{python}
-import json, os, sys
+import json, os, signal, sys
 from pathlib import Path
 if sys.argv[1] == "version":
     print("go version go1.26.7 linux/amd64")
 elif sys.argv[1] == "env":
-    print(json.dumps({{"GOOS":"linux", "GOARCH":"amd64", "CGO_ENABLED":"1", "GOVERSION":"go1.26.7"}}))
+    print(json.dumps({{"GOOS":"linux", "GOARCH":"amd64", "CGO_ENABLED":"1", "GOVERSION":"go1.26.7", "GOCACHE":"/synthetic/go-cache", "GOFLAGS":"", "GODEBUG":""}}))
 else:
     with open(os.environ["CALLS"], "a") as calls:
         calls.write(json.dumps(sys.argv[1:]) + "\\n")
     sys.stdout.write(Path(os.environ["FIXTURE"]).read_text())
     sys.stdout.flush()
     sys.stderr.write("full early diagnostic\\n")
+    if os.environ.get("SIGNAL_HOLD"):
+        signal.pause()
     if os.environ.get("SIGNAL"):
         os.kill(os.getpid(), int(os.environ["SIGNAL"]))
     sys.exit(int(os.environ.get("CHILD_EXIT", "0")))
@@ -137,7 +149,7 @@ else:
 
 
 class ProducerTests(unittest.TestCase):
-    def run_producer(self, events, rc=0, flags=(), signum=None):
+    def run_producer(self, events, rc=0, flags=(), signum=None, forward_signal=False):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             go = root / "go"
@@ -151,8 +163,16 @@ class ProducerTests(unittest.TestCase):
                 SECRET_TEST_SENTINEL="do-not-record", GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="2")
             if signum:
                 env["SIGNAL"] = str(signum)
-            result = subprocess.run([sys.executable, str(SCRIPT), "--output-dir", str(output),
-                "--", "go", "test", *flags, "./example"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=15)
+            argv = [sys.executable, str(SCRIPT), "--output-dir", str(output), "--", "go", "test", *flags, "./example"]
+            if forward_signal:
+                env["SIGNAL_HOLD"] = "1"
+                with subprocess.Popen(argv, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
+                    first = child.stdout.readline()
+                    child.send_signal(signal.SIGTERM)
+                    stdout, stderr = child.communicate(timeout=15)
+                    result = subprocess.CompletedProcess(argv, child.returncode, first + stdout, stderr)
+            else:
+                result = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=15)
             files = {p.name: p.read_text() for p in output.iterdir()}
             calls = (root / "calls").read_text().splitlines()
             return result, files, calls
@@ -170,22 +190,31 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(meta["toolchain"], "go version go1.26.7 linux/amd64")
         self.assertIn("subject_after", meta)
         self.assertIsNone(meta["queue_seconds"])
+        self.assertTrue(meta["cache"]["build_cache_enabled"])
+        self.assertNotIn("/synthetic/go-cache", files["metadata.json"])
         self.assertNotIn("do-not-record", files["metadata.json"])
 
     def test_failure_and_signal_preserve_exit_and_artifacts(self):
         for rc, signum, want in ((7, None, 7), (0, signal.SIGTERM, 143)):
             with self.subTest(rc=rc, signum=signum):
-                result, files, _ = self.run_producer([event("start")], rc, signum=signum)
+                result, files, _ = self.run_producer([event("start"), event("run", "TestBad"), event("fail", "TestBad")], rc, signum=signum)
                 self.assertEqual(result.returncode, want)
                 self.assertEqual(json.loads(files["results.json"])["process_exit_code"], want)
                 self.assertEqual(json.loads(files["results.json"])["outcome"], "fail")
                 self.assertIn("full early diagnostic", files["stderr.log"])
+                self.assertIn("example/p/TestBad", files["summary.md"].split("Failed or unfinished")[1])
 
     def test_empty_or_invalid_stream_cannot_be_passing_collection(self):
         for events in ([], [None]):
             result, files, _ = self.run_producer(events)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(json.loads(files["results.json"])["complete"])
+
+    def test_wrapper_forwards_signal_and_invalidates_complete_stream(self):
+        result, files, _ = self.run_producer(passing(), forward_signal=True)
+        self.assertEqual(result.returncode, 143)
+        self.assertEqual(json.loads(files["metadata.json"])["interrupted_signal"], signal.SIGTERM)
+        self.assertFalse(json.loads(files["results.json"])["complete"])
 
     def test_compile_only_is_explicit_and_race_does_not_disable_cache(self):
         result, files, _ = self.run_producer([event("start"), event("pass")], flags=("-run", "^$"))
@@ -201,6 +230,13 @@ class ProducerTests(unittest.TestCase):
             self.assertEqual(reader.main(), 1)
             meta = json.loads((Path(tmp) / "new/metadata.json").read_text())
             self.assertEqual(meta["artifact_error"], "broken parser")
+
+    def test_unobserved_child_status_stays_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(sys, "argv", [str(SCRIPT), "--output-dir", str(Path(tmp) / "new"), "--", "go", "test", "./example"]), patch.object(reader, "probe", return_value=None), patch.object(reader, "capture", side_effect=OSError("stream write failed")):
+            self.assertEqual(reader.main(), 125)
+            meta = json.loads((Path(tmp) / "new/metadata.json").read_text())
+            self.assertIsNone(meta["process_exit_code"])
+            self.assertFalse(json.loads((Path(tmp) / "new/summary.json").read_text())["complete"])
 
 
 class CIContractTests(unittest.TestCase):

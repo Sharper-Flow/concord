@@ -26,7 +26,7 @@ import time
 
 
 TERMINALS = {"pass", "fail", "skip"}
-ACTIONS = TERMINALS | {"start", "run", "pause", "cont", "output", "bench", "build-output", "build-fail"}
+ACTIONS = TERMINALS | {"start", "run", "pause", "cont", "output", "bench", "attr", "artifacts", "build-output", "build-fail"}
 LIMIT = 50
 
 
@@ -88,6 +88,9 @@ def read_go_results(raw_path: Path | str, process_exit_code: int | None,
                 pkg["elapsed_seconds"] = elapsed
 
     expected = selection.get("expected_tests", {})
+    if not isinstance(expected, dict) or any(not isinstance(p, str) or not isinstance(names, list)
+            or any(not isinstance(name, str) for name in names) for p, names in expected.items()):
+        raise ValueError("expected_tests must map package names to lists of exact test names")
     missing, skipped = [], []
     for package, names in expected.items():
         tests = packages.get(package, {}).get("tests", {})
@@ -110,7 +113,7 @@ def read_go_results(raw_path: Path | str, process_exit_code: int | None,
     observed = sum(len(p["tests"]) for p in packages.values())
     outcome = "fail" if failed else "incomplete" if not complete else "compile_only" if compile_only else "selection_unproved" if missing or skipped or not observed else "pass"
     return {"schema_version": 1, "process_exit_code": process_exit_code,
-        "complete": bool(complete), "parser_errors": errors, "event_count": event_count,
+        "complete": complete, "parser_errors": errors, "event_count": event_count,
         "packages": list(packages.values()), "build_failures": sorted(build_failures),
         "selection": {"expected_tests": expected, "named_claim": "expected_tests" in selection,
             "missing": missing, "skipped": skipped}, "compile_only": compile_only, "outcome": outcome}
@@ -125,6 +128,8 @@ def bounded_summary(results: dict) -> dict:
     summary.update({"packages": [{k: v for k, v in p.items() if k != "tests"} for p in results["packages"][:LIMIT]],
         "test_counts": dict(Counter(t["terminal"] or "incomplete" for t in tests)),
         "slow_tests": slow[:LIMIT], "parser_errors": results["parser_errors"][:LIMIT],
+        "failed_tests": [{"package": t["package"], "name": t["name"]} for t in tests if t["terminal"] == "fail"][:LIMIT],
+        "unfinished_tests": [{"package": t["package"], "name": t["name"]} for t in tests if t["terminal"] is None][:LIMIT],
         "build_failures": results["build_failures"][:LIMIT],
         "selection": {"named_claim": results["selection"]["named_claim"],
             "missing": results["selection"]["missing"][:LIMIT], "skipped": results["selection"]["skipped"][:LIMIT]},
@@ -201,13 +206,17 @@ def main() -> int:
     argv = command[:2] + ["-json"] + command[2:]
     directory = args.output_dir
     directory.mkdir(parents=True, exist_ok=False)
+    go_environment = json.loads(probe(["go", "env", "-json", "GOOS", "GOARCH", "CGO_ENABLED", "GOVERSION", "GOCACHE", "GOFLAGS", "GODEBUG"]) or "null")
+    cache_path = go_environment.pop("GOCACHE", None) if go_environment else None
+    implicit_inputs = {key: hashlib.sha256(go_environment.pop(key).encode()).hexdigest()
+        for key in ("GOFLAGS", "GODEBUG") if go_environment is not None and key in go_environment}
     metadata = {"schema_version": 1, "argv": argv, "requested_argv": command,
         "subject_before": subject(), "started_at": datetime.now(timezone.utc).isoformat(),
         "toolchain": probe(["go", "version"]),
-        "go_environment": json.loads(probe(["go", "env", "-json", "GOOS", "GOARCH", "CGO_ENABLED", "GOVERSION"]) or "null"),
+        "go_environment": go_environment, "implicit_go_inputs_sha256": implicit_inputs,
         "ci": {key: os.environ.get(key) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_SHA", "RUNNER_OS", "RUNNER_ARCH")},
         "cache": {"test_reuse": "native Go cache; see package cached flags", "build_cache_hit": None,
-            "gocache_configured": "GOCACHE" in os.environ},
+            "build_cache_enabled": cache_path != "off" if cache_path is not None else None},
         "environment": {key: os.environ.get(key) for key in ("UV_OFFLINE", "UV_PYTHON_DOWNLOADS", "CONCORD_CONFORMANCE_LONG", "CONCORD_ACCEPTANCE_RUNNER")},
         "queue_seconds": None, "build_setup_seconds": None, "job_elapsed_seconds": None,
         "diagnostics": {"stdout": "events.jsonl", "stderr": "stderr.log", "results": "results.json"}}
@@ -218,10 +227,10 @@ def main() -> int:
         "process_exit_code": None, "provenance": metadata,
         "raw_events": "events.jsonl", "stderr": "stderr.log"}
     write_json(directory / "summary.json", initial)
-    rc = 125
+    rc = None
     try:
         rc = capture(argv, directory, metadata)
-        selection = {"compile_only": any(command[i] == "-run" and command[i + 1:i + 2] == ["^$"] or command[i] == "-run=^$" for i in range(len(command)))}
+        selection = {"compile_only": "-run=^$" in command or any(a == "-run" and b == "^$" for a, b in zip(command, command[1:]))}
         results = read_go_results(directory / "events.jsonl", rc, selection)
         if metadata.get("interrupted_signal"):
             results["complete"] = False
@@ -239,13 +248,15 @@ def main() -> int:
             "Durations are per test/subtest, never additive wall time. Cached durations are reused measurements.",
             "Full evidence: events.jsonl, stderr.log, results.json, metadata.json", "", "Slow tests (seconds, measurement, package/test):"]
         text.extend(f"{t['elapsed_seconds']:.3f} {t['measurement']} {t['package']}/{t['name']}" for t in summary["slow_tests"])
+        text.extend(["", "Failed or unfinished tests (package/test; counts in summary.json test_counts):"])
+        text.extend(f"{t['package']}/{t['name']}" for t in summary["failed_tests"] + summary["unfinished_tests"])
         (directory / "summary.md").write_text("\n".join(text) + "\n", encoding="utf-8")
         print("\n".join(text))
         return rc or (1 if results["parser_errors"] or not results["complete"] else 0)
     except (OSError, ValueError) as error:
         metadata["artifact_error"] = str(error)
         print(f"Go result artifact failure: {error}", file=sys.stderr)
-        return rc or 1
+        return rc or (125 if rc is None else 1)
     finally:
         metadata["process_exit_code"] = rc
         metadata.setdefault("finished_at", datetime.now(timezone.utc).isoformat())

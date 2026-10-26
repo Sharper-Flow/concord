@@ -2,6 +2,7 @@
 """Synthetic native Go results and CI artifact contract; no Go tests execute."""
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,8 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+import git_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/go-test-results.py"
@@ -56,6 +59,9 @@ class ReaderTests(unittest.TestCase):
         self.assertNotIn("wall_seconds", result)
 
     def test_cached_replay_timestamps_do_not_mean_fresh(self):
+        current = self.read(passing())["packages"][0]
+        self.assertFalse(current["cached"])
+        self.assertEqual(current["tests"][0]["measurement"], "current")
         events = passing()
         events[-2]["Output"] = "ok\texample/p\t(cached)\n"
         for e in events:
@@ -135,18 +141,24 @@ class ReaderTests(unittest.TestCase):
 
 
 FAKE_GO = '''#!{python}
-import json, os, signal, sys
+import json, os, signal, subprocess, sys
 from pathlib import Path
+version = os.environ.get("FAKE_GO_VERSION", "go1.26.7")
 if sys.argv[1] == "version":
-    print("go version go1.26.7 linux/amd64")
+    print("go version " + version + " linux/amd64")
 elif sys.argv[1] == "env":
-    print(json.dumps({{"GOOS":"linux", "GOARCH":"amd64", "CGO_ENABLED":"1", "GOVERSION":"go1.26.7", "GOCACHE":"/synthetic/go-cache", "GOFLAGS":"", "GODEBUG":""}}))
+    print(json.dumps({{"GOOS":"linux", "GOARCH":"amd64", "CGO_ENABLED":"1", "GOVERSION":version, "GOCACHE":"/synthetic/go-cache", "GOFLAGS":os.environ.get("GOFLAGS", ""), "GODEBUG":os.environ.get("GODEBUG", "")}}))
 else:
     with open(os.environ["CALLS"], "a") as calls:
         calls.write(json.dumps(sys.argv[1:]) + "\\n")
     sys.stdout.write(Path(os.environ["FIXTURE"]).read_text())
     sys.stdout.flush()
     sys.stderr.write("full early diagnostic\\n")
+    if os.environ.get("SOURCE_CHANGE"):
+        Path("source.go").write_text("package example\\nvar Changed = true\\n")
+        if os.environ["SOURCE_CHANGE"] == "committed":
+            subprocess.run(["git", "add", "source.go"], check=True)
+            subprocess.run(["git", "commit", "-qm", "changed fixture"], check=True)
     if os.environ.get("SIGNAL_HOLD"):
         signal.pause()
     if os.environ.get("SIGNAL"):
@@ -156,7 +168,7 @@ else:
 
 
 class ProducerTests(unittest.TestCase):
-    def run_producer(self, events, rc=0, flags=(), signum=None, forward_signal=False):
+    def run_producer(self, events, rc=0, flags=(), signum=None, forward_signal=False, source_state=None, inputs=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             go = root / "go"
@@ -165,21 +177,40 @@ class ProducerTests(unittest.TestCase):
             fixture = root / "fixture"
             fixture.write_text("".join(json.dumps(e) + "\n" for e in events))
             output = root / "artifacts"
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+            env = dict(git_environment.sanitized_environment(), PATH=str(root) + os.pathsep + os.environ["PATH"],
                 CALLS=str(root / "calls"), FIXTURE=str(fixture), CHILD_EXIT=str(rc),
                 SECRET_TEST_SENTINEL="do-not-record", GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="2")
+            env.update(inputs or {})
+            cwd = ROOT
+            if source_state is not None:
+                cwd = root / "subject"
+                cwd.mkdir()
+                env.pop("GIT_TEMPLATE_DIR", None)
+                env.update(GIT_CONFIG_GLOBAL=os.devnull,
+                    GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.com",
+                    GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.com")
+                subprocess.run(["git", "init", "-q", str(cwd)], env=env, check=True, capture_output=True, timeout=10)
+                (cwd / "source.go").write_text("package example\n")
+                subprocess.run(["git", "add", "source.go"], cwd=cwd, env=env, check=True, capture_output=True, timeout=10)
+                subprocess.run(["git", "commit", "-qm", "fixture"], cwd=cwd, env=env, check=True, capture_output=True, timeout=10)
+                if source_state == "dirty":
+                    (cwd / "source.go").write_text("package example\nvar Dirty = true\n")
+                elif source_state == "untracked":
+                    (cwd / "untracked.go").write_text("package example\n")
+                elif source_state in ("during", "committed"):
+                    env["SOURCE_CHANGE"] = source_state
             if signum:
                 env["SIGNAL"] = str(signum)
             argv = [sys.executable, str(SCRIPT), "--output-dir", str(output), "--", "go", "test", *flags, "./example"]
             if forward_signal:
                 env["SIGNAL_HOLD"] = "1"
-                with subprocess.Popen(argv, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
+                with subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
                     first = child.stdout.readline()
                     child.send_signal(signal.SIGTERM)
                     stdout, stderr = child.communicate(timeout=15)
                     result = subprocess.CompletedProcess(argv, child.returncode, first + stdout, stderr)
             else:
-                result = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=15)
+                result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=15)
             files = {p.name: p.read_text() for p in output.iterdir()}
             calls = (root / "calls").read_text().splitlines()
             return result, files, calls
@@ -200,6 +231,49 @@ class ProducerTests(unittest.TestCase):
         self.assertTrue(meta["cache"]["build_cache_enabled"])
         self.assertNotIn("/synthetic/go-cache", files["metadata.json"])
         self.assertNotIn("do-not-record", files["metadata.json"])
+        observed = json.loads(files["results.json"])["packages"][0]
+        self.assertFalse(observed["cached"])
+        self.assertEqual(observed["tests"][0]["measurement"], "current")
+
+    def test_only_unchanged_clean_source_is_applicable(self):
+        for state, before_dirty, after_dirty in (("clean", False, False), ("dirty", True, True),
+                ("untracked", True, True), ("during", False, True), ("committed", False, False)):
+            with self.subTest(state=state):
+                result, files, calls = self.run_producer(passing(), source_state=state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 1)
+                meta = json.loads(files["metadata.json"])
+                before, after = meta["subject_before"], meta["subject_after"]
+                self.assertRegex(before["commit"], r"^[0-9a-f]{40,64}$")
+                for snapshot in (before, after):
+                    self.assertRegex(snapshot["tracked_diff_sha256"], r"^[0-9a-f]{64}$")
+                self.assertEqual(before["dirty"], before_dirty)
+                self.assertEqual(after["dirty"], after_dirty)
+                self.assertEqual(meta["source_applicability"], "unchanged_clean" if state == "clean" else "unproved")
+                if state == "during":
+                    self.assertNotEqual(before["tracked_diff_sha256"], after["tracked_diff_sha256"])
+                elif state == "committed":
+                    self.assertNotEqual(before["commit"], after["commit"])
+                else:
+                    self.assertEqual(before, after)
+                self.assertEqual(json.loads(files["summary.json"])["provenance"], meta)
+
+    def test_changed_inputs_and_toolchain_are_distinct_provenance_not_a_result_cache(self):
+        base = {"GOFLAGS": "", "GODEBUG": "", "FAKE_GO_VERSION": "go1.26.7", "UV_OFFLINE": "1"}
+        for inputs in (base, {**base, "GOFLAGS": "-tags=fixture"}, {**base, "GODEBUG": "gctrace=1"},
+                {**base, "FAKE_GO_VERSION": "go1.26.6"}, {**base, "UV_OFFLINE": "0"}):
+            with self.subTest(inputs=inputs):
+                result, files, calls = self.run_producer(passing(), source_state="clean", inputs=inputs)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 1, "Every invocation executes once; there is no runner-level cache")
+                meta = json.loads(files["metadata.json"])
+                self.assertEqual(meta["implicit_go_inputs_sha256"], {
+                    key: hashlib.sha256(inputs[key].encode()).hexdigest() for key in ("GOFLAGS", "GODEBUG")})
+                self.assertEqual(meta["toolchain"], f"go version {inputs['FAKE_GO_VERSION']} linux/amd64")
+                self.assertEqual(meta["go_environment"]["GOVERSION"], inputs["FAKE_GO_VERSION"])
+                self.assertEqual(meta["environment"]["UV_OFFLINE"], inputs["UV_OFFLINE"])
+                self.assertEqual(meta["source_applicability"], "unchanged_clean")
+                self.assertEqual(json.loads(files["results.json"])["packages"][0]["tests"][0]["measurement"], "current")
 
     def test_failure_and_signal_preserve_exit_and_artifacts(self):
         for rc, signum, want in ((7, None, 7), (0, signal.SIGTERM, 143)):

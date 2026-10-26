@@ -153,7 +153,7 @@ func workSizeRevisionResultTx(ctx context.Context, q queryer, workID string, ids
 
 func workSizedPayloadTx(ctx context.Context, q queryer, plan *WorkSizePlan, workID string) (workSizedPayload, error) {
 	var out workSizedPayload
-	footprint, err := plan.footprint.completeTx(ctx, q)
+	footprint, err := plan.footprint.ownershipTx(ctx, q)
 	if err != nil {
 		return out, workSizeFootprintRefusal(err)
 	}

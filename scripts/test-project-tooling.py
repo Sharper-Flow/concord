@@ -254,10 +254,13 @@ class ProjectToolingTests(unittest.TestCase):
         properties = schema["$defs"]["tool"]["properties"]
 
         self.assertEqual(set(schema["required"]), checker.ROOT_FIELDS)
-        self.assertEqual(set(root_properties), checker.ROOT_FIELDS)
+        self.assertEqual(set(root_properties), checker.ROOT_FIELDS | checker.OPTIONAL_ROOT_FIELDS)
         self.assertEqual(root_properties["schema_version"]["const"], checker.SCHEMA_VERSION)
         self.assertEqual(root_properties["project"]["pattern"], checker.IDENTIFIER_PATTERN)
         self.assertEqual(root_properties["tools"]["maxItems"], checker.MAX_TOOLS)
+        self.assertEqual(root_properties["tools"]["minItems"], 0)
+        shape = schema["$defs"]["domain_shape"]
+        self.assertEqual(set(shape["properties"]), checker.DOMAIN_SHAPE_FIELDS)
         self.assertEqual(set(properties), checker.TOOL_FIELDS)
         self.assertEqual(set(tool_schema["required"]), checker.REQUIRED_TOOL_FIELDS)
         self.assertEqual(properties["id"]["pattern"], checker.IDENTIFIER_PATTERN)
@@ -275,6 +278,36 @@ class ProjectToolingTests(unittest.TestCase):
             self.assertEqual({"pattern": checker.SINGLE_LINE_PATTERN} in patterns, single_line)
         invocation_patterns = properties["invocation"]["allOf"]
         self.assertIn({"pattern": checker.PLAIN_ARGV_PATTERN}, invocation_patterns)
+
+    def test_domain_shape_empty_product_and_declared_tools(self) -> None:
+        document = self.document([])
+        document["domain_shape"] = {}
+        manifest = self.root / ".concord/tooling.v1.json"
+        manifest.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(checker.check(root=self.root), [])
+        document["tools"] = [tool()]
+        document["domain_shape"] = {
+            "boundary_check": "go-vet", "data_object_extractor": "go-vet",
+            "config_extractor": "go-vet", "reference_check": "go-vet",
+            "required_checks": ["go-vet"],
+        }
+        manifest.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(checker.check(root=self.root), [])
+
+    def test_domain_shape_rejects_missing_tools_and_malformed_declarations(self) -> None:
+        shapes = [None, [], {"unknown": True}, {"boundary_check": "missing"},
+                  {"boundary_check": ""}, {"reference_check": None},
+                  {"required_checks": ["missing"]}, {"required_checks": ["go-vet", "go-vet"]},
+                  {"required_checks": None}, {"required_checks": [[]]},
+                  {"required_checks": ["go-vet"] * 65}]
+        for shape in shapes:
+            with self.subTest(shape=shape):
+                document = self.document([tool()])
+                document["domain_shape"] = shape
+                (self.root / ".concord/tooling.v1.json").write_text(json.dumps(document), encoding="utf-8")
+                self.assertTrue(checker.check(root=self.root))
+        self.manifest([])
+        self.assertTrue(checker.check(root=self.root))
 
     def test_dogfood_carries_no_selection_policy(self) -> None:
         repository = Path(__file__).resolve().parents[1]

@@ -42,9 +42,12 @@ import (
 //     revision's canonical locator must resolve in the git-derived
 //     projection. The committed manifest and blob verify through the
 //     existing committed-record proof owner after the snapshot closes.
+//   - A domain_shape reading selects the designated home of the work's
+//     Product. Its exact bounded JSON, commit and explicit selector must
+//     reproduce through the selected-read core and committed source proofs.
 
 // workerDispatchReadingResolutionDeadline is the fixed total budget for the
-// whole declared-reading resolution phase — every repository and knowledge
+// whole declared-reading resolution phase — every repository, knowledge and shape
 // reading together, not per reading. It is a constant of the owning package,
 // not configuration.
 const workerDispatchReadingResolutionDeadline = 10 * time.Second
@@ -86,8 +89,10 @@ type dispatchReadingWitness struct {
 	// sampled projection rows, so sampledEqual compares the rows above and
 	// never this pointer.
 	projectedRecord *KnowledgeRecord
+	shape           *DomainShapeResult
+	shapeDomain     string
 
-	// sampled source authority shared by both arms: the locator row
+	// sampled source authority shared by all arms: the locator row
 	// identity, the owning Project's version, the work's Product version,
 	// the knowledge source's registration instant, and the digest of the
 	// whole registered source set the resolution joined.
@@ -147,6 +152,10 @@ func readingResolutionFailure(ordinal int, identity string, err error) error {
 // version, claim, and canonical context. It performs no Git and no
 // filesystem work.
 func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID string, readings []WorkContextReading) ([]dispatchReadingWitness, error) {
+	return sampleReadingIdentities(ctx, q, workID, readings, false)
+}
+
+func sampleReadingIdentities(ctx context.Context, q queryer, workID string, readings []WorkContextReading, held bool) ([]dispatchReadingWitness, error) {
 	productID, err := architectureBindingProductID(ctx, q, workID)
 	if err != nil {
 		return nil, err
@@ -185,12 +194,30 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 			if err := sampleKnowledgeReadingIdentity(ctx, q, productID, knowledgeSources, &witness); err != nil {
 				return nil, readingResolutionFailure(ordinal, witness.identity, err)
 			}
+		case WorkContextSourceDomainShape:
+			shapeWitness, err := sampleShapeReadingIdentity(ctx, q, workID, productID, reading, held)
+			if err != nil {
+				return nil, readingResolutionFailure(ordinal, reading.Source.SourceID+"/domain_shape@"+reading.Source.ContentHash, err)
+			}
+			shapeWitness.ordinal = ordinal
+			shapeWitness.productVersion = productVersion
+			witness = shapeWitness
 		default:
 			return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union"))
 		}
 		witnesses = append(witnesses, witness)
 	}
 	return witnesses, nil
+}
+
+func sampleShapeReadingIdentity(ctx context.Context, q queryer, workID, productID string, reading WorkContextReading, held bool) (dispatchReadingWitness, error) {
+	if held {
+		return sampleHeldDomainShapeReading(ctx, q, productID, reading)
+	}
+	if err := validateWorkContextDomain(ctx, q, workID, reading.DomainID, reading.ProductWideRationale); err != nil {
+		return dispatchReadingWitness{}, err
+	}
+	return sampleDomainShapeReading(ctx, q, productID, reading)
 }
 
 func sampleRepositoryReadingIdentity(ctx context.Context, q queryer, productID string, witness *dispatchReadingWitness) error {
@@ -317,7 +344,7 @@ func uniqueProjectRepositoryLocator(ctx context.Context, q queryer, projectID st
 
 // resolveDispatchReadingWitnesses resolves every declared reading's Git
 // proof after the read snapshot closed. One fixed deadline bounds the whole
-// phase across all readings and both arms; a failed command or the deadline
+// phase across all readings and all arms; a failed command or the deadline
 // refuses with a typed failure that names the ordinal and source identity.
 // It mutates only the sealed witnesses' resolved flags.
 func resolveDispatchReadingWitnesses(ctx context.Context, runner GitRunner, witnesses []dispatchReadingWitness) error {
@@ -331,6 +358,8 @@ func resolveDispatchReadingWitnesses(ctx context.Context, runner GitRunner, witn
 			err = resolveRepositoryReading(phase, runner, witness)
 		case WorkContextSourceKnowledge:
 			_, err = resolveKnowledgeReading(phase, runner, witness)
+		case WorkContextSourceDomainShape:
+			_, err = resolveDomainShapeReading(phase, runner, witness)
 		default:
 			err = newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union")
 		}
@@ -401,6 +430,8 @@ func readDispatchReadingContent(ctx context.Context, runner GitRunner, witness d
 		}
 	case WorkContextSourceKnowledge:
 		content, err = resolveKnowledgeReading(ctx, runner, &witness)
+	case WorkContextSourceDomainShape:
+		content, err = resolveDomainShapeReading(ctx, runner, &witness)
 	default:
 		err = newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union")
 	}

@@ -90,7 +90,7 @@ func sampleWorkerReading(ctx context.Context, q queryer, req WorkerReadingReques
 	if view == nil || view.SourceEventFrontier != window.ContextFrontier || req.Ordinal >= len(view.RequiredReading) {
 		return workerReadingUnauthorized()
 	}
-	witnesses, err := sampleDispatchReadingIdentities(ctx, q, req.WorkID, view.RequiredReading)
+	witnesses, err := sampleReadingIdentities(ctx, q, req.WorkID, view.RequiredReading, true)
 	if err != nil {
 		return err
 	}
@@ -105,6 +105,13 @@ func revalidateWorkerReading(ctx context.Context, q queryer, req WorkerReadingRe
 	}
 	if before.window != after.window || !before.witness.sampledEqual(after.witness) {
 		return newFailure(KindStaleRequiresReview, workerReadingOp, "source registration or dispatch changed while the pinned reading was read", false, "reconcile the changed source or attempt before another read")
+	}
+	if before.witness.arm == WorkContextSourceDomainShape {
+		snapshot := DomainShapeSnapshot{}
+		for _, item := range before.witness.shape.Facts {
+			snapshot.Facts = append(snapshot.Facts, item.Fact)
+		}
+		return validateDomainShapeSnapshotModelTx(ctx, q, before.witness.shape.ProductID, snapshot)
 	}
 	return nil
 }
@@ -132,6 +139,13 @@ func (s *Store) ReadWorkerReading(ctx context.Context, req WorkerReadingRequest)
 	content, err := readDispatchReadingContent(ctx, runner, before.witness)
 	if err != nil {
 		return empty, err
+	}
+	if before.witness.arm == WorkContextSourceDomainShape {
+		var selected DomainShapeResult
+		if err := json.Unmarshal(content, &selected); err != nil {
+			return empty, err
+		}
+		before.witness.shape = &selected
 	}
 	if err := s.readSnapshot(ctx, func(q queryer) error {
 		return revalidateWorkerReading(ctx, q, req, before)

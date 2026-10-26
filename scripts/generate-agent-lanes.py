@@ -1389,6 +1389,29 @@ def refresh_knowledge_index() -> None:
         raise ValueError(f"knowledge-index cascade failed: {detail}")
 
 
+def project_domain_shape_reading(packet_schema: dict) -> None:
+    """Keep delegated selected reading on the public source contract's refs."""
+    payload = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
+    defs = payload["$defs"]
+    source = "work_context_reading_source_domain_shape"
+    names = module.schema_ref_closure(defs, [source])
+    def project(node):
+        if isinstance(node, list):
+            return [project(value) for value in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: project(value) for key, value in node.items()}
+        if "$ref" in result:
+            result["$ref"] = result["$ref"].replace("#/$defs/", "#/$defs/lane_", 1)
+        return result
+    for name in names:
+        packet_schema["$defs"]["lane_" + name] = project(defs[name])
+    branches = packet_schema["$defs"]["lane_work_context_reading"]["properties"]["source"]["oneOf"]
+    arm = {"$ref": "#/$defs/lane_" + source}
+    if arm not in branches:
+        branches.append(arm)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--check", action="store_true",
@@ -1399,8 +1422,10 @@ def main() -> int:
         manifest, manifest_digest = load_manifest()
         worker_scope = load_worker_scope(manifest)
         packet_schema = json.loads(PACKET_SCHEMA.read_text(encoding="utf-8"))
+        project_domain_shape_reading(packet_schema)
         report_schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
         expected = {
+            PACKET_SCHEMA: json.dumps(packet_schema, ensure_ascii=False, indent=2) + "\n",
             ROOT / "internal/store/generated_agent_lanes.go": go_projection(manifest, manifest_digest, worker_scope),
             ROOT / "adapter/opencode/generated-agent-lanes.ts": ts_projection(manifest, manifest_digest, packet_schema, report_schema, worker_scope),
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",

@@ -128,13 +128,14 @@
     },
     {
       "id": "concord_domain",
-      "description": "Navigate Product architecture: current Domains, current law, attachments, unresolved overlap, and the footprint of a change.",
+      "description": "Navigate Product architecture: current Domains, current law, attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.",
       "operations": [
         "concord_domain.list",
         "concord_domain.detail",
         "concord_domain.attachments",
         "concord_domain.overlaps",
-        "concord_domain.footprint"
+        "concord_domain.footprint",
+        "concord_domain.shape"
       ]
     }
   ],
@@ -1338,6 +1339,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_domain.shape",
+      "tool": "concord_domain",
+      "kind": "read",
+      "query_id": "C22.DomainShape",
+      "input_schema": "#/schemas/domain_shape_input",
+      "result_schema": "#/schemas/domain_shape_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_transition.correct_delivery",
       "tool": "concord_work_transition",
       "kind": "mutation",
@@ -1844,6 +1866,14 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_input",
       "closed": true
     },
+    "domain_shape_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_shape_input",
+      "closed": true
+    },
+    "domain_shape_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_shape_result",
+      "closed": true
+    },
     "domain_footprint_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_footprint_result",
       "closed": true
@@ -1896,6 +1926,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:46dccda1fad6418ae969c01fd8862a41ca2e1fb3646de1ffd85e57a6d2a3a786",
-  "digest": "sha256:fdee83406a2835a4c4e0dd6534d7ffab9dc7375e61cfdd82ddd8bed315ad03e4"
+  "payload_digest": "sha256:1ff2879d691f0743a56b9300383b862fe1a8b680909e8c5c05fe55a57a9d8a5a",
+  "digest": "sha256:007515cab5499a69dbfac05570de97c1996ac9ae8b1f5cfdb6fbfe5adc517fda"
 }

@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+// Fold fixtures construct operator configuration without filesystem setup.
+func (s *Store) DesignateProductKnowledgeHome(ctx context.Context, request ProductKnowledgeHomeDesignation) (ApplyOperationResult, error) {
+	return applyProductKnowledgeConfiguration(ctx, s, "product_knowledge_home_designate", "product.knowledge_home_designated", "operator designation", ProductKnowledgeSourceRegistration(request), func(reason string) any {
+		return knowledgeHomePayload{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
+		}
+	})
+}
+
 func designateFixture(t *testing.T, s *Store) string {
 	t.Helper()
 	if _, err := s.CreateProductWithProject(context.Background(), ProductCreation{

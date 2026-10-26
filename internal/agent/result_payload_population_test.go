@@ -1041,6 +1041,7 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
 		"concord_domain.footprint":                 `{"product_id":"prod-alpha","behavior":"domain","page":{"cursor":null,"limit":20}}`,
+		"concord_domain.shape":                     `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
 }
 
@@ -1130,6 +1131,7 @@ var readPopulationRows = map[string][]string{
 	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
 	"concord_domain.overlaps":                  {"pairs"},
 	"concord_domain.footprint":                 {"laws"},
+	"concord_domain.shape":                     {"domain_ids", "governing_law"},
 }
 
 // readPopulationRowExemptions names every read whose probed input carries no

@@ -30,10 +30,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 from pathlib import Path
 
@@ -297,6 +300,7 @@ class AdapterCIShardTests(unittest.TestCase):
         workflow = jobs(load_workflow(CI_WORKFLOW))
         shard_ids = needs_list(workflow["verify-adapter"])
         environments = []
+        reported = []
         files = (
             "adapter/opencode/dispatch_route_end_to_end.test.ts",
             "adapter/opencode/ordinary.test.ts",
@@ -337,15 +341,111 @@ class AdapterCIShardTests(unittest.TestCase):
                 )
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                 self.assertTrue((output / "adapter-test-timings.json").is_file(), run.stdout + run.stderr)
+                report = ET.parse(output / "adapter-test-results.xml").getroot()
+                cases = list(report.iter("testcase"))
+                self.assertTrue(cases, "Process success cannot replace an empty result report")
+                for case in cases:
+                    self.assertIsNone(case.find("skipped"))
+                    self.assertIsNone(case.find("failure"))
+                    self.assertIsNone(case.find("error"))
+                    reported.append(str((root / case.attrib["file"]).resolve()))
                 uploads = [step for step in shard["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
-                self.assertEqual(len(uploads), 1)
-                self.assertEqual(str(uploads[0].get("if")).strip(), "always()")
-                self.assertEqual(uploads[0]["with"]["path"], "${{ runner.temp }}/adapter-test-timings.json")
+                self.assertEqual(len(uploads), 2)
+                self.assertCountEqual([s["with"]["path"] for s in uploads], [
+                    "${{ runner.temp }}/adapter-test-timings.json", "${{ runner.temp }}/adapter-test-results.xml"])
+                suffix = selection.removeprefix("verify-adapter-")
+                self.assertCountEqual([s["with"]["name"] for s in uploads], [
+                    f"adapter-test-timings-{suffix}", f"adapter-test-results-{suffix}"])
+                for upload in uploads:
+                    self.assertEqual(str(upload.get("if")).strip(), "always()")
+                    self.assertEqual(upload["with"]["if-no-files-found"], "error")
+                    self.assertEqual(upload["with"]["retention-days"], 90)
             self.assertCountEqual(
                 [json.loads(line) for line in observed.read_text(encoding="utf-8").splitlines()],
                 [str(root / name) for name in files],
             )
+            self.assertCountEqual(reported, [str(root / name) for name in files])
         self.assertEqual(environments[0], environments[1], "both shards must retain the same poison inputs")
+
+
+class BunNativeResultTests(unittest.TestCase):
+    def test_pinned_native_results_keep_process_and_case_outcomes_distinct(self) -> None:
+        workflow = jobs(load_workflow(CI_WORKFLOW))
+        pins = [step["with"]["bun-version"]
+                for name in ("verify-adapter-rest", "verify-adapter-dispatch")
+                for step in workflow[name]["steps"] if step.get("uses", "").startswith("oven-sh/setup-bun@")]
+        version = subprocess.run(["bun", "--version"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(version.returncode, 0, version.stderr)
+        self.assertEqual(pins, [version.stdout.strip()] * 2, "Use CI's exact Bun version for result fixtures")
+        sources = {
+            "suite.test.ts": 'import {test, expect} from "bun:test";\n'
+                             'test("alpha",()=>expect(2+2).toBe(4));\n'
+                             'test.skip("skip-me",()=>{});\n',
+            "failed.test.ts": 'import {test, expect} from "bun:test";\n'
+                              'test("failure",()=>expect(true).toBe(false));\n',
+            "broken.test.ts": 'import { missing syntax !!!',
+            "empty.test.ts": 'export const value = 1;\n',
+            "hanging.test.ts": 'import {test} from "bun:test";\n'
+                               'test("hanging",()=>{process.stdout.write("started\\n");'
+                               'return new Promise(()=>{});},30000);\n',
+        }
+        skipped = {"alpha": "skipped", "skip-me": "skipped"}
+        scenarios = (
+            ("named", ["suite.test.ts", "-t", "^alpha$"], 0, {"alpha": "pass", "skip-me": "skipped"}),
+            ("unmatched", ["suite.test.ts", "-t", "^absent$"], 1, skipped),
+            ("skipped", ["suite.test.ts", "-t", "^skip-me$"], 0, skipped),
+            ("assertion", ["failed.test.ts"], 1, {"failure": "failure"}),
+            ("syntax", ["broken.test.ts"], 1, None),
+            ("empty-file", ["empty.test.ts"], 0, None),
+            ("empty-shard", ["suite.test.ts", "--shard=2/2"], 0, None),
+            ("empty-directory", ["empty-directory/"], 1, None),
+            ("allowed-empty", ["empty-directory/", "--pass-with-no-tests"], 0, None),
+        )
+        with tempfile.TemporaryDirectory(prefix="bun-native-results-") as temporary:
+            root = Path(temporary)
+            for name, source in sources.items():
+                (root / name).write_text(source, encoding="utf-8")
+            (root / "empty-directory").mkdir()
+            for name, flags, status, expected in scenarios:
+                with self.subTest(scenario=name):
+                    report = root / f"{name}.xml"
+                    run = subprocess.run(
+                        ["bun", "test", *flags, "--reporter=junit", f"--reporter-outfile={report}"],
+                        cwd=root, capture_output=True, text=True, timeout=10,
+                    )
+                    self.assertEqual(run.returncode, status, run.stdout + run.stderr)
+                    if expected is None:
+                        self.assertFalse(report.exists(), run.stdout + run.stderr)
+                        continue
+                    cases = list(ET.parse(report).getroot().iter("testcase"))
+                    self.assertEqual(len(cases), len(expected))
+                    observed = {}
+                    for case in cases:
+                        outcomes = [tag for tag in ("failure", "error", "skipped") if case.find(tag) is not None]
+                        self.assertLessEqual(len(outcomes), 1)
+                        observed[case.attrib["name"]] = outcomes[0] if outcomes else "pass"
+                    self.assertEqual(observed, expected)
+            report = root / "interrupted.xml"
+            process = subprocess.Popen(
+                ["bun", "test", "hanging.test.ts", "--reporter=junit", f"--reporter-outfile={report}"],
+                cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                observed = b""
+                deadline = time.monotonic() + 10
+                while b"started\n" not in observed:
+                    remaining = deadline - time.monotonic()
+                    self.assertGreater(remaining, 0, observed)
+                    self.assertTrue(select.select([process.stdout], [], [], remaining)[0], observed)
+                    chunk = os.read(process.stdout.fileno(), 4096)
+                    self.assertTrue(chunk, "Bun exited before starting the fixture")
+                    observed += chunk
+                    self.assertLessEqual(len(observed), 8192)
+            finally:
+                process.kill()
+                stdout, stderr = process.communicate(timeout=5)
+            self.assertNotEqual(process.returncode, 0, stdout + stderr)
+            self.assertFalse(report.exists(), "An interrupted process has no completed native report")
 
 
 class ReleaseWorkflowDriftTests(unittest.TestCase):

@@ -169,6 +169,8 @@ not silently bind it to the earlier commit. Prefer native caches over a second
 result cache. Go `-count=1` deliberately forces fresh tests; race instrumentation
 does not categorically disable caching, and timestamps alone cannot prove freshness.
 
+For Python, keep suite status and the complete log; record `python3 --version`.
+
 ### Read the shared Go results
 
 Required CI runs retain Go results through
@@ -193,6 +195,31 @@ Without explicit expectations it reports observed results, not named coverage.
 Compile-only remains labelled separately. Source applicability and cache labels
 come from the original producer, not the reading machine's current checkout.
 
-For Python, keep suite status and the complete log; record `python3 --version`.
-For Bun, native console/JUnit results and existing timing artifacts have different
-claims. Neither a timing file nor a successful process proves an expected test ran.
+### Read native Bun results
+
+The two existing adapter CI executions also write Bun's native JUnit report with
+`--reporter=junit --reporter-outfile=...`. CI retains these as
+`adapter-test-results-rest` and `adapter-test-results-dispatch`, separately from
+the unchanged per-file timing artifacts. The CI run, job, checkout and pinned Bun
+setup supply provenance; console stdout/stderr remain in the same job's logs.
+There is no second collector, result cache or extra adapter execution.
+
+For an already justified local file selection, use CI's pinned Bun version and
+choose a new report path outside the repository. Retain complete console output
+as well; a stale report cannot establish the current execution:
+
+```sh
+bin/oc-test broad -- bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --reporter=junit --reporter-outfile="$BUN_RESULTS"
+```
+
+Check the expected file and case names, child `failure`/`error`/`skipped` elements,
+process status and complete report together. Bun 1.4.0 can return zero for a
+skipped-only selection, an empty file or shard, or `--pass-with-no-tests`. Unmatched
+names return nonzero and appear skipped in XML; a skipped case is not an executed
+assertion. Empty selections, syntax errors and interrupted runs can leave no
+completed XML. Missing reports remain evidence gaps; required CI uploads fail
+if the report is absent. A timing file cannot replace the native results.
+
+[`scripts/test-release-evidence.py`](scripts/test-release-evidence.py) checks the
+real CI commands against newly discovered synthetic files and verifies these
+native result boundaries with the exact pinned Bun runtime.

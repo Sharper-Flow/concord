@@ -3,6 +3,15 @@
   "project": "concord",
   "tools": [
     {
+      "id": "local-test-plan",
+      "purpose": "Inspect a local command's selection and admission without test execution or discovery.",
+      "invocation": "bin/oc-test plan broad -- go test ./internal/store",
+      "tier": "fast",
+      "cost_hint": "Parses command arguments only; no dependency scan or test subprocess.",
+      "config_path": "scripts/local-test-plan.py",
+      "notes": "TESTING.md owns risk-based selection recipes. This is not an exhaustive impact selector or named-test result proof. Use bin/oc-test broad for suites, shards and unknown command shapes."
+    },
+    {
       "id": "bin-oc-test",
       "purpose": "Local ten-process conformance throttle.",
       "invocation": "bin/oc-test conformance",
@@ -14,7 +23,7 @@
     {
       "id": "go-test-race",
       "purpose": "The Go test suite with the race detector.",
-      "invocation": "go test -race -timeout=20m ./...",
+      "invocation": "bin/oc-test broad -- go test -race -timeout=20m ./...",
       "tier": "slow",
       "cost_hint": "The command timeout is 20 minutes.",
       "automation_path": ".github/workflows/ci.yml"

@@ -161,8 +161,20 @@ def integrate(worktree, request, review, evidence):
         code = None
         try:
             with output.open("wb") as stream:
-                code = subprocess.run(argv, cwd=worktree, env=env, stdout=stream,
-                                      stderr=subprocess.STDOUT, timeout=300, check=False).returncode
+                with subprocess.Popen(argv, cwd=worktree, env=env, stdout=stream,
+                                      stderr=subprocess.STDOUT) as child:
+                    try:
+                        code = child.wait(timeout=300)
+                    except subprocess.TimeoutExpired:
+                        # Give the wrapper/host gate its cancellation signal;
+                        # subprocess.run's timeout kills only the wrapper.
+                        child.terminate()
+                        try:
+                            child.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            child.kill()
+                            child.wait()
+                        raise
         except (OSError, subprocess.SubprocessError) as error:
             failure = str(error)
         row = {"name": name, "argv": argv, "exit_code": code, "failure": failure,
@@ -177,9 +189,9 @@ def integrate(worktree, request, review, evidence):
     gate("title", ["python3", "scripts/check-commit-title.py", request["title"]])
     # Each step gets its own strict shell, as in CI; do not join shell state.
     shell = "\n".join("bash -euo pipefail -c " + shlex.quote(cmd) for cmd in commands)
-    gate("verify-go", ["bin/oc-test", "targeted", "--", "bash", "-euo", "pipefail", "-c", shell])
+    gate("verify-go", ["bin/oc-test", "broad", "--", "bash", "-euo", "pipefail", "-c", shell])
     packages = sorted({"./" + str(PurePosixPath(path).parent) for path in paths})
-    gate("targeted-tests", ["bin/oc-test", "targeted", "--", "go", "test", "-timeout=5m", *packages])
+    gate("targeted-tests", ["bin/oc-test", "broad", "--", "go", "test", "-timeout=5m", *packages])
     message = request["title"] + "\n\nPhase-local integration only.\n"
     for name, value in {"Target": target, "Base": base, "Candidate": candidate, "Tree": tree,
                         "Declaration": request["declaration_ref"], "Expiry": request["expires_at"],

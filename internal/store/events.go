@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+
 	sqlite "modernc.org/sqlite"
 	sqlitelib "modernc.org/sqlite/lib"
 )
@@ -94,7 +96,7 @@ func eventByID(ctx context.Context, q queryer, eventID string) (Event, bool, err
 	if err != nil || !found {
 		return Event{}, found, err
 	}
-	event := receipt.event
+	event := receipt.event()
 	switch event.Kind {
 	case WorkerDispatched:
 		err = q.QueryRowContext(ctx, `SELECT dispatch_payload FROM worker_attempts WHERE work_id=? AND dispatch_event_id=?`, event.SubjectID, eventID).Scan(&event.Payload)
@@ -173,7 +175,9 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq) VALUES(?,?,?,?,?,?,?,?,?,?)`, e.EventID, seq, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.PayloadVersion, digest, asserted, relationSeq); err != nil {
+	receipt := effectReceiptHeader(e)
+	receipt.Seq, receipt.PayloadDigest = seq, digest
+	if err := sqlitedb.AppendReceipt(ctx, tx, receipt, asserted, relationSeq); err != nil {
 		if isUniqueViolation(err) {
 			return 0, classifyEventIDConflict(ctx, tx, e, err)
 		}
@@ -307,27 +311,7 @@ func classifyEventIDConflict(ctx context.Context, tx *sql.Tx, attempted Event, i
 			"choose a new event_id; the recorded event is a different operation")
 	}
 	return wrapFailure(KindDuplicateEvent, "append_event",
-		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, receipt.event.Seq),
+		fmt.Sprintf("event %s is already recorded at sequence %d", attempted.EventID, receipt.Seq),
 		true,
 		"treat the existing event as the durable effect", insertErr)
-}
-
-func eventHeaderDifferences(attempted, existing Event) []string {
-	var diffs []string
-	if attempted.Kind != existing.Kind {
-		diffs = append(diffs, "kind")
-	}
-	if attempted.SubjectType != existing.SubjectType {
-		diffs = append(diffs, "subject_type")
-	}
-	if attempted.SubjectID != existing.SubjectID {
-		diffs = append(diffs, "subject_id")
-	}
-	if attempted.Actor != existing.Actor {
-		diffs = append(diffs, "actor")
-	}
-	if attempted.PayloadVersion != existing.PayloadVersion {
-		diffs = append(diffs, "payload_version")
-	}
-	return diffs
 }

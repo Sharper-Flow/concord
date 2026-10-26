@@ -521,34 +521,9 @@ func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID stri
 // in the caller's transaction, resolves every finding reference, and
 // assembles the typed declaration event.
 func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, stepID, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	var payload workflowWorkContextRecordedPayload
-	if raw := fields["required_reading"]; len(raw) != 0 {
-		if err := json.Unmarshal(raw, &payload.RequiredReading); err != nil {
-			return nil, workContextFailure(KindInvalidPayload, "work_context", "required_reading must be an array of closed reading entries", "supply the required_reading array")
-		}
-	} else {
-		payload.RequiredReading = []WorkContextReading{}
-	}
-	if raw := fields["finding_refs"]; len(raw) != 0 {
-		if err := json.Unmarshal(raw, &payload.FindingRefs); err != nil {
-			return nil, workContextFailure(KindInvalidPayload, "work_context", "finding_refs must be an array of exact finding ids", "supply the finding_refs array")
-		}
-	} else {
-		payload.FindingRefs = []string{}
-	}
-	if raw := fields["context_findings"]; len(raw) != 0 {
-		if err := json.Unmarshal(raw, &payload.ContextFindings); err != nil {
-			return nil, workContextFailure(KindInvalidPayload, "work_context", "context_findings must be an array of closed finding entries", "supply the context_findings array")
-		}
-	} else {
-		payload.ContextFindings = []WorkerContextFinding{}
-	}
-	if raw := fields["research_finding_refs"]; len(raw) != 0 {
-		decoder := json.NewDecoder(strings.NewReader(string(raw)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload.ResearchSelections); err != nil {
-			return nil, workContextFailure(KindInvalidPayload, "work_context", "research_finding_refs must be an array of closed selection entries", "supply exact pack, revision, finding, and Domain references")
-		}
+	payload, err := decodeWorkContextDeclarationFields(fields)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateWorkContextDeclarationShape(payload); err != nil {
 		return nil, err
@@ -603,6 +578,39 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 		values["research_finding_refs"] = payload.ResearchSelections
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowWorkContextRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+}
+
+func decodeWorkContextDeclarationFields(fields map[string]json.RawMessage) (workflowWorkContextRecordedPayload, error) {
+	var payload workflowWorkContextRecordedPayload
+	if raw := fields["required_reading"]; len(raw) != 0 {
+		if err := json.Unmarshal(raw, &payload.RequiredReading); err != nil {
+			return payload, workContextFailure(KindInvalidPayload, "work_context", "required_reading must be an array of closed reading entries", "supply the required_reading array")
+		}
+	} else {
+		payload.RequiredReading = []WorkContextReading{}
+	}
+	if raw := fields["finding_refs"]; len(raw) != 0 {
+		if err := json.Unmarshal(raw, &payload.FindingRefs); err != nil {
+			return payload, workContextFailure(KindInvalidPayload, "work_context", "finding_refs must be an array of exact finding ids", "supply the finding_refs array")
+		}
+	} else {
+		payload.FindingRefs = []string{}
+	}
+	if raw := fields["context_findings"]; len(raw) != 0 {
+		if err := json.Unmarshal(raw, &payload.ContextFindings); err != nil {
+			return payload, workContextFailure(KindInvalidPayload, "work_context", "context_findings must be an array of closed finding entries", "supply the context_findings array")
+		}
+	} else {
+		payload.ContextFindings = []WorkerContextFinding{}
+	}
+	if raw := fields["research_finding_refs"]; len(raw) != 0 {
+		decoder := json.NewDecoder(strings.NewReader(string(raw)))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload.ResearchSelections); err != nil {
+			return payload, workContextFailure(KindInvalidPayload, "work_context", "research_finding_refs must be an array of closed selection entries", "supply exact pack, revision, finding, and Domain references")
+		}
+	}
+	return payload, nil
 }
 
 // foldWorkflowWorkContextRecorded validates the declaration's current workflow

@@ -624,10 +624,8 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	// projection; an unknown declared work is unverified, not negative, and
 	// keeps its declared tier.
 	if !manifestMissing {
-		for _, record := range manifest.Records {
-			if _, err := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, record); err != nil {
-				return err
-			}
+		if err := validateKnowledgeManifestAuthoritiesTx(ctx, tx, manifest); err != nil {
+			return err
 		}
 	}
 	if err := clearKnowledgeIndexRowsTx(ctx, tx, home, productID, designated); err != nil {
@@ -1079,6 +1077,10 @@ func (s *Store) verifyFreshKnowledgeAuthority(ctx context.Context, home Knowledg
 		return wrapFailure(KindUnavailable, "knowledge_index", "cannot begin the fresh knowledge authority admission", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // a read-only transaction closes by rollback; its queries already returned.
+	return validateKnowledgeManifestAuthoritiesTx(ctx, tx, manifest)
+}
+
+func validateKnowledgeManifestAuthoritiesTx(ctx context.Context, tx *sql.Tx, manifest KnowledgeManifest) error {
 	for _, record := range manifest.Records {
 		if _, err := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, record); err != nil {
 			return err

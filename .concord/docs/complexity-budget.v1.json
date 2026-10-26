@@ -15,6 +15,6 @@
       "./cmd"
     ]
   },
-  "threshold": 50,
+  "threshold": 30,
   "allowances": []
 }

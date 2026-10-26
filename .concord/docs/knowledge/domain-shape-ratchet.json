@@ -1,0 +1,11 @@
+{
+  "imports": [],
+  "mixed_roots": [
+    "adapter/opencode",
+    "cmd/concord",
+    "internal/agent",
+    "internal/store",
+    "scripts"
+  ],
+  "schema_version": "1.0"
+}

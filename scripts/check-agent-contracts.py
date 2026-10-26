@@ -759,8 +759,6 @@ def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
 def shipped_skill_content_findings(content: str, *, skill_name: str, commands: set[str], operations: set[str]) -> list[str]:
     """Check portable named surfaces; review still owns the prose's meaning."""
     findings: list[str] = []
-    if skill_name not in ADMITTED_SKILLS:
-        findings.append(f"skill is not admitted: {skill_name}")
     if not re.match(r"\A---\nname: " + re.escape(skill_name) + r"\ndescription: \S[^\n]{0,1023}\n---\n", content):
         findings.append("frontmatter must name the admitted skill and supply its discovery description")
     for number, line in enumerate(content.splitlines(), 1):
@@ -793,7 +791,7 @@ def shipped_skill_content_findings(content: str, *, skill_name: str, commands: s
             findings.append(f"reference must resolve to pinned public canonical content, not an adopting checkout: {target}")
     if len(revisions) != 1:
         findings.append("canonical references must name one source revision")
-    findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES.get(skill_name, {}).items() if path not in references)
+    findings.extend(f"missing canonical {label} reference: {path}" for label, path in SKILL_REFERENCES[skill_name].items() if path not in references)
     return findings
 
 

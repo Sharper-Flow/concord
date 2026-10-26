@@ -7844,6 +7844,53 @@ CREATE TRIGGER workflow_member_callers_guard_update BEFORE UPDATE ON workflow_me
 CREATE TRIGGER workflow_member_callers_guard_delete BEFORE DELETE ON workflow_member_callers FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_member_callers is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 156,
+		Name:    "knowledge_domain_shape_projection",
+		SQL: `
+CREATE TABLE knowledge_domain_shapes (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    product_id TEXT NOT NULL REFERENCES products(id),
+    content_hash TEXT NOT NULL,
+    registry_content_hash TEXT NOT NULL,
+    map_content_hash TEXT NOT NULL,
+    tooling_commit_oid TEXT NOT NULL,
+    tooling_content_hash TEXT NOT NULL,
+    required_checks TEXT NOT NULL CHECK(json_valid(required_checks) AND json_type(required_checks)='array'),
+    PRIMARY KEY(home_project_id,home_locator_id,scanned_commit_oid)
+);
+CREATE TABLE knowledge_domain_roots (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    root_json TEXT NOT NULL CHECK(json_valid(root_json) AND json_type(root_json)='object'),
+    PRIMARY KEY(home_project_id,home_locator_id,scanned_commit_oid,root_path),
+    FOREIGN KEY(home_project_id,home_locator_id,scanned_commit_oid) REFERENCES knowledge_domain_shapes(home_project_id,home_locator_id,scanned_commit_oid)
+);
+CREATE TABLE knowledge_domain_facts (
+    home_project_id TEXT NOT NULL,
+    home_locator_id TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    fact_id TEXT NOT NULL,
+    fact_json TEXT NOT NULL CHECK(json_valid(fact_json) AND json_type(fact_json)='object' AND length(CAST(fact_json AS BLOB))<=16384),
+    content_hash TEXT NOT NULL,
+    PRIMARY KEY(home_project_id,home_locator_id,scanned_commit_oid,fact_id),
+    FOREIGN KEY(home_project_id,home_locator_id,scanned_commit_oid) REFERENCES knowledge_domain_shapes(home_project_id,home_locator_id,scanned_commit_oid)
+);
+CREATE TRIGGER knowledge_domain_shapes_guard_insert BEFORE INSERT ON knowledge_domain_shapes BEGIN SELECT RAISE(ABORT, 'knowledge_domain_shapes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_shapes_guard_update BEFORE UPDATE ON knowledge_domain_shapes BEGIN SELECT RAISE(ABORT, 'knowledge_domain_shapes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_shapes_guard_delete BEFORE DELETE ON knowledge_domain_shapes BEGIN SELECT RAISE(ABORT, 'knowledge_domain_shapes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_roots_guard_insert BEFORE INSERT ON knowledge_domain_roots BEGIN SELECT RAISE(ABORT, 'knowledge_domain_roots is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_roots_guard_update BEFORE UPDATE ON knowledge_domain_roots BEGIN SELECT RAISE(ABORT, 'knowledge_domain_roots is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_roots_guard_delete BEFORE DELETE ON knowledge_domain_roots BEGIN SELECT RAISE(ABORT, 'knowledge_domain_roots is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_facts_guard_insert BEFORE INSERT ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_facts_guard_update BEFORE UPDATE ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER knowledge_domain_facts_guard_delete BEFORE DELETE ON knowledge_domain_facts BEGIN SELECT RAISE(ABORT, 'knowledge_domain_facts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

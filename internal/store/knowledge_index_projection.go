@@ -434,7 +434,7 @@ func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome,
 // A binary that reads a watermark stamped with a higher version refuses the
 // rebuild rather than overwrite a newer projection, the rule the schema
 // manifest (checkManifest) applies to the database itself.
-const knowledgeProjectionVersion = 4
+const knowledgeProjectionVersion = 5
 
 // refuseWatermarkFromNewerBinary is the rebuild admission rule. The store
 // pools one connection, so this read against s.db must precede the rebuild
@@ -494,6 +494,14 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		return err
 	}
 	architecture, err := prepareKnowledgeArchitecture(shards, manifest, !manifestMissing && productID != "" && designated)
+	if err != nil {
+		return err
+	}
+	architecture.Shape, err = prepareDomainShapeProjection(ctx, home, commit, shards, manifest, architecture, !manifestMissing && productID != "" && designated)
+	if err != nil {
+		return err
+	}
+	digest, err = domainShapeKnowledgeDigest(ctx, home, commit, digest, architecture.Shape)
 	if err != nil {
 		return err
 	}
@@ -563,6 +571,9 @@ func collectManifestKnowledgeNotes(ctx context.Context, home KnowledgeHome, comm
 // TestDerivedKnowledgeClearOrderRespectsForeignKeys derives the same order
 // from the schema and refuses a drift.
 var derivedKnowledgeClearOrder = []string{
+	"knowledge_domain_facts",
+	"knowledge_domain_roots",
+	"knowledge_domain_shapes",
 	"knowledge_package_domains",
 	"law_coverage_anchors",
 	"law_evidence_paths",
@@ -596,6 +607,14 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 	}
+	// An empty prepared architecture still projects the designated home's
+	// empty shape at this revision, like its empty package/coverage inventory.
+	if !manifestMissing && designated && architecture.Shape == nil {
+		architecture.Shape = newDomainShapeProjection(commit, manifest, architecture)
+	}
+	if err := validateDomainShapeProjectionTx(ctx, tx, productID, architecture.Shape, manifest); err != nil {
+		return err
+	}
 	if err := enterWrite(ctx, tx); err != nil {
 		return err
 	}
@@ -626,6 +645,9 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		return err
 	}
 	if err := insertKnowledgeArchitecture(ctx, tx, home, commit, laws, architecture); err != nil {
+		return err
+	}
+	if err := insertDomainShapeProjection(ctx, tx, home, productID, architecture.Shape); err != nil {
 		return err
 	}
 	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
@@ -912,6 +934,10 @@ type knowledgeWatermark struct {
 // rebuilds once.
 func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome, current string) (knowledgeWatermark, error) {
 	currentDigest, err := knowledgeContentDigest(ctx, home, current)
+	if err != nil {
+		return knowledgeWatermark{}, err
+	}
+	currentDigest, err = domainShapeKnowledgeDigest(ctx, home, current, currentDigest, nil)
 	if err != nil {
 		return knowledgeWatermark{}, err
 	}

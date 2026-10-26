@@ -304,12 +304,12 @@ func TestCommittedCorpusFeedsTheFootprintOfWorkflowDesign(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	packages := map[string][]string{}
+	roots := []DomainShapeRoot{}
 	for _, entry := range architecture.Packages {
-		packages[entry.Path] = entry.DomainIDs
+		roots = append(roots, DomainShapeRoot{Path: entry.Path, Role: "mixed", DomainIDs: entry.DomainIDs})
 	}
 	const file = "internal/store/workflow_design.go"
-	if owner := footprintOwningPackage(packages, file); owner != "internal/store" {
+	if owner := domainShapeOwningRoot(roots, file); owner != "internal/store" {
 		t.Fatalf("%s resolves to %q", file, owner)
 	}
 	naming := map[string]bool{}

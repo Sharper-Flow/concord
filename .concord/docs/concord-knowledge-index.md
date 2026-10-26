@@ -1,7 +1,7 @@
 # Concord durable knowledge index
 
 The shard tree under [`.concord/docs/knowledge/`](./knowledge/) is the registry for
-durable `decision`, `spec`, and `lesson` records in a repository home. The
+durable document records in a repository home. The
 head shard [`knowledge/manifest.json`](./knowledge/manifest.json), the domain
 registry [`knowledge/domain-registry.json`](./knowledge/domain-registry.json),
 and one record shard per record under [`knowledge/records/`](./knowledge/records/) compose the
@@ -30,7 +30,7 @@ paths, trailing values, and an unknown `schema_version` remain invalid for
 the reader. A field that must restrict older cores requires a
 `schema_version` bump. An additive field declares itself on the Go model in
 the same change.
-A record has an authored stable ID, closed kind, clean regular
+A document record has an authored stable ID, closed kind, clean regular
 Markdown path below `.concord/docs/`, status, RFC3339 date, bounded title and summary,
 unique tags, closed scopes, and a required `sha256:` hash. It has no body or
 content field. `decision` and `spec` records are `accepted`; `lesson` records
@@ -88,6 +88,28 @@ The standard-library checker validates the authored registry, recomputes hashes,
 rejects dangling or generated/candidate entries, and proves every `CD-*.md`
 decision is included. `python3 scripts/check-knowledge-index.py --update` still
 updates hashes only; it never authors inclusion, metadata, or status.
+
+## Domain facts
+
+[CD-0244 D4–D8](decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md#d4-domain-facts-are-typed-small-and-owned-by-one-domain)
+governs the typed facts in every Product knowledge home. Each fact is a JSON
+shard with exactly one `owner_domain_id` and no body document. The four kinds
+are `invariant`, `data_object`, `state_authority`, and `config_coupling`.
+The Markdown-path requirement above applies to document records, not facts.
+
+Facts distinguish `law`, which names its `governing_law_ids`, from `observed`,
+which grants no authority. Decision and specification documents remain the home
+of reasoning and approval. Typed anchors retain CD-0047's resolution and
+required-check rules. Product-declared extractors compare supported facts with
+code; a fact without an extractor reports as unverified. The bounded Domain
+read serves path, Domain, or subject selectors and feeds footprint and
+work-context required reading without generated cards or session overviews.
+
+Schema `1.3` and its document readers do not yet implement these fact kinds.
+Their schema, validation, Product-declared checks, bounded retrieval, and setup
+remain outstanding in [Concord (CON) issue 1319](https://linear.app/sharper-flow/issue/CON-1319).
+Publication of CD-0244 neither inserts facts into the existing document-record
+schema nor claims implementation or real Product migration.
 
 ## Authoring
 

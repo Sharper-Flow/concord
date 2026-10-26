@@ -7,12 +7,8 @@ import (
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
-// writeScope is a transaction-owned, depth-counted write guard. One scope
-// travels through one transaction's call graph; its enter and close calls
-// must pair. The first level inserts the write_guard row, deeper levels only
-// count depth, and the row leaves when the outermost level closes. The row
-// lives inside the caller's transaction, so a rollback removes it with every
-// other uncommitted write and no committed guard can survive a scope.
+// writeScope binds workflow write context and current-row protection to one
+// transaction. Nested operations share the same scope.
 type writeScope struct {
 	tx    *sql.Tx
 	guard sqlitedb.WriteGuard
@@ -90,17 +86,10 @@ func beginWrite(ctx context.Context, tx *sql.Tx) (*writeScope, error) {
 	return scope, nil
 }
 
-// enter opens one write level. At depth zero the guard row is inserted, and a
-// committed write_guard row already in the table is an invariant failure: the
-// row can only be a stranded guard, and ordinary writes must stay refused
-// until a verified backup is restored into a new path and swapped into place.
 func (s *writeScope) enter(ctx context.Context) error {
 	return mechanismFailure(s.guard.Enter(ctx))
 }
 
-// close releases one write level. Deeper levels keep the guard row in place,
-// so a nested write cannot drop its caller's protection early; the row leaves
-// only when the outermost level closes.
 func (s *writeScope) close(ctx context.Context) error {
 	return mechanismFailure(s.guard.Close(ctx))
 }

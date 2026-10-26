@@ -480,92 +480,16 @@ func (r runtime) outsideRepairRequiredNames(ctx context.Context, repository stri
 	if pr.Number != number || pr.HeadRefOid != headSHA || pr.BaseRef == nil || pr.BaseRefName == "" || pr.BaseRef.Name != pr.BaseRefName {
 		return nil, 0, fmt.Errorf("cannot authenticate pull request head and base branch")
 	}
-	required := map[string]int64{}
-	add := func(context string, appID int64) error {
-		if context == "" || len([]rune(context)) > 128 || appID < 0 {
-			return fmt.Errorf("required status check has invalid context or app identity")
-		}
-		old, exists := required[context]
-		if exists && old != 0 && appID != 0 && old != appID {
-			return fmt.Errorf("required status check %s has conflicting app identities", context)
-		}
-		if !exists || appID != 0 {
-			required[context] = appID
-		}
-		return nil
-	}
-	protection := pr.BaseRef.BranchProtectionRule
-	if len(protection) == 0 {
-		return nil, 0, fmt.Errorf("missing classic branch protection response")
-	}
-	if string(protection) != "null" {
-		var rule ghOutsideProtection
-		if err := json.Unmarshal(protection, &rule); err != nil {
-			return nil, 0, fmt.Errorf("unparseable classic branch protection: %w", err)
-		}
-		if rule.RequiresStatusChecks == nil || rule.RequiredStatusCheckContexts == nil || rule.RequiredStatusChecks == nil || rule.RequiresDeployments == nil || rule.RequiredDeploymentEnvironments == nil {
-			return nil, 0, fmt.Errorf("incomplete classic branch protection")
-		}
-		if *rule.RequiresDeployments || len(rule.RequiredDeploymentEnvironments) > 0 {
-			// Same named follow-up and same fail-closed refusal as the
-			// ruleset required_deployments rule: the collector cannot
-			// certify deployment enforcement without its native receipts.
-			return nil, 0, fmt.Errorf("unsupported classic deployment enforcement (requiresDeployments): required-deployment receipts not yet collected")
-		}
-		if *rule.RequiresStatusChecks {
-			for _, context := range rule.RequiredStatusCheckContexts {
-				if err := add(context, 0); err != nil {
-					return nil, 0, err
-				}
-			}
-			for _, check := range rule.RequiredStatusChecks {
-				appID := int64(0)
-				if check.App != nil {
-					appID = check.App.DatabaseID
-					if appID <= 0 {
-						return nil, 0, fmt.Errorf("invalid required app identity")
-					}
-				}
-				if err := add(check.Context, appID); err != nil {
-					return nil, 0, err
-				}
-			}
-			if len(required) == 0 {
-				return nil, 0, fmt.Errorf("classic protection requires checks but names none")
-			}
-		}
+	required := outsideRepairRequiredNames{}
+	if err := required.addClassicProtection(pr.BaseRef.BranchProtectionRule); err != nil {
+		return nil, 0, err
 	}
 	var pages [][]ghOutsideBranchRule
 	if err := r.outsideRepairReadJSON(ctx, &pages, "repos/"+repository+"/rules/branches/"+url.PathEscape(pr.BaseRefName)+"?per_page=100", "--paginate", "--slurp"); err != nil {
 		return nil, 0, err
 	}
-	if len(pages) == 0 {
-		return nil, 0, fmt.Errorf("no effective rules response")
-	}
-	for _, page := range pages {
-		if page == nil {
-			return nil, 0, fmt.Errorf("incomplete effective rules response")
-		}
-		for _, rule := range page {
-			if rule.Type == "" {
-				return nil, 0, fmt.Errorf("effective rule has no type")
-			}
-			// Scope: only required_status_checks is proven here; `workflows` and `required_deployments` fail closed because the collector does not yet build authenticated required-workflow receipts (named follow-up: support authenticated required-workflow receipts).
-			if rule.Type != "required_status_checks" {
-				if rule.Type == "workflows" || rule.Type == "required_deployments" {
-					return nil, 0, fmt.Errorf("unsupported enforcement evidence rule %s: required-workflow receipts not yet collected", rule.Type)
-				}
-				continue
-			}
-			if rule.Parameters == nil || len(rule.Parameters.RequiredStatusChecks) == 0 {
-				return nil, 0, fmt.Errorf("incomplete effective required status checks")
-			}
-			for _, check := range rule.Parameters.RequiredStatusChecks {
-				if err := add(check.Context, check.IntegrationID); err != nil {
-					return nil, 0, err
-				}
-			}
-		}
+	if err := required.addEffectiveRules(pages); err != nil {
+		return nil, 0, err
 	}
 	if len(required) == 0 || len(required) > 64 {
 		return nil, 0, fmt.Errorf("outside repair requires 1..64 authenticated required names")
@@ -573,18 +497,139 @@ func (r runtime) outsideRepairRequiredNames(ctx context.Context, repository stri
 	return required, repo.DatabaseID, nil
 }
 
+type outsideRepairRequiredNames map[string]int64
+
+func (required outsideRepairRequiredNames) add(context string, appID int64) error {
+	if context == "" || len([]rune(context)) > 128 || appID < 0 {
+		return fmt.Errorf("required status check has invalid context or app identity")
+	}
+	old, exists := required[context]
+	if exists && old != 0 && appID != 0 && old != appID {
+		return fmt.Errorf("required status check %s has conflicting app identities", context)
+	}
+	if !exists || appID != 0 {
+		required[context] = appID
+	}
+	return nil
+}
+
+func (required outsideRepairRequiredNames) addClassicProtection(protection json.RawMessage) error {
+	if len(protection) == 0 {
+		return fmt.Errorf("missing classic branch protection response")
+	}
+	if string(protection) == "null" {
+		return nil
+	}
+	var rule ghOutsideProtection
+	if err := json.Unmarshal(protection, &rule); err != nil {
+		return fmt.Errorf("unparseable classic branch protection: %w", err)
+	}
+	if rule.RequiresStatusChecks == nil || rule.RequiredStatusCheckContexts == nil || rule.RequiredStatusChecks == nil || rule.RequiresDeployments == nil || rule.RequiredDeploymentEnvironments == nil {
+		return fmt.Errorf("incomplete classic branch protection")
+	}
+	if *rule.RequiresDeployments || len(rule.RequiredDeploymentEnvironments) > 0 {
+		// Same named follow-up and same fail-closed refusal as the
+		// ruleset required_deployments rule: the collector cannot
+		// certify deployment enforcement without its native receipts.
+		return fmt.Errorf("unsupported classic deployment enforcement (requiresDeployments): required-deployment receipts not yet collected")
+	}
+	if !*rule.RequiresStatusChecks {
+		return nil
+	}
+	for _, context := range rule.RequiredStatusCheckContexts {
+		if err := required.add(context, 0); err != nil {
+			return err
+		}
+	}
+	for _, check := range rule.RequiredStatusChecks {
+		appID := int64(0)
+		if check.App != nil {
+			appID = check.App.DatabaseID
+			if appID <= 0 {
+				return fmt.Errorf("invalid required app identity")
+			}
+		}
+		if err := required.add(check.Context, appID); err != nil {
+			return err
+		}
+	}
+	if len(required) == 0 {
+		return fmt.Errorf("classic protection requires checks but names none")
+	}
+	return nil
+}
+
+func (required outsideRepairRequiredNames) addEffectiveRules(pages [][]ghOutsideBranchRule) error {
+	if len(pages) == 0 {
+		return fmt.Errorf("no effective rules response")
+	}
+	for _, page := range pages {
+		if page == nil {
+			return fmt.Errorf("incomplete effective rules response")
+		}
+		for _, rule := range page {
+			if rule.Type == "" {
+				return fmt.Errorf("effective rule has no type")
+			}
+			// Scope: only required_status_checks is proven here; `workflows` and `required_deployments` fail closed because the collector does not yet build authenticated required-workflow receipts (named follow-up: support authenticated required-workflow receipts).
+			if rule.Type != "required_status_checks" {
+				if rule.Type == "workflows" || rule.Type == "required_deployments" {
+					return fmt.Errorf("unsupported enforcement evidence rule %s: required-workflow receipts not yet collected", rule.Type)
+				}
+				continue
+			}
+			if rule.Parameters == nil || len(rule.Parameters.RequiredStatusChecks) == 0 {
+				return fmt.Errorf("incomplete effective required status checks")
+			}
+			for _, check := range rule.Parameters.RequiredStatusChecks {
+				if err := required.add(check.Context, check.IntegrationID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (r runtime) outsideRepairRequiredChecks(ctx context.Context, repository string, number int64, headSHA string) ([]store.OutsideRepairRequiredCheck, error) {
 	required, repositoryID, err := r.outsideRepairRequiredNames(ctx, repository, number, headSHA)
 	if err != nil {
 		return nil, err
 	}
-	var pages []struct {
-		TotalCount *int                `json:"total_count"`
-		CheckRuns  []ghOutsideCheckRun `json:"check_runs"`
-	}
+	var pages []ghOutsideCheckRunPage
 	if err := r.outsideRepairReadJSON(ctx, &pages, "repos/"+repository+"/commits/"+headSHA+"/check-runs?filter=all&per_page=100", "--paginate", "--slurp"); err != nil {
 		return nil, err
 	}
+	latest, err := outsideRepairLatestChecks(pages, required, headSHA)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(required))
+	for name := range required {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	checks := make([]store.OutsideRepairRequiredCheck, 0, len(names))
+	for _, name := range names {
+		check, exists := latest[name]
+		if !exists || check.Status != "completed" || check.Conclusion != "success" {
+			return nil, fmt.Errorf("required check %s is absent or did not pass", name)
+		}
+		proof, err := r.outsideRepairRunProof(ctx, repository, repositoryID, headSHA, check)
+		if err != nil {
+			return nil, fmt.Errorf("required check %s: %w", name, err)
+		}
+		checks = append(checks, proof)
+	}
+	return checks, nil
+}
+
+type ghOutsideCheckRunPage struct {
+	TotalCount *int                `json:"total_count"`
+	CheckRuns  []ghOutsideCheckRun `json:"check_runs"`
+}
+
+func outsideRepairLatestChecks(pages []ghOutsideCheckRunPage, required map[string]int64, headSHA string) (map[string]ghOutsideCheckRun, error) {
 	latest := map[string]ghOutsideCheckRun{}
 	seen := map[int64]bool{}
 	count := 0
@@ -605,12 +650,8 @@ func (r runtime) outsideRepairRequiredChecks(ctx context.Context, repository str
 			if check.HeadSHA != headSHA {
 				return nil, fmt.Errorf("check %s ran on another SHA", check.Name)
 			}
-			previous, exists := latest[check.Name]
-			if exists && (previous.StartedAt.IsZero() || check.StartedAt.IsZero()) {
-				return nil, fmt.Errorf("cannot order duplicate check %s without start times", check.Name)
-			}
-			if !exists || check.StartedAt.After(previous.StartedAt) || (check.StartedAt.Equal(previous.StartedAt) && check.ID > previous.ID) {
-				latest[check.Name] = check
+			if err := outsideRepairRetainLatestCheck(latest, check); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -622,24 +663,18 @@ func (r runtime) outsideRepairRequiredChecks(ctx context.Context, repository str
 			return nil, fmt.Errorf("check run pagination is incomplete or changed during collection")
 		}
 	}
-	names := make([]string, 0, len(required))
-	for name := range required {
-		names = append(names, name)
+	return latest, nil
+}
+
+func outsideRepairRetainLatestCheck(latest map[string]ghOutsideCheckRun, check ghOutsideCheckRun) error {
+	previous, exists := latest[check.Name]
+	if exists && (previous.StartedAt.IsZero() || check.StartedAt.IsZero()) {
+		return fmt.Errorf("cannot order duplicate check %s without start times", check.Name)
 	}
-	sort.Strings(names)
-	checks := make([]store.OutsideRepairRequiredCheck, 0, len(names))
-	for _, name := range names {
-		check, exists := latest[name]
-		if !exists || check.Status != "completed" || check.Conclusion != "success" {
-			return nil, fmt.Errorf("required check %s is absent or did not pass", name)
-		}
-		proof, err := r.outsideRepairRunProof(ctx, repository, repositoryID, headSHA, check)
-		if err != nil {
-			return nil, fmt.Errorf("required check %s: %w", name, err)
-		}
-		checks = append(checks, proof)
+	if !exists || check.StartedAt.After(previous.StartedAt) || (check.StartedAt.Equal(previous.StartedAt) && check.ID > previous.ID) {
+		latest[check.Name] = check
 	}
-	return checks, nil
+	return nil
 }
 
 func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, repositoryID int64, headSHA string, check ghOutsideCheckRun) (store.OutsideRepairRequiredCheck, error) {
@@ -683,49 +718,59 @@ func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, r
 	if run.ID != runID || !strings.EqualFold(run.HTMLURL, wantURL) || run.HeadSHA != headSHA || run.Status != "completed" || run.Conclusion != "success" || run.Repository.ID != repositoryID || !strings.EqualFold(run.Repository.FullName, repository) || !strings.EqualFold(run.Repository.HTMLURL, "https://github.com/"+repository) {
 		return zero, fmt.Errorf("run does not prove success on the immutable PR head in the recorded repository")
 	}
-	var pages []struct {
-		TotalCount *int           `json:"total_count"`
-		Jobs       []ghOutsideJob `json:"jobs"`
-	}
+	var pages []ghOutsideJobPage
 	if err := r.outsideRepairReadJSON(ctx, &pages, "repos/"+repository+"/actions/runs/"+parts[0]+"/jobs?filter=latest&per_page=100", "--paginate", "--slurp"); err != nil {
 		return zero, err
 	}
-	count, matches := 0, 0
-	seen := map[int64]bool{}
-	matchedJobID := int64(0)
-	for _, page := range pages {
-		if page.TotalCount == nil || page.Jobs == nil {
-			return zero, fmt.Errorf("incomplete Actions job page")
-		}
-		count += len(page.Jobs)
-		for _, job := range page.Jobs {
-			if job.ID <= 0 || seen[job.ID] {
-				return zero, fmt.Errorf("invalid or repeated job identity")
-			}
-			seen[job.ID] = true
-			if !strings.EqualFold(job.CheckRunURL, "https://api.github.com/repos/"+repository+"/check-runs/"+strconv.FormatInt(check.ID, 10)) {
-				continue
-			}
-			if job.RunID != run.ID || job.HeadSHA != run.HeadSHA || job.Name != check.Name || job.Status != "completed" || job.Conclusion != "success" || (jobID != 0 && job.ID != jobID) || !strings.EqualFold(job.HTMLURL, wantURL+"/job/"+strconv.FormatInt(job.ID, 10)) {
-				return zero, fmt.Errorf("job does not bind the required name and check to the fetched run")
-			}
-			matches++
-			matchedJobID = job.ID
-		}
-	}
-	if len(pages) == 0 || matches != 1 {
-		return zero, fmt.Errorf("no unique current job proves the required check")
-	}
-	for _, page := range pages {
-		if *page.TotalCount != count {
-			return zero, fmt.Errorf("job pagination is incomplete or changed during collection")
-		}
+	matchedJobID, err := outsideRepairMatchedJob(pages, repository, run, check, jobID, wantURL)
+	if err != nil {
+		return zero, err
 	}
 	// The receipt keeps the exact native identities it authenticated (CD-0210
 	// D2): the check-run, its workflow run, and the one current job that
 	// proved it. Reruns mint new identities, so a recorded receipt cannot be
 	// rewritten by a later attempt.
 	return store.OutsideRepairRequiredCheck{Name: check.Name, URL: run.HTMLURL, CommitSHA: run.HeadSHA, Conclusion: run.Conclusion, CheckRunID: check.ID, RunID: run.ID, JobID: matchedJobID}, nil
+}
+
+type ghOutsideJobPage struct {
+	TotalCount *int           `json:"total_count"`
+	Jobs       []ghOutsideJob `json:"jobs"`
+}
+
+func outsideRepairMatchedJob(pages []ghOutsideJobPage, repository string, run ghOutsideWorkflowRun, check ghOutsideCheckRun, jobID int64, wantURL string) (int64, error) {
+	count, matches := 0, 0
+	seen := map[int64]bool{}
+	matchedJobID := int64(0)
+	for _, page := range pages {
+		if page.TotalCount == nil || page.Jobs == nil {
+			return 0, fmt.Errorf("incomplete Actions job page")
+		}
+		count += len(page.Jobs)
+		for _, job := range page.Jobs {
+			if job.ID <= 0 || seen[job.ID] {
+				return 0, fmt.Errorf("invalid or repeated job identity")
+			}
+			seen[job.ID] = true
+			if !strings.EqualFold(job.CheckRunURL, "https://api.github.com/repos/"+repository+"/check-runs/"+strconv.FormatInt(check.ID, 10)) {
+				continue
+			}
+			if job.RunID != run.ID || job.HeadSHA != run.HeadSHA || job.Name != check.Name || job.Status != "completed" || job.Conclusion != "success" || (jobID != 0 && job.ID != jobID) || !strings.EqualFold(job.HTMLURL, wantURL+"/job/"+strconv.FormatInt(job.ID, 10)) {
+				return 0, fmt.Errorf("job does not bind the required name and check to the fetched run")
+			}
+			matches++
+			matchedJobID = job.ID
+		}
+	}
+	if len(pages) == 0 || matches != 1 {
+		return 0, fmt.Errorf("no unique current job proves the required check")
+	}
+	for _, page := range pages {
+		if *page.TotalCount != count {
+			return 0, fmt.Errorf("job pagination is incomplete or changed during collection")
+		}
+	}
+	return matchedJobID, nil
 }
 
 func (r runtime) outsideRepairPublishedRelease(ctx context.Context, base Envelope, repository, tag string) (publishedRelease, Envelope) {

@@ -1027,6 +1027,13 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := normalizeWorkflowContractApproval(ctx, &p); err != nil {
+		return err
+	}
+	return foldValidatedWorkflowContractApproval(ctx, tx, event, scope, p)
+}
+
+func normalizeWorkflowContractApproval(ctx context.Context, p *workflowContractApprovedPayload) error {
 	if p.DecisionDomains != nil {
 		if err := validateWorkflowDecisionDomains(p.DecisionDomains); err != nil {
 			return err
@@ -1060,6 +1067,10 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if p.LawBoundaryVersion != 0 && p.LawBoundaryVersion != 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved law boundary version is invalid", false, "use the supported law boundary version")
 	}
+	return nil
+}
+
+func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowContractApprovedPayload) error {
 	var activeCount int64
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
@@ -1089,6 +1100,22 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if definitionErr != nil {
 		return definitionErr
 	}
+	if err := validateWorkflowContractApprovalPolicy(ctx, tx, event, registered, contractFields, p); err != nil {
+		return err
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := requireActor(ctx, tx, event.Actor); err != nil {
+		return err
+	}
+	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
+		return err
+	}
+	return persistWorkflowContractApprovalTx(ctx, tx, event, registered, p)
+}
+
+func validateWorkflowContractApprovalPolicy(ctx context.Context, tx *sql.Tx, event Event, registered RegisteredDefinition, contractFields map[string]json.RawMessage, p workflowContractApprovedPayload) error {
 	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	// consequence_v1 answers consent from the contract's declared decision
 	// domains, so a contract under that policy must declare the typed fact
@@ -1116,18 +1143,8 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
-	if p.LawBoundaryVersion == 1 {
-		if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
-			return err
-		}
-		if p.LawRevisions == nil && !changesProductTruth {
-			if err := checkMandatedLawsTx(ctx, tx, event.SubjectID, p.SpecMandate, p.LawModifies, true); err != nil {
-				return err
-			}
-		}
-		if p.LawRevisions != nil && len(p.SpecMandate) == 0 && len(p.LawRevisions) != 0 {
-			return newFailure(KindInvalidPayload, "fold_event", "workflow law revision pins require a non-empty spec_mandate", false, "supply one pin for each mandated law")
-		}
+	if err := validateWorkflowApprovalLawRevisionBoundaryTx(ctx, tx, event.SubjectID, p, changesProductTruth); err != nil {
+		return err
 	}
 	if p.ConsequenceClass != "internal_sqlite" && p.ConsequenceClass != "cross_authority" && p.ConsequenceClass != "external_effect" {
 		return newFailure(KindInvalidPayload, "fold_event", "contract consequence class is not closed", false, "use internal_sqlite, cross_authority, or external_effect")
@@ -1145,15 +1162,29 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 			return err
 		}
 	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+	return nil
+}
+
+func validateWorkflowApprovalLawRevisionBoundaryTx(ctx context.Context, tx *sql.Tx, workID string, p workflowContractApprovedPayload, changesProductTruth bool) error {
+	if p.LawBoundaryVersion != 1 {
+		return nil
+	}
+	if err := validateLawModificationSubset(p.SpecMandate, p.LawModifies); err != nil {
 		return err
 	}
-	if err := requireActor(ctx, tx, event.Actor); err != nil {
-		return err
+	if p.LawRevisions == nil && !changesProductTruth {
+		if err := checkMandatedLawsTx(ctx, tx, workID, p.SpecMandate, p.LawModifies, true); err != nil {
+			return err
+		}
 	}
-	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
-		return err
+	if p.LawRevisions != nil && len(p.SpecMandate) == 0 && len(p.LawRevisions) != 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "workflow law revision pins require a non-empty spec_mandate", false, "supply one pin for each mandated law")
 	}
+	return nil
+}
+
+func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Event, registered RegisteredDefinition, p workflowContractApprovedPayload) error {
+	changesProductTruth := registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
 	// NULL on the projection column is historical absence, never engineering:
 	// a contract that declares no array stores NULL, and [] stores the explicit
 	// empty array.
@@ -2533,6 +2564,10 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			return err
 		}
 	}
+	return completeAdmittedWorkflowActionTx(ctx, tx, event, scope, p, entry, currentStep)
+}
+
+func completeAdmittedWorkflowActionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
 	advancesStep := false
 	if p.ActionID != "" {
 		if _, ok := workflowActionExecutionMode(entry.Definition, p.ActionID); !ok {
@@ -2544,57 +2579,11 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		// record_delivery and the delivery-asserting accept. The fold reads
 		// the recorded worker_job and delivery fields only.
 		advancesStep = workflowCompletedActionAdvances(entry.Definition, p)
-		if p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(entry.Definition, currentStep) {
-			rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
-			if rejectionHoldErr != nil {
-				return rejectionHoldErr
-			}
-			if failure := workflowRejectionAdvanceFailure(rejectionHeld, p.ActionID, advancesStep); failure != nil {
-				return failure
-			}
-		}
-		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, currentStep, event, p); err != nil {
-				return err
-			}
-		}
-		// The dispatch_worker completion binds its authorized attempt durably
-		// in flight: the attempt is visible in worker_attempts from the
-		// moment its authorization completes, before any worker evidence
-		// exists. A completion without the lane identity is a pre-binding
-		// authorization and stays unbound.
-		if p.ActionID == "dispatch_worker" && p.WorkerLaneID != "" {
-			if err := bindWorkerAttemptInFlightTx(ctx, tx, event, p); err != nil {
-				return err
-			}
-		}
-		if err := foldWorkflowWorkerAttemptCompletionTx(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+		if err := admitCompletedWorkflowStepAdvanceTx(ctx, tx, event, p, entry.Definition, currentStep, advancesStep); err != nil {
 			return err
 		}
-		// accept_worker_result is the one advance that moves the shared step
-		// off a step holding live authorized work, so it waits while another
-		// attempt bound at this step is still in flight (see the hold's own
-		// comment).
-		if p.ActionID == "accept_worker_result" && advancesStep {
-			if err := rejectStepAdvancePastLiveAttemptTx(ctx, tx, event.SubjectID, currentStep, p.WorkerAttemptID, event.Seq); err != nil {
-				return err
-			}
-		}
-		if p.ActionID == "request_correction" {
-			// The fold derives the correction request once — excludeSeq keeps
-			// its own in-flight completion out of the anchor's settled-entry judgment — and
-			// the payload check binds against that derivation.
-			context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
-			if contextErr != nil {
-				return contextErr
-			}
-			if context == nil {
-				return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
-			}
-			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
-			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, correctionPayload, "fold_event", context); err != nil {
-				return err
-			}
+		if err := completeWorkflowWorkerActionTx(ctx, tx, event, scope, p, entry, currentStep, advancesStep); err != nil {
+			return err
 		}
 	}
 	nextStep := ""
@@ -2608,11 +2597,76 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			}
 		}
 	} else if p.ActionID == "request_correction" {
+		var err error
 		nextStep, err = workflowFoldCorrectionReturnTarget(entry, currentStep)
 		if err != nil {
 			return err
 		}
 	}
+	return persistWorkflowActionCompletionTx(ctx, tx, event, p, entry, advancesStep, nextStep)
+}
+
+func admitCompletedWorkflowStepAdvanceTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string, advancesStep bool) error {
+	if p.ActionID == "accept_worker_result" && advancesStep && workflowStepCarriesRejectionHold(definition, currentStep) {
+		rejectionHeld, rejectionHoldErr := workflowUnconsumedUnboundRejection(ctx, tx, event.SubjectID, currentStep, "fold_event", event.Seq)
+		if rejectionHoldErr != nil {
+			return rejectionHoldErr
+		}
+		if failure := workflowRejectionAdvanceFailure(rejectionHeld, p.ActionID, advancesStep); failure != nil {
+			return failure
+		}
+	}
+	if advancesStep {
+		if err := rejectWorkerDispatchedStepAdvance(ctx, tx, definition, currentStep, event, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func completeWorkflowWorkerActionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, advancesStep bool) error {
+	// The dispatch_worker completion binds its authorized attempt durably
+	// in flight: the attempt is visible in worker_attempts from the
+	// moment its authorization completes, before any worker evidence
+	// exists. A completion without the lane identity is a pre-binding
+	// authorization and stays unbound.
+	if p.ActionID == "dispatch_worker" && p.WorkerLaneID != "" {
+		if err := bindWorkerAttemptInFlightTx(ctx, tx, event, p); err != nil {
+			return err
+		}
+	}
+	if err := foldWorkflowWorkerAttemptCompletionTx(ctx, tx, event, p, entry.Definition, currentStep); err != nil {
+		return err
+	}
+	// accept_worker_result is the one advance that moves the shared step
+	// off a step holding live authorized work, so it waits while another
+	// attempt bound at this step is still in flight (see the hold's own
+	// comment).
+	if p.ActionID == "accept_worker_result" && advancesStep {
+		if err := rejectStepAdvancePastLiveAttemptTx(ctx, tx, event.SubjectID, currentStep, p.WorkerAttemptID, event.Seq); err != nil {
+			return err
+		}
+	}
+	if p.ActionID == "request_correction" {
+		// The fold derives the correction request once — excludeSeq keeps
+		// its own in-flight completion out of the anchor's settled-entry judgment — and
+		// the payload check binds against that derivation.
+		context, missing, contextErr := workflowCorrectionRequestAdmissionForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq, scopeDefinitionRegistry(scope))
+		if contextErr != nil {
+			return contextErr
+		}
+		if context == nil {
+			return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
+		}
+		correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
+		if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, correctionPayload, "fold_event", context); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, advancesStep bool, nextStep string) error {
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -2643,6 +2697,10 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 			return err
 		}
 	}
+	return persistWorkflowCompletionExitTx(ctx, tx, event, p, entry, advancesStep, nextStep)
+}
+
+func persistWorkflowCompletionExitTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, advancesStep bool, nextStep string) error {
 	_, asserted, assertionErr := workflowEventDeliveryAssertion(event)
 	if assertionErr != nil {
 		return workflowProjectionError(assertionErr, "cannot classify the current delivery assertion")
@@ -2669,7 +2727,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := recordWorkVersionActionTx(ctx, tx, event, p.ActionID, *p.ResultingVersion); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	_, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',last_checkpoint_at=? WHERE work_id=?`, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil || p.ActionID == "" || (!advancesStep && p.ActionID != "request_correction") {
 		return err
 	}

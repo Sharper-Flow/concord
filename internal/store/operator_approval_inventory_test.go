@@ -40,7 +40,8 @@ package store
 // branches and stale owners. The manifest axis is checked the same way: every
 // gated tool-surface operation must be inventoried through its own row, and
 // every conditional operation must map to the runtime planner the dispatch
-// switch names, whose planner must carry an inventoried demand. A census
+// switch names, whose planner or source-delegated helper must carry an
+// inventoried demand and its matching row. A census
 // entry named in approvalInventoryAliases or
 // approvalInventoryRetainedDeclarations is an explicit non-point,
 // same-decision, or retained-unresolved mapping with a stated reason and an
@@ -124,24 +125,25 @@ var approvalInventoryAliases = map[string]string{
 	"internal/agent/authority.go\x00ApprovalCheck\x00ApprovalCheck":                                                                                                                  "identity/receipt-integrity input declaration; the consume boundary at its caller is the point",
 	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed operator approval":                                       "layered recheck of one already consumed receipt; no new decision",
 	"internal/store/workflow_approval_binding.go\x00workflowOperatorFromConsumedApprovalTx\x00operation requires a consumed one-use operator approval":                               "layered recheck of one already consumed receipt; no new decision",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00RequireOperatorIdentity":                                                                                         "identity/receipt-integrity parameter of the consume call anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00RequireOperatorIdentity":                                                                                   "identity/receipt-integrity parameter of the consume call anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00workflowActionMutation.execute\x00requires-approval":                                                                                             "copies the already classified consent/takeover answer into the transaction receiver; same decisions anchored to workflow-action-consent-demand and workflow-action-takeover-demand at workflowActionMutation.execute",
 	"internal/store/workflow_outcome.go\x00validateDecisionRecord\x00question":                                                                                                       "audited operator-evidence consumer of the decision record (CD-0175); not independently minted consent",
 	"internal/store/workflow.go\x00validateWorkflowContractApprovalLaw\x00validateDerivedLawModification":                                                                            "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/store/workflow.go\x00foldWorkflowContractApproved\x00validateWorkflowContractApprovalLaw":                                                                              "same derived-tier admissibility decision anchored to law-admission-6",
+	"internal/store/workflow.go\x00validateWorkflowContractApprovalPolicy\x00validateWorkflowContractApprovalLaw":                                                                    "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/workflow.go\x00foldWorkflowContractSuperseded\x00validateDerivedLawModification":                                                                                 "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/law_boundary.go\x00validateDerivedLawModification\x00refuseNonDerivedLawModification":                                                                            "same derived-tier admissibility decision anchored to law-admission-6",
 	"internal/store/law_boundary.go\x00validateDerivedLawModificationAcrossSources\x00refuseNonDerivedLawModification":                                                               "same derived-tier admissibility decision anchored to law-admission-6",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00CreateApprovalChallengeTx":                                                                                       "challenge half of the workflow-action consent anchored to workflow-action-consent-demand",
-	"internal/agent/mutations.go\x00runtime.mutateWorkflowAction\x00consumeApprovalTx":                                                                                               "receipt half of the workflow-action consent anchored to workflow-action-consent-demand",
-	"internal/agent/mutations.go\x00runtime.mutateResearchRetire\x00approvalChallengeEnvelopeTx":                                                                                     "challenge half of cross-Product retirement consent anchored to research-retire-consume",
-	"internal/agent/mutations.go\x00runtime.mutateProductProjectAdd\x00CreateApprovalChallengeTx":                                                                                    "challenge half anchored to manifest:concord_work_relate.product_project_add",
-	"internal/agent/mutations.go\x00runtime.mutateProductProjectAdd\x00consumeApprovalTx":                                                                                            "receipt half anchored to manifest:concord_work_relate.product_project_add",
-	"internal/agent/mutations.go\x00runtime.mutateClientPolicyGrantRequest\x00CreateApprovalChallengeTx":                                                                             "challenge half anchored to manifest:concord_work_relate.client_policy_grant_request",
-	"internal/agent/mutations.go\x00runtime.mutateClientPolicyGrantRequest\x00consumeApprovalTx":                                                                                     "receipt half anchored to manifest:concord_work_relate.client_policy_grant_request",
-	"internal/agent/mutations.go\x00runtime.mutateCompaction\x00CreateApprovalChallengeTx":                                                                                           "challenge half anchored to manifest:concord_work_compact.publish",
-	"internal/agent/mutations.go\x00runtime.mutateCompaction\x00consumeApprovalTx":                                                                                                   "receipt half anchored to manifest:concord_work_compact.publish",
-	"internal/agent/mutations.go\x00runtime.executeMutation\x00approvalChallengeEnvelopeTx":                                                                                          "generic challenge half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
-	"internal/agent/mutations.go\x00runtime.executeMutation\x00consumeApprovalTx":                                                                                                    "generic receipt half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
+	"internal/agent/mutations.go\x00runtime.workflowActionChallenge\x00CreateApprovalChallengeTx":                                                                                    "challenge half of the workflow-action consent anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00workflowActionMutation.authorizeTx\x00consumeApprovalTx":                                                                                         "receipt half of the workflow-action consent anchored to workflow-action-consent-demand",
+	"internal/agent/mutations.go\x00runtime.retireResearchTx\x00approvalChallengeEnvelopeTx":                                                                                         "challenge half of cross-Product retirement consent anchored to research-retire-consume",
+	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00CreateApprovalChallengeTx":                                                                                 "challenge half anchored to manifest:concord_work_relate.product_project_add",
+	"internal/agent/mutations.go\x00productProjectLinkMutation.applyTx\x00consumeApprovalTx":                                                                                         "receipt half anchored to manifest:concord_work_relate.product_project_add",
+	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00CreateApprovalChallengeTx":                                                                                  "challenge half anchored to manifest:concord_work_relate.client_policy_grant_request",
+	"internal/agent/mutations.go\x00clientPolicyGrantMutation.applyTx\x00consumeApprovalTx":                                                                                          "receipt half anchored to manifest:concord_work_relate.client_policy_grant_request",
+	"internal/agent/mutations.go\x00compactionMutation.publish\x00CreateApprovalChallengeTx":                                                                                         "challenge half anchored to manifest:concord_work_compact.publish",
+	"internal/agent/mutations.go\x00compactionMutation.publish\x00consumeApprovalTx":                                                                                                 "receipt half anchored to manifest:concord_work_compact.publish",
+	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00approvalChallengeEnvelopeTx":                                                                                        "generic challenge half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
+	"internal/agent/mutations.go\x00mutationExecution.admitTx\x00consumeApprovalTx":                                                                                                  "generic receipt half of the manifest plan consent anchored to execute-mutation-manifest-inherited-demand",
 	"internal/agent/mutations.go\x00runtime.approvalChallengeEnvelopeTx\x00CreateApprovalChallengeTx":                                                                                "the single challenge creation path anchored to challenge-envelope-core-approval",
 	"internal/agent/authority.go\x00Service.AcceptHostApprovalTx\x00ValidateAndConsumeApprovalTx":                                                                                    "receipt-integrity recheck anchored to the approval exchange decision at runtime.executeMutation",
 	"internal/agent/authority.go\x00Service.consumeChallengeApprovalTx\x00ValidateAndConsumeApprovalTx":                                                                              "receipt-integrity recheck anchored to the approval exchange decision at runtime.executeMutation",
@@ -864,10 +866,10 @@ func approvalInventoryGatedManifestOperations(t *testing.T) []approvalInventoryM
 }
 
 // approvalInventoryManifestConditionalPlanners parses the runtime dispatch
-// and maps each operation id to the planner function that plans it: case
+// and maps each operation id to its planner and source-linked helpers: case
 // clauses name the operation id, and if-guarded dispatches name the
 // operation id or its tool before calling exactly one planner.
-func approvalInventoryManifestConditionalPlanners(t *testing.T, gated []approvalInventoryManifestOperation) map[string]string {
+func approvalInventoryManifestConditionalPlanners(t *testing.T, gated []approvalInventoryManifestOperation) map[string][]string {
 	t.Helper()
 	path := filepath.Join("../../internal/agent", "mutations.go")
 	fset := token.NewFileSet()
@@ -875,6 +877,10 @@ func approvalInventoryManifestConditionalPlanners(t *testing.T, gated []approval
 	if err != nil {
 		t.Fatalf("cannot parse the mutation dispatch: %v", err)
 	}
+	return approvalInventoryConditionalPlannersFromAST(file, gated)
+}
+
+func approvalInventoryConditionalPlannersFromAST(file *ast.File, gated []approvalInventoryManifestOperation) map[string][]string {
 	planners := map[string]string{}
 	plannerName := func(call *ast.CallExpr) string {
 		selector, ok := call.Fun.(*ast.SelectorExpr)
@@ -944,7 +950,93 @@ func approvalInventoryManifestConditionalPlanners(t *testing.T, gated []approval
 		}
 		return true
 	})
-	return planners
+	return approvalInventoryResolvePlannerOwners(file, planners)
+}
+
+// Only returned calls on the declared receiver or a locally constructed
+// receiver establish delegation. A matching method name elsewhere, a field
+// read, or a callback does not establish an ownership edge. The wrapper's
+// branches stay one planner scope, including publication and reconciliation.
+func approvalInventoryResolvePlannerOwners(file *ast.File, planners map[string]string) map[string][]string {
+	functions := map[string]*ast.FuncDecl{}
+	for _, declaration := range file.Decls {
+		if fn, ok := declaration.(*ast.FuncDecl); ok {
+			name := fn.Name.Name
+			if receiver := approvalInventoryReceiverType(fn); receiver != "" {
+				name = receiver + "." + name
+			}
+			functions[name] = fn
+		}
+	}
+	edges := map[string][]string{}
+	for name, fn := range functions {
+		if fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			if _, callback := node.(*ast.FuncLit); callback {
+				return false
+			}
+			returned, ok := node.(*ast.ReturnStmt)
+			if !ok {
+				return true
+			}
+			for _, result := range returned.Results {
+				call, ok := result.(*ast.CallExpr)
+				if !ok {
+					continue
+				}
+				selector, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					continue
+				}
+				receiver, ok := selector.X.(*ast.Ident)
+				if !ok || receiver.Obj == nil {
+					continue
+				}
+				var typ ast.Expr
+				switch declaration := receiver.Obj.Decl.(type) {
+				case *ast.Field:
+					// Parameters are not locally constructed delegation receivers.
+					if fn.Recv != nil && len(fn.Recv.List) == 1 && fn.Recv.List[0] == declaration {
+						typ = declaration.Type
+					}
+				case *ast.AssignStmt:
+					if declaration.Tok == token.DEFINE && len(declaration.Lhs) == 1 && len(declaration.Rhs) == 1 {
+						if literal, ok := declaration.Rhs[0].(*ast.CompositeLit); ok {
+							typ = literal.Type
+						}
+					}
+				}
+				if pointer, ok := typ.(*ast.StarExpr); ok {
+					typ = pointer.X
+				}
+				if ident, ok := typ.(*ast.Ident); ok {
+					target := ident.Name + "." + selector.Sel.Name
+					if functions[target] != nil {
+						edges[name] = append(edges[name], target)
+					}
+				}
+			}
+			return false
+		})
+	}
+	owners := map[string][]string{}
+	for operation, planner := range planners {
+		pending := []string{"runtime." + planner}
+		seen := map[string]bool{}
+		for len(pending) > 0 {
+			owner := pending[0]
+			pending = pending[1:]
+			if seen[owner] || functions[owner] == nil {
+				continue
+			}
+			seen[owner] = true
+			owners[operation] = append(owners[operation], owner)
+			pending = append(pending, edges[owner]...)
+		}
+	}
+	return owners
 }
 
 // approvalInventoryCensus parses the production sources and returns the
@@ -1334,7 +1426,7 @@ func TestOperatorApprovalInventoryCallerRegisteredWitness(t *testing.T) {
 // census entries and table rows, through the declared aliases and witnesses.
 // It returns the problems instead of failing, so the synthetic omission
 // controls execute the identical check the real table must satisfy.
-func approvalInventoryCoverageProblems(points []approvalInventoryPoint, rows []approvalInventoryPointRow, manifestGated []approvalInventoryManifestOperation, planners map[string]string) []string {
+func approvalInventoryCoverageProblems(points []approvalInventoryPoint, rows []approvalInventoryPointRow, manifestGated []approvalInventoryManifestOperation, planners map[string][]string) []string {
 	var problems []string
 	rowMap := map[string]approvalInventoryPointRow{}
 	for _, row := range rows {
@@ -1431,7 +1523,7 @@ func TestOperatorApprovalInventoryManifestConditionalPlannerControl(t *testing.T
 			Evidence:       []string{"synthetic"},
 		},
 	}
-	problems := approvalInventoryManifestCoverageProblems(rows, gated, map[string]string{}, nil)
+	problems := approvalInventoryManifestCoverageProblems(rows, gated, map[string][]string{}, nil)
 	joined := strings.Join(problems, "; ")
 	if !strings.Contains(joined, "names no planner for it") {
 		t.Fatalf("conditional operation without a planner was not flagged: %v", joined)
@@ -1454,43 +1546,136 @@ func TestOperatorApprovalInventoryManifestConditionalPlannerControl(t *testing.T
 	if len(realConditional) == 0 {
 		t.Fatal("the manifest names no conditional operations; the positive control is vacuous")
 	}
-	var realPoints []approvalInventoryPoint
-	for _, symbol := range []string{"runtime.planLifecycle", "runtime.planWorktreeDestroy", "runtime.planSetMemberships", "runtime.mutateWorkflowAction", "runtime.mutateCompaction"} {
-		realPoints = append(realPoints, approvalInventoryPoint{Owner: approvalInventoryOwner{Path: "internal/agent/mutations.go", Symbol: symbol}})
-	}
-	positiveProblems := approvalInventoryManifestCoverageProblems(realRows, realConditional, realPlanners, realPoints)
-	for _, problem := range positiveProblems {
-		if strings.Contains(problem, "names no planner for it") || strings.Contains(problem, "carries no inventoried runtime demand") {
-			t.Fatalf("a real conditional operation with a named planner was flagged: %v", problem)
+	for operation, owner := range map[string]string{
+		"concord_work_transition.workflow_action": "workflowActionMutation.execute",
+		"concord_work_compact.reconcile":          "compactionMutation.reconcile",
+	} {
+		if !slices.Contains(realPlanners[operation], owner) {
+			t.Fatalf("dispatch for %s does not reach its extracted owner %s: %v", operation, owner, realPlanners[operation])
 		}
+	}
+	realPoints, _ := approvalInventoryCensus(t, realGated)
+	positiveProblems := approvalInventoryManifestCoverageProblems(realRows, realConditional, realPlanners, realPoints)
+	if len(positiveProblems) != 0 {
+		t.Fatalf("a real conditional operation with a source-linked owner was flagged: %v", positiveProblems)
 	}
 }
 
 // approvalInventoryConditionalPlannerProblems binds one conditional manifest
 // operation to the planner the dispatch names and requires both an
-// inventoried runtime demand and a planner-owned inventory row.
-func approvalInventoryConditionalPlannerProblems(operation approvalInventoryManifestOperation, planners map[string]string, plannerPointSymbols, plannerRowOwners map[string]bool) []string {
+// inventoried runtime demand and its row in the planner or a source-linked
+// delegate. Both must belong to the same reachable owner.
+func approvalInventoryConditionalPlannerProblems(operation approvalInventoryManifestOperation, planners map[string][]string, plannerPointSymbols, plannerRowOwners map[string]bool) []string {
 	var problems []string
-	planner, ok := planners[operation.ID]
-	if !ok || planner == "" {
+	owners := planners[operation.ID]
+	if len(owners) == 0 {
 		problems = append(problems, fmt.Sprintf("manifest operation %s is conditional but the dispatch switch names no planner for it", operation.ID))
 		return problems
 	}
-	qualified := "runtime." + planner
-	if !plannerPointSymbols[planner] && !plannerPointSymbols[qualified] {
+	qualified := owners[0]
+	hasPoint, hasRow, matched := false, false, false
+	for _, owner := range owners {
+		hasPoint = hasPoint || plannerPointSymbols[owner]
+		hasRow = hasRow || plannerRowOwners[owner]
+		matched = matched || (plannerPointSymbols[owner] && plannerRowOwners[owner])
+	}
+	if !hasPoint {
 		problems = append(problems, fmt.Sprintf("manifest operation %s is conditional but its planner %s carries no inventoried runtime demand", operation.ID, qualified))
 	}
-	if !plannerRowOwners[planner] && !plannerRowOwners[qualified] {
+	if !hasRow {
 		problems = append(problems, fmt.Sprintf("manifest operation %s is conditional but no approval_points row is owned by its planner %s", operation.ID, qualified))
+	}
+	if hasPoint && hasRow && !matched {
+		problems = append(problems, fmt.Sprintf("manifest operation %s is conditional but its planner %s has no source-linked owner carrying both a runtime demand and its approval_points row", operation.ID, qualified))
 	}
 	return problems
 }
 
+func TestOperatorApprovalInventoryDelegatedPlannerControl(t *testing.T) {
+	const source = `package agent
+type runtime struct{}
+type syntheticMutation struct{}
+type otherMutation struct{}
+func (r runtime) dispatch(tool string) error {
+	if tool == "concord_work_synthetic" {
+		return r.mutateSynthetic()
+	}
+	return nil
+}
+func (r runtime) mutateSynthetic() error {
+	mutation := syntheticMutation{}
+	return mutation.check()
+}
+func (m syntheticMutation) check() error {
+	return m.demand()
+}
+func (m syntheticMutation) demand() error {
+	requiresApproval := true
+	return nil
+}
+func (m otherMutation) check() error { return nil }
+`
+	gated := []approvalInventoryManifestOperation{{ID: "concord_work_synthetic.conditional_op", Approval: "conditional"}}
+	row := approvalInventoryPointRow{ID: "synthetic-delegated-demand", Owner: approvalInventoryOwner{
+		Path: "internal/agent/mutations.go", Symbol: "syntheticMutation.demand", Branch: "syntheticMutation.demand",
+	}}
+	for _, test := range []struct {
+		name, old, replacement, want string
+		omitRow, splitRowOwner       bool
+	}{
+		{name: "source-linked demand and row"},
+		{name: "missing planner", old: "r.mutateSynthetic()", replacement: "r.unknown()", want: "names no planner for it"},
+		{name: "removed delegated demand", old: "requiresApproval := true", replacement: "_ = true", want: "carries no inventoried runtime demand"},
+		{name: "missing delegated row", omitRow: true, want: "no approval_points row is owned by its planner"},
+		{name: "point and row on different owners", splitRowOwner: true, want: "no source-linked owner carrying both a runtime demand and its approval_points row"},
+		{name: "removed delegation edge", old: "return mutation.check()", replacement: "return nil", want: "carries no inventoried runtime demand"},
+		{name: "removed receiver delegation edge", old: "return m.demand()", replacement: "return nil", want: "carries no inventoried runtime demand"},
+		{name: "cycle does not reach demand", old: "return m.demand()", replacement: "return m.check()", want: "carries no inventoried runtime demand"},
+		{name: "missing delegated method", old: "return mutation.check()", replacement: "return mutation.absent()", want: "carries no inventoried runtime demand"},
+		{name: "same method on wrong receiver", old: "mutation := syntheticMutation{}", replacement: "mutation := otherMutation{}", want: "carries no inventoried runtime demand"},
+		{name: "callback is not delegation", old: "return mutation.check()", replacement: "invoke(func() error { return mutation.check() })\n\treturn nil", want: "carries no inventoried runtime demand"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := source
+			if test.old != "" {
+				if strings.Count(input, test.old) != 1 {
+					t.Fatalf("control must change exactly one source site: %q", test.old)
+				}
+				input = strings.Replace(input, test.old, test.replacement, 1)
+			}
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "mutations.go", input, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			visitor := &censusVisitor{fset: fset, relPath: "internal/agent/mutations.go", ordinal: map[string]int{}}
+			ast.Walk(visitor, file)
+			rows := map[string]approvalInventoryPointRow{}
+			if !test.omitRow {
+				controlRow := row
+				if test.splitRowOwner {
+					controlRow.Owner.Symbol = "runtime.mutateSynthetic"
+				}
+				rows[row.ID] = controlRow
+			}
+			planners := approvalInventoryConditionalPlannersFromAST(file, gated)
+			problems := approvalInventoryManifestCoverageProblems(rows, gated, planners, visitor.points)
+			if test.want == "" {
+				if len(problems) != 0 {
+					t.Fatalf("source-linked control is not covered: %v", problems)
+				}
+			} else if !strings.Contains(strings.Join(problems, "; "), test.want) {
+				t.Fatalf("source control did not produce %q: %v", test.want, problems)
+			}
+		})
+	}
+}
+
 // approvalInventoryManifestCoverageProblems requires one inventory row per
-// gated manifest operation and a runtime demand in the planner the dispatch
-// switch names for every conditional operation, so no manifest-wide row can
-// claim wildcard coverage and a new gated operation needs its own row.
-func approvalInventoryManifestCoverageProblems(rows map[string]approvalInventoryPointRow, gated []approvalInventoryManifestOperation, planners map[string]string, points []approvalInventoryPoint) []string {
+// gated manifest operation and a runtime demand plus its row in the planner
+// or a source-linked delegate for every conditional operation. No manifest-wide
+// row can claim wildcard coverage; a new gated operation needs its own row.
+func approvalInventoryManifestCoverageProblems(rows map[string]approvalInventoryPointRow, gated []approvalInventoryManifestOperation, planners map[string][]string, points []approvalInventoryPoint) []string {
 	var problems []string
 	branchOwners := map[string]string{}
 	for id, row := range rows {
@@ -1504,7 +1689,9 @@ func approvalInventoryManifestCoverageProblems(rows map[string]approvalInventory
 	}
 	plannerPointSymbols := map[string]bool{}
 	for _, point := range points {
-		plannerPointSymbols[point.Owner.Symbol] = true
+		if strings.HasSuffix(point.Owner.Path, "mutations.go") {
+			plannerPointSymbols[point.Owner.Symbol] = true
+		}
 	}
 	for _, operation := range gated {
 		branch := "manifest:" + operation.ID

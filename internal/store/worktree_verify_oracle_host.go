@@ -356,100 +356,118 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 	}
 	switch pair.Runner {
 	case nativeTargetRunnerPytest:
-		if err := nativeTargetPinExact(m.Pin, "python uv pytest", "pyproject.toml", "uv.lock"); err != nil {
+		if err := validateNativeTargetPytestManifest(m, c, witnesses); err != nil {
 			return err
-		}
-		if len(m.Checks) != 0 {
-			return nativeUnavailable("pytest recipes must not declare checks")
-		}
-		for _, witness := range witnesses {
-			file, _, err := nativeTargetPytestWitness(m.Root, witness)
-			if err != nil {
-				return err
-			}
-			joined, ok := nativeTargetRootedPath(m.Root, file)
-			if !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
-				return nativeUnavailable("pytest witnesses must name pinned harness Python test files")
-			}
-		}
-		argv, err := (&nativeTargetOraclePlan{Recipe: m}).prepareCommand(c)
-		if err != nil {
-			return err
-		}
-		if err := validateWorktreeVerifyCommand(argv); err != nil {
-			return oracleFailure(KindLimitExceeded, "pytest recipe collection exceeds command bounds: "+err.Error(), "declare fewer or shorter Python harness file paths")
 		}
 	case nativeTargetRunnerCheck:
-		if len(m.Checks) < 1 || len(m.Checks) > 16 {
-			return nativeUnavailable("check recipes must declare one to sixteen checks")
-		}
-		checkWitnesses := map[string]bool{}
-		usesBash, usesPython := false, false
-		for _, check := range m.Checks {
-			if len(check.Witness) < 1 || len(check.Witness) > nativeTargetWitnessMaxBytes || checkWitnesses[check.Witness] {
-				return nativeUnavailable("check witnesses must be unique bounded strings")
-			}
-			checkWitnesses[check.Witness] = true
-			if err := validateNativeTargetCheckArgv(check.Argv); err != nil {
-				return err
-			}
-			switch check.Argv[0] {
-			case "bash":
-				usesBash = true
-			case "python3":
-				usesPython = true
-			}
-			script, ok := nativeTargetRootedPath(m.Root, check.Argv[1])
-			if !ok || !slices.Contains(m.HarnessFiles, script) {
-				return nativeUnavailable("check argv must invoke one declared pinned harness script: " + check.Argv[1])
-			}
-		}
-		for _, witness := range witnesses {
-			if _, err := nativeTargetCheckFor(m, witness); err != nil {
-				return err
-			}
-		}
-		for witness := range checkWitnesses {
-			if !slices.Contains(witnesses, witness) {
-				return nativeUnavailable("declared check witness is not selected by the control: " + witness)
-			}
-		}
-		required := ""
-		if usesBash {
-			required += " shell"
-		}
-		if usesPython {
-			required += " python"
-		}
-		required = strings.TrimSpace(required)
-		switch {
-		case pair.Materializer == nativeTargetMaterializerUV:
-			if err := nativeTargetPinExact(m.Pin, "python uv"+nativeTargetOptionalPin(usesBash, "shell"), "pyproject.toml", "uv.lock"); err != nil {
-				return err
-			}
-		case pair.Materializer == nativeTargetMaterializerBun:
-			if err := nativeTargetPinExact(m.Pin, strings.TrimSpace("bun "+required), "package.json", "bun.lock"); err != nil {
-				return err
-			}
-			if !slices.Contains(nativeBunAdmittedVersions, m.Pin.Bun) {
-				return nativeUnavailable("bun " + m.Pin.Bun + " is not a validated materializer runtime")
-			}
-		case pair.Materializer == nativeTargetMaterializerNone:
-			if err := nativeTargetPinExact(m.Pin, required, "", ""); err != nil {
-				return err
-			}
-		}
-		if usesBash && m.Pin.Shell == "" {
-			return nativeUnavailable("check recipes invoking bash must pin the exact bash version")
-		}
-		if usesPython && m.Pin.Python == "" {
-			return nativeUnavailable("check recipes invoking python3 must pin the exact python version")
+		if err := validateNativeTargetCheckManifest(m, pair, witnesses); err != nil {
+			return err
 		}
 	}
 	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun} {
 		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
 			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
 		}
+	}
+	return nil
+}
+
+func validateNativeTargetPytestManifest(m nativeTargetOracleManifest, c OracleControl, witnesses []string) error {
+	if err := nativeTargetPinExact(m.Pin, "python uv pytest", "pyproject.toml", "uv.lock"); err != nil {
+		return err
+	}
+	if len(m.Checks) != 0 {
+		return nativeUnavailable("pytest recipes must not declare checks")
+	}
+	for _, witness := range witnesses {
+		file, _, err := nativeTargetPytestWitness(m.Root, witness)
+		if err != nil {
+			return err
+		}
+		joined, ok := nativeTargetRootedPath(m.Root, file)
+		if !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
+			return nativeUnavailable("pytest witnesses must name pinned harness Python test files")
+		}
+	}
+	argv, err := (&nativeTargetOraclePlan{Recipe: m}).prepareCommand(c)
+	if err != nil {
+		return err
+	}
+	if err := validateWorktreeVerifyCommand(argv); err != nil {
+		return oracleFailure(KindLimitExceeded, "pytest recipe collection exceeds command bounds: "+err.Error(), "declare fewer or shorter Python harness file paths")
+	}
+	return nil
+}
+
+func validateNativeTargetCheckManifest(m nativeTargetOracleManifest, pair nativeTargetPair, witnesses []string) error {
+	if len(m.Checks) < 1 || len(m.Checks) > 16 {
+		return nativeUnavailable("check recipes must declare one to sixteen checks")
+	}
+	checkWitnesses := map[string]bool{}
+	usesBash, usesPython := false, false
+	for _, check := range m.Checks {
+		if len(check.Witness) < 1 || len(check.Witness) > nativeTargetWitnessMaxBytes || checkWitnesses[check.Witness] {
+			return nativeUnavailable("check witnesses must be unique bounded strings")
+		}
+		checkWitnesses[check.Witness] = true
+		if err := validateNativeTargetCheckArgv(check.Argv); err != nil {
+			return err
+		}
+		switch check.Argv[0] {
+		case "bash":
+			usesBash = true
+		case "python3":
+			usesPython = true
+		}
+		script, ok := nativeTargetRootedPath(m.Root, check.Argv[1])
+		if !ok || !slices.Contains(m.HarnessFiles, script) {
+			return nativeUnavailable("check argv must invoke one declared pinned harness script: " + check.Argv[1])
+		}
+	}
+	for _, witness := range witnesses {
+		if _, err := nativeTargetCheckFor(m, witness); err != nil {
+			return err
+		}
+	}
+	for witness := range checkWitnesses {
+		if !slices.Contains(witnesses, witness) {
+			return nativeUnavailable("declared check witness is not selected by the control: " + witness)
+		}
+	}
+	return validateNativeTargetCheckPins(m, pair, usesBash, usesPython)
+}
+
+func validateNativeTargetCheckPins(m nativeTargetOracleManifest, pair nativeTargetPair, usesBash, usesPython bool) error {
+	required := ""
+	if usesBash {
+		required += " shell"
+	}
+	if usesPython {
+		required += " python"
+	}
+	required = strings.TrimSpace(required)
+	switch {
+	case pair.Materializer == nativeTargetMaterializerUV:
+		if err := nativeTargetPinExact(m.Pin, "python uv"+nativeTargetOptionalPin(usesBash, "shell"), "pyproject.toml", "uv.lock"); err != nil {
+			return err
+		}
+	case pair.Materializer == nativeTargetMaterializerBun:
+		if err := nativeTargetPinExact(m.Pin, strings.TrimSpace("bun "+required), "package.json", "bun.lock"); err != nil {
+			return err
+		}
+		if !slices.Contains(nativeBunAdmittedVersions, m.Pin.Bun) {
+			return nativeUnavailable("bun " + m.Pin.Bun + " is not a validated materializer runtime")
+		}
+	case pair.Materializer == nativeTargetMaterializerNone:
+		if err := nativeTargetPinExact(m.Pin, required, "", ""); err != nil {
+			return err
+		}
+	}
+	if usesBash && m.Pin.Shell == "" {
+		return nativeUnavailable("check recipes invoking bash must pin the exact bash version")
+	}
+	if usesPython && m.Pin.Python == "" {
+		return nativeUnavailable("check recipes invoking python3 must pin the exact python version")
 	}
 	return nil
 }
@@ -557,129 +575,166 @@ func nativeTargetUnavailableMaterializer(materializer, cause string) error {
 // any lease runs.
 func resolveNativeTargetRuntime(ctx context.Context, m nativeTargetOracleManifest, pair nativeTargetPair) (nativeTargetEnvironment, error) {
 	e := nativeTargetEnvironment{Materializer: pair.Materializer, Runner: pair.Runner}
-	resolved := func(name string) (string, error) {
-		found, err := exec.LookPath(name)
-		if err != nil {
-			return "", err
+	probe := nativeTargetRuntimeProbe{ctx: ctx, manifest: m, environment: &e}
+	var err error
+	switch pair.Materializer {
+	case nativeTargetMaterializerUV:
+		err = probe.resolveUV()
+	case nativeTargetMaterializerBun:
+		err = probe.resolveBun()
+		if err == nil {
+			err = probe.resolveCheckInterpreters()
 		}
-		return filepath.EvalSymlinks(found)
-	}
-	versionOf := func(name string, argv ...string) (string, error) {
-		path, err := resolved(name)
-		if err != nil {
-			return "", err
-		}
-		out, err := exec.CommandContext(ctx, path, argv...).Output() //nolint:gosec // resolved installed executable, fixed argv.
-		if err != nil {
-			return "", err
-		}
-		return string(out), nil
-	}
-	pinned := func(tool, got, want string) error {
-		if got != want {
-			return nativeTargetUnavailableMaterializer(pair.Materializer, tool+" "+got+" does not match the exact pin "+want)
-		}
-		return nil
-	}
-	bashVersion := func() error {
-		bash, err := resolved("bash")
-		if err != nil {
-			return nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		e.Bash = bash
-		out, err := versionOf("bash", "--version")
-		if err != nil {
-			return nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		got, err := nativeTargetLeadVersion(out, `version ([0-9][0-9.]*)`)
-		if err != nil {
-			return nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		return pinned("bash", got, m.Pin.Shell)
-	}
-	switch {
-	case pair.Materializer == nativeTargetMaterializerUV:
-		uv, err := resolved("uv")
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		e.UV = uv
-		out, err := versionOf("uv", "--version")
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		got, err := nativeTargetLeadVersion(out, `uv ([0-9][0-9.]*)`)
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		if err := pinned("uv", got, m.Pin.UV); err != nil {
-			return e, err
-		}
-		python, err := nativeTargetResolvePython(ctx, uv, m.Pin.Python)
-		if err != nil {
-			return e, err
-		}
-		e.Python = python
-		e.RuntimeIdentity = "uv " + m.Pin.UV + " python " + m.Pin.Python
-		if pair.Runner == nativeTargetRunnerPytest {
-			e.RuntimeIdentity += " pytest " + m.Pin.Pytest
-		}
-		if m.Pin.Shell != "" {
-			if err := bashVersion(); err != nil {
-				return e, err
-			}
-			e.RuntimeIdentity += " bash " + m.Pin.Shell
-		}
-	case pair.Materializer == nativeTargetMaterializerBun:
-		bun, err := resolved("bun")
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		e.Bun = bun
-		out, err := versionOf("bun", "--version")
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		got, err := nativeTargetLeadVersion(out, `^([0-9][0-9.]*)$`)
-		if err != nil {
-			return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		if err := pinned("bun", got, m.Pin.Bun); err != nil {
-			return e, err
-		}
-		e.RuntimeIdentity = "bun " + m.Pin.Bun
-		fallthrough
-	case pair.Materializer == nativeTargetMaterializerNone:
-		if m.Pin.Shell != "" {
-			if err := bashVersion(); err != nil {
-				return e, err
-			}
-			e.RuntimeIdentity += " bash " + m.Pin.Shell
-		}
-		if m.Pin.Python != "" {
-			python, err := resolved("python3")
-			if err != nil {
-				return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-			}
-			e.Python = python
-			out, err := versionOf("python3", "--version")
-			if err != nil {
-				return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-			}
-			got, err := nativeTargetLeadVersion(out, `Python ([0-9][0-9.]*)`)
-			if err != nil {
-				return e, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-			}
-			if err := pinned("python3", got, m.Pin.Python); err != nil {
-				return e, err
-			}
-			e.RuntimeIdentity += " python " + m.Pin.Python
-		}
+	case nativeTargetMaterializerNone:
+		err = probe.resolveCheckInterpreters()
 	default:
-		return e, nativeUnavailable("unsupported target materializer")
+		err = nativeUnavailable("unsupported target materializer")
+	}
+	if err != nil {
+		return e, err
 	}
 	e.RuntimeIdentity = strings.TrimSpace(e.RuntimeIdentity)
 	return e, nil
+}
+
+type nativeTargetRuntimeProbe struct {
+	ctx         context.Context
+	manifest    nativeTargetOracleManifest
+	environment *nativeTargetEnvironment
+}
+
+func nativeTargetResolvedTool(name string) (string, error) {
+	found, err := exec.LookPath(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(found)
+}
+
+func (p nativeTargetRuntimeProbe) versionOf(name string, argv ...string) (string, error) {
+	path, err := nativeTargetResolvedTool(name)
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.CommandContext(p.ctx, path, argv...).Output() //nolint:gosec // resolved installed executable, fixed argv.
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+func (p nativeTargetRuntimeProbe) pinned(tool, got, want string) error {
+	if got != want {
+		return nativeTargetUnavailableMaterializer(p.environment.Materializer, tool+" "+got+" does not match the exact pin "+want)
+	}
+	return nil
+}
+
+func (p nativeTargetRuntimeProbe) bashVersion() error {
+	e, m := p.environment, p.manifest
+	materializer := e.Materializer
+	bash, err := nativeTargetResolvedTool("bash")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(materializer, err.Error())
+	}
+	e.Bash = bash
+	out, err := p.versionOf("bash", "--version")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(materializer, err.Error())
+	}
+	got, err := nativeTargetLeadVersion(out, `version ([0-9][0-9.]*)`)
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(materializer, err.Error())
+	}
+	return p.pinned("bash", got, m.Pin.Shell)
+}
+
+func (p nativeTargetRuntimeProbe) resolveUV() error {
+	e, m := p.environment, p.manifest
+	uv, err := nativeTargetResolvedTool("uv")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	e.UV = uv
+	out, err := p.versionOf("uv", "--version")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	got, err := nativeTargetLeadVersion(out, `uv ([0-9][0-9.]*)`)
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	if err := p.pinned("uv", got, m.Pin.UV); err != nil {
+		return err
+	}
+	python, err := nativeTargetResolvePython(p.ctx, uv, m.Pin.Python)
+	if err != nil {
+		return err
+	}
+	e.Python = python
+	e.RuntimeIdentity = "uv " + m.Pin.UV + " python " + m.Pin.Python
+	if e.Runner == nativeTargetRunnerPytest {
+		e.RuntimeIdentity += " pytest " + m.Pin.Pytest
+	}
+	if m.Pin.Shell != "" {
+		if err := p.bashVersion(); err != nil {
+			return err
+		}
+		e.RuntimeIdentity += " bash " + m.Pin.Shell
+	}
+	return nil
+}
+
+func (p nativeTargetRuntimeProbe) resolveBun() error {
+	e, m := p.environment, p.manifest
+	bun, err := nativeTargetResolvedTool("bun")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	e.Bun = bun
+	out, err := p.versionOf("bun", "--version")
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	got, err := nativeTargetLeadVersion(out, `^([0-9][0-9.]*)$`)
+	if err != nil {
+		return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+	}
+	if err := p.pinned("bun", got, m.Pin.Bun); err != nil {
+		return err
+	}
+	e.RuntimeIdentity = "bun " + m.Pin.Bun
+	return nil
+}
+
+func (p nativeTargetRuntimeProbe) resolveCheckInterpreters() error {
+	e, m := p.environment, p.manifest
+	if m.Pin.Shell != "" {
+		if err := p.bashVersion(); err != nil {
+			return err
+		}
+		e.RuntimeIdentity += " bash " + m.Pin.Shell
+	}
+	if m.Pin.Python != "" {
+		python, err := nativeTargetResolvedTool("python3")
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+		}
+		e.Python = python
+		out, err := p.versionOf("python3", "--version")
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+		}
+		got, err := nativeTargetLeadVersion(out, `Python ([0-9][0-9.]*)`)
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(e.Materializer, err.Error())
+		}
+		if err := p.pinned("python3", got, m.Pin.Python); err != nil {
+			return err
+		}
+		e.RuntimeIdentity += " python " + m.Pin.Python
+	}
+	return nil
 }
 
 // nativeTargetLeadVersion extracts the first capture group of the first line

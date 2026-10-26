@@ -775,41 +775,49 @@ func workflowActionAllowsOperatorIdentity(actionID string) bool {
 func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 	newPolicy := g.entry.Definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1
 	if g.request.OperatorActor == nil {
-		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
-			return nil
-		}
-		// The availability half is the shared derivation: the fold's state
-		// carries the correction-request and contract-correction routes, so
-		// this guard consumes it instead of re-deriving the conditions. The
-		// operator identity requirement stays a guard check.
-		state, err := g.foldedAdmissionState()
-		if err != nil {
-			return err
-		}
-		if g.request.ActionID == "request_correction" {
-			if !state.CorrectionRequestRecovery {
-				return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
-			}
-			if newPolicy {
-				// A repair request is routine: no operator approval identity,
-				// and no self-evaluation predicate — the requesting
-				// coordinator may have executed the failed delivery.
-				return nil
-			}
-			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
-		}
-		if state.ContractCorrectionAvailable {
-			if newPolicy {
-				// Contract correction is routine under consequence_v1: the
-				// authenticated coordinator supersedes unsigned, and the
-				// fold keeps the duplicate-recovery, stale-law, and
-				// audit-evidence walls it always ran.
-				return nil
-			}
-			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
-		}
+		return guardUnsignedPremiseRecovery(g, newPolicy)
+	}
+	return guardSignedPremiseActor(g, newPolicy)
+}
+
+func guardUnsignedPremiseRecovery(g *workflowActionGuardContext, newPolicy bool) error {
+	if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 		return nil
 	}
+	// The availability half is the shared derivation: the fold's state
+	// carries the correction-request and contract-correction routes, so
+	// this guard consumes it instead of re-deriving the conditions. The
+	// operator identity requirement stays a guard check.
+	state, err := g.foldedAdmissionState()
+	if err != nil {
+		return err
+	}
+	if g.request.ActionID == "request_correction" {
+		if !state.CorrectionRequestRecovery {
+			return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
+		}
+		if newPolicy {
+			// A repair request is routine: no operator approval identity,
+			// and no self-evaluation predicate — the requesting
+			// coordinator may have executed the failed delivery.
+			return nil
+		}
+		return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
+	}
+	if state.ContractCorrectionAvailable {
+		if newPolicy {
+			// Contract correction is routine under consequence_v1: the
+			// authenticated coordinator supersedes unsigned, and the
+			// fold keeps the duplicate-recovery, stale-law, and
+			// audit-evidence walls it always ran.
+			return nil
+		}
+		return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
+	}
+	return nil
+}
+
+func guardSignedPremiseActor(g *workflowActionGuardContext, newPolicy bool) error {
 	if newPolicy && workflowActionAllowsOperatorIdentity(g.request.ActionID) && g.request.ActionID != "confirm_premise" {
 		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for "+g.request.ActionID+"; invoke under the authenticated evaluator or coordinator identity", false, "act under the verified caller identity")
 	}
@@ -1390,31 +1398,55 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["delivery_artifact"] = artifact
 		completionValues["delivery_state"] = state
 	}
+	if in.request.ActionID == "accept_worker_result" {
+		if err := bindWorkflowAcceptedResultCompletion(in, fields, completionValues); err != nil {
+			return events, "", err
+		}
+	}
+	var workerPacketDigest string
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
+		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
+		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
+	}
+	if in.request.ActionID == "dispatch_worker" {
+		var err error
+		workerPacketDigest, err = bindWorkflowDispatchPacketCompletion(in, fields, completionValues)
+		if err != nil {
+			return events, "", err
+		}
+	}
+	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
+		if err := bindWorkflowCorrectionCompletion(in, fields, completionValues); err != nil {
+			return events, "", err
+		}
+	}
+	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
+	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
+	return events, workerPacketDigest, nil
+}
+
+func bindWorkflowAcceptedResultCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) error {
 	// CD-0205: an acceptance records the worker-job disposition it
 	// satisfies. The binding is derived here from the accepted attempt's
 	// worker.dispatched event — the caller never asserts it — so the
 	// correction window closes on a recorded disposition under the exact
 	// dispatched job, and an unrelated accepted job cannot close another
 	// job's window by name.
-	var acceptedJob *WorkerJobBinding
-	if in.request.ActionID == "accept_worker_result" {
-		if err := validateReviewAcceptance(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), in.eventActor); err != nil {
-			return events, "", err
-		}
-		job, jobErr := workflowDispatchedJobForAttempt(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
-		if jobErr != nil {
-			return events, "", jobErr
-		}
-		acceptedJob = job
-		if job != nil {
-			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
-		}
-		// CD-0227 D2/D3: the acceptance holds the observed delivered
-		// paths to the job's path scope and its evidenced caller repairs
-		// (CD-0242 D6 keeps scope and ownership checks).
-		if repairErr := admitWorkerDeliveredPathsTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, job, workflowFieldStringDefault(fields, "attempt_id", "")); repairErr != nil {
-			return events, "", repairErr
-		}
+	if err := validateReviewAcceptance(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""), in.eventActor); err != nil {
+		return err
+	}
+	acceptedJob, jobErr := workflowDispatchedJobForAttempt(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+	if jobErr != nil {
+		return jobErr
+	}
+	if acceptedJob != nil {
+		completionValues["worker_job"] = map[string]any{"job_id": acceptedJob.JobID, "revision": acceptedJob.Revision, "digest": acceptedJob.Digest}
+	}
+	// CD-0227 D2/D3: the acceptance holds the observed delivered
+	// paths to the job's path scope and its evidenced caller repairs
+	// (CD-0242 D6 keeps scope and ownership checks).
+	if repairErr := admitWorkerDeliveredPathsTx(in.ctx, in.tx, in.request.WorkID, in.entry.Definition, acceptedJob, workflowFieldStringDefault(fields, "attempt_id", "")); repairErr != nil {
+		return repairErr
 	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers
@@ -1422,12 +1454,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// The guard already required the fields; this refuses closed if the
 	// route ever runs without them. Local acceptance of a job-bound attempt
 	// carries no delivery assertion and holds the step (CD-0205).
-	if in.request.ActionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
+	if workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
 		localJobAccept := artifact == "" && state == "" && acceptedJob != nil && workflowWorkerJobsActive(in.entry.Definition)
 		if (artifact == "" || state == "") && !localJobAccept {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+			return newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
 		if artifact != "" && state != "" {
 			completionValues["delivery_artifact"] = artifact
@@ -1436,14 +1468,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	}
 	// Main's local acceptance records the disposition without advancing;
 	// only combined acceptance and delivery leaves refinement.
-	if in.request.ActionID == "accept_worker_result" && !workflowAcceptAdvancesStep(in.entry.Definition, in.currentStep, fields) {
+	if !workflowAcceptAdvancesStep(in.entry.Definition, in.currentStep, fields) {
 		completionValues["review_advance_held"] = true
 	}
-	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
-		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
-		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
-	}
+	return nil
+}
+
+func bindWorkflowDispatchPacketCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) (string, error) {
 	// CD-0059 D1/D5: the dispatch_worker completion carries the authorized
 	// attempt_id into the durable record so the worker-dispatch evidence
 	// boundary can prove the window exists and has not been consumed. The
@@ -1455,124 +1486,120 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// adapter quotes on its signed dispatch assertion — the adapter
 	// does not compute the digest itself, so the assertion's evidence
 	// is bound to the exact bytes the core digested and authorized.
-	if in.request.ActionID == "dispatch_worker" {
-		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-		completionValues["worker_attempt_id"] = attemptID
-		packetRaw := workflowFieldRaw(fields, "worker_packet")
-		// Preflight enforces worker_packet is present and decodes to one
-		// strict JSON object, so an empty raw here means a defensive
-		// fallback; refuse closed with the same typed failure rather
-		// than record a half-bound attempt.
-		if len(packetRaw) == 0 {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is absent from the action payload", false, "supply the lane packet bound to this work item and attempt")
-		}
-		var packetFields map[string]json.RawMessage
-		if err := json.Unmarshal(packetRaw, &packetFields); err != nil {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is not a JSON object", false, "supply the lane packet bound to this work item and attempt")
-		}
-		packetWorkID, workIDOK := workflowFieldString(packetFields, "work_id")
-		packetAttemptID, attemptIDOK := workflowFieldString(packetFields, "attempt_id")
-		if !workIDOK || !attemptIDOK {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing work_id or attempt_id", false, "supply the lane packet bound to this work item and attempt")
-		}
-		if packetWorkID != in.request.WorkID {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.work_id does not match the action's work_id", false, "supply the lane packet bound to this work item and attempt")
-		}
-		if packetAttemptID != attemptID {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.attempt_id does not match fields.attempt_id", false, "supply the lane packet bound to this work item and attempt")
-		}
-		// The lane-step dispatch join (#892): the pair is composed onto every
-		// step kind some lane may dispatch, so the step admitting the action
-		// does not by itself admit the lane. Resolve the packet's lane
-		// identity and refuse when that lane's capability class is not
-		// dispatchable at the current step's kind.
-		packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
-		packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
-		if !laneIDOK || !laneDigestOK {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
-		}
-		lane, laneErr := LookupLane(packetLaneID, packetLaneDigest)
-		if laneErr != nil {
-			return events, "", laneErr
-		}
-		if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
-			// The inverse read of the join turns the refusal into a read:
-			// the caller sees the classes this step kind admits and can
-			// pick one instead of guessing.
-			admitted := strings.Join(LaneStepDispatchClasses(in.step.Kind), ", ")
-			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
-		}
-		if in.tx != nil {
-			if err := bindWorkerDispatchCompletionTx(in, lane, packetRaw, completionValues); err != nil {
-				return events, "", err
-			}
-		}
-		// The registry lane identity rides the completion so the fold can
-		// bind the attempt durably in flight from the record alone, without
-		// re-reading the packet bytes.
-		completionValues["worker_lane_id"] = lane.ID
-		completionValues["worker_lane_digest"] = lane.Digest
-		completionValues["worker_capability_class"] = lane.CapabilityClass
-		canonical, err := canonicalJSON(packetRaw)
-		if err != nil {
-			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
-		}
-		sum := sha256.Sum256(canonical)
-		workerPacketDigest = "sha256:" + hex.EncodeToString(sum[:])
-		completionValues["worker_packet_digest"] = workerPacketDigest
-		// The typed outcome predicate ids are extracted from the same packet
-		// bytes this digest covers, so the durable record carries the
-		// discharge obligations the fold enforces on the completion. The
-		// payload schema preflight already admitted the packet shape; this
-		// read re-checks the identity rules the obligations rest on.
-		predicateIDs, predicateErr := workerPacketPredicateIDs(packetRaw)
-		if predicateErr != nil {
-			return events, "", predicateErr
-		}
-		// The list is recorded unconditionally, empty when the packet
-		// declared no typed predicates, so the fold can refuse a dispatch
-		// record that carries no list instead of skipping the discharge
-		// requirement: absence is a malformed record, never an empty one.
-		// A nil extraction marshals as null, which the fold reads as
-		// absence, so it normalizes to the empty list here.
-		if predicateIDs == nil {
-			predicateIDs = []string{}
-		}
-		completionValues["worker_packet_predicate_ids"] = predicateIDs
-		if in.request.SessionWorktreeIdentity != "" {
-			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
+	attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+	completionValues["worker_attempt_id"] = attemptID
+	packetRaw := workflowFieldRaw(fields, "worker_packet")
+	// Preflight enforces worker_packet is present and decodes to one
+	// strict JSON object, so an empty raw here means a defensive
+	// fallback; refuse closed with the same typed failure rather
+	// than record a half-bound attempt.
+	if len(packetRaw) == 0 {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is absent from the action payload", false, "supply the lane packet bound to this work item and attempt")
+	}
+	var packetFields map[string]json.RawMessage
+	if err := json.Unmarshal(packetRaw, &packetFields); err != nil {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is not a JSON object", false, "supply the lane packet bound to this work item and attempt")
+	}
+	packetWorkID, workIDOK := workflowFieldString(packetFields, "work_id")
+	packetAttemptID, attemptIDOK := workflowFieldString(packetFields, "attempt_id")
+	if !workIDOK || !attemptIDOK {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing work_id or attempt_id", false, "supply the lane packet bound to this work item and attempt")
+	}
+	if packetWorkID != in.request.WorkID {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.work_id does not match the action's work_id", false, "supply the lane packet bound to this work item and attempt")
+	}
+	if packetAttemptID != attemptID {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet.attempt_id does not match fields.attempt_id", false, "supply the lane packet bound to this work item and attempt")
+	}
+	// The lane-step dispatch join is composed onto every
+	// step kind some lane may dispatch, so the step admitting the action
+	// does not by itself admit the lane. Resolve the packet's lane
+	// identity and refuse when that lane's capability class is not
+	// dispatchable at the current step's kind.
+	packetLaneID, laneIDOK := workflowFieldString(packetFields, "lane_id")
+	packetLaneDigest, laneDigestOK := workflowFieldString(packetFields, "lane_digest")
+	if !laneIDOK || !laneDigestOK {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is missing a complete lane identity", false, "supply the lane packet bound to this work item and attempt")
+	}
+	lane, laneErr := LookupLane(packetLaneID, packetLaneDigest)
+	if laneErr != nil {
+		return "", laneErr
+	}
+	if in.step != nil && !LaneStepDispatchAllowed(lane.CapabilityClass, in.step.Kind) {
+		// The inverse read of the join turns the refusal into a read:
+		// the caller sees the classes this step kind admits and can
+		// pick one instead of guessing.
+		admitted := strings.Join(LaneStepDispatchClasses(in.step.Kind), ", ")
+		return "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
+	}
+	if in.tx != nil {
+		if err := bindWorkerDispatchCompletionTx(in, lane, packetRaw, completionValues); err != nil {
+			return "", err
 		}
 	}
-	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
-		completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
-		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
-		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
-		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
-		// the optional coordinator attribution derives here, inside
-		// the authenticated action transaction: the request carries the
-		// direct producer observation alone and the store derives the core
-		// identity from the cited combined run or the exact action attempt.
-		block, blockErr := deriveCoordinatorCorrectionAttributionTx(in.ctx, in.tx, in.request.WorkID, in.request.ActionID, fields)
-		if blockErr != nil {
-			return events, "", blockErr
-		}
-		if block != nil {
-			completionValues["failure_attribution"] = block
-		}
+	// The registry lane identity rides the completion so the fold can
+	// bind the attempt durably in flight from the record alone, without
+	// re-reading the packet bytes.
+	completionValues["worker_lane_id"] = lane.ID
+	completionValues["worker_lane_digest"] = lane.Digest
+	completionValues["worker_capability_class"] = lane.CapabilityClass
+	canonical, err := canonicalJSON(packetRaw)
+	if err != nil {
+		return "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")
+	}
+	sum := sha256.Sum256(canonical)
+	workerPacketDigest := "sha256:" + hex.EncodeToString(sum[:])
+	completionValues["worker_packet_digest"] = workerPacketDigest
+	// The typed outcome predicate ids are extracted from the same packet
+	// bytes this digest covers, so the durable record carries the
+	// discharge obligations the fold enforces on the completion. The
+	// payload schema preflight already admitted the packet shape; this
+	// read re-checks the identity rules the obligations rest on.
+	predicateIDs, predicateErr := workerPacketPredicateIDs(packetRaw)
+	if predicateErr != nil {
+		return "", predicateErr
+	}
+	// The list is recorded unconditionally, empty when the packet
+	// declared no typed predicates, so the fold can refuse a dispatch
+	// record that carries no list instead of skipping the discharge
+	// requirement: absence is a malformed record, never an empty one.
+	// A nil extraction marshals as null, which the fold reads as
+	// absence, so it normalizes to the empty list here.
+	if predicateIDs == nil {
+		predicateIDs = []string{}
+	}
+	completionValues["worker_packet_predicate_ids"] = predicateIDs
+	if in.request.SessionWorktreeIdentity != "" {
+		completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
+	}
+	return workerPacketDigest, nil
+}
+
+func bindWorkflowCorrectionCompletion(in workflowActionAssemblyInput, fields map[string]json.RawMessage, completionValues map[string]any) error {
+	completionValues["correction_diagnosis"] = workflowFieldStringDefault(fields, "diagnosis", "")
+	completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
+	completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
+	completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
+	// the optional coordinator attribution derives here, inside
+	// the authenticated action transaction: the request carries the
+	// direct producer observation alone and the store derives the core
+	// identity from the cited combined run or the exact action attempt.
+	block, blockErr := deriveCoordinatorCorrectionAttributionTx(in.ctx, in.tx, in.request.WorkID, in.request.ActionID, fields)
+	if blockErr != nil {
+		return blockErr
+	}
+	if block != nil {
+		completionValues["failure_attribution"] = block
 	}
 	// The derived open finding set serializes onto the correction
 	// record of both surfaces. A rejection carries it directly; a
 	// correction request carries it beside the predicate list the legacy
 	// comparison reads, and the folded convergence comparison prefers it
 	// whenever the request recorded one.
-	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
-		if _, present := fields["open_finding_ids"]; present {
-			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
-		}
+	if _, present := fields["open_finding_ids"]; present {
+		completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 	}
-	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1
-	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
-	return events, workerPacketDigest, nil
+	return nil
 }
 
 func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDefinition, packetRaw json.RawMessage, completionValues map[string]any) error {

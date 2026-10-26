@@ -72,23 +72,7 @@ func walk(node any, path string, opt Options, stack map[string]bool, depth int) 
 		return 0, fmt.Errorf("schema node at %s is not an object", path)
 	}
 	if ref, ok := object["$ref"].(string); ok {
-		name := ref[strings.LastIndex(ref, "/")+1:]
-		if bound, ok := opt.RefBounds[name]; ok {
-			return bound, nil
-		}
-		if stack[name] {
-			return 0, fmt.Errorf("recursive schema reference %s at %s", name, path)
-		}
-		resolved, ok := opt.Defs[name]
-		if !ok {
-			return 0, fmt.Errorf("schema reference %s at %s resolves no definition", name, path)
-		}
-		next := make(map[string]bool, len(stack)+1)
-		for seen := range stack {
-			next[seen] = true
-		}
-		next[name] = true
-		return walk(resolved, path+"/"+name, opt, next, depth+1)
+		return walkReference(ref, path, opt, stack, depth)
 	}
 	if constant, ok := object["const"]; ok {
 		return len(JSONString(constant)), nil
@@ -107,6 +91,30 @@ func walk(node any, path string, opt Options, stack map[string]bool, depth int) 
 	} else if ok {
 		return JSONStringWireBytes(bound), nil
 	}
+	return walkKind(object, path, opt, stack, depth)
+}
+
+func walkReference(ref, path string, opt Options, stack map[string]bool, depth int) (int, error) {
+	name := ref[strings.LastIndex(ref, "/")+1:]
+	if bound, ok := opt.RefBounds[name]; ok {
+		return bound, nil
+	}
+	if stack[name] {
+		return 0, fmt.Errorf("recursive schema reference %s at %s", name, path)
+	}
+	resolved, ok := opt.Defs[name]
+	if !ok {
+		return 0, fmt.Errorf("schema reference %s at %s resolves no definition", name, path)
+	}
+	next := make(map[string]bool, len(stack)+1)
+	for seen := range stack {
+		next[seen] = true
+	}
+	next[name] = true
+	return walk(resolved, path+"/"+name, opt, next, depth+1)
+}
+
+func walkKind(object map[string]any, path string, opt Options, stack map[string]bool, depth int) (int, error) {
 	kind, _ := object["type"].(string)
 	if types, ok := object["type"].([]any); ok {
 		for _, entry := range types {
@@ -125,40 +133,9 @@ func walk(node any, path string, opt Options, stack map[string]bool, depth int) 
 		}
 		return 0, fmt.Errorf("source finding: unbounded string member at %s; inventory its owner before the budget derives", path)
 	case "array":
-		items, ok, err := numberMember(object["maxItems"], path, "maxItems")
-		if err != nil {
-			return 0, err
-		}
-		if !ok {
-			return 0, fmt.Errorf("source finding: unbounded array member at %s; inventory its owner before the budget derives", path)
-		}
-		if items == 0 {
-			return 2, nil
-		}
-		item, err := walk(object["items"], path+"/items", opt, stack, depth+1)
-		if err != nil {
-			return 0, err
-		}
-		return 2 + items*item + items - 1, nil
+		return walkArray(object, path, opt, stack, depth)
 	case "object":
-		properties, _ := object["properties"].(map[string]any)
-		total := 2
-		first := true
-		for name, member := range properties {
-			size, err := walk(member, path+"/"+name, opt, stack, depth+1)
-			if err != nil {
-				return 0, err
-			}
-			if opt.Excludes[path+"/"+name] {
-				continue
-			}
-			if !first {
-				total++
-			}
-			first = false
-			total += len(JSONString(name)) + 1 + size
-		}
-		return total, nil
+		return walkProperties(object, path, opt, stack, depth)
 	case "integer":
 		return integerWidth(object["minimum"], object["maximum"]), nil
 	case "number":
@@ -168,38 +145,73 @@ func walk(node any, path string, opt Options, stack map[string]bool, depth int) 
 	case "null":
 		return 4, nil
 	case "":
-		for _, combinator := range []string{"oneOf", "anyOf"} {
-			if branches, ok := object[combinator].([]any); ok {
-				widest := 0
-				for _, branch := range branches {
-					size, err := walk(branch, path+"/"+combinator, opt, stack, depth+1)
-					if err != nil {
-						return 0, err
-					}
-					if size > widest {
-						widest = size
-					}
-				}
-				return widest, nil
-			}
+		return walkCombinator(object, path, opt, stack, depth)
+	}
+	return 0, fmt.Errorf("unrecognized schema node at %s", path)
+}
+
+func walkArray(object map[string]any, path string, opt Options, stack map[string]bool, depth int) (int, error) {
+	items, ok, err := numberMember(object["maxItems"], path, "maxItems")
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, fmt.Errorf("source finding: unbounded array member at %s; inventory its owner before the budget derives", path)
+	}
+	if items == 0 {
+		return 2, nil
+	}
+	item, err := walk(object["items"], path+"/items", opt, stack, depth+1)
+	if err != nil {
+		return 0, err
+	}
+	return 2 + items*item + items - 1, nil
+}
+
+func walkProperties(object map[string]any, path string, opt Options, stack map[string]bool, depth int) (int, error) {
+	properties, _ := object["properties"].(map[string]any)
+	total := 2
+	first := true
+	for name, member := range properties {
+		size, err := walk(member, path+"/"+name, opt, stack, depth+1)
+		if err != nil {
+			return 0, err
 		}
-		if branches, ok := object["allOf"].([]any); ok {
-			// if/then branches constrain the same properties rather than
-			// adding content, so the widest branch bounds the object.
-			widest := 0
-			for _, branch := range branches {
-				size, err := walk(branch, path+"/allOf", opt, stack, depth+1)
-				if err != nil {
-					return 0, err
-				}
-				if size > widest {
-					widest = size
-				}
-			}
-			return widest, nil
+		if opt.Excludes[path+"/"+name] {
+			continue
+		}
+		if !first {
+			total++
+		}
+		first = false
+		total += len(JSONString(name)) + 1 + size
+	}
+	return total, nil
+}
+
+func walkCombinator(object map[string]any, path string, opt Options, stack map[string]bool, depth int) (int, error) {
+	// if/then branches constrain the same properties rather than adding
+	// content, so the widest allOf branch bounds the object too.
+	for _, combinator := range []string{"oneOf", "anyOf", "allOf"} {
+		if branches, ok := object[combinator].([]any); ok {
+			return walkWidestBranch(branches, path+"/"+combinator, opt, stack, depth)
 		}
 	}
 	return 0, fmt.Errorf("unrecognized schema node at %s", path)
+}
+
+func walkWidestBranch(branches []any, path string, opt Options, stack map[string]bool, depth int) (int, error) {
+	widest := 0
+	for _, branch := range branches {
+		size, err := walk(branch, path, opt, stack, depth+1)
+		if err != nil {
+			return 0, err
+		}
+		if size > widest {
+			widest = size
+		}
+	}
+	return widest, nil
 }
 
 func numberMember(value any, path, name string) (int, bool, error) {

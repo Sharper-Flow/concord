@@ -188,6 +188,22 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	if len(payload.PathScope) > 64 || len(payload.PredicateIDs) > 8 || len(payload.Checks) > 64 || len(payload.Prerequisites) > 64 || len(payload.UnresolvedRefs) > 64 {
 		return invalidWorkerPayload("worker.job_recorded carries too many scope, predicate, check, prerequisite, or unresolved entries")
 	}
+	if err := validateWorkerJobScopeEntries(payload); err != nil {
+		return err
+	}
+	if err := validateWorkerJobRecordedExtensions(payload); err != nil {
+		return err
+	}
+	if !workerProvenancePattern.MatchString(payload.Digest) {
+		return invalidWorkerPayload("worker.job_recorded digest must be a sha256 digest")
+	}
+	if derived := DeriveWorkerJobDigest(payload); derived != payload.Digest {
+		return invalidWorkerPayload("worker.job_recorded digest does not match the derived content digest")
+	}
+	return nil
+}
+
+func validateWorkerJobScopeEntries(payload WorkerJobRecordedPayload) error {
 	for i, path := range payload.PathScope {
 		if problem := normalizedRelativeRepoPathProblem("worker.job_recorded path_scope", path); problem != "" {
 			return invalidWorkerPayload(problem)
@@ -221,6 +237,10 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	if payload.Readiness != nil && len(payload.Readiness.Evidence) > 16 {
 		return invalidWorkerPayload("worker.job_recorded readiness carries too many evidence references")
 	}
+	return nil
+}
+
+func validateWorkerJobRecordedExtensions(payload WorkerJobRecordedPayload) error {
 	// The retired size members decode history but record nothing new
 	// (CD-0242 D6). A live recording is payload version 2; a replayed v1
 	// revision keeps the members it may carry.
@@ -245,41 +265,40 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 		}
 	}
 	if payload.ChecksRepair != nil {
-		metadata, err := json.Marshal(payload.ChecksRepair)
-		if err != nil {
-			return invalidWorkerPayload("worker.job_recorded checks_repair cannot encode: " + err.Error())
-		}
-		if len(metadata) > WorkerJobChecksRepairMaxBytes {
-			return invalidWorkerPayload(fmt.Sprintf("worker.job_recorded checks_repair metadata measures %d bytes and exceeds the %d byte bound; it is refused, never truncated", len(metadata), WorkerJobChecksRepairMaxBytes))
-		}
-		if len(payload.ChecksRepair.Reason) < 1 || len(payload.ChecksRepair.Reason) > 4096 {
-			return invalidWorkerPayload("worker.job_recorded checks_repair reason must be between 1 and 4096 bytes")
-		}
-		entries := payload.ChecksRepair.Revisions
-		if len(entries) < 1 || len(entries) > 64 {
-			return invalidWorkerPayload("worker.job_recorded checks_repair names between 1 and 64 revisions")
-		}
-		seenRevisions := make(map[int64]bool, len(entries))
-		for _, entry := range entries {
-			if entry.WorkerJob.JobID != payload.JobID || entry.WorkerJob.Revision < 1 || entry.WorkerJob.Revision >= payload.Revision || entry.WorkerJob.Digest == "" || seenRevisions[entry.WorkerJob.Revision] {
-				return invalidWorkerPayload("worker.job_recorded checks_repair names distinct earlier recorded revisions of the same job")
-			}
-			seenRevisions[entry.WorkerJob.Revision] = true
-			if len(entry.Checks) < 1 || len(entry.Checks) > 64 {
-				return invalidWorkerPayload("worker.job_recorded checks_repair carries the named revision's old checks")
-			}
-			for _, check := range entry.Checks {
-				if len(check) < 1 || len(check) > 256 {
-					return invalidWorkerPayload("worker.job_recorded checks_repair old checks entries must be between 1 and 256 bytes")
-				}
-			}
-		}
+		return validateWorkerJobChecksRepairShape(payload)
 	}
-	if !workerProvenancePattern.MatchString(payload.Digest) {
-		return invalidWorkerPayload("worker.job_recorded digest must be a sha256 digest")
+	return nil
+}
+
+func validateWorkerJobChecksRepairShape(payload WorkerJobRecordedPayload) error {
+	metadata, err := json.Marshal(payload.ChecksRepair)
+	if err != nil {
+		return invalidWorkerPayload("worker.job_recorded checks_repair cannot encode: " + err.Error())
 	}
-	if derived := DeriveWorkerJobDigest(payload); derived != payload.Digest {
-		return invalidWorkerPayload("worker.job_recorded digest does not match the derived content digest")
+	if len(metadata) > WorkerJobChecksRepairMaxBytes {
+		return invalidWorkerPayload(fmt.Sprintf("worker.job_recorded checks_repair metadata measures %d bytes and exceeds the %d byte bound; it is refused, never truncated", len(metadata), WorkerJobChecksRepairMaxBytes))
+	}
+	if len(payload.ChecksRepair.Reason) < 1 || len(payload.ChecksRepair.Reason) > 4096 {
+		return invalidWorkerPayload("worker.job_recorded checks_repair reason must be between 1 and 4096 bytes")
+	}
+	entries := payload.ChecksRepair.Revisions
+	if len(entries) < 1 || len(entries) > 64 {
+		return invalidWorkerPayload("worker.job_recorded checks_repair names between 1 and 64 revisions")
+	}
+	seenRevisions := make(map[int64]bool, len(entries))
+	for _, entry := range entries {
+		if entry.WorkerJob.JobID != payload.JobID || entry.WorkerJob.Revision < 1 || entry.WorkerJob.Revision >= payload.Revision || entry.WorkerJob.Digest == "" || seenRevisions[entry.WorkerJob.Revision] {
+			return invalidWorkerPayload("worker.job_recorded checks_repair names distinct earlier recorded revisions of the same job")
+		}
+		seenRevisions[entry.WorkerJob.Revision] = true
+		if len(entry.Checks) < 1 || len(entry.Checks) > 64 {
+			return invalidWorkerPayload("worker.job_recorded checks_repair carries the named revision's old checks")
+		}
+		for _, check := range entry.Checks {
+			if len(check) < 1 || len(check) > 256 {
+				return invalidWorkerPayload("worker.job_recorded checks_repair old checks entries must be between 1 and 256 bytes")
+			}
+		}
 	}
 	return nil
 }
@@ -332,9 +351,16 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if active != payload.ContractVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.job_recorded contract_version does not match the active parent contract", false, "record the job under the active contract version")
 	}
+	if err := validateWorkerJobParentScopeTx(ctx, tx, event.SubjectID, active, payload); err != nil {
+		return err
+	}
+	return foldWorkerJobRevisionTx(ctx, tx, event, payload)
+}
+
+func validateWorkerJobParentScopeTx(ctx context.Context, tx *sql.Tx, workID string, active int64, payload WorkerJobRecordedPayload) error {
 	for _, predicate := range payload.PredicateIDs {
 		var declared int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, event.SubjectID, active, predicate).Scan(&declared); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? AND predicate_id=?`, workID, active, predicate).Scan(&declared); err != nil {
 			if err == sql.ErrNoRows {
 				return newFailure(KindInvalidPayload, "fold_event", "worker.job_recorded predicate_ids name a predicate the active parent contract did not approve", false, "record only predicates the active parent contract approved")
 			}
@@ -343,13 +369,17 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if payload.ProjectScope != "" {
 		var member int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, event.SubjectID, payload.ProjectScope).Scan(&member); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, workID, payload.ProjectScope).Scan(&member); err != nil {
 			if err == sql.ErrNoRows {
 				return newFailure(KindInvalidPayload, "fold_event", "worker.job_recorded project_scope is not a member Project of the work", false, "record the job under one of the work's member Projects")
 			}
 			return wrapFailure(KindUnavailable, "fold_event", "cannot verify the worker-job Project scope", true, "retry once the membership projection is readable", err)
 		}
 	}
+	return nil
+}
+
+func foldWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, event Event, payload WorkerJobRecordedPayload) error {
 	var recorded string
 	switch err := tx.QueryRowContext(ctx, `SELECT digest FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, event.SubjectID, payload.JobID, payload.Revision).Scan(&recorded); {
 	case err == nil:
@@ -507,42 +537,13 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	if err != nil {
 		return nil, err
 	}
-	oracleCapable := workflowOwnerOracleActive(registered.Definition)
-	var oracle *AcceptanceOracle
-	if raw, present := fields["acceptance_oracle"]; present && len(raw) > 0 && string(raw) != "null" {
-		if !oracleCapable {
-			return nil, oracleFailure(KindInvalidPayload, "record_worker_job acceptance_oracle is not admitted by the pinned workflow definition "+registered.Definition.Ref, "record the job under an oracle-capable definition or drop the oracle")
-		}
-		oracle, err = decodeAcceptanceOracle(raw)
-		if err != nil {
-			return nil, err
-		}
+	oracle, err := decodeWorkerJobOracle(fields, registered.Definition)
+	if err != nil {
+		return nil, err
 	}
-	if oracleCapable && oracle == nil {
-		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition "+registered.Definition.Ref, "author the closed owner/case/control oracle for the job")
-	}
-	// The checks repair (CD-0205 D4): the authoring fields travel together
-	// and only on a repair-capable pinned version; the core derives the
-	// recorded metadata from the exact recorded events and the caller never
-	// asserts it.
-	repairCapable := workflowChecksRepairActive(registered.Definition)
-	var repairRevisions []int64
-	repairReason := ""
-	if raw, present := fields["repair_revisions"]; present {
-		if !repairCapable {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions is not admitted by the pinned workflow definition "+registered.Definition.Ref, false, "record the repair on a repair-capable definition")
-		}
-		if err := json.Unmarshal(raw, &repairRevisions); err != nil {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions must be an array of revision integers", false, "name the unresolved revisions the repair repairs")
-		}
-	}
-	if raw, present := fields["repair_reason"]; present {
-		if !repairCapable {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason is not admitted by the pinned workflow definition "+registered.Definition.Ref, false, "record the repair on a repair-capable definition")
-		}
-		if err := json.Unmarshal(raw, &repairReason); err != nil {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason must be one bounded prose string", false, "state why the named revisions' checks could not be executed or decided")
-		}
+	repairRevisions, repairReason, err := decodeWorkerJobChecksRepair(fields, registered.Definition)
+	if err != nil {
+		return nil, err
 	}
 	payload := WorkerJobRecordedPayload{
 		JobID: jobID, Revision: revision, ContractVersion: contractVersion,
@@ -558,11 +559,62 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 		Readiness:           &WorkerJobReadiness{Ready: ready, Evidence: nonNilStrings(readinessEvidence)},
 		AcceptanceOracle:    oracle,
 	}
+	return finalizeWorkerJobRevisionTx(ctx, tx, request.WorkID, registered.Definition, fields, payload, repairRevisions, repairReason)
+}
+
+func decodeWorkerJobOracle(fields map[string]json.RawMessage, definition WorkflowDefinition) (*AcceptanceOracle, error) {
+	oracleCapable := workflowOwnerOracleActive(definition)
+	var oracle *AcceptanceOracle
+	var err error
+	if raw, present := fields["acceptance_oracle"]; present && len(raw) > 0 && string(raw) != "null" {
+		if !oracleCapable {
+			return nil, oracleFailure(KindInvalidPayload, "record_worker_job acceptance_oracle is not admitted by the pinned workflow definition "+definition.Ref, "record the job under an oracle-capable definition or drop the oracle")
+		}
+		oracle, err = decodeAcceptanceOracle(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if oracleCapable && oracle == nil {
+		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition "+definition.Ref, "author the closed owner/case/control oracle for the job")
+	}
+	return oracle, nil
+}
+
+func decodeWorkerJobChecksRepair(fields map[string]json.RawMessage, definition WorkflowDefinition) ([]int64, string, error) {
+	// The checks repair (CD-0205 D4): the authoring fields travel together
+	// and only on a repair-capable pinned version; the core derives the
+	// recorded metadata from the exact recorded events and the caller never
+	// asserts it.
+	repairCapable := workflowChecksRepairActive(definition)
+	var repairRevisions []int64
+	repairReason := ""
+	if raw, present := fields["repair_revisions"]; present {
+		if !repairCapable {
+			return nil, "", newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions is not admitted by the pinned workflow definition "+definition.Ref, false, "record the repair on a repair-capable definition")
+		}
+		if err := json.Unmarshal(raw, &repairRevisions); err != nil {
+			return nil, "", newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions must be an array of revision integers", false, "name the unresolved revisions the repair repairs")
+		}
+	}
+	if raw, present := fields["repair_reason"]; present {
+		if !repairCapable {
+			return nil, "", newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason is not admitted by the pinned workflow definition "+definition.Ref, false, "record the repair on a repair-capable definition")
+		}
+		if err := json.Unmarshal(raw, &repairReason); err != nil {
+			return nil, "", newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_reason must be one bounded prose string", false, "state why the named revisions' checks could not be executed or decided")
+		}
+	}
+	return repairRevisions, repairReason, nil
+}
+
+func finalizeWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, fields map[string]json.RawMessage, payload WorkerJobRecordedPayload, repairRevisions []int64, repairReason string) (*WorkerJobRecordedPayload, error) {
+	oracle := payload.AcceptanceOracle
 	if oracle != nil {
 		if err := validateAcceptanceOracle(oracle, payload.PredicateIDs); err != nil {
 			return nil, err
 		}
-		if err := validateAcceptanceOracleAuthorityTx(ctx, tx, request.WorkID, contractVersion, oracle); err != nil {
+		if err := validateAcceptanceOracleAuthorityTx(ctx, tx, workID, payload.ContractVersion, oracle); err != nil {
 			return nil, err
 		}
 	}
@@ -570,18 +622,18 @@ func authorWorkerJobRevisionTx(ctx context.Context, tx *sql.Tx, request Workflow
 	// declared member like the oracle: a pre-caller version refuses the
 	// member, and a caller-capable version parses and joins it here, at
 	// author time, inside the caller's transaction (CD-0227 D1).
-	if err := authorWorkerJobAllowanceTx(ctx, tx, request.WorkID, contractVersion, registered.Definition, fields, &payload); err != nil {
+	if err := authorWorkerJobAllowanceTx(ctx, tx, workID, payload.ContractVersion, definition, fields, &payload); err != nil {
 		return nil, err
 	}
 	if len(repairRevisions) != 0 || repairReason != "" {
 		if len(repairRevisions) == 0 || repairReason == "" {
 			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job repair_revisions and repair_reason are supplied together", false, "name the unresolved revisions and state why their checks could not run")
 		}
-		watermark, err := workerChecksRepairWatermarkTx(ctx, tx, request.WorkID)
+		watermark, err := workerChecksRepairWatermarkTx(ctx, tx, workID)
 		if err != nil {
 			return nil, err
 		}
-		metadata, err := deriveWorkerJobChecksRepairTx(ctx, tx, request.WorkID, payload, repairRevisions, repairReason, watermark)
+		metadata, err := deriveWorkerJobChecksRepairTx(ctx, tx, workID, payload, repairRevisions, repairReason, watermark)
 		if err != nil {
 			return nil, err
 		}

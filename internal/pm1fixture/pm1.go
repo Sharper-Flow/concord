@@ -230,14 +230,29 @@ func OpenTemp(dir string) (*store.Store, error) {
 // operator_only: PM1's fixture has stage but no audience, and operator_only is
 // the conservative contract-valid default.
 func Seed(ctx context.Context, s *store.Store, c Corpus) error {
-	eventFor := func(work string, seq int) Event {
-		for _, event := range c.Fixtures.Events {
-			if event.Work == work && event.Seq == seq {
-				return event
-			}
-		}
-		return Event{}
+	if err := seedProductsAndProjects(ctx, s, c); err != nil {
+		return err
 	}
+	versions := map[string]int64{}
+	if err := seedWorkItems(ctx, s, c, versions); err != nil {
+		return err
+	}
+	if err := seedWorkTransitions(ctx, s, c, versions); err != nil {
+		return err
+	}
+	return seedWorkRelations(ctx, s, c, versions)
+}
+
+func (c Corpus) eventFor(work string, seq int) Event {
+	for _, event := range c.Fixtures.Events {
+		if event.Work == work && event.Seq == seq {
+			return event
+		}
+	}
+	return Event{}
+}
+
+func seedProductsAndProjects(ctx context.Context, s *store.Store, c Corpus) error {
 	// Adapter-only audience choice: PM1's fixture has stage but no audience;
 	// operator_only is the conservative contract-valid default.
 	events := []store.Event{}
@@ -269,10 +284,13 @@ func Seed(ctx context.Context, s *store.Store, c Corpus) error {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: expected}); err != nil {
 		return fmt.Errorf("pm1fixture: seed products and projects: %w", err)
 	}
-	versions := map[string]int64{}
+	return nil
+}
+
+func seedWorkItems(ctx context.Context, s *store.Store, c Corpus, versions map[string]int64) error {
 	for _, w := range c.Fixtures.Work {
 		versions[w.ID] = 1
-		created := eventFor(w.ID, 1)
+		created := c.eventFor(w.ID, 1)
 		actor := created.Actor
 		if actor == "" {
 			actor = "operator"
@@ -315,45 +333,27 @@ func Seed(ctx context.Context, s *store.Store, c Corpus) error {
 			return fmt.Errorf("pm1fixture: fixture Product %q is outside derived scope for work %q", w.Product, w.ID)
 		}
 	}
-	events = nil
+	return nil
+}
+
+func seedWorkTransitions(ctx context.Context, s *store.Store, c Corpus, versions map[string]int64) error {
+	var events []store.Event
 	for _, w := range c.Fixtures.Work {
-		if w.ID == "work-cross" {
-			started := eventFor(w.ID, 2)
-			actor, from, to := started.Actor, "needed", "in_progress"
-			if started.From != nil {
-				from = *started.From
-			}
-			if started.To != nil {
-				to = *started.To
-			}
-			events = append(events, fixtureEvent("event-work-cross-started", "work.transitioned", store.SubjectWorkItem, w.ID, actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+		if w.ID == "work-cross" || w.ID == "work-done" {
+			started := c.eventFor(w.ID, 2)
+			from, to := fixtureTransitionStates(started, "needed", "in_progress")
+			events = append(events, fixtureEvent("event-"+w.ID+"-started", "work.transitioned", store.SubjectWorkItem, w.ID, started.Actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
-			continue
-		}
-		if w.ID == "work-done" {
-			started := eventFor(w.ID, 2)
-			actor, from, to := started.Actor, "needed", "in_progress"
-			if started.From != nil {
-				from = *started.From
+			if w.ID == "work-cross" {
+				continue
 			}
-			if started.To != nil {
-				to = *started.To
-			}
-			events = append(events, fixtureEvent("event-work-done-started", "work.transitioned", store.SubjectWorkItem, w.ID, actor, "2026-08-02T09:00:00Z", map[string]any{"from": from, "to": to, "reason": "fixture started", "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
-			versions[w.ID]++
-			completed := eventFor(w.ID, 3)
-			actor, from, to = completed.Actor, "in_progress", "completed"
-			if completed.From != nil {
-				from = *completed.From
-			}
-			if completed.To != nil {
-				to = *completed.To
-			}
+			completed := c.eventFor(w.ID, 3)
+			from, to = fixtureTransitionStates(completed, "in_progress", "completed")
 			evidence := completed.EvidenceRefs
 			if evidence == nil {
 				evidence = []string{}
 			}
-			events = append(events, fixtureEvent("event-work-done-completed", "work.transitioned", store.SubjectWorkItem, w.ID, actor, w.TerminalAt, map[string]any{"from": from, "to": to, "reason": "fixture completed", "evidence_refs": evidence, "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
+			events = append(events, fixtureEvent("event-work-done-completed", "work.transitioned", store.SubjectWorkItem, w.ID, completed.Actor, w.TerminalAt, map[string]any{"from": from, "to": to, "reason": "fixture completed", "evidence_refs": evidence, "expected_version": versions[w.ID], "resulting_version": versions[w.ID] + 1}))
 			versions[w.ID]++
 			continue
 		}
@@ -370,6 +370,20 @@ func Seed(ctx context.Context, s *store.Store, c Corpus) error {
 			return fmt.Errorf("pm1fixture: seed work transitions: %w", err)
 		}
 	}
+	return nil
+}
+
+func fixtureTransitionStates(event Event, from, to string) (string, string) {
+	if event.From != nil {
+		from = *event.From
+	}
+	if event.To != nil {
+		to = *event.To
+	}
+	return from, to
+}
+
+func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions map[string]int64) error {
 	for _, r := range c.Fixtures.Relations {
 		switch r.Kind {
 		case "depends_on":

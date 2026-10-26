@@ -15,10 +15,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0063"
-    },
-    {
-      "kind": "subordinate_to",
-      "target_id": "CD-0244"
     }
   ],
   "path": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",

@@ -121,6 +121,22 @@ class PrimaryPromptCheckTests(unittest.TestCase):
                 phrase,
             )
 
+    def test_concord_configuration_intake_boundaries_are_required(self) -> None:
+        phrases = (
+            "Managed participation is explicit (CD-0122 D1)",
+            "Before capturing a production configuration-only operation, establish an admitted execution and acceptance route for its actual target",
+            "If no route exists, report the limitation before capture",
+            "Host-owned work has no Concord workflow authority, evidence, verdict, or completion claim",
+            "An existing managed item stays held until its supported handoff succeeds",
+        )
+        original = (self.root / check_primary_prompts.PROFILE_DIR / "Concord.md").read_text(encoding="utf-8")
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, check_primary_prompts.CONCORD_REQUIRED_PHRASES)
+                pattern = r"\s+".join(re.escape(word) for word in phrase.split())
+                self.rewrite("Concord.md", lambda _: re.sub(pattern, "removed", original, count=1))
+                self.assertTrue(any(phrase in finding for finding in self.findings()))
+
     def test_rte_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
             for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:

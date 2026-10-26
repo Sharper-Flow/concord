@@ -77,6 +77,26 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 			t.Errorf("%s has %d queryer substitutions or reads outside its caller's snapshot (CD-0173 D2)", edge.caller, foreignReads)
 		}
 	}
+	// Every same-file reader the projection hands its queryer runs inside the
+	// same snapshot: none may replace the queryer, use the pool, or open
+	// another snapshot.
+	projection := readers["readWorkflowProjectionTx"]
+	queryer := projection.Type.Params.List[1].Names[0].Obj
+	ast.Inspect(projection.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
+		}
+		fn, isIdent := call.Fun.(*ast.Ident)
+		arg, isArg := call.Args[1].(*ast.Ident)
+		if !isIdent || !isArg || arg.Obj != queryer || readers[fn.Name] == nil {
+			return true
+		}
+		if _, foreignReads := operatorQuestionQueryerEdgeCounts(readers[fn.Name], ""); foreignReads != 0 {
+			t.Errorf("%s has %d queryer substitutions or reads outside the projection's snapshot (CD-0173 D2)", fn.Name, foreignReads)
+		}
+		return true
+	})
 }
 
 func operatorQuestionQueryerEdgeCounts(caller *ast.FuncDecl, callee string) (int, int) {

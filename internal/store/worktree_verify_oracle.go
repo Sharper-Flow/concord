@@ -771,22 +771,9 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	var repair *nativeReviewRepair
-	if req.Oracle.Phase == "execute" {
-		dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, s.db, req.WorkID, req.Oracle.AttemptID)
-		if err != nil {
-			return WorktreeVerifyResult{}, err
-		}
-		// The SQL sample is closed before Git; no queryer enters the probe.
-		repair, err = observeNativeReviewRepair(ctx, runner, dispatch, entry, before)
-		if err != nil {
-			return WorktreeVerifyResult{}, err
-		}
-		if repair != nil {
-			if err := validateNativeReviewRepairTx(ctx, s.db, req.WorkID, dispatch, repair); err != nil {
-				return WorktreeVerifyResult{}, err
-			}
-		}
+	repair, err := s.prepareNativeReviewRepair(ctx, runner, req, entry, before)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
 	}
 	if repair != nil {
 		ctx = context.WithValue(ctx, nativeReviewRepairKey{}, repair)
@@ -797,13 +784,8 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	}
 	plan.ReviewRepair = repair
 	if req.Oracle.Phase == "execute" {
-		prep, err := readOraclePreparationReceiptTx(ctx, s.db, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
-		if err != nil {
+		if err := validateNativeExecutionPreparation(ctx, s.db, req, plan); err != nil {
 			return WorktreeVerifyResult{}, err
-		}
-		digest, identity := nativePlanEnvironment(plan)
-		if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
-			return WorktreeVerifyResult{}, oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 		}
 	}
 	planRaw, err := json.Marshal(plan)
@@ -848,11 +830,49 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 		}
 		return WorktreeVerifyResult{}, err
 	}
-	leaseRef := nativeLeaseRef(req.LeaseID)
 	released := false
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 	capture := &nativeStreamCapture{stdout: []byte{}, stderr: []byte{}, complete: true}
 	result := nativeOracleInitialResult(req, entry, plan)
+	return s.executeNativeOracleLease(ctx, runner, entry, req, plan, before, identity, capture, result, &released)
+}
+
+func validateNativeExecutionPreparation(ctx context.Context, q queryer, req WorktreeVerifyRequest, plan nativeOraclePlan) error {
+	prep, err := readOraclePreparationReceiptTx(ctx, q, req.WorkID, req.ProjectID, req.Oracle.PreparationRunRef)
+	if err != nil {
+		return err
+	}
+	digest, identity := nativePlanEnvironment(plan)
+	if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+		return oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
+	}
+	return nil
+}
+
+func (s *Store) prepareNativeReviewRepair(ctx context.Context, runner GitRunner, req WorktreeVerifyRequest, entry WorktreeEntry, before oracleGitSubjectSnapshot) (*nativeReviewRepair, error) {
+	if req.Oracle.Phase != "execute" {
+		return nil, nil
+	}
+	dispatch, _, err := readNativeOracleDispatchBindingTx(ctx, s.db, req.WorkID, req.Oracle.AttemptID)
+	if err != nil {
+		return nil, err
+	}
+	// The SQL sample is closed before Git; no queryer enters the probe.
+	repair, err := observeNativeReviewRepair(ctx, runner, dispatch, entry, before)
+	if err != nil {
+		return nil, err
+	}
+	if repair != nil {
+		if err := validateNativeReviewRepairTx(ctx, s.db, req.WorkID, dispatch, repair); err != nil {
+			return nil, err
+		}
+	}
+	return repair, nil
+}
+
+func (s *Store) executeNativeOracleLease(ctx context.Context, runner GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, plan nativeOraclePlan, before oracleGitSubjectSnapshot, identity string, capture *nativeStreamCapture, result WorktreeVerifyResult, released *bool) (WorktreeVerifyResult, error) {
+	leaseRef := nativeLeaseRef(req.LeaseID)
+	var err error
 	if plan.Target != nil {
 		err = s.runNativeTargetOracle(ctx, runner, entry, req, plan, capture, result.Oracle)
 	} else {
@@ -901,7 +921,7 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
 	}
-	released = true
+	*released = true
 	result.LeaseDisposition = &WorktreeVerifyLeaseDisposition{State: "released", Outcome: "completed"}
 	if aborted {
 		result.LeaseDisposition.Outcome = "aborted"

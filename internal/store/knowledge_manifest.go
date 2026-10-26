@@ -594,27 +594,9 @@ func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix str
 	if !knowledgeManifestSchemaAccepted(manifest.SchemaVersion) || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 or 1.3 root fields")
 	}
-	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
-	covered := func(string) bool { return false }
-	if role == manifestRegisteredSourceRole {
-		if hasRegistry {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "only the shared-law home carries the Domain registry", false, "remove the registry from this source manifest and reference the shared home's Domain IDs")
-		}
-		if len(manifest.OperatorOverrides) > 0 {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator overrides belong to the shared-law home manifest", false, "record CD-0194 placement exceptions in the shared home's manifest")
-		}
-	} else {
-		if !hasRegistry {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
-		}
-		if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
-			return err
-		}
-		resolved, err := validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
-		if err != nil {
-			return err
-		}
-		covered = resolved
+	covered, err := validateManifestRoleRegistry(manifest, role)
+	if err != nil {
+		return err
 	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
 	if err != nil {
@@ -635,6 +617,30 @@ func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix str
 	if len(manifest.Records) > maxManifestRecords {
 		return newFailure(KindKnowledgeIndexIncomplete, "parse_knowledge_manifest", "manifest contains too many records", true, "split the knowledge authority into bounded homes")
 	}
+	return validateManifestRecordPopulation(manifest, pathPrefix, role, supported, indexed, covered)
+}
+
+func validateManifestRoleRegistry(manifest KnowledgeManifest, role knowledgeManifestRole) (func(string) bool, error) {
+	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
+	if role == manifestRegisteredSourceRole {
+		if hasRegistry {
+			return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "only the shared-law home carries the Domain registry", false, "remove the registry from this source manifest and reference the shared home's Domain IDs")
+		}
+		if len(manifest.OperatorOverrides) > 0 {
+			return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator overrides belong to the shared-law home manifest", false, "record CD-0194 placement exceptions in the shared home's manifest")
+		}
+		return func(string) bool { return false }, nil
+	}
+	if !hasRegistry {
+		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
+	}
+	if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
+		return nil, err
+	}
+	return validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
+}
+
+func validateManifestRecordPopulation(manifest KnowledgeManifest, pathPrefix string, role knowledgeManifestRole, supported, indexed map[string]bool, covered func(string) bool) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	for _, record := range manifest.Records {
@@ -946,72 +952,79 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 	seen := map[string]bool{}
 	graph := map[string][]string{}
 	for _, record := range manifest.Records {
-		if len(record.LawRelations) == 0 {
-			continue
-		}
-		if !manifestLawRelationSubjects[record.Kind] {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on decision/spec records", false, "publish authored relations on a decision or spec")
-		}
-		for _, relation := range record.LawRelations {
-			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind or target is invalid", false, "use one closed relation kind and a distinct law ID")
-			}
-			// The self-edge refusal compares same-manifest endpoints. A
-			// relation carrying an explicit source_project_id names another
-			// source's node, so a bare ID both sources hold is not a
-			// self-edge; the rebuild refuses a qualified target that names
-			// the declaring source's own Project (CD-0200 source-qualified
-			// identity).
-			if relation.SourceProjectID == "" && relation.TargetID == record.ID {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is a self-edge", false, "use one closed relation kind and a distinct law ID")
-			}
-			if strings.Contains(relation.TargetID, "/") {
-				// A cross-source target is named by the structured
-				// source_project_id field, never by packing the qualified
-				// string form into target_id (CD-0200).
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target contains '/'; name the target source with source_project_id instead", false, "keep target_id a bare law ID and declare source_project_id")
-			}
-			target, ok := byID[relation.TargetID]
-			if relation.SourceProjectID != "" {
-				// CD-0200 source-qualified identity: an explicit source
-				// project names the target's endpoint, so the relation is
-				// cross-source by declaration. A local record holding the
-				// same bare ID cannot capture the endpoint. Target
-				// existence, source-set membership, and the precedence
-				// rules validate over the verified source set at rebuild.
-				key := relation.Kind + "\x00" + record.ID + "\x00" + relation.SourceProjectID + "/" + relation.TargetID
-				if seen[key] {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated", false, "declare each typed law relation once")
-				}
-				seen[key] = true
-				continue
-			}
-			if !ok {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
-			}
-			if !manifestLawRelationSubjects[target.Kind] {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
-			}
-			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.TargetID
-			if relation.Kind == "conflicts_with" {
-				left, right := record.ID, relation.TargetID
-				if left > right {
-					left, right = right, left
-				}
-				key = relation.Kind + "\x00" + left + "\x00" + right
-			}
-			if seen[key] {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated, including a reverse conflict declaration", false, "declare each typed law relation once")
-			}
-			seen[key] = true
-			switch relation.Kind {
-			case "refines", "subordinate_to":
-				graph[record.ID] = append(graph[record.ID], relation.TargetID)
-			}
+		if err := validateManifestRecordRelations(record, byID, seen, graph); err != nil {
+			return err
 		}
 	}
 	if relationGraphHasCycle(graph) {
 		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "directed law relations contain a cycle", false, "remove the cycle from the authored law graph")
+	}
+	return nil
+}
+
+func validateManifestRecordRelations(record KnowledgeRecord, byID map[string]KnowledgeRecord, seen map[string]bool, graph map[string][]string) error {
+	if len(record.LawRelations) == 0 {
+		return nil
+	}
+	if !manifestLawRelationSubjects[record.Kind] {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on decision/spec records", false, "publish authored relations on a decision or spec")
+	}
+	for _, relation := range record.LawRelations {
+		if !lawRelationKinds[relation.Kind] || relation.TargetID == "" {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind or target is invalid", false, "use one closed relation kind and a distinct law ID")
+		}
+		// The self-edge refusal compares same-manifest endpoints. A
+		// relation carrying an explicit source_project_id names another
+		// source's node, so a bare ID both sources hold is not a
+		// self-edge; the rebuild refuses a qualified target that names
+		// the declaring source's own Project (CD-0200 source-qualified
+		// identity).
+		if relation.SourceProjectID == "" && relation.TargetID == record.ID {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is a self-edge", false, "use one closed relation kind and a distinct law ID")
+		}
+		if strings.Contains(relation.TargetID, "/") {
+			// A cross-source target is named by the structured
+			// source_project_id field, never by packing the qualified
+			// string form into target_id (CD-0200).
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target contains '/'; name the target source with source_project_id instead", false, "keep target_id a bare law ID and declare source_project_id")
+		}
+		target, ok := byID[relation.TargetID]
+		if relation.SourceProjectID != "" {
+			// CD-0200 source-qualified identity: an explicit source
+			// project names the target's endpoint, so the relation is
+			// cross-source by declaration. A local record holding the
+			// same bare ID cannot capture the endpoint. Target
+			// existence, source-set membership, and the precedence
+			// rules validate over the verified source set at rebuild.
+			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.SourceProjectID + "/" + relation.TargetID
+			if seen[key] {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated", false, "declare each typed law relation once")
+			}
+			seen[key] = true
+			continue
+		}
+		if !ok {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
+		}
+		if !manifestLawRelationSubjects[target.Kind] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
+		}
+		key := relation.Kind + "\x00" + record.ID + "\x00" + relation.TargetID
+		if relation.Kind == "conflicts_with" {
+			left, right := record.ID, relation.TargetID
+			if left > right {
+				left, right = right, left
+			}
+			key = relation.Kind + "\x00" + left + "\x00" + right
+		}
+		if seen[key] {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated, including a reverse conflict declaration", false, "declare each typed law relation once")
+		}
+		seen[key] = true
+		switch relation.Kind {
+		case "refines", "subordinate_to":
+			graph[record.ID] = append(graph[record.ID], relation.TargetID)
+		}
 	}
 	return nil
 }
@@ -1150,32 +1163,39 @@ func validateKnowledgeCriterionBindings(record KnowledgeRecord) error {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding index is invalid or duplicated", false, "use one positive index for each criterion")
 		}
 		seenCriteria[binding.Criterion] = true
-		forms := 0
-		if binding.Scenario != "" {
-			forms++
+		if err := validateKnowledgeCriterionBindingForm(binding); err != nil {
+			return err
 		}
-		if binding.Exemption != "" {
-			forms++
-		}
-		if binding.WorkID != "" || binding.PredicateID != "" {
-			forms++
-		}
-		halfPredicate := (binding.WorkID == "") != (binding.PredicateID == "")
-		if forms != 1 || halfPredicate {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding must carry exactly one scenario, exemption, or work predicate", false, "bind the criterion to a scenario, record an exemption, or reference one work-item predicate")
-		}
-		if binding.Scenario != "" && !validManifestID(binding.Scenario) {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion scenario is empty, oversized, or not clean", false, "use a bounded scenario ID")
-		}
-		if binding.Exemption != "" && (utf8.RuneCountInString(binding.Exemption) < minCriterionExemption || utf8.RuneCountInString(binding.Exemption) > maxCriterionExemption || strings.TrimSpace(binding.Exemption) != binding.Exemption) {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion exemption is not a bounded reason", false, "use a trimmed exemption reason of twelve to five hundred twelve characters")
-		}
-		if binding.WorkID != "" && (len(binding.WorkID) > maxManifestID || !criterionWorkIDPattern.MatchString(binding.WorkID)) {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding work id is not a bounded work- id", false, "reference a Concord work item with the work- id form")
-		}
-		if binding.PredicateID != "" && (len(binding.PredicateID) > maxManifestID || !criterionPredicateIDPattern.MatchString(binding.PredicateID)) {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding predicate id is not a predicate- prefixed id", false, "reference one outcome predicate with the predicate: prefix")
-		}
+	}
+	return nil
+}
+
+func validateKnowledgeCriterionBindingForm(binding KnowledgeCriterionBinding) error {
+	forms := 0
+	if binding.Scenario != "" {
+		forms++
+	}
+	if binding.Exemption != "" {
+		forms++
+	}
+	if binding.WorkID != "" || binding.PredicateID != "" {
+		forms++
+	}
+	halfPredicate := (binding.WorkID == "") != (binding.PredicateID == "")
+	if forms != 1 || halfPredicate {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding must carry exactly one scenario, exemption, or work predicate", false, "bind the criterion to a scenario, record an exemption, or reference one work-item predicate")
+	}
+	if binding.Scenario != "" && !validManifestID(binding.Scenario) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion scenario is empty, oversized, or not clean", false, "use a bounded scenario ID")
+	}
+	if binding.Exemption != "" && (utf8.RuneCountInString(binding.Exemption) < minCriterionExemption || utf8.RuneCountInString(binding.Exemption) > maxCriterionExemption || strings.TrimSpace(binding.Exemption) != binding.Exemption) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion exemption is not a bounded reason", false, "use a trimmed exemption reason of twelve to five hundred twelve characters")
+	}
+	if binding.WorkID != "" && (len(binding.WorkID) > maxManifestID || !criterionWorkIDPattern.MatchString(binding.WorkID)) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding work id is not a bounded work- id", false, "reference a Concord work item with the work- id form")
+	}
+	if binding.PredicateID != "" && (len(binding.PredicateID) > maxManifestID || !criterionPredicateIDPattern.MatchString(binding.PredicateID)) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding predicate id is not a predicate- prefixed id", false, "reference one outcome predicate with the predicate: prefix")
 	}
 	return nil
 }

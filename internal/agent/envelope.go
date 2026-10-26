@@ -417,6 +417,32 @@ func (e Envelope) validateInvariants() error {
 	if err := validateEnvelopeCollections(e); err != nil {
 		return err
 	}
+	if err := e.validateChangedReferences(); err != nil {
+		return err
+	}
+	if err := validateScope(e.ResolvedScope); err != nil {
+		return err
+	}
+	if err := e.validateAuthority(); err != nil {
+		return err
+	}
+	if e.NextCursor != nil && len(*e.NextCursor) > 4096 {
+		return errors.New("cursor exceeds bound")
+	}
+	switch e.Outcome {
+	case OutcomeOK:
+		return e.validateOK()
+	case OutcomePending:
+		return e.validatePending()
+	case OutcomePartial:
+		return e.validatePartial()
+	case OutcomeError:
+		return e.validateError()
+	}
+	return nil
+}
+
+func (e Envelope) validateChangedReferences() error {
 	if e.ChangedRefs != nil {
 		if len(*e.ChangedRefs) > MaxChangedRefs {
 			return errors.New("changed reference bound exceeded")
@@ -427,9 +453,10 @@ func (e Envelope) validateInvariants() error {
 			}
 		}
 	}
-	if err := validateScope(e.ResolvedScope); err != nil {
-		return err
-	}
+	return nil
+}
+
+func (e Envelope) validateAuthority() error {
 	if e.Authority != AuthorityAuthoritative && e.Authority != AuthorityDegraded && e.Authority != AuthorityUnreachable {
 		return errors.New("unknown authority")
 	}
@@ -444,19 +471,6 @@ func (e Envelope) validateInvariants() error {
 	}
 	if e.Origin == OriginAdapter && (e.Outcome != OutcomeError || e.Authority != AuthorityUnreachable) {
 		return errors.New("adapter envelope must be unreachable error")
-	}
-	if e.NextCursor != nil && len(*e.NextCursor) > 4096 {
-		return errors.New("cursor exceeds bound")
-	}
-	switch e.Outcome {
-	case OutcomeOK:
-		return e.validateOK()
-	case OutcomePending:
-		return e.validatePending()
-	case OutcomePartial:
-		return e.validatePartial()
-	case OutcomeError:
-		return e.validateError()
 	}
 	return nil
 }
@@ -792,6 +806,13 @@ func validateError(err TypedError) error {
 			return errors.New("invalid current version reference")
 		}
 	}
+	if x := validateErrorReferenceCouplings(err); x != nil {
+		return x
+	}
+	return validateErrorRecoveryCouplings(err)
+}
+
+func validateErrorReferenceCouplings(err TypedError) error {
 	if err.Kind == "cross_repository_claim" || err.SessionPlacement != nil {
 		placement := err.SessionPlacement
 		if err.Kind != "cross_repository_claim" || placement == nil || !bounded(placement.WorkID, 1, 128) || !bounded(placement.ProjectID, 1, 128) || !bounded(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {
@@ -813,6 +834,10 @@ func validateError(err TypedError) error {
 			return errors.New("external reference conflict coupling violated")
 		}
 	}
+	return nil
+}
+
+func validateErrorRecoveryCouplings(err TypedError) error {
 	if want, coupled := enforcedRecoveryCouplings[err.Kind]; coupled && err.RecoveryAction.Kind != want {
 		return fmt.Errorf("%s recovery coupling violated: want %s, got %s", err.Kind, want, err.RecoveryAction.Kind)
 	}

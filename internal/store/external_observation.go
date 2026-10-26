@@ -290,45 +290,50 @@ func ValidateObservedUniverse(universe ObservedUniverse) error {
 		return newFailure(KindInvalidPayload, "external_observation", "a stream cannot claim complete coverage", false, "streams observe a window, not the world")
 	}
 	if universe.Coverage == CoverageComplete {
-		// Completeness is earned: an exact scope, a stable anchor, a witness,
-		// canonical identities, and no unresolved omissions.
-		if universe.CompletionEvidence == "" {
-			return newFailure(KindInvalidPayload, "external_observation", "complete coverage requires a completion witness", false, "name how the traversal was closed")
+		return validateCompleteObservedUniverse(universe)
+	}
+	return nil
+}
+
+// Completeness is earned: an exact scope, a stable anchor, a witness,
+// canonical identities, and no unresolved omissions.
+func validateCompleteObservedUniverse(universe ObservedUniverse) error {
+	if universe.CompletionEvidence == "" {
+		return newFailure(KindInvalidPayload, "external_observation", "complete coverage requires a completion witness", false, "name how the traversal was closed")
+	}
+	switch universe.CompletionEvidence {
+	case CompletionAuthoritativeItemRead, CompletionExhaustiveLocal:
+		if universe.AnchorToken == "" && universe.StructureDigest == "" {
+			return newFailure(KindInvalidPayload, "external_observation", "a complete claim requires a stable anchor", false, "pin the snapshot token or structure digest")
 		}
-		switch universe.CompletionEvidence {
-		case CompletionAuthoritativeItemRead, CompletionExhaustiveLocal:
-			if universe.AnchorToken == "" && universe.StructureDigest == "" {
-				return newFailure(KindInvalidPayload, "external_observation", "a complete claim requires a stable anchor", false, "pin the snapshot token or structure digest")
-			}
-		case CompletionEndSignal:
-			// An end-of-list witness is honest only against a snapshot token
-			// that stayed constant through the traversal.
-			if universe.AnchorToken == "" {
-				return newFailure(KindInvalidPayload, "external_observation", "an end-signal witness requires a constant snapshot anchor", false, "pin the snapshot token the traversal ended against")
-			}
-		case CompletionClosedStructureDigest:
-			if universe.StructureDigest == "" {
-				return newFailure(KindInvalidPayload, "external_observation", "a closed-structure witness requires the digest that closes the structure", false, "supply the closing structure digest")
-			}
-		default:
-			return newFailure(KindInvalidPayload, "external_observation", "completion witness is not in the closed vocabulary", false, "supply a declared witness kind")
+	case CompletionEndSignal:
+		// An end-of-list witness is honest only against a snapshot token
+		// that stayed constant through the traversal.
+		if universe.AnchorToken == "" {
+			return newFailure(KindInvalidPayload, "external_observation", "an end-signal witness requires a constant snapshot anchor", false, "pin the snapshot token the traversal ended against")
 		}
-		if universe.AnchorToken != "" && !boundedString(universe.AnchorToken, 1, 2048) {
-			return newFailure(KindInvalidPayload, "external_observation", "anchor tokens must be bounded", false, "supply a bounded snapshot token")
+	case CompletionClosedStructureDigest:
+		if universe.StructureDigest == "" {
+			return newFailure(KindInvalidPayload, "external_observation", "a closed-structure witness requires the digest that closes the structure", false, "supply the closing structure digest")
 		}
-		if len(universe.Omissions) != 0 {
-			return newFailure(KindInvalidPayload, "external_observation", "complete coverage cannot carry unresolved omissions", false, "resolve omissions or claim partial coverage")
-		}
-		if universe.TotalKind == TotalUnknown {
-			return newFailure(KindInvalidPayload, "external_observation", "complete coverage cannot claim an unknown total", false, "state the exact or lower-bound total")
-		}
-		identityCount := int64(len(universe.ObservedRefs))
-		if identityCount == 0 && universe.ObservedCount > 0 {
-			identityCount = universe.ObservedCount
-		}
-		if universe.TotalKind == TotalEq && identityCount > 0 && identityCount != universe.TotalValue {
-			return newFailure(KindInvalidPayload, "external_observation", "an exact total must equal the distinct canonical identity count", false, "reconcile the total with the captured identities")
-		}
+	default:
+		return newFailure(KindInvalidPayload, "external_observation", "completion witness is not in the closed vocabulary", false, "supply a declared witness kind")
+	}
+	if universe.AnchorToken != "" && !boundedString(universe.AnchorToken, 1, 2048) {
+		return newFailure(KindInvalidPayload, "external_observation", "anchor tokens must be bounded", false, "supply a bounded snapshot token")
+	}
+	if len(universe.Omissions) != 0 {
+		return newFailure(KindInvalidPayload, "external_observation", "complete coverage cannot carry unresolved omissions", false, "resolve omissions or claim partial coverage")
+	}
+	if universe.TotalKind == TotalUnknown {
+		return newFailure(KindInvalidPayload, "external_observation", "complete coverage cannot claim an unknown total", false, "state the exact or lower-bound total")
+	}
+	identityCount := int64(len(universe.ObservedRefs))
+	if identityCount == 0 && universe.ObservedCount > 0 {
+		identityCount = universe.ObservedCount
+	}
+	if universe.TotalKind == TotalEq && identityCount > 0 && identityCount != universe.TotalValue {
+		return newFailure(KindInvalidPayload, "external_observation", "an exact total must equal the distinct canonical identity count", false, "reconcile the total with the captured identities")
 	}
 	return nil
 }

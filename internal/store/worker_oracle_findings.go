@@ -228,6 +228,10 @@ func ValidateWorkerOracleReceiptShape(receipt *WorkerOracleReceipt) error {
 	if !oracleReceiptResultVocab[receipt.Result] {
 		return oracleFindingFailure(KindInvalidPayload, "oracle_receipt result must be pass, fail, unavailable, or not_run", "report the control's execution result")
 	}
+	return validateWorkerOracleReceiptResult(receipt)
+}
+
+func validateWorkerOracleReceiptResult(receipt *WorkerOracleReceipt) error {
 	switch receipt.Result {
 	case OracleReceiptResultPass, OracleReceiptResultFail:
 		if receipt.ExitCode == nil || *receipt.ExitCode < 0 || *receipt.ExitCode > oracleExitCodeMax {
@@ -283,11 +287,18 @@ func validateWorkerOracleFindingShape(finding *WorkerOracleFinding) error {
 		}
 		seenPredicates[predicate] = true
 	}
-	if len(finding.LawBindings) > oracleFindingLawBindingsMax {
+	if err := validateWorkerOracleFindingLaws(finding.LawBindings); err != nil {
+		return err
+	}
+	return validateWorkerOracleFindingReferences(finding)
+}
+
+func validateWorkerOracleFindingLaws(bindings []WorkerOracleLawBinding) error {
+	if len(bindings) > oracleFindingLawBindingsMax {
 		return oracleFindingFailure(KindInvalidPayload, "review finding oracle must carry at most 8 law bindings", "bind at most 8 pinned law revisions")
 	}
 	seenLaws := map[string]bool{}
-	for _, binding := range finding.LawBindings {
+	for _, binding := range bindings {
 		if binding.Source.Kind != WorkContextSourceKnowledge {
 			return oracleFindingFailure(KindInvalidPayload, "review finding oracle law binding source must be a knowledge source", "bind law by source_id, law_id, and the pinned content hash")
 		}
@@ -302,6 +313,10 @@ func validateWorkerOracleFindingShape(finding *WorkerOracleFinding) error {
 		}
 		seenLaws[binding.Source.LawID] = true
 	}
+	return nil
+}
+
+func validateWorkerOracleFindingReferences(finding *WorkerOracleFinding) error {
 	for _, entry := range []struct {
 		values  []string
 		pattern *regexp.Regexp
@@ -598,56 +613,60 @@ func reduceOracleFindingEffect(lineage *workerOracleFindingLineage, event Event,
 		if json.Unmarshal(event.Payload, &report) != nil {
 			return newFailure(KindInvariantViolation, "worker_oracle_findings", "a stored terminal report is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
-		for _, entry := range report.Evidence {
-			if entry.OracleReceipt != nil {
-				lineage.retainedReceipts = append(lineage.retainedReceipts, *entry.OracleReceipt)
-			}
-		}
-		if report.Review == nil {
-			return nil
-		}
-		contextCount := len(report.ContextFindings)
-		for index, finding := range report.Review.Findings {
-			if finding.Oracle == nil {
-				continue
-			}
-			id := workerRankedFindingID(event.Seq, contextCount, index)
-			if finding.Oracle.ContinuesFindingID != "" {
-				// A resolvable continuation keeps its canonical identity,
-				// even when closed. An unresolved target keeps the mint path.
-				if _, exists := lineage.findings[finding.Oracle.ContinuesFindingID]; exists {
-					continue
-				}
-			}
-			if _, duplicate := lineage.findings[id]; duplicate {
-				continue
-			}
-			entry := &WorkerOpenOracleFinding{
-				FindingID: id, Severity: finding.Severity, Detail: finding.Detail,
-				Classification: finding.Oracle.Classification, OwnerID: finding.Oracle.OwnerID,
-				FailureFamily: finding.Oracle.FailureFamily, PredicateIDs: finding.Oracle.PredicateIDs,
-				LawIDs: lawIDsOf(finding.Oracle), ControlIDs: finding.Oracle.ControlIDs, CaseIDs: finding.Oracle.CaseIDs,
-				SourceEventID: event.EventID, SourceEventSeq: event.Seq, SourceOrdinal: contextCount + index,
-				SourceActorRef: actors[report.AttemptID],
-				Tie:            finding.Oracle,
-			}
-			setOracleFindingSource(entry, report.WorkerJob, oracles)
-			lineage.findings[id] = entry
-			lineage.openOrder = append(lineage.openOrder, id)
-		}
-		for _, resolution := range report.Review.ResolvedFindings {
-			finding, exists := lineage.findings[resolution.FindingID]
-			if !exists || finding.Closed {
-				continue
-			}
-			finding.Closed = true
-			finding.ClosureKind = oracleClosureResolution
-			if finding.Classification == OracleClassificationOracleDefect {
-				finding.ClosureKind = oracleClosureOracleDefect
-			}
-		}
+		reduceOracleCompletedFindings(lineage, event, report, oracles, actors)
 	}
 	return nil
+}
+
+func reduceOracleCompletedFindings(lineage *workerOracleFindingLineage, event Event, report WorkerCompletedPayload, oracles map[WorkerJobBinding]*AcceptanceOracle, actors map[string]string) {
+	for _, entry := range report.Evidence {
+		if entry.OracleReceipt != nil {
+			lineage.retainedReceipts = append(lineage.retainedReceipts, *entry.OracleReceipt)
+		}
+	}
+	if report.Review == nil {
+		return
+	}
+	contextCount := len(report.ContextFindings)
+	for index, finding := range report.Review.Findings {
+		if finding.Oracle == nil {
+			continue
+		}
+		id := workerRankedFindingID(event.Seq, contextCount, index)
+		if finding.Oracle.ContinuesFindingID != "" {
+			// A resolvable continuation keeps its canonical identity,
+			// even when closed. An unresolved target keeps the mint path.
+			if _, exists := lineage.findings[finding.Oracle.ContinuesFindingID]; exists {
+				continue
+			}
+		}
+		if _, duplicate := lineage.findings[id]; duplicate {
+			continue
+		}
+		entry := &WorkerOpenOracleFinding{
+			FindingID: id, Severity: finding.Severity, Detail: finding.Detail,
+			Classification: finding.Oracle.Classification, OwnerID: finding.Oracle.OwnerID,
+			FailureFamily: finding.Oracle.FailureFamily, PredicateIDs: finding.Oracle.PredicateIDs,
+			LawIDs: lawIDsOf(finding.Oracle), ControlIDs: finding.Oracle.ControlIDs, CaseIDs: finding.Oracle.CaseIDs,
+			SourceEventID: event.EventID, SourceEventSeq: event.Seq, SourceOrdinal: contextCount + index,
+			SourceActorRef: actors[report.AttemptID],
+			Tie:            finding.Oracle,
+		}
+		setOracleFindingSource(entry, report.WorkerJob, oracles)
+		lineage.findings[id] = entry
+		lineage.openOrder = append(lineage.openOrder, id)
+	}
+	for _, resolution := range report.Review.ResolvedFindings {
+		finding, exists := lineage.findings[resolution.FindingID]
+		if !exists || finding.Closed {
+			continue
+		}
+		finding.Closed = true
+		finding.ClosureKind = oracleClosureResolution
+		if finding.Classification == OracleClassificationOracleDefect {
+			finding.ClosureKind = oracleClosureOracleDefect
+		}
+	}
 }
 
 func setOracleFindingSource(finding *WorkerOpenOracleFinding, binding *WorkerJobBinding, oracles map[WorkerJobBinding]*AcceptanceOracle) {
@@ -699,42 +718,8 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 		}
 	}
 	if payload.Review != nil {
-		if oracle != nil {
-			for index := range payload.Review.Findings {
-				finding := payload.Review.Findings[index]
-				if finding.Oracle == nil {
-					return oracleFindingFailure(KindInvalidPayload, "a review finding on an oracle-bound dispatch carries no oracle classification", "classify every review finding against the dispatched oracle")
-				}
-				if err := validateWorkerOracleFindingJoins(finding.Oracle, oracle, owners); err != nil {
-					return err
-				}
-			}
-		}
-		for index := range payload.Review.Findings {
-			finding := payload.Review.Findings[index]
-			if finding.Oracle == nil || finding.Oracle.ContinuesFindingID == "" {
-				continue
-			}
-			target, exists := lineage.findings[finding.Oracle.ContinuesFindingID]
-			if !exists {
-				return oracleFindingFailure(KindInvalidPayload, "review finding continues_finding_id "+finding.Oracle.ContinuesFindingID+" names no earlier ranked finding of this work", "continue an existing ranked finding or report a new one")
-			}
-			if !sameOracleTie(target, finding.Oracle) {
-				return oracleFindingFailure(KindInvalidPayload, "review finding continues_finding_id "+finding.Oracle.ContinuesFindingID+" does not retain the earlier finding's owner, obligation binding, and failure family", "continue the same failure family or report a variant instead")
-			}
-			if !oracleControlsRetained(target.SourceOracle, oracle) {
-				return oracleFindingFailure(KindInvalidPayload, "review continuation rewrites the source owner obligation or inventory", "retain the earlier obligation or report a new finding")
-			}
-		}
-		for index := range payload.Review.Findings {
-			finding := payload.Review.Findings[index]
-			if finding.Oracle == nil || finding.Oracle.VariantOf == "" {
-				continue
-			}
-			target, exists := lineage.findings[finding.Oracle.VariantOf]
-			if !exists || target.OwnerID != finding.Oracle.OwnerID {
-				return oracleFindingFailure(KindInvalidPayload, "review finding variant_of "+finding.Oracle.VariantOf+" names no earlier ranked finding of the same owner", "variant an existing owner-family finding")
-			}
+		if err := validateWorkerOracleReviewFindings(payload.Review.Findings, oracle, owners, lineage); err != nil {
+			return err
 		}
 		for _, resolution := range payload.Review.ResolvedFindings {
 			finding, exists := lineage.findings[resolution.FindingID]
@@ -747,6 +732,51 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 			if err := validateWorkerOracleResolutionEvidenceTx(ctx, tx, workID, finding, resolution, currentSubject, lineage, oracle, &payload); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func validateWorkerOracleReviewFindings(findings []WorkerReviewFinding, oracle *AcceptanceOracle, owners map[string]OracleOwner, lineage *workerOracleFindingLineage) error {
+	if oracle != nil {
+		for _, finding := range findings {
+			if finding.Oracle == nil {
+				return oracleFindingFailure(KindInvalidPayload, "a review finding on an oracle-bound dispatch carries no oracle classification", "classify every review finding against the dispatched oracle")
+			}
+			if err := validateWorkerOracleFindingJoins(finding.Oracle, oracle, owners); err != nil {
+				return err
+			}
+		}
+	}
+	if err := validateWorkerOracleContinuations(findings, oracle, lineage); err != nil {
+		return err
+	}
+	for _, finding := range findings {
+		if finding.Oracle == nil || finding.Oracle.VariantOf == "" {
+			continue
+		}
+		target, exists := lineage.findings[finding.Oracle.VariantOf]
+		if !exists || target.OwnerID != finding.Oracle.OwnerID {
+			return oracleFindingFailure(KindInvalidPayload, "review finding variant_of "+finding.Oracle.VariantOf+" names no earlier ranked finding of the same owner", "variant an existing owner-family finding")
+		}
+	}
+	return nil
+}
+
+func validateWorkerOracleContinuations(findings []WorkerReviewFinding, oracle *AcceptanceOracle, lineage *workerOracleFindingLineage) error {
+	for _, finding := range findings {
+		if finding.Oracle == nil || finding.Oracle.ContinuesFindingID == "" {
+			continue
+		}
+		target, exists := lineage.findings[finding.Oracle.ContinuesFindingID]
+		if !exists {
+			return oracleFindingFailure(KindInvalidPayload, "review finding continues_finding_id "+finding.Oracle.ContinuesFindingID+" names no earlier ranked finding of this work", "continue an existing ranked finding or report a new one")
+		}
+		if !sameOracleTie(target, finding.Oracle) {
+			return oracleFindingFailure(KindInvalidPayload, "review finding continues_finding_id "+finding.Oracle.ContinuesFindingID+" does not retain the earlier finding's owner, obligation binding, and failure family", "continue the same failure family or report a variant instead")
+		}
+		if !oracleControlsRetained(target.SourceOracle, oracle) {
+			return oracleFindingFailure(KindInvalidPayload, "review continuation rewrites the source owner obligation or inventory", "retain the earlier obligation or report a new finding")
 		}
 	}
 	return nil
@@ -913,6 +943,10 @@ func validateWorkerOracleFindingJoins(finding *WorkerOracleFinding, oracle *Acce
 	if !ownerNamed {
 		return oracleFindingFailure(KindInvalidPayload, "a delivery_blocker must bind a declared owner of the dispatched oracle", "name the declared owner whose obligation failed")
 	}
+	return validateWorkerOracleBlockerTies(finding, owner, controls)
+}
+
+func validateWorkerOracleBlockerTies(finding *WorkerOracleFinding, owner OracleOwner, controls map[string]OracleControl) error {
 	hasPredicate, hasLaw, hasControl := false, false, false
 	for _, predicate := range finding.PredicateIDs {
 		if !slices.Contains(owner.PredicateIDs, predicate) {
@@ -1050,45 +1084,11 @@ func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, w
 	for _, ref := range resolution.EvidenceRefs {
 		qualified := false
 		for _, receipt := range receipts {
-			if receipt.Result != OracleReceiptResultPass || currentSubject == "" || receipt.SubjectCommit != currentSubject {
-				continue
+			matched, err := qualifyOracleClosureReceiptTx(ctx, tx, workID, ref, currentSubject, receipt, oracle, controls, required, covered, inFlight, finding.SourceActorRef)
+			if err != nil {
+				return err
 			}
-			if err := validateWorkerOracleReceiptJoins(&receipt, controls); err != nil {
-				continue
-			}
-			producer, producerErr := workerOracleReceiptProducerTx(ctx, tx, workID, &receipt, oracle, currentSubject)
-			if producerErr != nil {
-				return producerErr
-			}
-			bound, bindErr := oracleClosureProducerBoundTx(ctx, tx, workID, ref, producer.OperationRef)
-			if bindErr != nil {
-				return bindErr
-			}
-			if ref != receipt.RunRef && !bound {
-				continue
-			}
-			for _, controlID := range receipt.ControlIDs {
-				if !required[controlID] || !oracleReceiptCoversControl(receipt, controls[controlID]) {
-					continue
-				}
-				fresh, freshErr := oracleControlProducerFreshTx(ctx, tx, workID, currentSubject, controls[controlID], producer)
-				if freshErr != nil {
-					return freshErr
-				}
-				if !fresh {
-					continue
-				}
-				if controls[controlID].RequiredEvidenceRole == OracleEvidenceRoleIndependentlyExecuted {
-					independent, independentErr := oracleClosureIndependentProducerTx(ctx, tx, workID, producer, inFlight, finding.SourceActorRef)
-					if independentErr != nil {
-						return independentErr
-					}
-					if !bound || !independent {
-						continue
-					}
-				}
-				covered[controlID], qualified = true, true
-			}
+			qualified = qualified || matched
 		}
 		if !qualified {
 			return oracleFindingFailure(KindMissingEvidence, "resolved_findings evidence "+ref+" for "+resolution.FindingID+" is neither durably bound evidence nor a current-subject pass receipt of the finding's controls with the required production role", "supply matched current control executions with the required independent producer bindings")
@@ -1100,6 +1100,55 @@ func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, w
 		}
 	}
 	return nil
+}
+
+func qualifyOracleClosureReceiptTx(ctx context.Context, tx *sql.Tx, workID, ref, subject string, receipt WorkerOracleReceipt, oracle *AcceptanceOracle, controls map[string]OracleControl, required, covered map[string]bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
+	if receipt.Result != OracleReceiptResultPass || subject == "" || receipt.SubjectCommit != subject {
+		return false, nil
+	}
+	if err := validateWorkerOracleReceiptJoins(&receipt, controls); err != nil {
+		return false, nil
+	}
+	producer, err := workerOracleReceiptProducerTx(ctx, tx, workID, &receipt, oracle, subject)
+	if err != nil {
+		return false, err
+	}
+	bound, err := oracleClosureProducerBoundTx(ctx, tx, workID, ref, producer.OperationRef)
+	if err != nil {
+		return false, err
+	}
+	if ref != receipt.RunRef && !bound {
+		return false, nil
+	}
+	qualified := false
+	for _, id := range receipt.ControlIDs {
+		if !required[id] || !oracleReceiptCoversControl(receipt, controls[id]) {
+			continue
+		}
+		fresh, err := qualifyOracleClosureControlTx(ctx, tx, workID, subject, controls[id], producer, bound, inFlight, sourceActor)
+		if err != nil {
+			return false, err
+		}
+		if fresh {
+			covered[id], qualified = true, true
+		}
+	}
+	return qualified, nil
+}
+
+func qualifyOracleClosureControlTx(ctx context.Context, tx *sql.Tx, workID, subject string, control OracleControl, producer *WorktreeVerifyResult, bound bool, inFlight *WorkerCompletedPayload, sourceActor string) (bool, error) {
+	fresh, err := oracleControlProducerFreshTx(ctx, tx, workID, subject, control, producer)
+	if err != nil || !fresh {
+		return false, err
+	}
+	if control.RequiredEvidenceRole != OracleEvidenceRoleIndependentlyExecuted {
+		return true, nil
+	}
+	independent, err := oracleClosureIndependentProducerTx(ctx, tx, workID, producer, inFlight, sourceActor)
+	if err != nil {
+		return false, err
+	}
+	return bound && independent, nil
 }
 
 func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle) (map[string]bool, error) {
@@ -1118,20 +1167,8 @@ func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *Acce
 		}
 	}
 	if finding.Classification == OracleClassificationUncoveredCase {
-		if finding.Tie == nil {
-			return nil, oracleFindingFailure(KindMissingEvidence, "uncovered_case has no retained reproduction path", "retain the uncovered path")
-		}
-		found := false
-		for _, entry := range oracle.Cases {
-			if entry.OwnerID == finding.OwnerID && entry.EntryPoint == finding.Tie.EntryPoint {
-				found = true
-				for _, id := range entry.ControlIDs {
-					required[id] = true
-				}
-			}
-		}
-		if !found {
-			return nil, oracleFindingFailure(KindMissingEvidence, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
+		if err := addUncoveredOracleClosureControls(finding, oracle, required); err != nil {
+			return nil, err
 		}
 	}
 	if len(required) == 0 {
@@ -1145,6 +1182,25 @@ func oracleFindingClosureControls(finding *WorkerOpenOracleFinding, oracle *Acce
 		return nil, oracleFindingFailure(KindMissingEvidence, "closure names no executable obligation", "prove the finding's owner controls")
 	}
 	return required, nil
+}
+
+func addUncoveredOracleClosureControls(finding *WorkerOpenOracleFinding, oracle *AcceptanceOracle, required map[string]bool) error {
+	if finding.Tie == nil {
+		return oracleFindingFailure(KindMissingEvidence, "uncovered_case has no retained reproduction path", "retain the uncovered path")
+	}
+	found := false
+	for _, entry := range oracle.Cases {
+		if entry.OwnerID == finding.OwnerID && entry.EntryPoint == finding.Tie.EntryPoint {
+			found = true
+			for _, id := range entry.ControlIDs {
+				required[id] = true
+			}
+		}
+	}
+	if !found {
+		return oracleFindingFailure(KindMissingEvidence, "uncovered_case entry path is still absent from the controlled inventory", "add the reproduced entry path and prove its controls")
+	}
+	return nil
 }
 
 func oracleReceiptCoversControl(receipt WorkerOracleReceipt, control OracleControl) bool {

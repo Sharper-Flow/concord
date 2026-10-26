@@ -404,45 +404,63 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 		sourceByProject[source.HomeProjectID] = source
 	}
 	for _, record := range manifest.Records {
-		for _, relation := range record.LawRelations {
-			if relation.SourceProjectID == "" {
-				continue
-			}
-			target, known := sourceByProject[relation.SourceProjectID]
-			if !known {
-				return newFailure(KindUnknownScope, "rebuild_knowledge_index", "cross-source relation names a Project outside the Product's registered source set: "+relation.SourceProjectID, false, "register the target Project as a Product knowledge source, or point the relation inside the source set")
-			}
-			if target.HomeProjectID == home.HomeProjectID && target.HomeLocatorID == home.HomeLocatorID {
-				return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source relation names its own manifest's Project as the target source", false, "declare the relation without source_project_id when the target lives in this manifest")
-			}
-			if relation.Kind == "conflicts_with" {
-				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "cross-source conflicts_with between "+record.ID+" and "+relation.SourceProjectID+"/"+relation.TargetID+" blocks the rebuild", false, "resolve the conflict through an accepted amendment before indexing either side")
-			}
-			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, db, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
-				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
-			}
-			// A target source with no usable projection — never rebuilt,
-			// cleared, or stamped incomplete over omitted Domain rows — has
-			// no endpoint row to query, so the endpoint resolves from that
-			// source's verified git head instead (CD-0200 reconstruction):
-			// an unreadable head, an absent manifest, or an undeclared or
-			// unproven law refuses the rebuild admission. Read degradation
-			// governs answers, never admission. A projected target must
-			// resolve the named law from its rows.
-			if knowledgeSourceRowsUnverified(ctx, db, target) {
-				if err := resolvePeerRelationTargetFromGitHead(ctx, db, target, relation.TargetID); err != nil {
-					return err
-				}
-				continue
-			}
-			var present int
-			if err := db.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&present); err == sql.ErrNoRows {
-				return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target is unresolved: "+relation.SourceProjectID+"/"+relation.TargetID, false, "publish and rebuild the target source before declaring the relation")
-			} else if err != nil {
-				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source relation target", true, "retry once the database is readable", err)
-			}
+		if err := validateFederatedRecordTargets(ctx, db, home, record, productID, sourceRole, sourceByProject); err != nil {
+			return err
 		}
 	}
+	graph := federatedManifestRelationGraph(home, manifest)
+	if err := appendFederatedPersistedRelationEdges(ctx, db, sources, home, graph); err != nil {
+		return err
+	}
+	if relationGraphHasCycle(graph) {
+		return newFailure(KindCycleDetected, "rebuild_knowledge_index", "federated law relations contain a cycle across the registered source set", false, "remove the cycle from the authored law graphs")
+	}
+	return nil
+}
+
+func validateFederatedRecordTargets(ctx context.Context, db *sql.DB, home KnowledgeHome, record KnowledgeRecord, productID string, sourceRole bool, sourceByProject map[string]KnowledgeHome) error {
+	for _, relation := range record.LawRelations {
+		if relation.SourceProjectID == "" {
+			continue
+		}
+		target, known := sourceByProject[relation.SourceProjectID]
+		if !known {
+			return newFailure(KindUnknownScope, "rebuild_knowledge_index", "cross-source relation names a Project outside the Product's registered source set: "+relation.SourceProjectID, false, "register the target Project as a Product knowledge source, or point the relation inside the source set")
+		}
+		if target.HomeProjectID == home.HomeProjectID && target.HomeLocatorID == home.HomeLocatorID {
+			return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source relation names its own manifest's Project as the target source", false, "declare the relation without source_project_id when the target lives in this manifest")
+		}
+		if relation.Kind == "conflicts_with" {
+			return newFailure(KindRelationConflict, "rebuild_knowledge_index", "cross-source conflicts_with between "+record.ID+" and "+relation.SourceProjectID+"/"+relation.TargetID+" blocks the rebuild", false, "resolve the conflict through an accepted amendment before indexing either side")
+		}
+		if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, db, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
+			return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
+		}
+		// A target source with no usable projection — never rebuilt,
+		// cleared, or stamped incomplete over omitted Domain rows — has
+		// no endpoint row to query, so the endpoint resolves from that
+		// source's verified git head instead (CD-0200 reconstruction):
+		// an unreadable head, an absent manifest, or an undeclared or
+		// unproven law refuses the rebuild admission. Read degradation
+		// governs answers, never admission. A projected target must
+		// resolve the named law from its rows.
+		if knowledgeSourceRowsUnverified(ctx, db, target) {
+			if err := resolvePeerRelationTargetFromGitHead(ctx, db, target, relation.TargetID); err != nil {
+				return err
+			}
+			continue
+		}
+		var present int
+		if err := db.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&present); err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target is unresolved: "+relation.SourceProjectID+"/"+relation.TargetID, false, "publish and rebuild the target source before declaring the relation")
+		} else if err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source relation target", true, "retry once the database is readable", err)
+		}
+	}
+	return nil
+}
+
+func federatedManifestRelationGraph(home KnowledgeHome, manifest KnowledgeManifest) map[string][]string {
 	graph := map[string][]string{}
 	for _, record := range manifest.Records {
 		for _, relation := range record.LawRelations {
@@ -461,13 +479,7 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 			graph[declared] = append(graph[declared], targetNode)
 		}
 	}
-	if err := appendFederatedPersistedRelationEdges(ctx, db, sources, home, graph); err != nil {
-		return err
-	}
-	if relationGraphHasCycle(graph) {
-		return newFailure(KindCycleDetected, "rebuild_knowledge_index", "federated law relations contain a cycle across the registered source set", false, "remove the cycle from the authored law graphs")
-	}
-	return nil
+	return graph
 }
 
 // manifestDeclaresCrossSourceRelations reports whether any authored law

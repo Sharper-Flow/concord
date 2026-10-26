@@ -8209,35 +8209,9 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return cause
 	}
 	if scope == migrateForUnstamped {
-		var count int
-		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count)
-		if err != nil {
-			if strings.Contains(err.Error(), "no such table") {
-				count = 0
-			} else {
-				return rollback(wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
-					"confirm the database is readable", err))
-			}
-		}
-		if count > 0 {
-			applied, err := appliedMigrations(ctx, tx)
-			if err != nil {
-				if strings.Contains(err.Error(), "no such column: breaking") {
-					return rollback(unstampedManifestRefused(ctx, tx))
-				}
-				return rollback(err)
-			}
-			complete := true
-			for _, m := range migrations {
-				if _, done := applied[m.Version]; !done {
-					complete = false
-					break
-				}
-			}
-			if complete {
-				return rollback(nil)
-			}
-			return rollback(unstampedMigrationRefused(applied))
+		stop, err := inspectUnstampedManifest(ctx, tx)
+		if stop || err != nil {
+			return rollback(err)
 		}
 	}
 
@@ -8263,38 +8237,9 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return rollback(err)
 	}
 
-	var stopped *migration
-	remoteUpgrade := false
-	for i := range migrations {
-		m := migrations[i]
-		if _, done := applied[m.Version]; done {
-			continue
-		}
-		if scope == migrateForOpen && m.Breaking && len(applied) > 0 {
-			stopped = &migrations[i]
-			break
-		}
-		if m.Version == 4 {
-			if err := preflightMembershipMigration(ctx, tx); err != nil {
-				return rollback(err)
-			}
-		}
-		if err := applyMigration(ctx, tx, m); err != nil {
-			return rollback(err)
-		}
-		if m.Version >= 138 {
-			if err := advanceStoreRevision(ctx, tx); err != nil {
-				return rollback(err)
-			}
-		}
-		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
-			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "migrate",
-				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
-				"retry once the database is writable", err))
-		}
+	stopped, remoteUpgrade, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
+	if err != nil {
+		return rollback(err)
 	}
 	if remoteUpgrade {
 		// Event application and invariant checks require the complete head schema.
@@ -8310,6 +8255,72 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		return upgradeRequired(*stopped)
 	}
 	return nil
+}
+
+func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
+	var count int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			count = 0
+		} else {
+			return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
+				"confirm the database is readable", err)
+		}
+	}
+	if count > 0 {
+		applied, err := appliedMigrations(ctx, tx)
+		if err != nil {
+			if strings.Contains(err.Error(), "no such column: breaking") {
+				return false, unstampedManifestRefused(ctx, tx)
+			}
+			return false, err
+		}
+		for _, m := range migrations {
+			if _, done := applied[m.Version]; !done {
+				return false, unstampedMigrationRefused(applied)
+			}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) (*migration, bool, error) {
+	var stopped *migration
+	remoteUpgrade := false
+	for i := range migrations {
+		m := migrations[i]
+		if _, done := applied[m.Version]; done {
+			continue
+		}
+		if scope == migrateForOpen && m.Breaking && len(applied) > 0 {
+			stopped = &migrations[i]
+			break
+		}
+		if m.Version == 4 {
+			if err := preflightMembershipMigration(ctx, tx); err != nil {
+				return nil, remoteUpgrade, err
+			}
+		}
+		if err := applyMigration(ctx, tx, m); err != nil {
+			return nil, remoteUpgrade, err
+		}
+		if m.Version >= 138 {
+			if err := advanceStoreRevision(ctx, tx); err != nil {
+				return nil, remoteUpgrade, err
+			}
+		}
+		remoteUpgrade = remoteUpgrade || m.Name == remoteLocatorUpgradeName
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
+			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
+			return nil, remoteUpgrade, wrapFailure(KindUnavailable, "migrate",
+				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
+				"retry once the database is writable", err)
+		}
+	}
+	return stopped, remoteUpgrade, nil
 }
 
 // unstampedManifestRefused reads the pre-column manifest through the caller's

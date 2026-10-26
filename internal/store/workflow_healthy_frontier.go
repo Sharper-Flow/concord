@@ -143,38 +143,43 @@ func backfillWorkflowHealthySequences(ctx context.Context, q migrationRunner) er
 		if err != nil {
 			return err
 		}
-		var current []workflowHealthVerdict
-		var healthy int64
-		opened := false
-		for _, candidate := range verdicts {
-			if !opened && candidate.seq > window.opening {
-				healthy = basis.healthySequence(current)
-				opened = true
-			}
-			found := false
-			for i, prior := range current {
-				if prior.verdict.ContractVersion == candidate.verdict.ContractVersion && prior.verdict.PredicateID == candidate.verdict.PredicateID {
-					current[i] = candidate
-					found = true
-					break
-				}
-			}
-			if !found {
-				current = append(current, candidate)
-			}
-			if opened {
-				if seq := basis.healthySequence(current); seq > 0 {
-					healthy = seq
-				}
-			}
-		}
-		if !opened {
-			healthy = basis.healthySequence(current)
-		}
+		healthy := basis.replayHealthySequence(verdicts, window.opening)
 		if _, err := q.ExecContext(ctx, `UPDATE workflow_contracts SET last_healthy_seq=? WHERE work_id=? AND contract_version=?`, healthy, window.workID, window.version); err != nil {
 			return err
 		}
 	}
 	_, err = q.ExecContext(ctx, `DELETE FROM fold_guard`)
 	return err
+}
+
+func (basis workflowHealthBasis) replayHealthySequence(verdicts []workflowHealthVerdict, opening int64) int64 {
+	var current []workflowHealthVerdict
+	var healthy int64
+	opened := false
+	for _, candidate := range verdicts {
+		if !opened && candidate.seq > opening {
+			healthy = basis.healthySequence(current)
+			opened = true
+		}
+		current = replaceWorkflowHealthVerdict(current, candidate)
+		if opened {
+			if seq := basis.healthySequence(current); seq > 0 {
+				healthy = seq
+			}
+		}
+	}
+	if !opened {
+		healthy = basis.healthySequence(current)
+	}
+	return healthy
+}
+
+func replaceWorkflowHealthVerdict(current []workflowHealthVerdict, candidate workflowHealthVerdict) []workflowHealthVerdict {
+	for i, prior := range current {
+		if prior.verdict.ContractVersion == candidate.verdict.ContractVersion && prior.verdict.PredicateID == candidate.verdict.PredicateID {
+			current[i] = candidate
+			return current
+		}
+	}
+	return append(current, candidate)
 }

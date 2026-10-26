@@ -223,44 +223,9 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		}
 		out.ActiveVerifyLeases = leases
 	}
-	out.WorkID = req.Work
-	out.Boundaries = []ContextBoundary{}
-	out.ProductIdentity = []string{}
-	out.SpecMandate = []string{}
-	out.StepActions = []string{}
-	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
-	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
-	if err := publishedWorkAbsenceQ(ctx, tx, req.Work, "C19.Continuity"); err != nil {
-		return out, err
-	}
-	exists, err := workExistsCore(ctx, tx, req.Work)
+	out, err = continuityReadIdentityTx(ctx, tx, req.Work, out)
 	if err != nil {
 		return out, err
-	}
-	if !exists {
-		return out, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return out, err
-		}
-		out.ProductIdentity = append(out.ProductIdentity, id)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return out, err
-	}
-	if err := rows.Close(); err != nil {
-		return out, err
-	}
-	if len(out.ProductIdentity) > 64 {
-		return out, newFailure(KindLimitExceeded, "C19.Continuity", "Product identity exceeds the continuity snapshot bound", false, "reduce_limit")
 	}
 	// Outside repair is readable without trusting the workflow it must repair.
 	// Establish work and Product identity first, then stop before definition,
@@ -269,73 +234,11 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		return out, err
 	}
 	if disposition := out.OutsideRepairDisposition; disposition != nil && disposition.State != OutsideRepairStateResumed {
-		pin, err := readWorkPinForRegistryTx(ctx, tx, req.Work, registry)
-		if err != nil {
-			return out, err
-		}
-		out.WorkPin = &pin
-		out.Watermark = pin.Watermark
-		out.WorkflowInstance = WorkflowInstanceAbsent
-		err = tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&out.WorkflowStep)
-		if err == nil {
-			out.WorkflowInstance = WorkflowInstancePresent
-		} else if err != sql.ErrNoRows {
-			return out, workflowProjectionError(err, "cannot read outside-repair workflow identity")
-		}
-		out.NativeRuns = []NativeRunReport{}
-		out.Observations = []WorkObservation{}
-		return out, nil
+		return continuityReadOutsideRepairIdentityTx(ctx, tx, req.Work, registry, out)
 	}
-	instance, err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, &out)
-	if err != nil {
+	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
 		return out, err
 	}
-	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
-	if contractErr != nil && contractErr != sql.ErrNoRows {
-		return out, contractErr
-	}
-	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
-		return out, err
-	}
-	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	if err := continuityReadCheckpointTx(ctx, tx, req.Work, &out); err != nil {
-		return out, err
-	}
-	// The work's newest unconsumed Project-session handoff rides the
-	// snapshot when present; the absent field keeps a handoff-free work's
-	// bytes unchanged.
-	out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, &out); err != nil {
-		return out, err
-	}
-	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
-		return out, err
-	}
-	if err := continuityReadFailureTx(ctx, tx, req.Work, &out, instancePresent); err != nil {
-		return out, err
-	}
-	if err := continuityReadBoundariesTx(ctx, tx, req.Work, &out, req.Limit, offset); err != nil {
-		return out, err
-	}
-	if err := continuityReadTrailingTx(ctx, tx, req.Work, &out); err != nil {
-		return out, err
-	}
-	view, unavailable, viewErr := readWorkContextProjection(ctx, tx, req.Work)
-	if viewErr != nil {
-		return out, viewErr
-	}
-	out.WorkContext, out.WorkContextUnavailable = view, unavailable
 	// Candidate identity is sampled with the dependencies, then its immutable
 	// tree resolves after the read snapshot closes. Dispatch revalidates it
 	// against the sealed native observation; this read grants no authority.
@@ -359,6 +262,122 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 		}
 	}
 	return out, nil
+}
+
+func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, out ContinuitySnapshot) (ContinuitySnapshot, error) {
+	out.WorkID = workID
+	out.Boundaries = []ContextBoundary{}
+	out.ProductIdentity = []string{}
+	out.SpecMandate = []string{}
+	out.StepActions = []string{}
+	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
+	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
+	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Continuity"); err != nil {
+		return out, err
+	}
+	exists, err := workExistsCore(ctx, tx, workID)
+	if err != nil {
+		return out, err
+	}
+	if !exists {
+		return out, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, workID)
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return out, err
+		}
+		out.ProductIdentity = append(out.ProductIdentity, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return out, err
+	}
+	if err := rows.Close(); err != nil {
+		return out, err
+	}
+	if len(out.ProductIdentity) > 64 {
+		return out, newFailure(KindLimitExceeded, "C19.Continuity", "Product identity exceeds the continuity snapshot bound", false, "reduce_limit")
+	}
+	return out, nil
+}
+
+func continuityReadOutsideRepairIdentityTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry, out ContinuitySnapshot) (ContinuitySnapshot, error) {
+	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
+	if err != nil {
+		return out, err
+	}
+	out.WorkPin = &pin
+	out.Watermark = pin.Watermark
+	out.WorkflowInstance = WorkflowInstanceAbsent
+	err = tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&out.WorkflowStep)
+	if err == nil {
+		out.WorkflowInstance = WorkflowInstancePresent
+	} else if err != sql.ErrNoRows {
+		return out, workflowProjectionError(err, "cannot read outside-repair workflow identity")
+	}
+	out.NativeRuns = []NativeRunReport{}
+	out.Observations = []WorkObservation{}
+	return out, nil
+}
+
+func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req ContinuityRequest, registry DefinitionRegistry, offset int, out *ContinuitySnapshot) error {
+	instance, err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, out)
+	if err != nil {
+		return err
+	}
+	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
+	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
+	if contractErr != nil && contractErr != sql.ErrNoRows {
+		return contractErr
+	}
+	if err := continuityReadContractTx(ctx, tx, req.Work, out, activeContractVersion, currentStep, workVersion, definition, registry); err != nil {
+		return err
+	}
+	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
+	if err != nil {
+		return err
+	}
+	if err := continuityReadCheckpointTx(ctx, tx, req.Work, out); err != nil {
+		return err
+	}
+	// The work's newest unconsumed Project-session handoff rides the
+	// snapshot when present; the absent field keeps a handoff-free work's
+	// bytes unchanged.
+	out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+	if err != nil {
+		return err
+	}
+	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
+	if err != nil {
+		return err
+	}
+	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, instance.callerCapable, out); err != nil {
+		return err
+	}
+	if err := continuityReadProposalTx(ctx, tx, req.Work, out); err != nil {
+		return err
+	}
+	if err := continuityReadFailureTx(ctx, tx, req.Work, out, instancePresent); err != nil {
+		return err
+	}
+	if err := continuityReadBoundariesTx(ctx, tx, req.Work, out, req.Limit, offset); err != nil {
+		return err
+	}
+	if err := continuityReadTrailingTx(ctx, tx, req.Work, out); err != nil {
+		return err
+	}
+	view, unavailable, viewErr := readWorkContextProjection(ctx, tx, req.Work)
+	if viewErr != nil {
+		return viewErr
+	}
+	out.WorkContext, out.WorkContextUnavailable = view, unavailable
+	return nil
 }
 
 // continuityReadOutsideRepairTx exposes the work's outside-repair disposition

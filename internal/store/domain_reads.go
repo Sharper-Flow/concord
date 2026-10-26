@@ -561,23 +561,27 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 			out.Pairs = append(out.Pairs, DomainOverlapPair{FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, SharedDomainIDs: overlap.SharedAffectedDomainIDs, SharedLawIDs: overlap.SharedLawIDs, ResolutionState: state, ResolutionKind: kind})
 			// A prospective subject can discover an earlier started peer after
 			// later-sorting pairs. Keep the smallest bounded canonical set.
-			sort.Slice(out.Pairs, func(i, j int) bool {
-				if out.Pairs[i].FromWorkID == out.Pairs[j].FromWorkID {
-					return out.Pairs[i].ToWorkID < out.Pairs[j].ToWorkID
-				}
-				return out.Pairs[i].FromWorkID < out.Pairs[j].FromWorkID
-			})
-			if len(out.Pairs) > domainOverlapPairLimit {
-				last := out.Pairs[domainOverlapPairLimit]
-				delete(seen, [2]string{last.FromWorkID, last.ToWorkID})
-				out.Pairs = out.Pairs[:domainOverlapPairLimit]
-				out.Truncated = true
-			}
+			boundDomainOverlapPairs(&out, seen)
 		}
 	}
 	out.Registry = registry
 	out.ResultMeta = ResultMeta{QueryID: "C22.DomainOverlaps", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"from_work_id", "to_work_id"}, Omissions: omissions}
 	return out, nil
+}
+
+func boundDomainOverlapPairs(out *DomainOverlapsResult, seen map[[2]string]bool) {
+	sort.Slice(out.Pairs, func(i, j int) bool {
+		if out.Pairs[i].FromWorkID == out.Pairs[j].FromWorkID {
+			return out.Pairs[i].ToWorkID < out.Pairs[j].ToWorkID
+		}
+		return out.Pairs[i].FromWorkID < out.Pairs[j].FromWorkID
+	})
+	if len(out.Pairs) > domainOverlapPairLimit {
+		last := out.Pairs[domainOverlapPairLimit]
+		delete(seen, [2]string{last.FromWorkID, last.ToWorkID})
+		out.Pairs = out.Pairs[:domainOverlapPairLimit]
+		out.Truncated = true
+	}
 }
 
 func domainExistsCurrent(ctx context.Context, q queryer, product, domain string) (DomainSummary, error) {

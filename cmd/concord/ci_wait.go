@@ -471,17 +471,27 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	// Checks mode needs the complete population at the full-page boundary,
 	// so it fetches the paginated `pr checks` snapshot there. Merge mode
 	// classifies only the rollup entries already observed.
+	population, missing, err := ciWaitPRPopulation(ctx, state, head)
+	if err != nil {
+		return ciWaitReport{}, false, err
+	}
+	counts, failures := ciWaitCountPRChecks(population)
+	report.Checks = counts
+	return ciWaitPRCheckReport(ctx, state, head, report, population, missing, failures)
+}
+
+func ciWaitPRPopulation(ctx context.Context, state *ciWaitState, head ghPRHead) ([]ciWaitCheck, []string, error) {
 	var population []ciWaitCheck
 	switch {
 	case state.Mode != "merge" && len(head.StatusCheckRollup) == ciWaitPRRollupPageSize:
 		checksBody, err := ciWaitGH(ctx, "pr", "checks", state.Selector.Value,
 			"--repo", state.Repo, "--json", "name,state,link,bucket")
 		if err != nil {
-			return ciWaitReport{}, false, err
+			return nil, nil, err
 		}
 		var checks []ghPRCheck
 		if err := ciWaitDecode(checksBody, &checks); err != nil {
-			return ciWaitReport{}, false, err
+			return nil, nil, err
 		}
 		population = ciWaitPRCheckPopulation(checks, head.StatusCheckRollup)
 	case state.Mode == "merge":
@@ -495,10 +505,14 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 	if state.Mode != "merge" {
 		required, err := ciWaitRequiredContexts(ctx, state, head.BaseRefName)
 		if err != nil {
-			return ciWaitReport{}, false, err
+			return nil, nil, err
 		}
 		population, missing = ciWaitJoinRequired(population, required)
 	}
+	return population, missing, nil
+}
+
+func ciWaitCountPRChecks(population []ciWaitCheck) (*ciWaitChecks, []ciWaitDetail) {
 	counts := &ciWaitChecks{Total: len(population), Entries: make([]ciWaitCheck, 0, len(population))}
 	var failures []ciWaitDetail
 	for _, check := range population {
@@ -519,7 +533,11 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 			counts.Pending++
 		}
 	}
-	report.Checks = counts
+	return counts, failures
+}
+
+func ciWaitPRCheckReport(ctx context.Context, state *ciWaitState, head ghPRHead, report ciWaitReport, population []ciWaitCheck, missing []string, failures []ciWaitDetail) (ciWaitReport, bool, error) {
+	counts := report.Checks
 	if state.Mode == "merge" {
 		removal, err := ciWaitMergeQueueRemoval(ctx, state)
 		if err != nil {

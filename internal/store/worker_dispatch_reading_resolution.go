@@ -166,24 +166,8 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 			witness.projectID = reading.Source.ProjectID
 			witness.commitOID = reading.Source.CommitOID
 			witness.path = reading.Source.Path
-			var member int
-			if err := q.QueryRowContext(ctx, `SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?`, productID, reading.Source.ProjectID).Scan(&member); err != nil {
-				if err == sql.ErrNoRows {
-					return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "declares Project "+reading.Source.ProjectID+" outside the work's Product scope", false, "declare a repository reading from a Project of the work's Product"))
-				}
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot verify the declared Project's Product membership", true, "retry once the Product scope is readable", err))
-			}
-			locatorID, repoPath, locatorErr := uniqueProjectRepositoryLocator(ctx, q, reading.Source.ProjectID)
-			if locatorErr != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, locatorErr)
-			}
-			witness.locatorID = locatorID
-			witness.repoPath = repoPath
-			if err := q.QueryRowContext(ctx, `SELECT created_at, updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, reading.Source.ProjectID, locatorID).Scan(&witness.locatorCreatedAt, &witness.locatorUpdatedAt); err != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the declared Project's canonical locator", true, "retry once the Project locator is readable", err))
-			}
-			if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, reading.Source.ProjectID).Scan(&witness.projectVersion); err != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the declared Project's version", true, "retry once the Project projection is readable", err))
+			if err := sampleRepositoryReadingIdentity(ctx, q, productID, &witness); err != nil {
+				return nil, readingResolutionFailure(ordinal, witness.identity, err)
 			}
 		case WorkContextSourceKnowledge:
 			witness.identity = knowledgeReadingIdentity(reading.Source.SourceID, reading.Source.LawID, reading.Source.ContentHash)
@@ -198,86 +182,119 @@ func sampleDispatchReadingIdentities(ctx context.Context, q queryer, workID stri
 				knowledgeSources = resolved
 				sourcesResolved = true
 			}
-			witness.sourceSetDigest = knowledgeSourceSetDigest(knowledgeSources)
-			var matches []KnowledgeHome
-			for _, source := range knowledgeSources {
-				if source.HomeProjectID == reading.Source.SourceID {
-					matches = append(matches, source)
-				}
+			if err := sampleKnowledgeReadingIdentity(ctx, q, productID, knowledgeSources, &witness); err != nil {
+				return nil, readingResolutionFailure(ordinal, witness.identity, err)
 			}
-			switch len(matches) {
-			case 0:
-				return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "source_id "+reading.Source.SourceID+" names no registered knowledge source of the work's Product", false, "declare the law reading through the Product's designated home or a registered source Project"))
-			case 1:
-			default:
-				return nil, readingResolutionFailure(ordinal, witness.identity, newAmbiguousScopeFailure(workerDispatchReadingResolutionOp, "source_id "+reading.Source.SourceID+" matches several registered knowledge sources", "register one canonical locator per source Project", knowledgeHomeCandidateIDs(matches)))
-			}
-			home := matches[0]
-			witness.sourceLocator = home.HomeLocatorID
-			witness.sourceRepo = home.RepoPath
-			if err := q.QueryRowContext(ctx, `SELECT created_at, updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&witness.locatorCreatedAt, &witness.locatorUpdatedAt); err != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source's canonical locator", true, "retry once the Project locator is readable", err))
-			}
-			if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, home.HomeProjectID).Scan(&witness.projectVersion); err != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source Project's version", true, "retry once the Project projection is readable", err))
-			}
-			var registered sql.NullString
-			registeredErr := q.QueryRowContext(ctx, `SELECT registered_at FROM product_knowledge_sources WHERE product_id=? AND project_id=?`, productID, home.HomeProjectID).Scan(&registered)
-			if registeredErr == nil {
-				witness.registeredAt = registered.String
-			} else if registeredErr != sql.ErrNoRows {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source registration", true, "retry once the source registration is readable", registeredErr))
-			}
-			subject, subjectErr := resolveWorkflowLawSubjectTx(ctx, q, []KnowledgeHome{home}, home.HomeProjectID, home.HomeLocatorID, reading.Source.LawID)
-			if subjectErr != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, subjectErr)
-			}
-			if subject.hash != reading.Source.ContentHash {
-				return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindProjectionConflict, workerDispatchReadingResolutionOp, "the registered source's projected law revision "+reading.Source.LawID+" does not carry the pinned content hash", false, "declare the reading at the revision the source projects, or refresh the reading through the existing route"))
-			}
-			var row struct {
-				notePath, commitOID, contentHash string
-				recordType, title, completedAt   string
-				outcomeTag, lessonTags, summary  string
-				scopeMode, manifestSchemaVersion string
-			}
-			scanErr := q.QueryRowContext(ctx, `SELECT note_path, commit_oid, content_hash, type, title, completed_at, outcome_tag, lesson_tags, summary, scope_mode, manifest_schema_version FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, home.HomeProjectID, home.HomeLocatorID, reading.Source.LawID).Scan(
-				&row.notePath, &row.commitOID, &row.contentHash, &row.recordType, &row.title, &row.completedAt, &row.outcomeTag, &row.lessonTags, &row.summary, &row.scopeMode, &row.manifestSchemaVersion)
-			if scanErr == sql.ErrNoRows || scanErr == nil && row.contentHash != reading.Source.ContentHash {
-				return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindProjectionNotFound, workerDispatchReadingResolutionOp, "the pinned law revision's canonical locator is absent from the git-derived projection", false, "declare reachable pinned repository content or refresh the explicit reading through the existing route"))
-			}
-			if scanErr != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the law revision's canonical locator", true, "retry once the git-derived knowledge projection is readable", scanErr))
-			}
-			witness.recordPath = row.notePath
-			witness.recordCommit = row.commitOID
-			var watermark struct {
-				commit   sql.NullString
-				digest   sql.NullString
-				version  int64
-				complete bool
-			}
-			watermarkErr := q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, projection_version, complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref='HEAD'`, home.HomeProjectID, home.HomeLocatorID).Scan(&watermark.commit, &watermark.digest, &watermark.version, &watermark.complete)
-			if watermarkErr == nil {
-				witness.watermarkCommit = watermark.commit.String
-				witness.watermarkDigest = watermark.digest.String
-				witness.watermarkVersion = watermark.version
-				witness.watermarkComplete = watermark.complete
-			} else if watermarkErr != sql.ErrNoRows {
-				return nil, readingResolutionFailure(ordinal, witness.identity, wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source watermark", true, "retry once the knowledge projection is readable", watermarkErr))
-			}
-			record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, reading.Source.LawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
-			if recordErr != nil {
-				return nil, readingResolutionFailure(ordinal, witness.identity, recordErr)
-			}
-			witness.manifestRole = role
-			witness.projectedRecord = &record
 		default:
 			return nil, readingResolutionFailure(ordinal, witness.identity, newFailure(KindInvalidPayload, workerDispatchReadingResolutionOp, "declares an unknown reading source kind", false, "use the closed reading source union"))
 		}
 		witnesses = append(witnesses, witness)
 	}
 	return witnesses, nil
+}
+
+func sampleRepositoryReadingIdentity(ctx context.Context, q queryer, productID string, witness *dispatchReadingWitness) error {
+	var member int
+	if err := q.QueryRowContext(ctx, `SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?`, productID, witness.projectID).Scan(&member); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "declares Project "+witness.projectID+" outside the work's Product scope", false, "declare a repository reading from a Project of the work's Product")
+		}
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot verify the declared Project's Product membership", true, "retry once the Product scope is readable", err)
+	}
+	locatorID, repoPath, err := uniqueProjectRepositoryLocator(ctx, q, witness.projectID)
+	if err != nil {
+		return err
+	}
+	witness.locatorID, witness.repoPath = locatorID, repoPath
+	if err := q.QueryRowContext(ctx, `SELECT created_at, updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, witness.projectID, locatorID).Scan(&witness.locatorCreatedAt, &witness.locatorUpdatedAt); err != nil {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the declared Project's canonical locator", true, "retry once the Project locator is readable", err)
+	}
+	if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, witness.projectID).Scan(&witness.projectVersion); err != nil {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the declared Project's version", true, "retry once the Project projection is readable", err)
+	}
+	return nil
+}
+
+func sampleKnowledgeReadingIdentity(ctx context.Context, q queryer, productID string, knowledgeSources []KnowledgeHome, witness *dispatchReadingWitness) error {
+	witness.sourceSetDigest = knowledgeSourceSetDigest(knowledgeSources)
+	var matches []KnowledgeHome
+	for _, source := range knowledgeSources {
+		if source.HomeProjectID == witness.sourceProject {
+			matches = append(matches, source)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return newFailure(KindUnknownScope, workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" names no registered knowledge source of the work's Product", false, "declare the law reading through the Product's designated home or a registered source Project")
+	case 1:
+	default:
+		return newAmbiguousScopeFailure(workerDispatchReadingResolutionOp, "source_id "+witness.sourceProject+" matches several registered knowledge sources", "register one canonical locator per source Project", knowledgeHomeCandidateIDs(matches))
+	}
+	home := matches[0]
+	witness.sourceLocator = home.HomeLocatorID
+	witness.sourceRepo = home.RepoPath
+	if err := q.QueryRowContext(ctx, `SELECT created_at, updated_at FROM project_locators WHERE project_id=? AND locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&witness.locatorCreatedAt, &witness.locatorUpdatedAt); err != nil {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source's canonical locator", true, "retry once the Project locator is readable", err)
+	}
+	if err := q.QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, home.HomeProjectID).Scan(&witness.projectVersion); err != nil {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source Project's version", true, "retry once the Project projection is readable", err)
+	}
+	var registered sql.NullString
+	registeredErr := q.QueryRowContext(ctx, `SELECT registered_at FROM product_knowledge_sources WHERE product_id=? AND project_id=?`, productID, home.HomeProjectID).Scan(&registered)
+	if registeredErr == nil {
+		witness.registeredAt = registered.String
+	} else if registeredErr != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source registration", true, "retry once the source registration is readable", registeredErr)
+	}
+	return sampleKnowledgeReadingRevision(ctx, q, home, witness)
+}
+
+func sampleKnowledgeReadingRevision(ctx context.Context, q queryer, home KnowledgeHome, witness *dispatchReadingWitness) error {
+	subject, subjectErr := resolveWorkflowLawSubjectTx(ctx, q, []KnowledgeHome{home}, home.HomeProjectID, home.HomeLocatorID, witness.lawID)
+	if subjectErr != nil {
+		return subjectErr
+	}
+	if subject.hash != witness.contentHash {
+		return newFailure(KindProjectionConflict, workerDispatchReadingResolutionOp, "the registered source's projected law revision "+witness.lawID+" does not carry the pinned content hash", false, "declare the reading at the revision the source projects, or refresh the reading through the existing route")
+	}
+	var row struct {
+		notePath, commitOID, contentHash string
+		recordType, title, completedAt   string
+		outcomeTag, lessonTags, summary  string
+		scopeMode, manifestSchemaVersion string
+	}
+	scanErr := q.QueryRowContext(ctx, `SELECT note_path, commit_oid, content_hash, type, title, completed_at, outcome_tag, lesson_tags, summary, scope_mode, manifest_schema_version FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, home.HomeProjectID, home.HomeLocatorID, witness.lawID).Scan(
+		&row.notePath, &row.commitOID, &row.contentHash, &row.recordType, &row.title, &row.completedAt, &row.outcomeTag, &row.lessonTags, &row.summary, &row.scopeMode, &row.manifestSchemaVersion)
+	if scanErr == sql.ErrNoRows || scanErr == nil && row.contentHash != witness.contentHash {
+		return newFailure(KindProjectionNotFound, workerDispatchReadingResolutionOp, "the pinned law revision's canonical locator is absent from the git-derived projection", false, "declare reachable pinned repository content or refresh the explicit reading through the existing route")
+	}
+	if scanErr != nil {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the law revision's canonical locator", true, "retry once the git-derived knowledge projection is readable", scanErr)
+	}
+	witness.recordPath = row.notePath
+	witness.recordCommit = row.commitOID
+	var watermark struct {
+		commit   sql.NullString
+		digest   sql.NullString
+		version  int64
+		complete bool
+	}
+	watermarkErr := q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, projection_version, complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref='HEAD'`, home.HomeProjectID, home.HomeLocatorID).Scan(&watermark.commit, &watermark.digest, &watermark.version, &watermark.complete)
+	if watermarkErr == nil {
+		witness.watermarkCommit = watermark.commit.String
+		witness.watermarkDigest = watermark.digest.String
+		witness.watermarkVersion = watermark.version
+		witness.watermarkComplete = watermark.complete
+	} else if watermarkErr != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, workerDispatchReadingResolutionOp, "cannot read the knowledge source watermark", true, "retry once the knowledge projection is readable", watermarkErr)
+	}
+	record, role, recordErr := knowledgeProjectedRecordTx(ctx, q, witness.lawID, row.recordType, row.outcomeTag, row.completedAt, row.title, row.summary, row.contentHash, row.scopeMode, row.lessonTags, home.HomeProjectID, home.HomeLocatorID, row.notePath)
+	if recordErr != nil {
+		return recordErr
+	}
+	witness.manifestRole = role
+	witness.projectedRecord = &record
+	return nil
 }
 
 // uniqueProjectRepositoryLocator resolves one Project's canonical repository

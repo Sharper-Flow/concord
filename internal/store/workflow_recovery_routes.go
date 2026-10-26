@@ -300,57 +300,22 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 	declared := make(map[string]bool, len(routes))
 	unhealthyRoutes := make(map[string]bool, len(routes))
 	for _, route := range routes {
-		if !validWorkflowRecoveryTrigger(route.Trigger) {
-			return definitionFailure(KindInvalidDefinition, "recovery route trigger is not declared: "+string(route.Trigger))
-		}
-		if _, ok := steps[route.Step]; !ok {
-			return definitionFailure(KindInvalidDefinition, "recovery route step is not declared: "+route.Step)
-		}
-		if !workflowRecoveryRouteActionDeclared(route.Action) {
-			return definitionFailure(KindInvalidDefinition, "recovery route action is not declared: "+route.Action)
-		}
-		if route.Action != workflowRecoveryRouteActionForTrigger(route.Trigger) {
-			return definitionFailure(KindInvalidDefinition, "recovery route action does not pair with its trigger: "+route.Step)
-		}
-		target, ok := steps[route.Target]
-		if !ok {
-			return definitionFailure(KindInvalidDefinition, "recovery route target is not declared: "+route.Target)
+		if err := validateWorkflowRecoveryRouteIdentity(route, steps); err != nil {
+			return err
 		}
 		key := route.Step + "\x00" + string(route.Trigger)
 		if declared[key] {
 			return definitionFailure(KindInvalidDefinition, "recovery route is declared twice for one step and trigger: "+route.Step)
 		}
 		declared[key] = true
-		routeStep := steps[route.Step]
-		reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "dispatch_worker") && slices.Contains(routeStep.Actions, "accept_worker_result")
+		if err := validateWorkflowRecoveryRoutePlacement(definition, route, steps[route.Step], terminals); err != nil {
+			return err
+		}
 		if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
-			if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
-				return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
-			}
 			unhealthyRoutes[route.Step] = true
 		}
-		if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
-			return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
-		}
-		if route.Target == route.Step && !(reviewLoop && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict) {
-			return definitionFailure(KindInvalidDefinition, "recovery route target is the route step: "+route.Step)
-		}
-		if terminals[route.Target] {
-			return definitionFailure(KindInvalidDefinition, "recovery route target is terminal: "+route.Target)
-		}
-		if !workflowStepReachesByForwardEdges(graph, route.Target, route.Step) {
-			return definitionFailure(KindInvalidDefinition, "recovery route target does not reach the route step through forward edges: "+route.Target)
-		}
-		if slices.Contains(target.Actions, "approve_contract") {
-			return definitionFailure(KindInvalidDefinition, "recovery route target declares approve_contract: "+route.Target)
-		}
-		producer := slices.Contains(target.Actions, "dispatch_worker") || len(workflowStepArtifactActions(definition, route.Target)) > 0
-		for _, actionID := range target.Actions {
-			mode, ok := workflowActionExecutionMode(definition, actionID)
-			producer = producer || (ok && mode == ActionFenced)
-		}
-		if !producer {
-			return definitionFailure(KindInvalidDefinition, "recovery route target has no artifact-producing mechanism: "+route.Target)
+		if err := validateWorkflowRecoveryRouteProducer(definition, route, steps[route.Target]); err != nil {
+			return err
 		}
 	}
 	for _, candidate := range graph.Steps {
@@ -360,6 +325,62 @@ func validateWorkflowRecoveryRoutes(definition WorkflowDefinition) error {
 		if !unhealthyRoutes[candidate.ID] {
 			return definitionFailure(KindInvalidDefinition, "definition step that records a verdict, confirms a premise, or hosts a late-verdict context resolves no unhealthy_verdict recovery route: "+candidate.ID)
 		}
+	}
+	return nil
+}
+
+func validateWorkflowRecoveryRouteIdentity(route WorkflowRecoveryRoute, steps map[string]WorkflowStep) error {
+	if !validWorkflowRecoveryTrigger(route.Trigger) {
+		return definitionFailure(KindInvalidDefinition, "recovery route trigger is not declared: "+string(route.Trigger))
+	}
+	if _, ok := steps[route.Step]; !ok {
+		return definitionFailure(KindInvalidDefinition, "recovery route step is not declared: "+route.Step)
+	}
+	if !workflowRecoveryRouteActionDeclared(route.Action) {
+		return definitionFailure(KindInvalidDefinition, "recovery route action is not declared: "+route.Action)
+	}
+	if route.Action != workflowRecoveryRouteActionForTrigger(route.Trigger) {
+		return definitionFailure(KindInvalidDefinition, "recovery route action does not pair with its trigger: "+route.Step)
+	}
+	if _, ok := steps[route.Target]; !ok {
+		return definitionFailure(KindInvalidDefinition, "recovery route target is not declared: "+route.Target)
+	}
+	return nil
+}
+
+func validateWorkflowRecoveryRoutePlacement(definition WorkflowDefinition, route WorkflowRecoveryRoute, routeStep WorkflowStep, terminals map[string]bool) error {
+	reviewLoop := routeStep.Kind == WorkflowStepExternalEffect && slices.Contains(routeStep.Actions, "dispatch_worker") && slices.Contains(routeStep.Actions, "accept_worker_result")
+	if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
+		if !slices.Contains(routeStep.Actions, "record_verdict") && !slices.Contains(routeStep.Actions, "confirm_premise") && !terminals[route.Step] && !reviewLoop {
+			return definitionFailure(KindInvalidDefinition, "unhealthy_verdict recovery route sits on a step with no criterion, premise, or execution Review: "+route.Step)
+		}
+	}
+	if route.Trigger == WorkflowRecoveryTriggerDisprovedPremiseAtComplete && !slices.Contains(routeStep.Actions, "complete") {
+		return definitionFailure(KindInvalidDefinition, "disproved_premise_at_complete recovery route sits on a step that declares no complete action: "+route.Step)
+	}
+	if route.Target == route.Step && !(reviewLoop && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict) {
+		return definitionFailure(KindInvalidDefinition, "recovery route target is the route step: "+route.Step)
+	}
+	if terminals[route.Target] {
+		return definitionFailure(KindInvalidDefinition, "recovery route target is terminal: "+route.Target)
+	}
+	if !workflowStepReachesByForwardEdges(definition.StepGraph, route.Target, route.Step) {
+		return definitionFailure(KindInvalidDefinition, "recovery route target does not reach the route step through forward edges: "+route.Target)
+	}
+	return nil
+}
+
+func validateWorkflowRecoveryRouteProducer(definition WorkflowDefinition, route WorkflowRecoveryRoute, target WorkflowStep) error {
+	if slices.Contains(target.Actions, "approve_contract") {
+		return definitionFailure(KindInvalidDefinition, "recovery route target declares approve_contract: "+route.Target)
+	}
+	producer := slices.Contains(target.Actions, "dispatch_worker") || len(workflowStepArtifactActions(definition, route.Target)) > 0
+	for _, actionID := range target.Actions {
+		mode, ok := workflowActionExecutionMode(definition, actionID)
+		producer = producer || (ok && mode == ActionFenced)
+	}
+	if !producer {
+		return definitionFailure(KindInvalidDefinition, "recovery route target has no artifact-producing mechanism: "+route.Target)
 	}
 	return nil
 }

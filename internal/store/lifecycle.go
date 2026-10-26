@@ -205,30 +205,8 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.created payload has invalid urgency", false,
 			"supply urgency of 'standard' or 'expedite'")
 	}
-	if payload.ExternalRef == "" && payload.RaisedFromWorkID != "" {
-		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
-			"supply raised_from_work_id only when acknowledging a live external reference conflict")
-	}
-	// Refuse an external reference a live work item already owns unless the
-	// capture acknowledges that owner.
-	if payload.ExternalRef != "" {
-		var existingWorkID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
-		if err != nil && err != sql.ErrNoRows {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
-				"retry once the database is readable", err)
-		}
-		if err == nil {
-			conflict := newFailure(KindProjectionConflict, "fold_event", "external reference already belongs to live work item "+existingWorkID, false,
-				"acknowledge the colliding work item with raised_from_work_id")
-			conflict.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: existingWorkID, ExternalRef: payload.ExternalRef}
-			if payload.RaisedFromWorkID != existingWorkID {
-				return conflict
-			}
-		} else if payload.RaisedFromWorkID != "" {
-			return newFailure(KindProjectionConflict, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict", false,
-				"reread the live external reference owner and supply its work ID")
-		}
+	if err := validateCaptureExternalRefTx(ctx, tx, payload); err != nil {
+		return err
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	// A captured task validates under the same rule the revise fold
@@ -263,6 +241,35 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.RaisedFromWorkID != "" {
 		if err := insertRelation(ctx, tx, event, relationPayload{From: event.SubjectID, To: payload.RaisedFromWorkID, Kind: "raised_from", Reason: "capture acknowledges the colliding external reference"}); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// Refuse an external reference a live work item already owns unless the
+// capture acknowledges that owner.
+func validateCaptureExternalRefTx(ctx context.Context, tx *sql.Tx, payload workCreatedPayload) error {
+	if payload.ExternalRef == "" && payload.RaisedFromWorkID != "" {
+		return newFailure(KindInvalidPayload, "fold_event", "raised_from_work_id requires an external_ref collision", false,
+			"supply raised_from_work_id only when acknowledging a live external reference conflict")
+	}
+	if payload.ExternalRef != "" {
+		var existingWorkID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM work_items WHERE json_extract(intent_json, '$.external_ref')=? AND terminal_time IS NULL LIMIT 1`, payload.ExternalRef).Scan(&existingWorkID)
+		if err != nil && err != sql.ErrNoRows {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect live external-reference owners", true,
+				"retry once the database is readable", err)
+		}
+		if err == nil {
+			conflict := newFailure(KindProjectionConflict, "fold_event", "external reference already belongs to live work item "+existingWorkID, false,
+				"acknowledge the colliding work item with raised_from_work_id")
+			conflict.ExternalRefConflict = &ExternalRefConflict{ExistingWorkID: existingWorkID, ExternalRef: payload.ExternalRef}
+			if payload.RaisedFromWorkID != existingWorkID {
+				return conflict
+			}
+		} else if payload.RaisedFromWorkID != "" {
+			return newFailure(KindProjectionConflict, "fold_event", "raised_from_work_id does not acknowledge a live external reference conflict", false,
+				"reread the live external reference owner and supply its work ID")
 		}
 	}
 	return nil
@@ -445,46 +452,8 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		return illegalTransition(payload.From, payload.To)
 	}
 	if payload.To == "completed" {
-		if err := refuseUnreconciledDelivery(ctx, tx, scopeDefinitionRegistry(scope), event.SubjectID); err != nil {
+		if err := requireWorkCompletionTx(ctx, tx, event.SubjectID, scopeDefinitionRegistry(scope)); err != nil {
 			return err
-		}
-		// CD-0183 D4: refuse a completed target while the
-		// item's workflow instance has not reached a terminal state, so the
-		// lifecycle cannot bypass the workflow's completion gate. An absent
-		// instance is an imported item, and a terminal instance admits the
-		// repair of a stranded item.
-		if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, event.SubjectID); err != nil {
-			return err
-		}
-		var pin WorkflowDefinitionPin
-		var instanceState string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&pin.Ref, &pin.Digest, &instanceState)
-		if definitionErr != nil && definitionErr != sql.ErrNoRows {
-			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
-		}
-		var definition WorkflowDefinition
-		if definitionErr == nil {
-			registered, err := verifyWorkflowDefinitionPinForFold(scopeDefinitionRegistry(scope), pin)
-			if err != nil {
-				return err
-			}
-			definition = registered.Definition
-			if err := requireReviewedClosureQ(ctx, tx, event.SubjectID); err != nil {
-				return err
-			}
-		}
-		// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
-		// row on the lifecycle path. A completed instance proves the ordered
-		// completion gate ran, and the gate owns the decision through the
-		// approved outcome, so the fold does not re-ask for a row the gate
-		// never required.
-		if definitionErr == nil && instanceState == "completed" {
-			definition.OutcomeSchema.DecisionRecordRequired = false
-		}
-		if definition.OutcomeSchema.DecisionRecordRequired {
-			if err := requireBoundDecisionRecordTx(ctx, tx, event.SubjectID, definition); err != nil {
-				return err
-			}
 		}
 	}
 	if payload.To == "in_progress" {
@@ -504,6 +473,51 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		}
 		// CD-0028: a terminal work item holds nothing.
 		return foldTerminalReleasesResourceClaims(ctx, tx, event)
+	}
+	return nil
+}
+
+func requireWorkCompletionTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry) error {
+	if err := refuseUnreconciledDelivery(ctx, tx, registry, workID); err != nil {
+		return err
+	}
+	// CD-0183 D4: refuse a completed target while the
+	// item's workflow instance has not reached a terminal state, so the
+	// lifecycle cannot bypass the workflow's completion gate. An absent
+	// instance is an imported item, and a terminal instance admits the
+	// repair of a stranded item.
+	if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, workID); err != nil {
+		return err
+	}
+	var pin WorkflowDefinitionPin
+	var instanceState string
+	definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest, &instanceState)
+	if definitionErr != nil && definitionErr != sql.ErrNoRows {
+		return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
+	}
+	var definition WorkflowDefinition
+	if definitionErr == nil {
+		registered, err := verifyWorkflowDefinitionPinForFold(registry, pin)
+		if err != nil {
+			return err
+		}
+		definition = registered.Definition
+		if err := requireReviewedClosureQ(ctx, tx, workID); err != nil {
+			return err
+		}
+	}
+	// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
+	// row on the lifecycle path. A completed instance proves the ordered
+	// completion gate ran, and the gate owns the decision through the
+	// approved outcome, so the fold does not re-ask for a row the gate
+	// never required.
+	if definitionErr == nil && instanceState == "completed" {
+		definition.OutcomeSchema.DecisionRecordRequired = false
+	}
+	if definition.OutcomeSchema.DecisionRecordRequired {
+		if err := requireBoundDecisionRecordTx(ctx, tx, workID, definition); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -724,29 +738,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			// versions and create the replacement edge below.
 			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 		}
-		replacement, err := readWork(ctx, tx, payload.Replacement)
-		if err != nil {
-			return err
-		}
-		if payload.ReplacementExpected == 0 || payload.ReplacementResulting == 0 {
-			return newFailure(KindInvalidPayload, "fold_event", "replacement successor version is required", false, "supply the replacement endpoint version")
-		}
-		if err := validateWorkVersion(payload.Replacement, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
-			return err
-		}
-		if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
-			return err
-		} else if cycle {
-			f := newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
-			// Carry the typed offending edge so the agent layer can surface
-			// error.violations structurally (D5) instead of regexing detail.
-			f.Violations = []string{"supersedes:" + payload.Replacement + "->" + event.SubjectID}
-			return f
-		}
-		if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
-			return err
-		}
-		if err := updateWorkVersionByID(ctx, tx, payload.Replacement, payload.ReplacementExpected, payload.ReplacementResulting, event.OccurredAt); err != nil {
+		if err := replaceSupersessionTx(ctx, tx, event, payload); err != nil {
 			return err
 		}
 	}
@@ -754,6 +746,35 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
+}
+
+func replaceSupersessionTx(ctx context.Context, tx *sql.Tx, event Event, payload workReopenedFromSupersededPayload) error {
+	replacement, err := readWork(ctx, tx, payload.Replacement)
+	if err != nil {
+		return err
+	}
+	if payload.ReplacementExpected == 0 || payload.ReplacementResulting == 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "replacement successor version is required", false, "supply the replacement endpoint version")
+	}
+	if err := validateWorkVersion(payload.Replacement, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
+		return err
+	}
+	if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
+		return err
+	} else if cycle {
+		f := newFailure(KindCycleDetected, "fold_event", "replacement supersession would create a cycle", false, "choose a non-cyclic replacement successor")
+		// Carry the typed offending edge so the agent layer can surface
+		// error.violations structurally (D5) instead of regexing detail.
+		f.Violations = []string{"supersedes:" + payload.Replacement + "->" + event.SubjectID}
+		return f
+	}
+	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
+		return err
+	}
+	if err := updateWorkVersionByID(ctx, tx, payload.Replacement, payload.ReplacementExpected, payload.ReplacementResulting, event.OccurredAt); err != nil {
+		return err
+	}
+	return nil
 }
 
 func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -776,16 +797,8 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindRelationContractViolation, "fold_event", refusal.Message, false, refusal.Recovery)
 	}
 	if payload.Kind == "parent" {
-		fromKind, err := readWorkKind(ctx, tx, payload.From)
-		if err != nil {
+		if err := refuseInitiativeParentTx(ctx, tx, payload); err != nil {
 			return err
-		}
-		toKind, err := readWorkKind(ctx, tx, payload.To)
-		if err != nil {
-			return err
-		}
-		if fromKind == "initiative" || toKind == "initiative" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
@@ -828,6 +841,21 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if payload.ToExpectedVersion != 0 && payload.ToResultingVersion != 0 {
 		return updateWorkVersionByID(ctx, tx, payload.To, payload.ToExpectedVersion, payload.ToResultingVersion, event.OccurredAt)
+	}
+	return nil
+}
+
+func refuseInitiativeParentTx(ctx context.Context, tx *sql.Tx, payload relationPayload) error {
+	fromKind, err := readWorkKind(ctx, tx, payload.From)
+	if err != nil {
+		return err
+	}
+	toKind, err := readWorkKind(ctx, tx, payload.To)
+	if err != nil {
+		return err
+	}
+	if fromKind == "initiative" || toKind == "initiative" {
+		return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 	}
 	return nil
 }

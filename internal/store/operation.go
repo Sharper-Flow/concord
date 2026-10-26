@@ -420,54 +420,7 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 	}
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
-		if err := event.validate(); err != nil {
-			return output, err
-		}
-		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
-			if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
-				return output, err
-			}
-			if err := refusePublishedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
-				return output, err
-			}
-		}
-		if err := validateRegisteredEvent(event); err != nil {
-			return output, attributeFailure(err, event, StageDecode)
-		}
-		ref := VersionRef(event.SubjectType, event.SubjectID)
-		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
-			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
-			if err != nil {
-				return output, err
-			}
-			if expected > 0 && !exists {
-				return output, absentSubject(event.SubjectType, event.SubjectID)
-			}
-			if (expected == 0 && exists) || got != expected {
-				actions, actionErr := interveningWorkflowActions(ctx, tx, event.SubjectType, event.SubjectID, expected, got)
-				if actionErr != nil {
-					return output, actionErr
-				}
-				return output, versionConflictWithActions(event.SubjectType, event.SubjectID, expected, got, exists, actions)
-			}
-			checked[ref] = true
-		}
-		var seq Sequence
-		var err error
-		if workflowAuthority {
-			seq, err = appendEvent(ctx, tx, event, true)
-		} else {
-			seq, err = AppendEvent(ctx, tx, event)
-		}
-		if err != nil {
-			return output, err
-		}
-		event.Seq = seq
-		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := applyEffect(ctx, tx, event, scope); err != nil {
-			return output, err
-		}
-		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {
+		if err := applyOperationEventTx(ctx, tx, event, operation.ExpectedVersions, checked, scope, workflowAuthority); err != nil {
 			return output, err
 		}
 	}
@@ -487,6 +440,65 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		return output, err
 	}
 	return output, nil
+}
+
+func applyOperationEventTx(ctx context.Context, tx *sql.Tx, event Event, expectedVersions map[SubjectRef]int64, checked map[SubjectRef]bool, scope *writeScope, workflowAuthority bool) error {
+	if err := event.validate(); err != nil {
+		return err
+	}
+	if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
+		if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+			return err
+		}
+		if err := refusePublishedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+			return err
+		}
+	}
+	// Validate the current payload before recording any effect.
+	if err := validateRegisteredEvent(event); err != nil {
+		return attributeFailure(err, event, StageDecode)
+	}
+	if err := checkOperationEventVersionTx(ctx, tx, event, expectedVersions, checked); err != nil {
+		return err
+	}
+	var seq Sequence
+	var err error
+	if workflowAuthority {
+		seq, err = appendEvent(ctx, tx, event, true)
+	} else {
+		seq, err = AppendEvent(ctx, tx, event)
+	}
+	if err != nil {
+		return err
+	}
+	event.Seq = seq
+	scope.eventIDs = append(scope.eventIDs, event.EventID)
+	if err := applyEffect(ctx, tx, event, scope); err != nil {
+		return err
+	}
+	return advanceWorkEffectSeqTx(ctx, tx, event)
+}
+
+func checkOperationEventVersionTx(ctx context.Context, tx *sql.Tx, event Event, expectedVersions map[SubjectRef]int64, checked map[SubjectRef]bool) error {
+	ref := VersionRef(event.SubjectType, event.SubjectID)
+	if expected, hasExpected := expectedVersions[ref]; hasExpected && !checked[ref] {
+		got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
+		if err != nil {
+			return err
+		}
+		if expected > 0 && !exists {
+			return absentSubject(event.SubjectType, event.SubjectID)
+		}
+		if (expected == 0 && exists) || got != expected {
+			actions, actionErr := interveningWorkflowActions(ctx, tx, event.SubjectType, event.SubjectID, expected, got)
+			if actionErr != nil {
+				return actionErr
+			}
+			return versionConflictWithActions(event.SubjectType, event.SubjectID, expected, got, exists, actions)
+		}
+		checked[ref] = true
+	}
+	return nil
 }
 
 // preCommitHook is deliberately unexported. Tests use it to stop a process at
@@ -538,49 +550,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	}
 	checked := make(map[SubjectRef]bool, len(operation.ExpectedVersions))
 	for _, event := range operation.Events {
-		if err := event.validate(); err != nil {
-			return output, rollback(err)
-		}
-		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
-			if err := refuseRemovedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
-				return output, rollback(err)
-			}
-			if err := refusePublishedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
-				return output, rollback(err)
-			}
-		}
-		// Validate the current payload before recording any effect.
-		if err := validateRegisteredEvent(event); err != nil {
-			return output, rollback(attributeFailure(err, event, StageDecode))
-		}
-		ref := VersionRef(event.SubjectType, event.SubjectID)
-		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
-			got, exists, err := projectionVersion(ctx, tx.Tx, event.SubjectType, event.SubjectID)
-			if err != nil {
-				return output, rollback(err)
-			}
-			if expected > 0 && !exists {
-				return output, rollback(absentSubject(event.SubjectType, event.SubjectID))
-			}
-			if (expected == 0 && exists) || got != expected {
-				actions, actionErr := interveningWorkflowActions(ctx, tx.Tx, event.SubjectType, event.SubjectID, expected, got)
-				if actionErr != nil {
-					return output, rollback(actionErr)
-				}
-				return output, rollback(versionConflictWithActions(event.SubjectType, event.SubjectID, expected, got, exists, actions))
-			}
-			checked[ref] = true
-		}
-		seq, err := AppendEvent(ctx, tx.Tx, event)
-		if err != nil {
-			return output, rollback(err)
-		}
-		event.Seq = seq
-		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := applyEffect(ctx, tx.Tx, event, scope); err != nil {
-			return output, rollback(err)
-		}
-		if err := advanceWorkEffectSeqTx(ctx, tx.Tx, event); err != nil {
+		if err := applyOperationEventTx(ctx, tx.Tx, event, operation.ExpectedVersions, checked, scope, false); err != nil {
 			return output, rollback(err)
 		}
 	}

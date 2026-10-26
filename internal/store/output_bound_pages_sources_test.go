@@ -1149,11 +1149,11 @@ func init() {
 	registerOutputBound("/$defs/outside_repair_git_sha/maxLength", pkLengthSetBound("internal/store/outside_repair.go", "outsideRepairGitSHA", "len(value)"))
 
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/merged_at/maxLength", pkTimeJSONFieldBound("internal/store/outside_repair.go", "OutsideRepairPullRequestEvidence", "MergedAt"))
-	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "len(pr.RequiredChecks)", boundItems))
+	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/required_checks/maxItems", goInlineBound("internal/store/outside_repair.go", "validateOutsideRepairRequiredChecks", "len(pr.RequiredChecks)", boundItems))
 	registerOutputBound("/$defs/outside_repair_pull_request_evidence/properties/url/maxLength", pkOutsideRepairURLBound("pull"))
 
 	registerOutputBound("/$defs/outside_repair_release_tag/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "e.ReleaseTag", 1, boundBytes))
-	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairEvidenceShape", "workflowString", "check.URL", 1, boundBytes))
+	registerOutputBound("/$defs/outside_repair_required_check/properties/url/maxLength", pkGuardArgBound("internal/store/outside_repair.go", "validateOutsideRepairRequiredChecks", "workflowString", "check.URL", 1, boundBytes))
 
 	registerOutputBound("/$defs/product_context/properties/candidates/maxItems", maxBound(
 		goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems),

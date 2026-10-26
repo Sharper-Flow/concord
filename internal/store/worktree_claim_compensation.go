@@ -126,36 +126,7 @@ func reserveClaimCompensationTx(ctx context.Context, tx *sql.Tx, created Worktre
 		return err
 	}
 	if exists {
-		var exact bool
-		var previous claimCompensationExecutor
-		if err := tx.QueryRowContext(ctx, `SELECT work_id=? AND project_id=? AND set_id=? AND repository_id=? AND pinned_path=? AND pinned_branch=? AND pinned_base_sha=? AND state='pending' AND request_id=? AND principal_ref='worktree_claim_compensation', executor_pid, executor_pid_start FROM worktree_claims WHERE op_id=?`,
-			created.WorkID, created.ProjectID, WorktreeSetID(created.WorkID), created.RepoRoot, created.Path, created.Branch, created.Base, created.ClaimOpID, reservation).Scan(&exact, &previous.pid, &previous.start); err != nil {
-			return err
-		}
-		if !exact || generation.path != created.generation.path+1 || generation.branch != created.generation.branch+1 {
-			return newFailure(KindStaleContext, "worktree_claim", "compensation reservation no longer matches this creation", false, "retry the original claim to reconcile compensation")
-		}
-		// A row CAS cannot stop Git already running in the old executor. Only
-		// proven process death permits takeover; unreadable liveness preserves
-		// the reservation. Zero means the executor returned without finishing.
-		if previous.pid != 0 {
-			start, err := hostlease.ProcessStart(previous.pid)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return wrapFailure(KindUnavailable, "worktree_claim", "cannot read native compensation executor liveness", true, "retry when the recorded executor is observable", err)
-			}
-			if err == nil && start == previous.start {
-				return newFailure(KindProjectionConflict, "worktree_claim", "native claim compensation is still executing", true, "retry the original claim after compensation finishes")
-			}
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET executor_pid=?,executor_pid_start=?,updated_at=? WHERE op_id=? AND executor_pid=? AND executor_pid_start=?`,
-			executor.pid, executor.start, now.Format(time.RFC3339Nano), reservation, previous.pid, previous.start)
-		if err != nil {
-			return err
-		}
-		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-			return errors.Join(errors.New("cannot acquire the native compensation executor"), err)
-		}
-		return nil
+		return reacquireClaimCompensationTx(ctx, tx, created, executor, now, generation)
 	}
 	if generation != created.generation {
 		return newFailure(KindStaleContext, "worktree_claim", "creation predates a native compensation generation", false, "retry the original claim with fresh native preparation")
@@ -175,6 +146,40 @@ func reserveClaimCompensationTx(ctx context.Context, tx *sql.Tx, created Worktre
 		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
 			return errors.Join(errors.New("cannot advance an independently owned native fence"), err)
 		}
+	}
+	return nil
+}
+
+func reacquireClaimCompensationTx(ctx context.Context, tx *sql.Tx, created WorktreeClaimCreation, executor claimCompensationExecutor, now time.Time, generation claimNativeGeneration) error {
+	reservation := compensationClaimID(created)
+	var exact bool
+	var previous claimCompensationExecutor
+	if err := tx.QueryRowContext(ctx, `SELECT work_id=? AND project_id=? AND set_id=? AND repository_id=? AND pinned_path=? AND pinned_branch=? AND pinned_base_sha=? AND state='pending' AND request_id=? AND principal_ref='worktree_claim_compensation', executor_pid, executor_pid_start FROM worktree_claims WHERE op_id=?`,
+		created.WorkID, created.ProjectID, WorktreeSetID(created.WorkID), created.RepoRoot, created.Path, created.Branch, created.Base, created.ClaimOpID, reservation).Scan(&exact, &previous.pid, &previous.start); err != nil {
+		return err
+	}
+	if !exact || generation.path != created.generation.path+1 || generation.branch != created.generation.branch+1 {
+		return newFailure(KindStaleContext, "worktree_claim", "compensation reservation no longer matches this creation", false, "retry the original claim to reconcile compensation")
+	}
+	// A row CAS cannot stop Git already running in the old executor. Only
+	// proven process death permits takeover; unreadable liveness preserves
+	// the reservation. Zero means the executor returned without finishing.
+	if previous.pid != 0 {
+		start, err := hostlease.ProcessStart(previous.pid)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return wrapFailure(KindUnavailable, "worktree_claim", "cannot read native compensation executor liveness", true, "retry when the recorded executor is observable", err)
+		}
+		if err == nil && start == previous.start {
+			return newFailure(KindProjectionConflict, "worktree_claim", "native claim compensation is still executing", true, "retry the original claim after compensation finishes")
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET executor_pid=?,executor_pid_start=?,updated_at=? WHERE op_id=? AND executor_pid=? AND executor_pid_start=?`,
+		executor.pid, executor.start, now.Format(time.RFC3339Nano), reservation, previous.pid, previous.start)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		return errors.Join(errors.New("cannot acquire the native compensation executor"), err)
 	}
 	return nil
 }

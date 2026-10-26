@@ -98,39 +98,8 @@ func mergeWorkerTerminalProducerFields(existing, requested store.Event) (store.E
 		members["observed_delivery"] = raw
 	}
 	if existing.Kind == store.WorkerCompleted {
-		var original map[string]json.RawMessage
-		if err := json.Unmarshal(existing.Payload, &original); err != nil {
+		if err := mergeWorkerEvidenceSubjects(existing.Payload, members); err != nil {
 			return store.Event{}, err
-		}
-		var prior, next []map[string]json.RawMessage
-		if err := json.Unmarshal(original["evidence"], &prior); err != nil {
-			return store.Event{}, err
-		}
-		if err := json.Unmarshal(members["evidence"], &next); err != nil {
-			return store.Event{}, err
-		}
-		if len(prior) == len(next) {
-			for i, entry := range next {
-				var storedReceipt, requestedReceipt map[string]json.RawMessage
-				if json.Unmarshal(prior[i]["oracle_receipt"], &storedReceipt) != nil || json.Unmarshal(entry["oracle_receipt"], &requestedReceipt) != nil || requestedReceipt == nil {
-					continue
-				}
-				// Only the omitted producer subject is overlaid. Every claimed
-				// subject and every other receipt member still compares exactly.
-				if _, claimed := requestedReceipt["subject_commit"]; !claimed && len(storedReceipt["subject_commit"]) > 0 {
-					requestedReceipt["subject_commit"] = storedReceipt["subject_commit"]
-					raw, err := json.Marshal(requestedReceipt)
-					if err != nil {
-						return store.Event{}, err
-					}
-					entry["oracle_receipt"] = raw
-				}
-			}
-			raw, err := json.Marshal(next)
-			if err != nil {
-				return store.Event{}, err
-			}
-			members["evidence"] = raw
 		}
 	}
 	if storedMembers.FailureAttribution != nil && len(storedMembers.FailureAttribution.Identity) > 0 {
@@ -155,6 +124,44 @@ func mergeWorkerTerminalProducerFields(existing, requested store.Event) (store.E
 	}
 	requested.Payload = raw
 	return requested, nil
+}
+
+func mergeWorkerEvidenceSubjects(storedPayload []byte, members map[string]json.RawMessage) error {
+	var original map[string]json.RawMessage
+	if err := json.Unmarshal(storedPayload, &original); err != nil {
+		return err
+	}
+	var prior, next []map[string]json.RawMessage
+	if err := json.Unmarshal(original["evidence"], &prior); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(members["evidence"], &next); err != nil {
+		return err
+	}
+	if len(prior) == len(next) {
+		for i, entry := range next {
+			var storedReceipt, requestedReceipt map[string]json.RawMessage
+			if json.Unmarshal(prior[i]["oracle_receipt"], &storedReceipt) != nil || json.Unmarshal(entry["oracle_receipt"], &requestedReceipt) != nil || requestedReceipt == nil {
+				continue
+			}
+			// Only the omitted producer subject is overlaid. Every claimed
+			// subject and every other receipt member still compares exactly.
+			if _, claimed := requestedReceipt["subject_commit"]; !claimed && len(storedReceipt["subject_commit"]) > 0 {
+				requestedReceipt["subject_commit"] = storedReceipt["subject_commit"]
+				raw, err := json.Marshal(requestedReceipt)
+				if err != nil {
+					return err
+				}
+				entry["oracle_receipt"] = raw
+			}
+		}
+		raw, err := json.Marshal(next)
+		if err != nil {
+			return err
+		}
+		members["evidence"] = raw
+	}
+	return nil
 }
 
 // An exact reconciliation authenticates a fresh assertion, but appends no new

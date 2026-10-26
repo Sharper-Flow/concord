@@ -347,28 +347,9 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	out.ResultMeta = q10EmptyMeta(req)
 	var note CanonicalNote
 	var homeProject, homeLocator, path, commit, hash, kind, title, date, status, lessonTagsJSON, summary, successor, scopeMode, manifestSchemaVersion string
-	lookupID := req.Work
-	if lookupID == "" {
-		lookupID = req.KnowledgeID
-		if projectID, lawID, qualified, parseErr := parseQualifiedKnowledgeID("PM1.Q10", lookupID); parseErr != nil {
-			return out, parseErr
-		} else if qualified {
-			// CD-0200 source-qualified identity: a qualified reference names
-			// its source Project, and resolves only through that Project's
-			// canonical knowledge locator.
-			candidates, err := projectCanonicalHomeCandidates(ctx, db, projectID)
-			if err != nil {
-				return out, err
-			}
-			if len(candidates) == 0 {
-				return out, newFailure(KindKnowledgeUnavailable, "PM1.Q10", "qualified reference names a Project with no canonical-path knowledge locator", false, "designate the Project's canonical-path locator before resolving through it")
-			}
-			if len(candidates) > 1 {
-				return out, newAmbiguousScopeFailure("PM1.Q10", "qualified reference names a Project with multiple canonical-path locators", "leave exactly one canonical Project locator", knowledgeHomeCandidateIDs(candidates))
-			}
-			req.Home = candidates[0]
-			lookupID = lawID
-		}
+	req, lookupID, err := resolveQ10Lookup(ctx, db, req)
+	if err != nil {
+		return out, err
 	}
 	// Note identity is scoped to the knowledge home: the same stable id can
 	// exist in two homes (concord and pokeedge both number decisions CD-####).
@@ -377,6 +358,126 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	// caller home instead of a missing note. Without a Home, an id held by more
 	// than one home is ambiguous rather than an arbitrary pick.
 	homeSupplied := req.Home.HomeProjectID != "" || req.Home.HomeLocatorID != ""
+	sourceScopeWhere, err := q10SourceScopeWhere(ctx, db, req, homeSupplied)
+	if err != nil {
+		return out, err
+	}
+	scanNote := func(homeScoped bool) error {
+		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,CASE WHEN type='work_note' THEN COALESCE(successor_work_id,'') ELSE '' END,scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
+		scanArgs := []any{lookupID}
+		if homeScoped {
+			query += ` AND home_project_id = ? AND home_locator_id = ?`
+			scanArgs = append(scanArgs, req.Home.HomeProjectID, req.Home.HomeLocatorID)
+		}
+		if sourceScopeWhere != "" {
+			query += sourceScopeWhere
+			scanArgs = append(scanArgs, req.Product, req.Product)
+		}
+		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+	}
+	err = scanNote(homeSupplied)
+	if err == sql.ErrNoRows && homeSupplied {
+		err = scanNote(false)
+	}
+	if !homeSupplied {
+		ambiguous, scanErr := q10NoteHasMultipleHomes(ctx, db, req.Product, lookupID, sourceScopeWhere)
+		if scanErr != nil {
+			return out, scanErr
+		}
+		if ambiguous {
+			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
+			return out, nil
+		}
+	}
+	if err == sql.ErrNoRows {
+		status, _, classifyErr := classifyQ10MissingNote(ctx, db, req, lookupID)
+		if classifyErr != nil {
+			return out, classifyErr
+		}
+		out.Status, out.Result = status, &Q10Payload{Status: status}
+		return out, nil
+	}
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read the canonical note locator", true, "retry once the database is readable", err)
+	}
+	if err := q10ProductScopeCheck(ctx, db, req, lookupID, kind, scopeMode, homeProject, homeLocator); err != nil {
+		return out, err
+	}
+	storedHome, locatorErr := knowledgeHomeForLocator(ctx, db, homeProject, homeLocator, "")
+	if locatorErr != nil {
+		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
+	}
+	if err := compareQ10HistoricalHome(req.Home, storedHome); err != nil {
+		return out, err
+	}
+	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
+	out.ResultMeta = q10HistoricalMeta(req)
+	if kind == "work_note" {
+		if stop, err := verifyQ10WorkNote(ctx, storedHome, note, lookupID, req.AllowDegraded, &out); stop {
+			return out, err
+		}
+	} else {
+		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
+		if recordErr != nil {
+			return out, recordErr
+		}
+		manifestRecord, stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
+		if stop {
+			return out, err
+		}
+		if err := admitQ10ManifestAuthority(ctx, db, manifestRecord, &out); err != nil {
+			return out, err
+		}
+	}
+	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
+	if law := KnowledgeLawStatus(kind, status); law != "" {
+		payload.LawStatus = law
+	}
+	out.Status, out.Note, out.Result = "canonical", &note, payload
+	return out, nil
+}
+
+func verifyQ10WorkNote(ctx context.Context, home KnowledgeHome, note CanonicalNote, lookupID string, allowDegraded bool, out *Q10Result) (bool, error) {
+	verified, err := VerifyCommittedNote(ctx, home.RepoPath, note.Commit, note.NotePath, note.ContentHash)
+	if err != nil {
+		_, failure := q10HistoricalFailure(out, allowDegraded, "recorded canonical note proof is unavailable", err)
+		return true, failure
+	}
+	if verified.ID != lookupID || verified.Kind != "work_note" {
+		out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
+		return true, nil
+	}
+	return false, nil
+}
+
+func resolveQ10Lookup(ctx context.Context, db *sql.DB, req Q10Request) (Q10Request, string, error) {
+	if req.Work != "" {
+		return req, req.Work, nil
+	}
+	lookupID := req.KnowledgeID
+	projectID, lawID, qualified, err := parseQualifiedKnowledgeID("PM1.Q10", lookupID)
+	if err != nil {
+		return req, "", err
+	}
+	if !qualified {
+		return req, lookupID, nil
+	}
+	// A qualified reference resolves only through its Project's canonical locator.
+	candidates, err := projectCanonicalHomeCandidates(ctx, db, projectID)
+	if err != nil {
+		return req, "", err
+	}
+	if len(candidates) == 0 {
+		return req, "", newFailure(KindKnowledgeUnavailable, "PM1.Q10", "qualified reference names a Project with no canonical-path knowledge locator", false, "designate the Project's canonical-path locator before resolving through it")
+	}
+	if len(candidates) > 1 {
+		return req, "", newAmbiguousScopeFailure("PM1.Q10", "qualified reference names a Project with multiple canonical-path locators", "leave exactly one canonical Project locator", knowledgeHomeCandidateIDs(candidates))
+	}
+	req.Home = candidates[0]
+	return req, lawID, nil
+}
+
+func q10SourceScopeWhere(ctx context.Context, db *sql.DB, req Q10Request, homeSupplied bool) (string, error) {
 	// CD-0200: a bare law-ID resolution reads inside the requested Product's
 	// registered source set, and its ambiguity reads inside that set. Another
 	// Product's law with the same ID can neither make this Product's law
@@ -397,7 +498,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		} else {
 			var failure *Failure
 			if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
-				return out, srcErr
+				return "", srcErr
 			}
 		}
 	}
@@ -416,118 +517,54 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	if len(sourceScope) > 1 && !homeSupplied {
 		for _, source := range sourceScope {
 			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, source, false, "PM1.Q10"); err != nil {
-				return out, err
+				return "", err
 			}
 		}
 	}
-	scanNote := func(homeScoped bool) error {
-		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,CASE WHEN type='work_note' THEN COALESCE(successor_work_id,'') ELSE '' END,scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
-		scanArgs := []any{lookupID}
-		if homeScoped {
-			query += ` AND home_project_id = ? AND home_locator_id = ?`
-			scanArgs = append(scanArgs, req.Home.HomeProjectID, req.Home.HomeLocatorID)
-		}
-		if sourceScopeWhere != "" {
-			query += sourceScopeWhere
-			scanArgs = append(scanArgs, req.Product, req.Product)
-		}
-		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+	return sourceScopeWhere, nil
+}
+
+func q10NoteHasMultipleHomes(ctx context.Context, db *sql.DB, product, lookupID, sourceScopeWhere string) (bool, error) {
+	countQuery := `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`
+	countArgs := []any{lookupID}
+	if sourceScopeWhere != "" {
+		countQuery += sourceScopeWhere
+		countArgs = append(countArgs, product, product)
 	}
-	err := scanNote(homeSupplied)
-	if err == sql.ErrNoRows && homeSupplied {
-		err = scanNote(false)
+	var homes int
+	if scanErr := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
+		return false, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
 	}
-	if !homeSupplied {
-		countQuery := `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`
-		countArgs := []any{lookupID}
-		if sourceScopeWhere != "" {
-			countQuery += sourceScopeWhere
-			countArgs = append(countArgs, req.Product, req.Product)
+	return homes > 1, nil
+}
+
+func admitQ10ManifestAuthority(ctx context.Context, db *sql.DB, manifestRecord KnowledgeRecord, out *Q10Result) error {
+	// CD-0159 D2: the verified manifest entry carries the record's
+	// declared authority, so the exact historical contract resolves after
+	// the Git proof, inside one short read transaction. A held negative
+	// refuses directly regardless of the degraded allowance; an unknown
+	// declared work is unverified, keeps its declared tier, and warns
+	// through the existing envelope.
+	if manifestRecord.Authority.Tier == "legislated" {
+		tx, txErr := beginReadTx(ctx, db)
+		if txErr != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q10", "cannot begin the canonical authority admission", true, "retry once the database is readable", txErr)
 		}
-		var homes int
-		if scanErr := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
+		unverified, resolveErr := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, manifestRecord)
+		if rbErr := tx.Rollback(); rbErr != nil && resolveErr == nil {
+			resolveErr = wrapFailure(KindUnavailable, "PM1.Q10", "cannot close the canonical authority admission", true, "retry once the database is readable", rbErr)
 		}
-		if homes > 1 {
-			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
-			return out, nil
+		if resolveErr != nil {
+			return resolveErr
 		}
-	}
-	if err == sql.ErrNoRows {
-		status, classified, classifyErr := classifyQ10MissingNote(ctx, db, req, lookupID)
-		if classifyErr != nil {
-			return out, classifyErr
-		}
-		if classified {
-			out.Status, out.Result = status, &Q10Payload{Status: status}
-			return out, nil
-		}
-	}
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read the canonical note locator", true, "retry once the database is readable", err)
-	}
-	if err := q10ProductScopeCheck(ctx, db, req, lookupID, kind, scopeMode, homeProject, homeLocator); err != nil {
-		return out, err
-	}
-	storedHome, locatorErr := knowledgeHomeForLocator(ctx, db, homeProject, homeLocator, "")
-	if locatorErr != nil {
-		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
-	}
-	if err := compareQ10HistoricalHome(req.Home, storedHome); err != nil {
-		return out, err
-	}
-	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
-	out.ResultMeta = q10HistoricalMeta(req)
-	if kind == "work_note" {
-		verified, verifyErr := VerifyCommittedNote(ctx, storedHome.RepoPath, commit, path, hash)
-		if verifyErr != nil {
-			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical note proof is unavailable", verifyErr)
-		}
-		if verified.ID != lookupID || verified.Kind != "work_note" {
-			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
-			return out, nil
-		}
-	} else {
-		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
-		if recordErr != nil {
-			return out, recordErr
-		}
-		manifestRecord, stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
-		if stop || err != nil {
-			return out, err
-		}
-		// CD-0159 D2: the verified manifest entry carries the record's
-		// declared authority, so the exact historical contract resolves after
-		// the Git proof, inside one short read transaction. A held negative
-		// refuses directly regardless of the degraded allowance; an unknown
-		// declared work is unverified, keeps its declared tier, and warns
-		// through the existing envelope.
-		if manifestRecord.Authority.Tier == "legislated" {
-			tx, txErr := beginReadTx(ctx, db)
-			if txErr != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot begin the canonical authority admission", true, "retry once the database is readable", txErr)
-			}
-			unverified, resolveErr := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, manifestRecord)
-			if rbErr := tx.Rollback(); rbErr != nil && resolveErr == nil {
-				resolveErr = wrapFailure(KindUnavailable, "PM1.Q10", "cannot close the canonical authority admission", true, "retry once the database is readable", rbErr)
-			}
-			if resolveErr != nil {
-				return out, resolveErr
-			}
-			if unverified {
-				out.UnverifiedAuthority = &KnowledgeUnverifiedAuthority{
-					LawID: manifestRecord.ID, WorkID: manifestRecord.Authority.LegislatedBy,
-					ContractVersion: manifestRecord.Authority.ContractVersion,
-				}
+		if unverified {
+			out.UnverifiedAuthority = &KnowledgeUnverifiedAuthority{
+				LawID: manifestRecord.ID, WorkID: manifestRecord.Authority.LegislatedBy,
+				ContractVersion: manifestRecord.Authority.ContractVersion,
 			}
 		}
 	}
-	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
-	if law := KnowledgeLawStatus(kind, status); law != "" {
-		payload.LawStatus = law
-	}
-	out.Status, out.Note, out.Result = "canonical", &note, payload
-	return out, nil
+	return nil
 }
 
 // verifyQ10ManifestRecord checks one assembled manifest-indexed record
@@ -860,88 +897,20 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 		}
 		resume = &knowledgeResumeKey{MatchClass: cursor.MatchClass, CompletedAt: cursor.CompletedAt, ID: cursor.ID, HomeProjectID: cursor.HomeProjectID, HomeLocatorID: cursor.HomeLocatorID}
 	}
-	paged := req
-	paged.Cursor = ""
-	merged := make([]KnowledgeItem, 0, limit)
-	watermarks := make([]KnowledgeSourceWatermark, 0, len(sources))
-	omissions := make([]string, 0)
-	degraded := false
-	demandFailed := false
+	page := federatedKnowledgePage{
+		merged:     make([]KnowledgeItem, 0, limit),
+		watermarks: make([]KnowledgeSourceWatermark, 0, len(sources)),
+		omissions:  make([]string, 0),
+	}
 	for _, source := range sources {
-		label := source.HomeProjectID + "/" + source.HomeLocatorID
-		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q9")
-		if err != nil {
-			return out, federatedSourceFailure(err, label)
-		}
-		verdict := scanned
-		if verdict == "" {
-			verdict = "unindexed"
-		}
-		if authority != "authoritative" {
-			if len(sources) > 1 && scanned == "" {
-				verdict = "unreachable"
-			}
-			degraded = true
-			if len(sources) == 1 {
-				omissions = append(omissions, "knowledge_index_lagging_or_unreachable")
-			} else {
-				out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
-			}
-		}
-		// A suppressed demand failure degrades the source through this same
-		// per-source path, naming the source and the cause; it never relabels
-		// a freshness verdict the source's own watermark already carries.
-		if cause := knowledgeDemandFailureCause(req, source); cause != "" {
-			demandFailed = true
-			degraded = true
-			authority = "degraded"
-			out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
-		}
-		watermarks = append(watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
-		if authority != "authoritative" && len(sources) > 1 {
-			continue
-		}
-		if authority == "authoritative" {
-			if err := validateKnowledgeCoverageCore(ctx, db, source, scanned, kinds); err != nil {
-				return out, err
-			}
-			for _, omission := range knowledgeCoverageOmissions(ctx, db, source, scanned) {
-				if len(sources) > 1 {
-					omission = label + ":" + omission
-				}
-				omissions = append(omissions, omission)
-			}
-		}
-		paged.Home = source
-		query, args := buildKnowledgeQueryForScope(paged, kinds, tags, limit, resume)
-		rows, err := db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot search the git knowledge index of source "+label, true, "retry once the database is readable", err)
-		}
-		items, err := scanKnowledgeRows(rows)
-		if err != nil {
+		if err := page.readSource(ctx, db, req, source, len(sources), kinds, tags, limit, resume, &out); err != nil {
 			return out, err
 		}
-		merged = append(merged, items...)
 	}
+	merged, watermarks, omissions := page.merged, page.watermarks, page.omissions
+	degraded, demandFailed := page.degraded, page.demandFailed
 	sort.SliceStable(merged, func(i, j int) bool {
-		a, b := merged[i], merged[j]
-		if a.MatchClass != b.MatchClass {
-			return a.MatchClass < b.MatchClass
-		}
-		if a.CompletedAt != b.CompletedAt {
-			return a.CompletedAt > b.CompletedAt
-		}
-		if a.ID != b.ID {
-			return a.ID < b.ID
-		}
-		// CD-0200: two sources may hold the same law ID. The source identity
-		// breaks the tie, so the colliding records order deterministically
-		// and the continuation key below can name each one.
-		if a.HomeProjectID != b.HomeProjectID {
-			return a.HomeProjectID < b.HomeProjectID
-		}
-		return a.HomeLocatorID < b.HomeLocatorID
+		return knowledgeItemLess(merged[i], merged[j])
 	})
 	if len(merged) > limit {
 		merged = merged[:limit]
@@ -973,12 +942,97 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	if len(sources) > 1 {
 		out.SourceWatermarks = watermarks
 	} else if demandFailed {
-		// A single-source answer whose one source was demand-degraded emits
-		// its affected watermark so the degraded admission is explicit; an
-		// unaffected single-source answer keeps the shape it always had.
+		// Demand degradation makes even a single affected watermark explicit.
 		out.SourceWatermarks = watermarks
 	}
 	return out, nil
+}
+
+type federatedKnowledgePage struct {
+	merged                 []KnowledgeItem
+	watermarks             []KnowledgeSourceWatermark
+	omissions              []string
+	degraded, demandFailed bool
+}
+
+func (page *federatedKnowledgePage) readSource(ctx context.Context, db *sql.DB, req Q9Request, source KnowledgeHome, sourceCount int, kinds, tags []string, limit int, resume *knowledgeResumeKey, out *Q9Result) error {
+	label := source.HomeProjectID + "/" + source.HomeLocatorID
+	scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q9")
+	if err != nil {
+		return federatedSourceFailure(err, label)
+	}
+	verdict := scanned
+	if verdict == "" {
+		verdict = "unindexed"
+	}
+	if authority != "authoritative" {
+		if sourceCount > 1 && scanned == "" {
+			verdict = "unreachable"
+		}
+		page.degraded = true
+		if sourceCount == 1 {
+			page.omissions = append(page.omissions, "knowledge_index_lagging_or_unreachable")
+		} else {
+			out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
+		}
+	}
+	// A suppressed demand failure degrades the source through this same
+	// per-source path, naming the source and the cause; it never relabels
+	// a freshness verdict the source's own watermark already carries.
+	if cause := knowledgeDemandFailureCause(req, source); cause != "" {
+		page.demandFailed = true
+		page.degraded = true
+		authority = "degraded"
+		out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
+	}
+	page.watermarks = append(page.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
+	if authority != "authoritative" && sourceCount > 1 {
+		return nil
+	}
+	if authority == "authoritative" {
+		if err := validateKnowledgeCoverageCore(ctx, db, source, scanned, kinds); err != nil {
+			return err
+		}
+		for _, omission := range knowledgeCoverageOmissions(ctx, db, source, scanned) {
+			if sourceCount > 1 {
+				omission = label + ":" + omission
+			}
+			page.omissions = append(page.omissions, omission)
+		}
+	}
+	paged := req
+	paged.Cursor = ""
+	paged.Home = source
+	query, args := buildKnowledgeQueryForScope(paged, kinds, tags, limit, resume)
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot search the git knowledge index of source "+label, true, "retry once the database is readable", err)
+	}
+	items, err := scanKnowledgeRows(rows)
+	if err != nil {
+		return err
+	}
+	page.merged = append(page.merged, items...)
+	return nil
+}
+
+func knowledgeItemLess(a, b KnowledgeItem) bool {
+	if a.MatchClass != b.MatchClass {
+		return a.MatchClass < b.MatchClass
+	}
+	if a.CompletedAt != b.CompletedAt {
+		return a.CompletedAt > b.CompletedAt
+	}
+	if a.ID != b.ID {
+		return a.ID < b.ID
+	}
+	// CD-0200: two sources may hold the same law ID. The source identity
+	// breaks the tie, so the colliding records order deterministically
+	// and the continuation key below can name each one.
+	if a.HomeProjectID != b.HomeProjectID {
+		return a.HomeProjectID < b.HomeProjectID
+	}
+	return a.HomeLocatorID < b.HomeLocatorID
 }
 
 // knowledgeDemandFailureCause returns the cause recorded for this source's

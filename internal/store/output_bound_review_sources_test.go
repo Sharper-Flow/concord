@@ -89,7 +89,7 @@ func init() {
 		registerOutputBound(obligation+member+"/maxLength", reference)
 	}
 	registerOutputBound(obligation+"input_digest/maxLength", schemaBound(reportSchema, "/$defs/review_obligation/properties/input_digest/maxLength"))
-	neededProof := goInlineBound(lanes, reviewShape, "len(obligation.NeededProof)", boundBytes)
+	neededProof := goInlineBound(lanes, "validateWorkerReviewFindingsAndObligations", "len(obligation.NeededProof)", boundBytes)
 	detail := goInlineBound(lanes, "validateWorkerReviewFinding", "len(finding.Detail)", boundBytes)
 	for _, keyword := range []string{"maxLength", "x-maxBytes"} {
 		registerOutputBound(obligation+"needed_proof/"+keyword, neededProof)
@@ -98,7 +98,7 @@ func init() {
 	}
 	registerOutputBound("/$defs/lane_report_review_finding/properties/finding_id/maxLength", reference)
 	registerOutputBound("/$defs/lane_report_review_refs/maxItems", maxBound(
-		goInlineBound(lanes, reviewShape, "len(assessment.ReceiptRefs)", boundItems),
+		goInlineBound(lanes, "validateWorkerReviewAssessments", "len(assessment.ReceiptRefs)", boundItems),
 		goInlineBound(lanes, "validateWorkerReviewFinding", "len(finding.EvidenceRefs)", boundItems),
 		goInlineBound(lanes, "validateWorkerReviewFinding", "len(finding.ClosureRefs)", boundItems),
 	))

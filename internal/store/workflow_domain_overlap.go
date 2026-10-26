@@ -652,21 +652,7 @@ func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 			break
 		}
 		detail := &failure.Overlaps[0]
-		trimmed := false
-		for _, list := range []*[]string{&detail.SharedAffectedDomainIDs, &detail.SharedLawIDs, &detail.SharedDomainModifications} {
-			if len(*list) > 1 {
-				*list = (*list)[:len(*list)-1]
-				detail.DetailTruncated = true
-				trimmed = true
-				break
-			}
-		}
-		if !trimmed && len(detail.SharedRelationTuples) > 1 {
-			detail.SharedRelationTuples = detail.SharedRelationTuples[:len(detail.SharedRelationTuples)-1]
-			detail.DetailTruncated = true
-			trimmed = true
-		}
-		if !trimmed {
+		if !trimWorkflowOverlapDetail(detail) {
 			break
 		}
 	}
@@ -676,6 +662,24 @@ func boundWorkflowDomainOverlapFailure(failure *DomainOverlapFailure) {
 			failure.Truncated = true
 		}
 	}
+}
+
+func trimWorkflowOverlapDetail(detail *WorkflowDomainOverlap) bool {
+	trimmed := false
+	for _, list := range []*[]string{&detail.SharedAffectedDomainIDs, &detail.SharedLawIDs, &detail.SharedDomainModifications} {
+		if len(*list) > 1 {
+			*list = (*list)[:len(*list)-1]
+			detail.DetailTruncated = true
+			trimmed = true
+			break
+		}
+	}
+	if !trimmed && len(detail.SharedRelationTuples) > 1 {
+		detail.SharedRelationTuples = detail.SharedRelationTuples[:len(detail.SharedRelationTuples)-1]
+		detail.DetailTruncated = true
+		trimmed = true
+	}
+	return trimmed
 }
 
 func overlapAllowsWork(overlap WorkflowDomainOverlap, workID string) bool {

@@ -192,89 +192,24 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 	}
 	target := &nativeTargetOraclePlan{Recipe: m, RecipeFile: f}
 	p.ManifestFile = f
-	seen := map[string]bool{}
-	total := 0
-	for _, name := range append(slices.Clone(m.HarnessFiles), m.SupportFiles...) {
-		if seen[name] {
-			return p, nativeUnavailable("manifest paths must be unique")
-		}
-		seen[name] = true
-		file, data, err := nativeGitFile(ctx, r, entry.Path, b.Control.RecipeSource.CommitOID, name)
-		if err != nil {
-			return p, err
-		}
-		total += len(data)
-		if total > 4*1024*1024 {
-			return p, oracleFailure(KindLimitExceeded, "named harness inputs exceed 4 MiB", "bound the declared harness and support bytes")
-		}
-		p.Files = append(p.Files, file)
+	if err := readNativeTargetHarnessFiles(ctx, r, entry, &p, m); err != nil {
+		return p, err
 	}
-	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
-	var depDigest string
-	depRaw := map[string][]byte{}
-	if pair.Materializer != nativeTargetMaterializerNone {
-		var depBytes []byte
-		for _, name := range []string{m.Pin.DepManifest, m.Pin.DepLock} {
-			depPath, ok := nativeTargetRootedPath(m.Root, name)
-			if !ok {
-				return p, nativeUnavailable("supported recipe requires the pinned dependency manifest and lock at the root")
-			}
-			_, candidateBytes, err := nativeGitFile(ctx, r, entry.Path, p.SubjectCommit, depPath)
-			if err != nil {
-				return p, nativeUnavailable("supported recipe requires the pinned dependency manifest and lock at the root")
-			}
-			recipeFile, recipeBytes, err := nativeGitFile(ctx, r, entry.Path, b.Control.RecipeSource.CommitOID, depPath)
-			if err != nil {
-				return p, err
-			}
-			if !bytes.Equal(candidateBytes, recipeBytes) {
-				return p, nativeUnavailable("candidate dependency inputs differ from pinned preparation")
-			}
-			target.DependencyFiles = append(target.DependencyFiles, recipeFile)
-			depRaw[name] = recipeBytes
-			depBytes = append(append(depBytes, []byte(recipeFile.SHA256)...), 0)
-		}
-		depDigest = nativeDigest(depBytes)
-	} else {
-		// The none materializer declares its dependency-free state into the
-		// same identity field, so a recipe that grows dependencies re-pins.
-		depDigest = nativeDigest([]byte("materializer:none"))
+	depDigest, depRaw, err := readNativeTargetDependencyFiles(ctx, r, entry, p, target, pair)
+	if err != nil {
+		return p, err
 	}
 	p.Target = target
 	// Runtime resolution returns a fresh environment; the materializer's
-	// dependency digest is assigned into it afterwards and must survive to
-	// the finalized identity, or a dependency-input change would not re-pin
-	// the environment at all.
+	// dependency digest must survive to the finalized identity.
 	resolved, err := resolveNativeTargetRuntime(ctx, m, pair)
 	if err != nil {
 		return p, err
 	}
 	resolved.DependencyInputsDigest = depDigest
 	target.Environment = resolved
-	switch pair.Materializer {
-	case nativeTargetMaterializerUV:
-		out, err := nativeTargetHostPath(ctx, target.Environment.UV, "cache", "dir")
-		if err != nil {
-			return p, nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
-		}
-		target.Environment.UVCacheDir = out
-	case nativeTargetMaterializerBun:
-		// Lock verification and cache presence decide availability before
-		// any lease; the run re-derives the same install list from the
-		// same pinned bytes and proves every cached byte.
-		installs, err := nativeBunPlanInstalls(depRaw[m.Pin.DepManifest], depRaw[m.Pin.DepLock])
-		if err != nil {
-			return p, err
-		}
-		cache, err := nativeBunCacheDir()
-		if err != nil {
-			return p, err
-		}
-		if err := nativeBunMissing(cache, installs); err != nil {
-			return p, err
-		}
-		target.Environment.NPMCacheDir = cache
-	case nativeTargetMaterializerNone:
+	if err := resolveNativeTargetMaterializerCache(ctx, target, pair, depRaw); err != nil {
+		return p, err
 	}
 	tools, err := nativeTargetToolDigests(target.Environment)
 	if err != nil {
@@ -293,6 +228,93 @@ func normalizeNativeTargetOraclePlan(ctx context.Context, r GitRunner, entry Wor
 		}
 	}
 	return p, nil
+}
+
+func readNativeTargetHarnessFiles(ctx context.Context, r GitRunner, entry WorktreeEntry, p *nativeOraclePlan, m nativeTargetOracleManifest) error {
+	seen := map[string]bool{}
+	total := 0
+	for _, name := range append(slices.Clone(m.HarnessFiles), m.SupportFiles...) {
+		if seen[name] {
+			return nativeUnavailable("manifest paths must be unique")
+		}
+		seen[name] = true
+		file, data, err := nativeGitFile(ctx, r, entry.Path, p.Bundle.Control.RecipeSource.CommitOID, name)
+		if err != nil {
+			return err
+		}
+		total += len(data)
+		if total > 4*1024*1024 {
+			return oracleFailure(KindLimitExceeded, "named harness inputs exceed 4 MiB", "bound the declared harness and support bytes")
+		}
+		p.Files = append(p.Files, file)
+	}
+	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
+	return nil
+}
+
+func readNativeTargetDependencyFiles(ctx context.Context, r GitRunner, entry WorktreeEntry, p nativeOraclePlan, target *nativeTargetOraclePlan, pair nativeTargetPair) (string, map[string][]byte, error) {
+	m := target.Recipe
+	var depDigest string
+	depRaw := map[string][]byte{}
+	if pair.Materializer != nativeTargetMaterializerNone {
+		var depBytes []byte
+		for _, name := range []string{m.Pin.DepManifest, m.Pin.DepLock} {
+			depPath, ok := nativeTargetRootedPath(m.Root, name)
+			if !ok {
+				return "", nil, nativeUnavailable("supported recipe requires the pinned dependency manifest and lock at the root")
+			}
+			_, candidateBytes, err := nativeGitFile(ctx, r, entry.Path, p.SubjectCommit, depPath)
+			if err != nil {
+				return "", nil, nativeUnavailable("supported recipe requires the pinned dependency manifest and lock at the root")
+			}
+			recipeFile, recipeBytes, err := nativeGitFile(ctx, r, entry.Path, p.Bundle.Control.RecipeSource.CommitOID, depPath)
+			if err != nil {
+				return "", nil, err
+			}
+			if !bytes.Equal(candidateBytes, recipeBytes) {
+				return "", nil, nativeUnavailable("candidate dependency inputs differ from pinned preparation")
+			}
+			target.DependencyFiles = append(target.DependencyFiles, recipeFile)
+			depRaw[name] = recipeBytes
+			depBytes = append(append(depBytes, []byte(recipeFile.SHA256)...), 0)
+		}
+		depDigest = nativeDigest(depBytes)
+	} else {
+		// The none materializer declares its dependency-free state into the
+		// same identity field, so a recipe that grows dependencies re-pins.
+		depDigest = nativeDigest([]byte("materializer:none"))
+	}
+	return depDigest, depRaw, nil
+}
+
+func resolveNativeTargetMaterializerCache(ctx context.Context, target *nativeTargetOraclePlan, pair nativeTargetPair, depRaw map[string][]byte) error {
+	m := target.Recipe
+	switch pair.Materializer {
+	case nativeTargetMaterializerUV:
+		out, err := nativeTargetHostPath(ctx, target.Environment.UV, "cache", "dir")
+		if err != nil {
+			return nativeTargetUnavailableMaterializer(pair.Materializer, err.Error())
+		}
+		target.Environment.UVCacheDir = out
+	case nativeTargetMaterializerBun:
+		// Lock verification and cache presence decide availability before
+		// any lease; the run re-derives the same install list from the
+		// same pinned bytes and proves every cached byte.
+		installs, err := nativeBunPlanInstalls(depRaw[m.Pin.DepManifest], depRaw[m.Pin.DepLock])
+		if err != nil {
+			return err
+		}
+		cache, err := nativeBunCacheDir()
+		if err != nil {
+			return err
+		}
+		if err := nativeBunMissing(cache, installs); err != nil {
+			return err
+		}
+		target.Environment.NPMCacheDir = cache
+	case nativeTargetMaterializerNone:
+	}
+	return nil
 }
 
 // nativeTargetPreparationWitnessesComplete is the target-family half of the

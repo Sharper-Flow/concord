@@ -586,14 +586,7 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 			"reject the result with reject_worker_result; a job without the allowance cannot acquire one from a worker report")
 	}
 	if !slices.Contains(lane.Capabilities, "edit_scoped_files") {
-		if len(repairs) > 0 {
-			return refuse("reports direct-caller repairs on a "+lane.CapabilityClass+" attempt without editing authority",
-				"reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
-		}
-		if observed != nil && (observed.Commit != observed.Base || len(observed.ChangedPaths) > 0) {
-			return refuse("changed its subject without editing authority", "reject the result with reject_worker_result and restore the assigned candidate")
-		}
-		return nil
+		return admitWorkerReadOnlyDelivery(lane, repairs, observed, refuse)
 	}
 	if observed == nil || observed.State != "clean" || observed.Base == "" {
 		if allowance == nil && !slices.Contains(lane.Capabilities, "inspect_diff") {
@@ -617,25 +610,9 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 	if err != nil {
 		return err
 	}
-	repaired := map[string]bool{}
-	for _, repair := range repairs {
-		if !slices.ContainsFunc(allowance.Mechanisms, func(mechanism OracleMechanism) bool {
-			return mechanism.Path == repair.Owner.Path && mechanism.EntryPoint == repair.Owner.EntryPoint
-		}) {
-			return refuse("reports a caller repair of owner "+repair.Owner.Path+" "+repair.Owner.EntryPoint+", which is not a mechanism of its direct-caller allowance",
-				"reject the result with reject_worker_result, then record a revision whose allowance names the real owner mechanism")
-		}
-		for _, path := range repair.ChangedPaths {
-			switch {
-			case !changed[path]:
-				return refuse("reports caller-repair path "+path+", which is not a path of its observed delta", reconcile)
-			case repaired[path]:
-				return refuse("reports caller-repair path "+path+" in two repairs", reconcile)
-			case workerJobPathsIntersect(exclusions, path):
-				return refuse("repaired caller path "+path+", which its dispatch excluded as another correction's recorded path", reconcile)
-			}
-			repaired[path] = true
-		}
+	repaired, err := admitWorkerCallerRepairs(repairs, allowance, changed, exclusions, refuse)
+	if err != nil {
+		return err
 	}
 	for _, path := range delta {
 		if workerJobContainsPath(pathScope, path) {
@@ -653,6 +630,42 @@ func admitWorkerDeliveredPathsTx(ctx context.Context, tx *sql.Tx, workID string,
 		}
 	}
 	return nil
+}
+
+func admitWorkerReadOnlyDelivery(lane LaneDefinition, repairs []WorkerDirectCallerRepair, observed *workerDeliveredDelta, refuse func(string, string) error) error {
+	if len(repairs) > 0 {
+		return refuse("reports direct-caller repairs on a "+lane.CapabilityClass+" attempt without editing authority",
+			"reject the result with reject_worker_result; a repair claim belongs to an implementation attempt")
+	}
+	if observed != nil && (observed.Commit != observed.Base || len(observed.ChangedPaths) > 0) {
+		return refuse("changed its subject without editing authority", "reject the result with reject_worker_result and restore the assigned candidate")
+	}
+	return nil
+}
+
+func admitWorkerCallerRepairs(repairs []WorkerDirectCallerRepair, allowance *WorkerJobCallerAllowance, changed map[string]bool, exclusions []string, refuse func(string, string) error) (map[string]bool, error) {
+	const reconcile = "reconcile the path through the coordinator, then reject the result with reject_worker_result or record a revision with the needed scope through record_worker_job"
+	repaired := map[string]bool{}
+	for _, repair := range repairs {
+		if !slices.ContainsFunc(allowance.Mechanisms, func(mechanism OracleMechanism) bool {
+			return mechanism.Path == repair.Owner.Path && mechanism.EntryPoint == repair.Owner.EntryPoint
+		}) {
+			return nil, refuse("reports a caller repair of owner "+repair.Owner.Path+" "+repair.Owner.EntryPoint+", which is not a mechanism of its direct-caller allowance",
+				"reject the result with reject_worker_result, then record a revision whose allowance names the real owner mechanism")
+		}
+		for _, path := range repair.ChangedPaths {
+			switch {
+			case !changed[path]:
+				return nil, refuse("reports caller-repair path "+path+", which is not a path of its observed delta", reconcile)
+			case repaired[path]:
+				return nil, refuse("reports caller-repair path "+path+" in two repairs", reconcile)
+			case workerJobPathsIntersect(exclusions, path):
+				return nil, refuse("repaired caller path "+path+", which its dispatch excluded as another correction's recorded path", reconcile)
+			}
+			repaired[path] = true
+		}
+	}
+	return repaired, nil
 }
 
 func workerDeliveredDeltaMissing(job *WorkerJobBinding) error {

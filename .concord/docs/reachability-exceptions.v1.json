@@ -49,7 +49,9 @@
         "internal/store.BuiltinWorkflowDecisionFactActionDefinitions",
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
-        "internal/store.WorkflowContractTeachingRules"
+        "internal/store.WorkflowContractTeachingRules",
+        "internal/store.workflowCanonicalCombination",
+        "internal/store.workflowDeclaredFieldCount"
       ],
       "reason": "These pure accessors supply canonical recovery payloads, the consequence_v1 decision-fact action payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
     },
@@ -81,13 +83,18 @@
         "internal/payloadschema.guidanceStricterBound",
         "internal/payloadschema.guidanceStringExample",
         "internal/payloadschema.guidanceTeaches",
+        "internal/payloadschema.guidanceTypeShape",
         "internal/payloadschema.guidanceUnionStrings",
         "internal/payloadschema.joinRange",
+        "internal/payloadschema.mergeGuidanceFrame",
         "internal/payloadschema.planBoundsNode",
         "internal/payloadschema.planDefinition",
+        "internal/payloadschema.planKeywordSchemas",
         "internal/payloadschema.planNode",
         "internal/payloadschema.planSchema",
-        "internal/payloadschema.writePatternLiteral"
+        "internal/payloadschema.writePatternCopies",
+        "internal/payloadschema.writePatternLiteral",
+        "internal/payloadschema.writePatternRepeat"
       ],
       "reason": "These pure generator functions derive and validate canonical contract-field shapes and illustrative examples for scripts/schema-guidance, called by scripts/generate-agent-contracts.py. They share the runtime schema validator rather than maintaining a second example validator. The analysis roots ./cmd/... only and cannot see these build-time edges. CI runs generate-agent-contracts.py --check and the annotation tests to prove the projection; runtime refusals consume the generated descriptions without generating examples. No new operator command is warranted."
     },

@@ -289,20 +289,8 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	staleRecovery := decision.RecoveryRoute
 	if request.ActionID == "supersede_contract" {
-		fields, fieldsErr := workflowActionObject(request.Payload)
-		if fieldsErr != nil {
-			return RegisteredDefinition{}, fieldsErr
-		}
-		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
-		declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
-		if declaresRoute && !atCompleteStep {
-			return RegisteredDefinition{}, newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
-		}
-		if atCompleteStep && !declaresRoute {
-			// The payload satisfies its own declaration; what refuses is the
-			// step state, so the refusal is an operation refusal, not a
-			// payload one.
-			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
+		if err := validateWorkflowCompleteCorrectionRoute(entry.Definition, currentStep, request.Payload); err != nil {
+			return RegisteredDefinition{}, err
 		}
 	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
@@ -323,73 +311,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// refusals precede the generic off-step one. The payload-bound recoveries
 	// refine it first: the evidence-binding recovery binds the outstanding
 	// requirement the payload names.
-	if request.ActionID == "bind_evidence" {
-		// Preflight carries only payload evidence. Execution checks the full
-		// envelope kind inventory through the same guard before writing.
-		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
-		if recoveryErr != nil {
-			return RegisteredDefinition{}, recoveryErr
-		}
-		if !recoveryBind && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
-	} else if decision.OffStep {
-		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, currentStep, request, decision); err != nil {
+		return RegisteredDefinition{}, err
 	}
-	if request.ActionID == "dispatch_worker" {
-		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "record_verdict" {
-		fields, err := workflowActionObject(request.Payload)
-		if err != nil {
-			return RegisteredDefinition{}, err
-		}
-		actor, err := WorkflowActorRef(request.Actor)
-		if err != nil {
-			return RegisteredDefinition{}, err
-		}
-		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
-			return RegisteredDefinition{}, err
-		}
-		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, entry.Definition, currentStep, fields); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "request_correction" {
-		// The payload check binds against the folded state's one correction
-		// request derivation; it never re-enters the loader.
-		if admission.CorrectionRequestContext == nil {
-			return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
-		}
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "accept_worker_evidence" || request.ActionID == "accept_worker_result" {
-		fields, fieldsErr := workflowActionObject(request.Payload)
-		if fieldsErr != nil {
-			return RegisteredDefinition{}, fieldsErr
-		}
-		if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-			if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
-				return RegisteredDefinition{}, err
-			}
-		}
-		attempt := workflowFieldStringDefault(fields, "attempt_id", "")
-		var capability string
-		if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, request.WorkID, attempt).Scan(&capability); err != nil {
-			if err == sql.ErrNoRows {
-				return RegisteredDefinition{}, newFailure(KindProjectionNotFound, "workflow_action_preflight", "worker attempt does not exist for this work item", false, "dispatch the worker attempt before recording its result")
-			}
-			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read the requested worker capability", true, "retry once the database is readable", err)
-		}
-		if capability == "review" {
-			if err := workflowAcceptanceSubjectCurrent(ctx, tx, request.WorkID, []string{attempt}, nil); err != nil {
-				return RegisteredDefinition{}, err
-			}
-		}
+	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request, admission); err != nil {
+		return RegisteredDefinition{}, err
 	}
 	// The selection core consumes the folded admission's confirmation
 	// answer: one classification, no second fact read.
@@ -399,6 +325,102 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// See the note in the non-transactional preflight: recording a new actor is
 	// the action guard's job, and refusing here would prevent it.
 	return entry, nil
+}
+
+func validateWorkflowCompleteCorrectionRoute(definition WorkflowDefinition, currentStep string, payload json.RawMessage) error {
+	fields, err := workflowActionObject(payload)
+	if err != nil {
+		return err
+	}
+	atCompleteStep := workflowCompleteStepCorrectionStep(definition, currentStep)
+	declaresRoute := slices.Contains(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
+	if declaresRoute && !atCompleteStep {
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
+	}
+	if atCompleteStep && !declaresRoute {
+		// The payload satisfies its own declaration; what refuses is the
+		// step state, so the refusal is an operation refusal, not a
+		// payload one.
+		return newFailure(KindInvalidOperation, "workflow_action_preflight", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
+	}
+	return nil
+}
+
+func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
+	if request.ActionID == "bind_evidence" {
+		// Preflight carries only payload evidence. Execution checks the full
+		// envelope kind inventory through the same guard before writing.
+		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, definition, currentStep, request.Payload, "workflow_action_preflight")
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		if !recoveryBind && !definitionStepAllows(definition, currentStep, request.ActionID) {
+			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+		}
+	} else if decision.OffStep {
+		return workflowPreflightFailure(decision.Failure)
+	}
+	return nil
+}
+
+func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, admission WorkflowAdmissionState) error {
+	switch request.ActionID {
+	case "dispatch_worker":
+		return validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree)
+	case "record_verdict":
+		return preflightWorkflowVerdictTx(ctx, tx, definition, currentStep, request)
+	case "request_correction":
+		// The payload check binds against the folded state's one correction
+		// request derivation; it never re-enters the loader.
+		if admission.CorrectionRequestContext == nil {
+			return workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
+		}
+		return validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext)
+	case "accept_worker_evidence", "accept_worker_result":
+		return preflightWorkflowWorkerAcceptanceTx(ctx, tx, definition, currentStep, request)
+	}
+	return nil
+}
+
+func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+	fields, err := workflowActionObject(request.Payload)
+	if err != nil {
+		return err
+	}
+	actor, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return err
+	}
+	if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
+		return err
+	}
+	return guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, currentStep, fields)
+}
+
+func preflightWorkflowWorkerAcceptanceTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+	fields, fieldsErr := workflowActionObject(request.Payload)
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+	if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(definition, currentStep, request.ActionID) {
+		if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
+			return err
+		}
+	}
+	attempt := workflowFieldStringDefault(fields, "attempt_id", "")
+	var capability string
+	if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, request.WorkID, attempt).Scan(&capability); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "workflow_action_preflight", "worker attempt does not exist for this work item", false, "dispatch the worker attempt before recording its result")
+		}
+		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read the requested worker capability", true, "retry once the database is readable", err)
+	}
+	if capability == "review" {
+		if err := workflowAcceptanceSubjectCurrent(ctx, tx, request.WorkID, []string{attempt}, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // workflowEnvelopeProjectedPayload merges the envelope-carried values of
@@ -489,6 +511,55 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := validateEvidenceBindingReferences(actionID, fields); err != nil {
 		return err
 	}
+	payloadDefinition, found, err := workflowActionPayloadDefinition(definition, actionID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	definitionFields := payloadDefinition.Fields
+	if !payloadDefinition.Closed && len(definitionFields) == 0 {
+		return nil
+	}
+	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
+	for _, field := range definitionFields {
+		allowed[field.Name] = field
+	}
+	if err := validateWorkflowPayloadStructure(actionID, definitionFields, allowed, fields); err != nil {
+		return err
+	}
+	// The structure is complete, so the per-field value and schema checks
+	// walk the supplied names in sorted order and keep stop-at-first
+	// behavior: a type error on one field is a per-field value fact outside
+	// the structural refusal.
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		field := allowed[name]
+		if !validateWorkflowPayloadValue(field, fields[name]) {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
+		}
+		if err := validateWorkflowPayloadSchema(document, field, fields[name]); err != nil {
+			return err
+		}
+	}
+	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
+		return err
+	}
+	if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
+		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
+		return err
+	}
+	// The proposal document rule is cross-field, so it runs only for a pinned
+	// definition that declares the document. A definition pinned before the
+	// typed payload keeps its empty call.
+	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
+		_, err := decodeWorkflowProposalContent(payload)
+		return err
+	}
+	return nil
+}
+
+func workflowActionPayloadDefinition(definition WorkflowDefinition, actionID string) (WorkflowPayloadDefinition, bool, error) {
 	var payloadDefinition WorkflowPayloadDefinition
 	found := false
 	for _, action := range definition.ActionDefinitions {
@@ -504,7 +575,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if found && actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
 		selected, err := workflowDecisionFactInitialActionDefinition(definition)
 		if err != nil {
-			return err
+			return WorkflowPayloadDefinition{}, false, err
 		}
 		payloadDefinition = selected.Payload
 	}
@@ -518,17 +589,10 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			found = true
 		}
 	}
-	if !found {
-		return nil
-	}
-	definitionFields := payloadDefinition.Fields
-	if !payloadDefinition.Closed && len(definitionFields) == 0 {
-		return nil
-	}
-	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
-	for _, field := range definitionFields {
-		allowed[field.Name] = field
-	}
+	return payloadDefinition, found, nil
+}
+
+func validateWorkflowPayloadStructure(actionID string, definitionFields []WorkflowPayloadField, allowed map[string]WorkflowPayloadField, fields map[string]json.RawMessage) error {
 	// The structural scan runs before any per-field value check and refuses
 	// once for the whole object: missing required fields in declared order,
 	// then undeclared fields sorted by name, each segment keeping the
@@ -570,33 +634,6 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			}
 		}
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", strings.Join(segments, "; "), false, remedy)
-	}
-	// The structure is complete, so the per-field value and schema checks
-	// walk the supplied names in sorted order and keep stop-at-first
-	// behavior: a type error on one field is a per-field value fact outside
-	// the structural refusal.
-	for _, name := range slices.Sorted(maps.Keys(fields)) {
-		field := allowed[name]
-		if !validateWorkflowPayloadValue(field, fields[name]) {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
-		}
-		if err := validateWorkflowPayloadSchema(document, field, fields[name]); err != nil {
-			return err
-		}
-	}
-	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
-		return err
-	}
-	if actionID == "approve_contract" && workflowApprovalPolicyRequiresDecisionFact(definition) {
-		_, err := workflowSubmittedDecisionDomains(definition, "approval", fields)
-		return err
-	}
-	// The proposal document rule is cross-field, so it runs only for a pinned
-	// definition that declares the document. A definition pinned before the
-	// typed payload keeps its empty call.
-	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
-		_, err := decodeWorkflowProposalContent(payload)
-		return err
 	}
 	return nil
 }
@@ -921,66 +958,11 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 	}
 	switch field.ValueType {
 	case PayloadString, PayloadRef, PayloadDigest:
-		text, ok := value.(string)
-		if !ok {
-			return false
-		}
-		if field.ValueType == PayloadRef && !ValidReference(text) {
-			return false
-		}
-		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
-			return false
-		}
-		if field.NonBlank && strings.TrimSpace(text) == "" || slices.Contains(field.Forbidden, text) {
-			return false
-		}
-		if len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
-			return false
-		}
-		// String bounds count UTF-8 bytes, not runes: every enforcing
-		// workflowString guard counts bytes, so the declared limits carry
-		// the enforcing owner's unit and a schema-bound payload cannot be
-		// refused by a deeper guard for length alone. JSON Schema
-		// minLength/maxLength count code points — that published
-		// representation limit is recorded beside the corpus tests
-		// (CON-412).
-		if field.MinLength != nil && int64(len(text)) < *field.MinLength || field.MaxLength != nil && int64(len(text)) > *field.MaxLength {
-			return false
-		}
-		return true
+		return validateWorkflowPayloadText(field, value)
 	case PayloadStringList:
-		values, ok := value.([]any)
-		if !ok {
-			return false
-		}
-		if field.MinItems != nil && int64(len(values)) < *field.MinItems || field.MaxItems != nil && int64(len(values)) > *field.MaxItems {
-			return false
-		}
-		seen := make(map[string]struct{}, len(values))
-		for _, item := range values {
-			text, ok := item.(string)
-			if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
-				return false
-			}
-			if _, exists := seen[text]; exists {
-				return false
-			}
-			seen[text] = struct{}{}
-		}
-		return true
+		return validateWorkflowPayloadStringList(field, value)
 	case PayloadInteger:
-		number, ok := value.(json.Number)
-		if !ok {
-			return false
-		}
-		integer, err := number.Int64()
-		if err != nil || integer < -2147483648 || integer > 2147483647 {
-			return false
-		}
-		if field.Minimum != nil && integer < *field.Minimum || field.Maximum != nil && integer > *field.Maximum {
-			return false
-		}
-		return true
+		return validateWorkflowPayloadInteger(field, value)
 	case PayloadBoolean:
 		_, ok := value.(bool)
 		return ok
@@ -1003,6 +985,72 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 	default:
 		return false
 	}
+}
+
+func validateWorkflowPayloadText(field WorkflowPayloadField, value any) bool {
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	if field.ValueType == PayloadRef && !ValidReference(text) {
+		return false
+	}
+	if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
+		return false
+	}
+	if field.NonBlank && strings.TrimSpace(text) == "" || slices.Contains(field.Forbidden, text) {
+		return false
+	}
+	if len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
+		return false
+	}
+	// String bounds count UTF-8 bytes, not runes: every enforcing
+	// workflowString guard counts bytes, so the declared limits carry
+	// the enforcing owner's unit and a schema-bound payload cannot be
+	// refused by a deeper guard for length alone. JSON Schema
+	// minLength/maxLength count code points — that published
+	// representation limit is recorded beside the corpus tests.
+	if field.MinLength != nil && int64(len(text)) < *field.MinLength || field.MaxLength != nil && int64(len(text)) > *field.MaxLength {
+		return false
+	}
+	return true
+}
+
+func validateWorkflowPayloadStringList(field WorkflowPayloadField, value any) bool {
+	values, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	if field.MinItems != nil && int64(len(values)) < *field.MinItems || field.MaxItems != nil && int64(len(values)) > *field.MaxItems {
+		return false
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, item := range values {
+		text, ok := item.(string)
+		if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
+			return false
+		}
+		if _, exists := seen[text]; exists {
+			return false
+		}
+		seen[text] = struct{}{}
+	}
+	return true
+}
+
+func validateWorkflowPayloadInteger(field WorkflowPayloadField, value any) bool {
+	number, ok := value.(json.Number)
+	if !ok {
+		return false
+	}
+	integer, err := number.Int64()
+	if err != nil || integer < -2147483648 || integer > 2147483647 {
+		return false
+	}
+	if field.Minimum != nil && integer < *field.Minimum || field.Maximum != nil && integer > *field.Maximum {
+		return false
+	}
+	return true
 }
 
 func validWorkflowPayloadListItem(itemRef, value string) bool {

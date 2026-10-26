@@ -400,20 +400,8 @@ func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(
 func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
 
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
-	if !validWorkflowRef(definition.Ref) || !validWorkKind(definition.WorkKind) {
-		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
-	}
-	if !validWorkflowCapabilities(definition.Capabilities) {
-		return definitionFailure(KindInvalidDefinition, "definition capabilities are not a canonical subset of the capability vocabulary")
-	}
-	if definition.ChangesProductTruth == nil {
-		return definitionFailure(KindInvalidDefinition, "definition product-truth classification is required")
-	}
-	if *definition.ChangesProductTruth != workKindMayChangeProductTruth(definition.WorkKind) {
-		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its work-kind matrix")
-	}
-	if definition.ApprovalPolicy != "" && definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
-		return definitionFailure(KindInvalidDefinition, "definition approval policy is unknown")
+	if err := validateWorkflowDefinitionIdentity(definition); err != nil {
+		return err
 	}
 	graph := definition.StepGraph
 	if len(graph.Steps) < 2 || len(graph.Steps) > 32 || len(graph.Edges) < 1 || len(graph.Edges) > 64 || !validWorkflowID(graph.StartStep) || len(graph.TerminalSteps) < 1 || len(graph.TerminalSteps) > 16 {
@@ -429,6 +417,69 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		}
 		steps[step.ID] = step
 	}
+	if err := validateWorkflowGraphEndpoints(graph, steps); err != nil {
+		return err
+	}
+	if !uniqueStrings(definition.AvailableActions) || len(definition.AvailableActions) < 1 || len(definition.AvailableActions) > 64 {
+		return definitionFailure(KindInvalidDefinition, "available actions are invalid")
+	}
+	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
+	for _, action := range definition.ActionDefinitions {
+		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionApproval(action.Approval) || !validActionExecutionMode(action.ExecutionMode) || len(action.Payload.Fields) > 32 {
+			return definitionFailure(KindInvalidDefinition, "action definition is invalid")
+		}
+		if _, exists := actions[action.ID]; exists {
+			return definitionFailure(KindInvalidDefinition, "definition contains duplicate action IDs")
+		}
+		if err := validateWorkflowActionPayloadDeclaration(action); err != nil {
+			return err
+		}
+		actions[action.ID] = action
+	}
+	if err := validateWorkflowActionReferences(definition, actions); err != nil {
+		return err
+	}
+	if err := validateWorkflowGraphEdges(graph, steps); err != nil {
+		return err
+	}
+	if err := validateWorkflowDefinitionRules(definition); err != nil {
+		return err
+	}
+	return validateWorkflowRecoveryRoutes(definition)
+}
+
+func validateWorkflowDefinitionIdentity(definition WorkflowDefinition) error {
+	if !validWorkflowRef(definition.Ref) || !validWorkKind(definition.WorkKind) {
+		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
+	}
+	if !validWorkflowCapabilities(definition.Capabilities) {
+		return definitionFailure(KindInvalidDefinition, "definition capabilities are not a canonical subset of the capability vocabulary")
+	}
+	if definition.ChangesProductTruth == nil {
+		return definitionFailure(KindInvalidDefinition, "definition product-truth classification is required")
+	}
+	if *definition.ChangesProductTruth != workKindMayChangeProductTruth(definition.WorkKind) {
+		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its work-kind matrix")
+	}
+	if definition.ApprovalPolicy != "" && definition.ApprovalPolicy != WorkflowApprovalPolicyConsequenceV1 {
+		return definitionFailure(KindInvalidDefinition, "definition approval policy is unknown")
+	}
+	return nil
+}
+
+func validateWorkflowDefinitionRules(definition WorkflowDefinition) error {
+	if len(definition.RequiredEvidenceKinds) > 7 || !uniqueStrings(evidenceStrings(definition.RequiredEvidenceKinds)) || !allEvidenceKindsValid(definition.RequiredEvidenceKinds) || !validateOutcomeSchema(definition.WorkKind, definition.OutcomeSchema) || len(definition.RigorRules) < 1 || len(definition.RigorRules) > 16 || len(definition.StalenessRules) > 16 || !validateRigorRules(definition.RigorRules) || !validateComposition(definition.CompositionRules) {
+		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
+	}
+	for _, rule := range definition.StalenessRules {
+		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
+			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
+		}
+	}
+	return nil
+}
+
+func validateWorkflowGraphEndpoints(graph WorkflowStepGraph, steps map[string]WorkflowStep) error {
 	if _, ok := steps[graph.StartStep]; !ok {
 		return definitionFailure(KindInvalidDefinition, "graph start endpoint is not declared")
 	}
@@ -445,25 +496,20 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		}
 		terminals[terminal] = true
 	}
-	if !uniqueStrings(definition.AvailableActions) || len(definition.AvailableActions) < 1 || len(definition.AvailableActions) > 64 {
-		return definitionFailure(KindInvalidDefinition, "available actions are invalid")
+	return nil
+}
+
+func validateWorkflowActionPayloadDeclaration(action WorkflowActionDefinition) error {
+	if !validatePayloadFields(action.Payload.Fields) {
+		return definitionFailure(KindInvalidDefinition, "action payload fields are invalid")
 	}
-	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
-	for _, action := range definition.ActionDefinitions {
-		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionApproval(action.Approval) || !validActionExecutionMode(action.ExecutionMode) || len(action.Payload.Fields) > 32 {
-			return definitionFailure(KindInvalidDefinition, "action definition is invalid")
-		}
-		if _, exists := actions[action.ID]; exists {
-			return definitionFailure(KindInvalidDefinition, "definition contains duplicate action IDs")
-		}
-		if !validatePayloadFields(action.Payload.Fields) {
-			return definitionFailure(KindInvalidDefinition, "action payload fields are invalid")
-		}
-		if action.PublicPayload != nil && (!action.PublicPayload.Closed || len(action.PublicPayload.Fields) > 32 || !validatePayloadFields(action.PublicPayload.Fields)) {
-			return definitionFailure(KindInvalidDefinition, "public action payload fields are invalid")
-		}
-		actions[action.ID] = action
+	if action.PublicPayload != nil && (!action.PublicPayload.Closed || len(action.PublicPayload.Fields) > 32 || !validatePayloadFields(action.PublicPayload.Fields)) {
+		return definitionFailure(KindInvalidDefinition, "public action payload fields are invalid")
 	}
+	return nil
+}
+
+func validateWorkflowActionReferences(definition WorkflowDefinition, actions map[string]WorkflowActionDefinition) error {
 	if len(actions) != len(definition.AvailableActions) {
 		return definitionFailure(KindInvalidDefinition, "action definitions do not match available actions")
 	}
@@ -475,13 +521,17 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 			return definitionFailure(KindDefinitionActionOrStepUnknown, "root action definitions do not match available actions")
 		}
 	}
-	for _, step := range graph.Steps {
+	for _, step := range definition.StepGraph.Steps {
 		for _, actionID := range step.Actions {
 			if !slices.Contains(definition.AvailableActions, actionID) {
 				return definitionFailure(KindDefinitionActionOrStepUnknown, "step action not declared at root")
 			}
 		}
 	}
+	return nil
+}
+
+func validateWorkflowGraphEdges(graph WorkflowStepGraph, steps map[string]WorkflowStep) error {
 	adjacency := make(map[string][]string, len(steps))
 	for _, edge := range graph.Edges {
 		if !validWorkflowID(edge.From) || !validWorkflowID(edge.To) || !validEdgeKind(edge.Kind) {
@@ -499,17 +549,6 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 	}
 	if graphHasCycle(adjacency, steps) {
 		return definitionFailure(KindInvalidDefinition, "non-retry graph cycle is not allowed")
-	}
-	if len(definition.RequiredEvidenceKinds) > 7 || !uniqueStrings(evidenceStrings(definition.RequiredEvidenceKinds)) || !allEvidenceKindsValid(definition.RequiredEvidenceKinds) || !validateOutcomeSchema(definition.WorkKind, definition.OutcomeSchema) || len(definition.RigorRules) < 1 || len(definition.RigorRules) > 16 || len(definition.StalenessRules) > 16 || !validateRigorRules(definition.RigorRules) || !validateComposition(definition.CompositionRules) {
-		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
-	}
-	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
-			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
-		}
-	}
-	if err := validateWorkflowRecoveryRoutes(definition); err != nil {
-		return err
 	}
 	return nil
 }
@@ -826,10 +865,7 @@ func validatePayloadFields(fields []WorkflowPayloadField) bool {
 			return false
 		}
 		seen[field.Name] = true
-		if field.NonBlank && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || len(field.Forbidden) > 32 || !uniqueStrings(field.Forbidden) || len(field.Forbidden) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
-			return false
-		}
-		if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+		if !validatePayloadFieldBounds(field) {
 			return false
 		}
 		// item_ref names the contract each element answers to. A string list
@@ -839,6 +875,19 @@ func validatePayloadFields(fields []WorkflowPayloadField) bool {
 		if len(field.Enum) > 32 || !uniqueStrings(field.Enum) || len(field.Enum) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadStringList || field.SchemaRef != "" && !validWorkflowID(field.SchemaRef) || field.ItemRef != "" && (field.ValueType != PayloadStringList && field.ValueType != PayloadArray || !validWorkflowID(field.ItemRef)) {
 			return false
 		}
+	}
+	return true
+}
+
+func validatePayloadFieldBounds(field WorkflowPayloadField) bool {
+	if field.NonBlank && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || len(field.Forbidden) > 32 || !uniqueStrings(field.Forbidden) || len(field.Forbidden) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest {
+		return false
+	}
+	if field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
+		return false
+	}
+	if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+		return false
 	}
 	return true
 }
@@ -861,9 +910,15 @@ func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross Workflow
 	if len(cross.Combinations) != 0 && len(cross.Alternatives) != 0 {
 		return false
 	}
+	return validateCrossFieldCombinations(byName, cross.Combinations) &&
+		validateCrossFieldAlternatives(byName, cross.Alternatives) &&
+		validateCrossFieldKindMatches(byName, cross.KindMatches)
+}
+
+func validateCrossFieldCombinations(byName map[string]*WorkflowPayloadField, combinations []WorkflowPayloadCombination) bool {
 	discriminator := ""
 	values := map[string]bool{}
-	for _, combination := range cross.Combinations {
+	for _, combination := range combinations {
 		if discriminator == "" {
 			discriminator = combination.Field
 		}
@@ -878,15 +933,8 @@ func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross Workflow
 			return false
 		}
 		values[combination.Value] = true
-		if len(combination.Requires) == 0 && len(combination.Forbids) == 0 {
+		if !validateCrossFieldCombinationFields(byName, combination) {
 			return false
-		}
-		for _, side := range [][]string{combination.Requires, combination.Forbids} {
-			for _, name := range side {
-				if _, ok := byName[name]; !ok || name == combination.Field {
-					return false
-				}
-			}
 		}
 	}
 	if discriminator != "" {
@@ -896,8 +944,26 @@ func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross Workflow
 			}
 		}
 	}
+	return true
+}
+
+func validateCrossFieldCombinationFields(byName map[string]*WorkflowPayloadField, combination WorkflowPayloadCombination) bool {
+	if len(combination.Requires) == 0 && len(combination.Forbids) == 0 {
+		return false
+	}
+	for _, side := range [][]string{combination.Requires, combination.Forbids} {
+		for _, name := range side {
+			if _, ok := byName[name]; !ok || name == combination.Field {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateCrossFieldAlternatives(byName map[string]*WorkflowPayloadField, alternatives []WorkflowPayloadAlternative) bool {
 	grouped := map[string]bool{}
-	for _, group := range cross.Alternatives {
+	for _, group := range alternatives {
 		if len(group.Fields) == 0 {
 			return false
 		}
@@ -910,7 +976,7 @@ func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross Workflow
 			grouped[name] = true
 		}
 	}
-	for _, group := range cross.Alternatives {
+	for _, group := range alternatives {
 		forbidden := map[string]bool{}
 		for _, name := range group.Forbids {
 			// A forbidden field must be declared and ungrouped: a
@@ -922,8 +988,12 @@ func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross Workflow
 			forbidden[name] = true
 		}
 	}
+	return true
+}
+
+func validateCrossFieldKindMatches(byName map[string]*WorkflowPayloadField, matches []WorkflowPayloadKindMatch) bool {
 	seenMatches := map[string]bool{}
-	for _, match := range cross.KindMatches {
+	for _, match := range matches {
 		field, fieldDeclared := byName[match.Field]
 		object, objectDeclared := byName[match.Object]
 		// Both sides must be declared fields; the scalar side must be a

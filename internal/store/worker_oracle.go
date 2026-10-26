@@ -627,6 +627,16 @@ func decodeAcceptanceOracle(raw json.RawMessage) (*AcceptanceOracle, error) {
 // author-time joins: the fold re-proves only the closed graph, so replay
 // never needs today's registry.
 func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
+	if err := validateOraclePredicateAuthorityTx(ctx, tx, workID, contractVersion, oracle); err != nil {
+		return err
+	}
+	if err := validateOracleOwnerAuthorityTx(ctx, tx, workID, contractVersion, oracle); err != nil {
+		return err
+	}
+	return validateOracleReadinessAuthorityTx(ctx, tx, workID, contractVersion, oracle)
+}
+
+func validateOraclePredicateAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
 	predicates := map[string]bool{}
 	for _, owner := range oracle.Owners {
 		for _, predicate := range owner.PredicateIDs {
@@ -648,6 +658,10 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 			return wrapFailure(KindUnavailable, "worker_oracle", "cannot verify the acceptance-oracle predicate authority", true, "retry once the contract projection is readable", err)
 		}
 	}
+	return nil
+}
+
+func validateOracleOwnerAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
 	domains := map[string]bool{}
 	projects := map[string]bool{}
 	laws := map[OracleLawBinding]bool{}
@@ -681,6 +695,10 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 			return err
 		}
 	}
+	return nil
+}
+
+func validateOracleReadinessAuthorityTx(ctx context.Context, tx *sql.Tx, workID string, contractVersion int64, oracle *AcceptanceOracle) error {
 	for _, control := range oracle.Controls {
 		bundle, bundleErr := nativeBundleForControl(oracle, control.ControlID)
 		if bundleErr != nil {

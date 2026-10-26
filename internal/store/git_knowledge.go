@@ -743,6 +743,10 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 	if err != nil {
 		return VerifiedNote{}, err
 	}
+	return decodeKnowledgeNoteMetadata(values, seenKeys)
+}
+
+func decodeKnowledgeNoteMetadata(values map[string]string, seenKeys map[string]bool) (VerifiedNote, error) {
 	if seenKeys["domain_ids"] && seenKeys["component_ids"] {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter cannot declare both domain_ids and component_ids", false, "use domain_ids for new notes or retain component_ids only in a legacy note")
 	}
@@ -797,10 +801,11 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 	note.HasDomainIDs = seenKeys["domain_ids"]
 	note.HasComponentIDs = seenKeys["component_ids"]
 	for key, target := range map[string]*[]string{"lesson_tags": &note.LessonTags, "product_ids": &note.ProductIDs, "project_ids": &note.ProjectIDs, "domain_ids": &note.DomainIDs, "component_ids": &note.ComponentIDs, "tag_ids": &note.TagIDs} {
-		*target, err = parseScalarArray(values[key])
+		parsed, err := parseScalarArray(values[key])
 		if err != nil {
 			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter array is malformed", false, "use a closed scalar array such as [sqlite, state-authority]")
 		}
+		*target = parsed
 	}
 	return note, nil
 }

@@ -171,50 +171,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, pinErr
 	}
 	backupErr := conn.Raw(func(raw any) error {
-		driverConn, ok := raw.(backupper)
-		if !ok {
-			return newFailure(KindUnavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
-		}
-		operation, err := driverConn.NewBackup(SQLiteFileURI(destination))
-		if err != nil {
-			return wrapFailure(KindUnavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
-		}
-		notifyBackupStarted(ctx)
-		finished := false
-		finish := func() error {
-			if finished {
-				return nil
-			}
-			finished = true
-			return operation.Finish()
-		}
-		for retries := 0; ; {
-			if err := contextErr(ctx); err != nil {
-				_ = finish()
-				return wrapFailure(KindUnavailable, "backup", "online backup was interrupted", true, "discard the partial snapshot and retry", err)
-			}
-			more, stepErr := operation.Step(backupStepPages)
-			if stepErr == nil {
-				if !more {
-					break
-				}
-				retries = 0
-				continue
-			}
-			if !isRetryableBackupError(stepErr) || retries >= backupRetryLimit {
-				_ = finish()
-				return wrapFailure(KindUnavailable, "backup", "online backup step failed", true, "discard the partial snapshot and retry", stepErr)
-			}
-			retries++
-			if err := waitBackupRetry(ctx); err != nil {
-				_ = finish()
-				return wrapFailure(KindUnavailable, "backup", "online backup retry was interrupted", true, "discard the partial snapshot and retry", err)
-			}
-		}
-		if err := finish(); err != nil {
-			return wrapFailure(KindUnavailable, "backup", "cannot finish SQLite online backup", true, "discard the partial snapshot and retry", err)
-		}
-		return nil
+		return copyOnlineBackup(ctx, raw, destination)
 	})
 	// Exit Raw before releasing the snapshot: a rollback during the copy
 	// would reset the source pager and restart the backup's progress. The
@@ -245,6 +202,53 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return BackupManifest{}, err
 	}
 	return manifest, nil
+}
+
+func copyOnlineBackup(ctx context.Context, raw any, destination string) error {
+	driverConn, ok := raw.(backupper)
+	if !ok {
+		return newFailure(KindUnavailable, "backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
+	}
+	operation, err := driverConn.NewBackup(SQLiteFileURI(destination))
+	if err != nil {
+		return wrapFailure(KindUnavailable, "backup", "cannot initialize SQLite online backup", true, "retry from a writable local filesystem", err)
+	}
+	notifyBackupStarted(ctx)
+	finished := false
+	finish := func() error {
+		if finished {
+			return nil
+		}
+		finished = true
+		return operation.Finish()
+	}
+	for retries := 0; ; {
+		if err := contextErr(ctx); err != nil {
+			_ = finish()
+			return wrapFailure(KindUnavailable, "backup", "online backup was interrupted", true, "discard the partial snapshot and retry", err)
+		}
+		more, stepErr := operation.Step(backupStepPages)
+		if stepErr == nil {
+			if !more {
+				break
+			}
+			retries = 0
+			continue
+		}
+		if !isRetryableBackupError(stepErr) || retries >= backupRetryLimit {
+			_ = finish()
+			return wrapFailure(KindUnavailable, "backup", "online backup step failed", true, "discard the partial snapshot and retry", stepErr)
+		}
+		retries++
+		if err := waitBackupRetry(ctx); err != nil {
+			_ = finish()
+			return wrapFailure(KindUnavailable, "backup", "online backup retry was interrupted", true, "discard the partial snapshot and retry", err)
+		}
+	}
+	if err := finish(); err != nil {
+		return wrapFailure(KindUnavailable, "backup", "cannot finish SQLite online backup", true, "discard the partial snapshot and retry", err)
+	}
+	return nil
 }
 
 // VerifyBackup validates the snapshot and its manifest. The optional maximum
@@ -429,41 +433,7 @@ func runOnlineRestore(ctx context.Context, source, stage string) error {
 			return err
 		}
 		return conn.Raw(func(raw any) error {
-			driverConn, ok := raw.(backupper)
-			if !ok {
-				return newFailure(KindUnavailable, "restore_backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
-			}
-			operation, err := driverConn.NewBackup(dataSourceName(stage))
-			if err != nil {
-				return wrapFailure(KindUnavailable, "restore_backup", "cannot initialize SQLite online restore", true, "retry from a readable verified snapshot", err)
-			}
-			finished := false
-			finish := func() error {
-				if finished {
-					return nil
-				}
-				finished = true
-				return operation.Finish()
-			}
-			for {
-				if err := contextErr(ctx); err != nil {
-					_ = finish()
-					return wrapFailure(KindUnavailable, "restore_backup", "online restore was interrupted", true, "discard the staging database and retry", err)
-				}
-				more, stepErr := operation.Step(backupStepPages)
-				if stepErr == nil {
-					if !more {
-						break
-					}
-					continue
-				}
-				_ = finish()
-				return wrapFailure(KindUnavailable, "restore_backup", "online restore step failed", true, "discard the staging database and retry", stepErr)
-			}
-			if err := finish(); err != nil {
-				return wrapFailure(KindUnavailable, "restore_backup", "cannot finish SQLite online restore", true, "discard the staging database and retry", err)
-			}
-			return nil
+			return copyOnlineRestore(ctx, raw, stage)
 		})
 	}()
 	// Exit Raw before releasing the snapshot: a rollback during the copy
@@ -480,6 +450,44 @@ func runOnlineRestore(ctx context.Context, source, stage string) error {
 		restoreErr = wrapFailure(KindUnavailable, "restore_backup", "cannot close the restore source pool", true, "retry the restore", err)
 	}
 	return restoreErr
+}
+
+func copyOnlineRestore(ctx context.Context, raw any, stage string) error {
+	driverConn, ok := raw.(backupper)
+	if !ok {
+		return newFailure(KindUnavailable, "restore_backup", "SQLite driver does not expose the Online Backup API", false, "use the supported modernc.org/sqlite driver")
+	}
+	operation, err := driverConn.NewBackup(dataSourceName(stage))
+	if err != nil {
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot initialize SQLite online restore", true, "retry from a readable verified snapshot", err)
+	}
+	finished := false
+	finish := func() error {
+		if finished {
+			return nil
+		}
+		finished = true
+		return operation.Finish()
+	}
+	for {
+		if err := contextErr(ctx); err != nil {
+			_ = finish()
+			return wrapFailure(KindUnavailable, "restore_backup", "online restore was interrupted", true, "discard the staging database and retry", err)
+		}
+		more, stepErr := operation.Step(backupStepPages)
+		if stepErr == nil {
+			if !more {
+				break
+			}
+			continue
+		}
+		_ = finish()
+		return wrapFailure(KindUnavailable, "restore_backup", "online restore step failed", true, "discard the staging database and retry", stepErr)
+	}
+	if err := finish(); err != nil {
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot finish SQLite online restore", true, "discard the staging database and retry", err)
+	}
+	return nil
 }
 
 // consumeSourceSnapshot reads one row through the open read transaction. A

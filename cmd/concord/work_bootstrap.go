@@ -231,14 +231,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	// A multi-Project work item holds one active worktree per Project, so the
 	// claimed entry is the active one whose path is this directory; another
 	// Project's active entry is not a refusal.
-	var entry store.WorktreeEntry
-	matched := false
-	for _, candidate := range entries {
-		if candidate.State == "active" && samePath(cwd, candidate.Path) {
-			entry, matched = candidate, true
-			break
-		}
-	}
+	entry, matched := activeWorktreeAt(entries, cwd)
 	if !matched {
 		writeOperatorDiagnostic(errOut, "session-prepare", "current directory is not an active claimed worktree of this work item")
 		return sessionPrepareRefusalExit
@@ -331,6 +324,15 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		return sessionPrepareFailureExit(err, 1)
 	}
 	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: prompt}, errOut)
+}
+
+func activeWorktreeAt(entries []store.WorktreeEntry, cwd string) (store.WorktreeEntry, bool) {
+	for _, candidate := range entries {
+		if candidate.State == "active" && samePath(cwd, candidate.Path) {
+			return candidate, true
+		}
+	}
+	return store.WorktreeEntry{}, false
 }
 
 func samePath(left, right string) bool {

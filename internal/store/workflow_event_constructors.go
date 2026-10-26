@@ -124,6 +124,28 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contractVersion := workflowFieldInt(fields, "contract_version", 1)
 	premise, _ := workflowFieldString(fields, "premise")
+	required, err := workflowApprovalRequiredEvidence(definition, fields)
+	if err != nil {
+		return nil, err
+	}
+	routes := workflowFieldStrings(fields, "route_conventions")
+	if routes == nil {
+		routes = []string{}
+	}
+	spec := workflowFieldStrings(fields, "spec_mandate")
+	if spec == nil {
+		spec = []string{}
+	}
+	lawModifies := workflowFieldStrings(fields, "law_modifies")
+	if len(lawModifies) == 0 && len(request.LawModifies) != 0 {
+		lawModifies = append([]string(nil), request.LawModifies...)
+	}
+	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
+	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+	return workflowApproveBoundContractEvents(ctx, tx, definition, request, actor, fields, eventID, expected, contract, spec, lawModifies)
+}
+
+func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[string]json.RawMessage) ([]string, error) {
 	required := workflowFieldStrings(fields, "required_evidence")
 	if len(required) == 0 {
 		for _, kind := range definition.RequiredEvidenceKinds {
@@ -147,20 +169,10 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("approve_contract requires evidence kind %q, but no action reachable through the pinned workflow definition %s can produce it; its reachable actions produce %s", kind, definition.Ref, summary), false, "require only evidence kinds the pinned definition's reachable actions can produce")
 		}
 	}
-	routes := workflowFieldStrings(fields, "route_conventions")
-	if routes == nil {
-		routes = []string{}
-	}
-	spec := workflowFieldStrings(fields, "spec_mandate")
-	if spec == nil {
-		spec = []string{}
-	}
-	lawModifies := workflowFieldStrings(fields, "law_modifies")
-	if len(lawModifies) == 0 && len(request.LawModifies) != 0 {
-		lawModifies = append([]string(nil), request.LawModifies...)
-	}
-	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
-	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+	return required, nil
+}
+
+func workflowApproveBoundContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64, contract map[string]any, spec, lawModifies []string) ([]Event, error) {
 	// On a canonical authoring head the contract records the explicit
 	// predicate array alone: the legacy outcome pair stays off the event, and
 	// the fold resolves the end state through the predicates whenever they
@@ -599,6 +611,10 @@ func workflowVerdictReceiptAssociations(ctx context.Context, tx queryer, workID,
 			}
 		}
 	}
+	return associateWorkflowVerdictReceiptsTx(ctx, tx, workID, verdictActor, entries, contractVersion)
+}
+
+func associateWorkflowVerdictReceiptsTx(ctx context.Context, tx queryer, workID, verdictActor string, entries []workflowVerdictBatchEntry, contractVersion int64) ([]workflowVerdictRecordedPayload, error) {
 	var associations []workflowVerdictRecordedPayload
 	state, stateErr := loadWorkflowReviewState(ctx, tx, workID)
 	if stateErr != nil {
@@ -671,63 +687,12 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 		contractVersion = activeVersion
 	}
 	if definition.ApprovalPolicy == WorkflowApprovalPolicyConsequenceV1 {
-		activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
-		if activeErr != nil {
-			if activeErr == sql.ErrNoRows {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
-			}
-			return nil, activeErr
-		}
-		if contractVersion != activeVersion {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
-		}
-		var stored sql.NullString
-		if err := tx.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, request.WorkID, contractVersion).Scan(&stored); err != nil {
-			if err == sql.ErrNoRows {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
-			}
+		engineering, err := workflowPremiseEngineeringContractTx(ctx, tx, definition, request.WorkID, contractVersion)
+		if err != nil {
 			return nil, err
 		}
-		domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(stored)
-		if domainsErr != nil {
-			return nil, newFailure(KindInvalidInput, "workflow_action", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-		if !domainsPresent {
-			return nil, newFailure(KindInvalidInput, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
-		}
-		decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
-		if decisionErr != nil {
-			return nil, decisionErr
-		}
-		if decision.Consent == WorkflowConsentNone {
-			// Engineering: the authenticated non-worker coordinator records
-			// its own confirm choice — no operator substitution, no pending
-			// human question, no human decision-context digest. Both
-			// selections ride the request envelope, never the action fields.
-			if request.OperatorActor != nil {
-				return nil, newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for an engineering premise confirmation", false, "confirm under the authenticated coordinator identity")
-			}
-			if request.DecisionContextDigest != "" {
-				return nil, newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation carries no human decision-context digest", false, "drop the human digest for engineering work")
-			}
-			if request.SelectedChoice != "confirm" {
-				return nil, newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation records selected_choice confirm; revise follows the successor route", false, "confirm, or supersede through the successor route")
-			}
-			authority, authorityErr := workflowEvaluationAuthority(ctx, tx, request.WorkID, actor)
-			if authorityErr != nil {
-				return nil, authorityErr
-			}
-			if authority == WorkflowWorkerEvaluator {
-				return nil, newFailure(KindUnauthorized, "workflow_action", "worker actors cannot record an engineering premise confirmation", false, "return the worker report to the coordinator")
-			}
-			var invokerClass string
-			if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
-				return nil, newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
-			}
-			if err := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); err != nil {
-				return nil, err
-			}
-			if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
+		if engineering {
+			if err := validateWorkflowEngineeringConfirmationTx(ctx, tx, definition, request, actor); err != nil {
 				return nil, err
 			}
 			return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": actor, "confirmation_authority": "coordinator"})}, nil
@@ -751,6 +716,72 @@ func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, 
 		return nil, err
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": operatorRef, "confirmation_authority": "operator"})}, nil
+}
+
+func workflowPremiseEngineeringContractTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, contractVersion int64) (bool, error) {
+	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
+	if activeErr != nil {
+		if activeErr == sql.ErrNoRows {
+			return false, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return false, activeErr
+	}
+	if contractVersion != activeVersion {
+		return false, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
+	}
+	var stored sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, contractVersion).Scan(&stored); err != nil {
+		if err == sql.ErrNoRows {
+			return false, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return false, err
+	}
+	domains, domainsPresent, domainsErr := workflowStoredDecisionDomains(stored)
+	if domainsErr != nil {
+		return false, newFailure(KindInvalidInput, "workflow_action", "the stored decision-domain fact is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+	}
+	if !domainsPresent {
+		return false, newFailure(KindInvalidInput, "workflow_action", "consequence_v1 confirmation requires the contract's stored decision-domain fact; absence is a legacy shape", false, "record the contract's decision domains")
+	}
+	decision, decisionErr := ClassifyWorkflowApproval(definition, "confirm_premise", WorkflowApprovalFacts{ActiveDecisionDomains: domains})
+	if decisionErr != nil {
+		return false, decisionErr
+	}
+	return decision.Consent == WorkflowConsentNone, nil
+}
+
+func validateWorkflowEngineeringConfirmationTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string) error {
+	// Engineering: the authenticated non-worker coordinator records
+	// its own confirm choice — no operator substitution, no pending
+	// human question, no human decision-context digest. Both
+	// selections ride the request envelope, never the action fields.
+	if request.OperatorActor != nil {
+		return newFailure(KindUnauthorized, "workflow_action", "consequence_v1 takes no operator substitution for an engineering premise confirmation", false, "confirm under the authenticated coordinator identity")
+	}
+	if request.DecisionContextDigest != "" {
+		return newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation carries no human decision-context digest", false, "drop the human digest for engineering work")
+	}
+	if request.SelectedChoice != "confirm" {
+		return newFailure(KindInvalidInput, "workflow_action", "an engineering premise confirmation records selected_choice confirm; revise follows the successor route", false, "confirm, or supersede through the successor route")
+	}
+	authority, authorityErr := workflowEvaluationAuthority(ctx, tx, request.WorkID, actor)
+	if authorityErr != nil {
+		return authorityErr
+	}
+	if authority == WorkflowWorkerEvaluator {
+		return newFailure(KindUnauthorized, "workflow_action", "worker actors cannot record an engineering premise confirmation", false, "return the worker report to the coordinator")
+	}
+	var invokerClass string
+	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
+		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
+	}
+	if err := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); err != nil {
+		return err
+	}
+	if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {

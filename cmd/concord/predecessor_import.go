@@ -349,55 +349,62 @@ func resolveImportSelection(snapshot predecessor.Snapshot, request *importReques
 	}
 
 	for _, changeID := range request.SelectChangeIDs {
-		if changeID == "" {
-			return nil, &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
-				Detail: "select_change_ids must not contain empty strings"}
-		}
-		found := false
-		for projectID, project := range projectByID {
-			for _, change := range project.ActiveChanges {
-				if change.ChangeID != changeID {
-					continue
-				}
-				if !declaredSnapshots[projectID] {
-					return nil, &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
-						Detail:         fmt.Sprintf("select_change_ids entry %q belongs to snapshot project %q which is not declared in projects", changeID, projectID),
-						RecoveryAction: "declare every snapshot project the selected changes belong to"}
-				}
-				declaredProjectID := ""
-				for _, candidate := range request.Projects {
-					if candidate.SnapshotProjectID == projectID {
-						declaredProjectID = candidate.ProjectID
-						break
-					}
-				}
-				selected := selectedChange{
-					ChangeID:       change.ChangeID,
-					SnapshotPhase:  change.Status,
-					CompletedGates: append([]string(nil), change.CompletedGates...),
-					ProjectID:      declaredProjectID,
-				}
-				if isTerminalActiveChangeStatus(change.Status) {
-					// Under the parallel mode the predecessor keeps moving:
-					// a selected change that reached a terminal phase since
-					// the previous harvest is deferred, not refused here.
-					resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selected, deferredTerminal})
-					found = true
-					continue
-				}
-				resolved.selectedChanges = append(resolved.selectedChanges, selected)
-				found = true
-			}
-		}
-		if !found {
-			// The change is absent from every active set. It may have become
-			// terminal since the previous harvest, so defer it the same way;
-			// a first-run typo resolves to the same refusal it always did
-			// once the store probe finds no import for it.
-			resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selectedChange{ChangeID: changeID}, deferredAbsent})
+		if err := resolveSelectedChange(changeID, projectByID, declaredSnapshots, request, resolved); err != nil {
+			return nil, err
 		}
 	}
 	return resolved, nil
+}
+
+func resolveSelectedChange(changeID string, projectByID map[string]*predecessor.Project, declaredSnapshots map[string]bool, request *importRequest, resolved *resolvedImport) error {
+	if changeID == "" {
+		return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+			Detail: "select_change_ids must not contain empty strings"}
+	}
+	found := false
+	for projectID, project := range projectByID {
+		for _, change := range project.ActiveChanges {
+			if change.ChangeID != changeID {
+				continue
+			}
+			if !declaredSnapshots[projectID] {
+				return &store.Failure{Kind: store.KindInvalidOperation, Op: importFailureOp,
+					Detail:         fmt.Sprintf("select_change_ids entry %q belongs to snapshot project %q which is not declared in projects", changeID, projectID),
+					RecoveryAction: "declare every snapshot project the selected changes belong to"}
+			}
+			declaredProjectID := ""
+			for _, candidate := range request.Projects {
+				if candidate.SnapshotProjectID == projectID {
+					declaredProjectID = candidate.ProjectID
+					break
+				}
+			}
+			selected := selectedChange{
+				ChangeID:       change.ChangeID,
+				SnapshotPhase:  change.Status,
+				CompletedGates: append([]string(nil), change.CompletedGates...),
+				ProjectID:      declaredProjectID,
+			}
+			if isTerminalActiveChangeStatus(change.Status) {
+				// Under the parallel mode the predecessor keeps moving:
+				// a selected change that reached a terminal phase since
+				// the previous harvest is deferred, not refused here.
+				resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selected, deferredTerminal})
+				found = true
+				continue
+			}
+			resolved.selectedChanges = append(resolved.selectedChanges, selected)
+			found = true
+		}
+	}
+	if !found {
+		// The change is absent from every active set. It may have become
+		// terminal since the previous harvest, so defer it the same way;
+		// a first-run typo resolves to the same refusal it always did
+		// once the store probe finds no import for it.
+		resolved.deferredChanges = append(resolved.deferredChanges, deferredChange{selectedChange{ChangeID: changeID}, deferredAbsent})
+	}
+	return nil
 }
 
 // terminalActiveChangeStatuses is the closed set of snapshot statuses the

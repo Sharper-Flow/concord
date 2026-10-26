@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -511,60 +512,81 @@ func validateWorkerDirectCallerRepairs(repairs []WorkerDirectCallerRepair) error
 		return invalidWorkerPayload("worker.completed direct_caller_repairs must carry between 1 and " + fmt.Sprint(WorkerCallerRepairsMax) + " repairs")
 	}
 	for _, repair := range repairs {
-		for _, mechanism := range []struct {
-			role      string
-			mechanism WorkerCallerMechanism
-		}{
-			{"owner", repair.Owner}, {"caller", repair.Caller},
-		} {
-			if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs "+mechanism.role+" path", mechanism.mechanism.Path); problem != "" {
-				return invalidWorkerPayload(problem)
-			}
-			if err := oracleBoundedText(mechanism.mechanism.EntryPoint, "worker.completed direct_caller_repairs "+mechanism.role+" entry_point"); err != nil {
-				return invalidWorkerPayload("worker.completed direct_caller_repairs " + mechanism.role + " entry_point must be between 1 and 512 bytes without control characters")
-			}
+		if err := validateWorkerCallerRepairMechanisms(repair); err != nil {
+			return err
 		}
-		if len(repair.Edge) < 1 || len(repair.Edge) > 256 {
-			return invalidWorkerPayload("worker.completed direct_caller_repairs edge must be between 1 and 256 bytes")
+		if err := validateWorkerCallerRepairPaths(repair); err != nil {
+			return err
 		}
-		if len(repair.Exposing) < 1 || len(repair.Exposing) > 512 {
-			return invalidWorkerPayload("worker.completed direct_caller_repairs exposing request must be between 1 and 512 bytes")
-		}
-		if len(repair.ChangedPaths) < 1 || len(repair.ChangedPaths) > WorkerCallerRepairPathsMax {
-			return invalidWorkerPayload("worker.completed direct_caller_repairs must carry between 1 and " + fmt.Sprint(WorkerCallerRepairPathsMax) + " changed paths")
-		}
-		changed := map[string]bool{}
-		for _, path := range repair.ChangedPaths {
-			if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs changed paths", path); problem != "" {
-				return invalidWorkerPayload(problem)
-			}
-			if changed[path] {
-				return invalidWorkerPayload("worker.completed direct_caller_repairs names changed path " + path + " twice")
-			}
-			changed[path] = true
-		}
-		for _, check := range []struct {
-			role  string
-			check WorkerCallerRepairCheck
-		}{
-			{"baseline_pass", repair.Checks.BaselinePass},
-			{"owner_only_fail", repair.Checks.OwnerOnlyFail},
-			{"combined_pass", repair.Checks.CombinedPass},
-		} {
-			if len(check.check.Observed) < 1 || len(check.check.Observed) > 512 {
-				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " must carry its observed output reference of 1 to 512 bytes")
-			}
-			if len(check.check.InferredCause) > 512 {
-				return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " inferred cause must be at most 512 bytes")
-			}
+		if err := validateWorkerCallerRepairChecks(repair); err != nil {
+			return err
 		}
 		if repair.GeneratorRef != nil && (len(repair.GeneratorRef) < 1 || len(repair.GeneratorRef) > 8) {
 			return invalidWorkerPayload("worker.completed direct_caller_repairs generator_ref must name between 1 and 8 inputs when present")
 		}
 		for _, generator := range repair.GeneratorRef {
-			if !changed[generator] {
+			if !slices.Contains(repair.ChangedPaths, generator) {
 				return invalidWorkerPayload("worker.completed direct_caller_repairs names generator_ref input " + generator + " outside its changed paths; a generated output changes only through its owning input among the changed paths")
 			}
+		}
+	}
+	return nil
+}
+
+func validateWorkerCallerRepairMechanisms(repair WorkerDirectCallerRepair) error {
+	for _, mechanism := range []struct {
+		role      string
+		mechanism WorkerCallerMechanism
+	}{
+		{"owner", repair.Owner}, {"caller", repair.Caller},
+	} {
+		if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs "+mechanism.role+" path", mechanism.mechanism.Path); problem != "" {
+			return invalidWorkerPayload(problem)
+		}
+		if err := oracleBoundedText(mechanism.mechanism.EntryPoint, "worker.completed direct_caller_repairs "+mechanism.role+" entry_point"); err != nil {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs " + mechanism.role + " entry_point must be between 1 and 512 bytes without control characters")
+		}
+	}
+	if len(repair.Edge) < 1 || len(repair.Edge) > 256 {
+		return invalidWorkerPayload("worker.completed direct_caller_repairs edge must be between 1 and 256 bytes")
+	}
+	if len(repair.Exposing) < 1 || len(repair.Exposing) > 512 {
+		return invalidWorkerPayload("worker.completed direct_caller_repairs exposing request must be between 1 and 512 bytes")
+	}
+	return nil
+}
+
+func validateWorkerCallerRepairPaths(repair WorkerDirectCallerRepair) error {
+	if len(repair.ChangedPaths) < 1 || len(repair.ChangedPaths) > WorkerCallerRepairPathsMax {
+		return invalidWorkerPayload("worker.completed direct_caller_repairs must carry between 1 and " + fmt.Sprint(WorkerCallerRepairPathsMax) + " changed paths")
+	}
+	changed := map[string]bool{}
+	for _, path := range repair.ChangedPaths {
+		if problem := normalizedRelativeRepoPathProblem("worker.completed direct_caller_repairs changed paths", path); problem != "" {
+			return invalidWorkerPayload(problem)
+		}
+		if changed[path] {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs names changed path " + path + " twice")
+		}
+		changed[path] = true
+	}
+	return nil
+}
+
+func validateWorkerCallerRepairChecks(repair WorkerDirectCallerRepair) error {
+	for _, check := range []struct {
+		role  string
+		check WorkerCallerRepairCheck
+	}{
+		{"baseline_pass", repair.Checks.BaselinePass},
+		{"owner_only_fail", repair.Checks.OwnerOnlyFail},
+		{"combined_pass", repair.Checks.CombinedPass},
+	} {
+		if len(check.check.Observed) < 1 || len(check.check.Observed) > 512 {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " must carry its observed output reference of 1 to 512 bytes")
+		}
+		if len(check.check.InferredCause) > 512 {
+			return invalidWorkerPayload("worker.completed direct_caller_repairs " + check.role + " inferred cause must be at most 512 bytes")
 		}
 	}
 	return nil
@@ -775,6 +797,13 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 		}
 		criteria[criterion.PredicateID] = true
 	}
+	if err := validateWorkerReviewAssessments(review, criteria); err != nil {
+		return err
+	}
+	return validateWorkerReviewFindingsAndObligations(review)
+}
+
+func validateWorkerReviewAssessments(review *WorkerReviewBlock, criteria map[string]bool) error {
 	seen := map[string]bool{}
 	for _, assessment := range review.Assessments {
 		if !criteria[assessment.PredicateID] || seen[assessment.PredicateID] || (assessment.Assessment != "supported" && assessment.Assessment != "unproved" && assessment.Assessment != "mismatch") || assessment.ReceiptRefs == nil || len(assessment.ReceiptRefs) > 32 {
@@ -787,7 +816,11 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 			}
 		}
 	}
-	seen = map[string]bool{}
+	return nil
+}
+
+func validateWorkerReviewFindingsAndObligations(review *WorkerReviewBlock) error {
+	seen := map[string]bool{}
 	for _, finding := range review.Findings {
 		if err := validateWorkerReviewFinding(finding); err != nil {
 			return err

@@ -287,35 +287,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 			return result, err
 		}
 	}
-	// One admission derivation for the fold: the tx-scoped loader folds the
-	// instance history into the abstract admission state once, and the pure
-	// workflowAdmit decides. Every refusal applies here except the review
-	// gate's own fresh-review refusal, whose ready-review carve-out is
-	// payload-bound, the operator-approval walls, and the closed-question
-	// wall whose interactive refusal the selection chain owns; a staleness,
-	// impact, wall, or step-legality refusal is never deferred, so no
-	// unrelated cause can ride the review gate's acceptance route. The
-	// recovery guards and the step-legality check read the same folded
-	// state below.
-	admission, proofRuns, integrationRuns, admissionErr := loadWorkflowAdmissionStateTxForRegistry(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", registry)
-	if admissionErr != nil {
-		return result, admissionErr
-	}
-	if err := bindWorkflowReviewRequest(ctx, tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
+	if err := prepareWorkflowExecutionAdmission(guards); err != nil {
 		return result, err
 	}
-	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
-		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
-	}
-	guards.admissionState = &admission
-	guards.admissionDecision = &decision
-	guards.deliveryProofRuns = proofRuns
-	guards.deliveryIntegrationRuns = integrationRuns
-	guards.workerFailureRecovery = admission.WorkerFailureRecovery
-	guards.correctionRecovery = admission.CorrectionRecovery
-	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery
-	guards.correctionRequestMissing = admission.CorrectionRequestMissing
+	decision := *guards.admissionDecision
 	workerClaimedWorktree, retryCorrection, rejectRetry, err := prepareWorkflowActionIntents(guards, &request)
 	if err != nil {
 		return result, err
@@ -400,11 +375,50 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	}
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": result.ResultingVersion}
 	resultMap := workflowActionResultMap(changedRef, request.OperationID, workerPacketDigest, resultMapRetryRecord, workerClaimedWorktree)
-	for _, event := range assembly.events {
+	if err := appendWorkflowAssignmentGroupResult(resultMap, assembly.events); err != nil {
+		return result, err
+	}
+	result.Result, _ = json.Marshal(resultMap)
+	durableChangedRef, _ := json.Marshal(changedRef)
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
+		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
+	}
+	return result, nil
+}
+
+// One admission derivation for the fold: the tx-scoped loader folds the
+// instance history once. Only the payload-bound review, operator approval,
+// and interactive closed-question walls defer to their owning guards.
+func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
+	request := g.request
+	admission, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTxForRegistry(g.ctx, g.tx, request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", g.registry)
+	if err != nil {
+		return err
+	}
+	if err := bindWorkflowReviewRequest(g.ctx, g.tx, &admission, request.WorkID, request.ActionID, request.Payload, request.Actor); err != nil {
+		return err
+	}
+	decision := workflowAdmit(g.entry.Definition, admission, request.ActionID)
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed {
+		return workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+	}
+	g.admissionState = &admission
+	g.admissionDecision = &decision
+	g.deliveryProofRuns = proofRuns
+	g.deliveryIntegrationRuns = integrationRuns
+	g.workerFailureRecovery = admission.WorkerFailureRecovery
+	g.correctionRecovery = admission.CorrectionRecovery
+	g.correctionRequestRecovery = admission.CorrectionRequestRecovery
+	g.correctionRequestMissing = admission.CorrectionRequestMissing
+	return nil
+}
+
+func appendWorkflowAssignmentGroupResult(resultMap map[string]any, events []Event) error {
+	for _, event := range events {
 		if event.Kind == WorkflowActionCompleted {
 			var completed workflowActionCompletedPayload
 			if err := json.Unmarshal(event.Payload, &completed); err != nil {
-				return result, err
+				return err
 			}
 			if completed.AssignmentGroup != nil {
 				resultMap["assignment_group"] = struct {
@@ -414,12 +428,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 			}
 		}
 	}
-	result.Result, _ = json.Marshal(resultMap)
-	durableChangedRef, _ := json.Marshal(changedRef)
-	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET result_kind='completed',result_payload=?,changed_refs=?,completed_at=? WHERE op_id=? AND attempt_epoch=?`, string(result.Result), workflowJSON([]string{string(durableChangedRef)}), request.Now.UTC().Format(time.RFC3339Nano), request.OperationID, 1); err != nil {
-		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
-	}
-	return result, nil
+	return nil
 }
 
 // readWorkflowActionStateTx reads the instance's current step and state and

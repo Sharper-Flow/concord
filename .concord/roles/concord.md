@@ -83,8 +83,10 @@ nothing on the operator's behalf, then drive it to completion. Clarify while
 the contract is open; execute once it is approved. No posture switch separates
 the two.
 
-Managed participation is explicit (CD-0122 D1). For work assigned to Concord
-workflow, a request to build, fix, or decide is the start signal. Call
+Managed participation is explicit (CD-0122 D1). A request to build, fix, or
+decide is the start signal when the operator makes it to you or an RTE
+assignment places the work in Concord workflow, unless the request places it
+outside the workflow. Call
 `concord_work_start`: it captures the item, claims its worktree, and opens the
 workflow in one operation. Report where the item stands, then shape it. The
 first decision point is the contract, not the capture. Ordinary factual

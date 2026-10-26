@@ -171,6 +171,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-stage-update", TwoWord: "product stage-update", RequiredFields: requiredFields(field("product_id"), field("stage_maturity"), field("stage_audience_commitment"), field("expected_version")), Optional: "reason (cite the CD-0091 rung manifest when raising maturity)", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
+	{Canonical: "domain-shape-check", TwoWord: "domain shape-check", RequiredFields: requiredFields(field("product_id")), Optional: "checkout (clean exact pinned subject worktree of the designated home; defaults to its registered path)", Enums: "explicit operator command; strict ratchet; missing checks remain unverified; JSON report <=32768 bytes; diagnostics <=4096 bytes; failures exit nonzero"},
 	{Canonical: "product-knowledge-source-register", TwoWord: "product knowledge-source-register", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project, not the designated home"},
 	{Canonical: "product-knowledge-source-remove", TwoWord: "product knowledge-source-remove", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a registered knowledge source of the Product"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
@@ -1108,7 +1109,7 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 	var err error
 	switch command {
 	case "product-knowledge-home-designate":
-		result, err = s.DesignateProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
+		result, err = designateOperatorDomainShape(context.Background(), s, store.ProductKnowledgeHomeDesignation{
 			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
 			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
 		})
@@ -1136,6 +1137,8 @@ func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store
 
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	switch command {
+	case "domain-shape-check":
+		return runDomainShapeCheck(raw, s, out, errOut)
 	case "client-show":
 		return runClientShow(raw, s, out, errOut)
 	case "client-register", "client-policy-update", "client-policy-expand":

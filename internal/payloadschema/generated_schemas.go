@@ -1799,6 +1799,458 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "domain_fact": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "not": {
+              "required": [
+                "governing_law_ids"
+              ]
+            }
+          },
+          "if": {
+            "properties": {
+              "standing": {
+                "const": "law"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "governing_law_ids"
+            ]
+          }
+        }
+      ],
+      "description": "One UTF-8 JSON shard named <id>.json, at most 16384 bytes. Duplicate keys and trailing content refuse. Parser also validates same-Product current Domain, owning-root, current accepted law, managed resource, invariant and resolved repository/required-check anchor references. Reference declarations do not prove execution or extractor verification. Text, name, path, symbol, environment and resource limits additionally apply in UTF-8 bytes; existing knowledge-reference identity limits count Unicode code points.",
+      "oneOf": [
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "data_object"
+                ]
+              },
+              {
+                "required": [
+                  "state_authority"
+                ]
+              },
+              {
+                "required": [
+                  "config_coupling"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "kind": {
+              "const": "invariant"
+            }
+          },
+          "required": [
+            "invariant"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "invariant"
+                ]
+              },
+              {
+                "required": [
+                  "state_authority"
+                ]
+              },
+              {
+                "required": [
+                  "config_coupling"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "kind": {
+              "const": "data_object"
+            }
+          },
+          "required": [
+            "data_object"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "invariant"
+                ]
+              },
+              {
+                "required": [
+                  "data_object"
+                ]
+              },
+              {
+                "required": [
+                  "config_coupling"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "kind": {
+              "const": "state_authority"
+            }
+          },
+          "required": [
+            "state_authority"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "invariant"
+                ]
+              },
+              {
+                "required": [
+                  "data_object"
+                ]
+              },
+              {
+                "required": [
+                  "state_authority"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "kind": {
+              "const": "config_coupling"
+            }
+          },
+          "required": [
+            "config_coupling"
+          ]
+        }
+      ],
+      "properties": {
+        "config_coupling": {
+          "$ref": "#/$defs/domain_fact_configCoupling"
+        },
+        "data_object": {
+          "$ref": "#/$defs/domain_fact_dataObject"
+        },
+        "governing_law_ids": {
+          "$ref": "#/$defs/domain_fact_nonemptyIDs"
+        },
+        "id": {
+          "$ref": "#/$defs/domain_fact_id"
+        },
+        "invariant": {
+          "$ref": "#/$defs/domain_fact_invariant"
+        },
+        "kind": {
+          "enum": [
+            "invariant",
+            "data_object",
+            "state_authority",
+            "config_coupling"
+          ],
+          "type": "string"
+        },
+        "owner_domain_id": {
+          "$ref": "#/$defs/domain_fact_referenceID"
+        },
+        "owning_root": {
+          "$ref": "#/$defs/domain_fact_path"
+        },
+        "schema_version": {
+          "const": "1.0"
+        },
+        "standing": {
+          "enum": [
+            "law",
+            "observed"
+          ],
+          "type": "string"
+        },
+        "state_authority": {
+          "$ref": "#/$defs/domain_fact_stateAuthority"
+        }
+      },
+      "required": [
+        "schema_version",
+        "id",
+        "kind",
+        "owner_domain_id",
+        "owning_root",
+        "standing"
+      ],
+      "title": "Domain fact shard v1",
+      "type": "object"
+    },
+    "domain_fact_configCoupling": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "$ref": "#/$defs/domain_fact_text"
+        },
+        "environments": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "read_by": {
+          "$ref": "#/$defs/domain_fact_repositoryAnchor"
+        },
+        "setting": {
+          "$ref": "#/$defs/domain_fact_name"
+        },
+        "source": {
+          "$ref": "#/$defs/domain_fact_text"
+        }
+      },
+      "required": [
+        "setting",
+        "source",
+        "read_by",
+        "effect",
+        "environments"
+      ],
+      "type": "object"
+    },
+    "domain_fact_dataObject": {
+      "additionalProperties": false,
+      "properties": {
+        "invariant_ids": {
+          "items": {
+            "$ref": "#/$defs/domain_fact_id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "$ref": "#/$defs/domain_fact_name"
+        },
+        "reader_domain_ids": {
+          "$ref": "#/$defs/domain_fact_ids"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/domain_fact_resourceID"
+        },
+        "writer_domain_ids": {
+          "$ref": "#/$defs/domain_fact_ids"
+        }
+      },
+      "required": [
+        "name",
+        "resource_id",
+        "writer_domain_ids",
+        "reader_domain_ids",
+        "invariant_ids"
+      ],
+      "type": "object"
+    },
+    "domain_fact_derivedCopy": {
+      "additionalProperties": false,
+      "properties": {
+        "rebuild_route": {
+          "$ref": "#/$defs/domain_fact_repositoryAnchor"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/domain_fact_resourceID"
+        }
+      },
+      "required": [
+        "resource_id",
+        "rebuild_route"
+      ],
+      "type": "object"
+    },
+    "domain_fact_enforcementAnchor": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "$ref": "#/$defs/domain_fact_id"
+        },
+        "kind": {
+          "enum": [
+            "adapter_test",
+            "generated",
+            "go_test",
+            "scenario",
+            "validator"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 512,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "check_id"
+      ],
+      "type": "object"
+    },
+    "domain_fact_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "type": "string"
+    },
+    "domain_fact_ids": {
+      "items": {
+        "$ref": "#/$defs/domain_fact_referenceID"
+      },
+      "maxItems": 32,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "domain_fact_invariant": {
+      "additionalProperties": false,
+      "properties": {
+        "applies_to_domain_ids": {
+          "$ref": "#/$defs/domain_fact_nonemptyIDs"
+        },
+        "enforced_by": {
+          "items": {
+            "$ref": "#/$defs/domain_fact_enforcementAnchor"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "statement": {
+          "$ref": "#/$defs/domain_fact_text"
+        }
+      },
+      "required": [
+        "statement",
+        "applies_to_domain_ids",
+        "enforced_by"
+      ],
+      "type": "object"
+    },
+    "domain_fact_name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
+    "domain_fact_nonemptyIDs": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/domain_fact_ids"
+        }
+      ],
+      "minItems": 1
+    },
+    "domain_fact_path": {
+      "maxLength": 256,
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "//|/$"
+          },
+          {
+            "pattern": "^/|(?:^|/)\\.{1,2}(?:/|$)"
+          }
+        ]
+      },
+      "pattern": "^[^\\\\*?\\[\\]{}]+(?:/[^\\\\*?\\[\\]{}]+)*$",
+      "type": "string"
+    },
+    "domain_fact_referenceID": {
+      "maxLength": 256,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
+    "domain_fact_repositoryAnchor": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/domain_fact_path"
+        },
+        "project_id": {
+          "$ref": "#/$defs/domain_fact_referenceID"
+        },
+        "symbol": {
+          "$ref": "#/$defs/domain_fact_name"
+        }
+      },
+      "required": [
+        "project_id",
+        "path",
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "domain_fact_resourceID": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "domain_fact_stateAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "authoritative_resource_id": {
+          "$ref": "#/$defs/domain_fact_resourceID"
+        },
+        "derived_copies": {
+          "items": {
+            "$ref": "#/$defs/domain_fact_derivedCopy"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "disagreement_behavior": {
+          "$ref": "#/$defs/domain_fact_text"
+        },
+        "state": {
+          "$ref": "#/$defs/domain_fact_text"
+        }
+      },
+      "required": [
+        "state",
+        "authoritative_resource_id",
+        "derived_copies",
+        "disagreement_behavior"
+      ],
+      "type": "object"
+    },
+    "domain_fact_text": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+      "type": "string"
+    },
     "domain_footprint_input": {
       "additionalProperties": false,
       "oneOf": [
@@ -2089,6 +2541,13 @@ const GeneratedPayloadSchemaDocument = `{
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "shapes": {
+          "items": {
+            "$ref": "#/$defs/domain_shape_result"
+          },
+          "maxItems": 64,
+          "type": "array"
         }
       },
       "required": [
@@ -2432,6 +2891,340 @@ const GeneratedPayloadSchemaDocument = `{
         "target_domain_id",
         "state"
       ],
+      "type": "object"
+    },
+    "domain_shape_fact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "fact": {
+          "$ref": "#/$defs/domain_fact"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact",
+        "path",
+        "content_hash"
+      ],
+      "type": "object"
+    },
+    "domain_shape_input": {
+      "additionalProperties": false,
+      "description": "Select exactly one path, current Domain or exact typed subject in the named Product. The whole result is at most 32768 bytes; larger selections refuse without truncation. Reads never run Product checks.",
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "domain_id"
+          ]
+        },
+        {
+          "required": [
+            "subject"
+          ]
+        }
+      ],
+      "properties": {
+        "domain_id": {
+          "description": "Bounds: 1..256 code points inclusive",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "Bounds: 1..512 code points inclusive",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id",
+          "description": "Bounds: 1..128 code points inclusive"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds",
+          "description": "Bounds: >=1 value inclusive"
+        },
+        "subject": {
+          "description": "Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive",
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "type": "string",
+          "x-maxBytes": 1024
+        }
+      },
+      "required": [
+        "product_id"
+      ],
+      "type": "object"
+    },
+    "domain_shape_law": {
+      "additionalProperties": false,
+      "properties": {
+        "applies_to": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32768,
+          "type": "array"
+        },
+        "content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "constitution",
+            "decision",
+            "spec"
+          ],
+          "type": "string"
+        },
+        "law_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scanned_commit_oid": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40,64}$",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "law_id",
+        "kind",
+        "title",
+        "path",
+        "content_hash",
+        "scanned_commit_oid"
+      ],
+      "type": "object"
+    },
+    "domain_shape_result": {
+      "additionalProperties": false,
+      "description": "Typed selected Domain Shape. The Store refuses the whole serialized result above 32768 bytes, within the 51200-byte tool envelope. Declared facts and anchors are not execution proof.",
+      "properties": {
+        "domain_ids": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32768,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "extractor_verification": {
+          "enum": [
+            "unverified"
+          ],
+          "type": "string"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/domain_shape_fact"
+          },
+          "maxItems": 512,
+          "type": "array"
+        },
+        "governing_law": {
+          "items": {
+            "$ref": "#/$defs/domain_shape_law"
+          },
+          "maxItems": 32768,
+          "type": "array"
+        },
+        "home_locator_id": {
+          "$ref": "#/$defs/id"
+        },
+        "home_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "knowledge_commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40,64}$",
+          "type": "string"
+        },
+        "package_map_content_hash": {
+          "maxLength": 71,
+          "type": "string"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reference_verification": {
+          "enum": [
+            "unverified"
+          ],
+          "type": "string"
+        },
+        "registry_content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "roots": {
+          "items": {
+            "$ref": "#/$defs/domain_shape_root"
+          },
+          "maxItems": 32768,
+          "type": "array"
+        },
+        "selector": {
+          "$ref": "#/$defs/domain_shape_selector"
+        },
+        "snapshot_content_hash": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "tooling_commit": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "tooling_content_hash": {
+          "maxLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "home_project_id",
+        "home_locator_id",
+        "selector",
+        "knowledge_commit",
+        "snapshot_content_hash",
+        "registry_content_hash",
+        "package_map_content_hash",
+        "tooling_commit",
+        "tooling_content_hash",
+        "roots",
+        "domain_ids",
+        "facts",
+        "governing_law",
+        "reference_verification",
+        "extractor_verification"
+      ],
+      "type": "object"
+    },
+    "domain_shape_root": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_ids": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "owner_domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "domain",
+            "composition",
+            "test_support",
+            "mixed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "role"
+      ],
+      "type": "object"
+    },
+    "domain_shape_selector": {
+      "additionalProperties": false,
+      "description": "Bounds: 1..1 properties inclusive",
+      "maxProperties": 1,
+      "minProperties": 1,
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "domain_id"
+          ]
+        },
+        {
+          "required": [
+            "subject"
+          ]
+        }
+      ],
+      "properties": {
+        "domain_id": {
+          "description": "Bounds: 1..256 code points inclusive",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "Bounds: 1..512 code points inclusive",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subject": {
+          "description": "Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive",
+          "maxLength": 1024,
+          "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+          "type": "string",
+          "x-maxBytes": 1024
+        }
+      },
       "type": "object"
     },
     "domain_summary": {
@@ -11715,6 +12508,9 @@ const GeneratedPayloadSchemaDocument = `{
             },
             {
               "$ref": "#/$defs/work_context_reading_source_knowledge"
+            },
+            {
+              "$ref": "#/$defs/work_context_reading_source_domain_shape"
             }
           ]
         }
@@ -11723,6 +12519,46 @@ const GeneratedPayloadSchemaDocument = `{
         "domain_id",
         "reason",
         "source"
+      ],
+      "type": "object"
+    },
+    "work_context_reading_source_domain_shape": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_oid": {
+          "description": "Bounds: 40..64 code points inclusive",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40,64}$",
+          "type": "string"
+        },
+        "content_hash": {
+          "description": "Bounds: 71..71 code points inclusive",
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "domain_shape"
+        },
+        "selector": {
+          "$ref": "#/$defs/domain_shape_selector",
+          "description": "Bounds: 1..1 properties inclusive"
+        },
+        "source_id": {
+          "description": "Bounds: 2..128 code points inclusive",
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_id",
+        "commit_oid",
+        "content_hash",
+        "selector"
       ],
       "type": "object"
     },

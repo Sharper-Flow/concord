@@ -39,11 +39,13 @@ const (
 
 // The closed source union of one required reading. A repository reading
 // names the Project and one normalized repository-contained path at a
-// commit; a knowledge reading names the store's law-revision identity. No
-// arm accepts the other arm's fields, and no reading accepts a tmp source.
+// commit; a knowledge reading names the store's law-revision identity; a
+// domain_shape reading pins an explicit selection of the Product home. No
+// arm accepts another arm's fields, and no reading accepts a tmp source.
 const (
 	WorkContextSourceRepositoryFile = "repository_file"
 	WorkContextSourceKnowledge      = "knowledge"
+	WorkContextSourceDomainShape    = "domain_shape"
 )
 
 // Finding origins the reader derives from the source event kind. A
@@ -65,13 +67,14 @@ const (
 // WorkContextReadingSource is the closed source union of one reading. The
 // Kind selects the arm; the other arm's fields must stay empty.
 type WorkContextReadingSource struct {
-	Kind        string `json:"kind"`
-	ProjectID   string `json:"project_id,omitempty"`
-	Path        string `json:"path,omitempty"`
-	CommitOID   string `json:"commit_oid,omitempty"`
-	SourceID    string `json:"source_id,omitempty"`
-	LawID       string `json:"law_id,omitempty"`
-	ContentHash string `json:"content_hash,omitempty"`
+	Kind        string               `json:"kind"`
+	ProjectID   string               `json:"project_id,omitempty"`
+	Path        string               `json:"path,omitempty"`
+	CommitOID   string               `json:"commit_oid,omitempty"`
+	SourceID    string               `json:"source_id,omitempty"`
+	LawID       string               `json:"law_id,omitempty"`
+	ContentHash string               `json:"content_hash,omitempty"`
+	Selector    *DomainShapeSelector `json:"selector,omitempty"`
 }
 
 // WorkContextReading is one required reading entry of the current context.
@@ -242,7 +245,7 @@ func validateWorkContextReading(reading WorkContextReading) error {
 		if !workContextCommitOID(reading.Source.CommitOID) {
 			return workContextFailure(KindInvalidPayload, "work_context", "repository reading commit_oid must be 40 to 64 hex bytes", "pin the commit the reading was taken at")
 		}
-		if reading.Source.SourceID != "" || reading.Source.LawID != "" || reading.Source.ContentHash != "" {
+		if reading.Source.SourceID != "" || reading.Source.LawID != "" || reading.Source.ContentHash != "" || reading.Source.Selector != nil {
 			return workContextFailure(KindInvalidPayload, "work_context", "repository reading carries knowledge source fields", "use one closed source arm")
 		}
 	case WorkContextSourceKnowledge:
@@ -255,11 +258,15 @@ func validateWorkContextReading(reading WorkContextReading) error {
 		if !workflowDigest(reading.Source.ContentHash) {
 			return workContextFailure(KindInvalidPayload, "work_context", "knowledge reading content_hash must be a sha256 digest", "pin the law revision content hash")
 		}
-		if reading.Source.ProjectID != "" || reading.Source.Path != "" || reading.Source.CommitOID != "" {
+		if reading.Source.ProjectID != "" || reading.Source.Path != "" || reading.Source.CommitOID != "" || reading.Source.Selector != nil {
 			return workContextFailure(KindInvalidPayload, "work_context", "knowledge reading carries repository source fields", "use one closed source arm")
 		}
+	case WorkContextSourceDomainShape:
+		if err := validateDomainShapeReadingSource(reading.Source); err != nil {
+			return err
+		}
 	default:
-		return workContextFailure(KindInvalidPayload, "work_context", "reading source kind must be repository_file or knowledge", "use the closed source union")
+		return workContextFailure(KindInvalidPayload, "work_context", "reading source kind must be repository_file, knowledge or domain_shape", "use the closed source union")
 	}
 	return nil
 }
@@ -374,13 +381,17 @@ func validateWorkContextResearchSelectionShape(selections []WorkContextResearchS
 // rationale, and a child Domain never carries one. No heuristic content
 // analysis runs here: identity, registry state, and scope decide.
 func ValidateWorkContextDomainTx(ctx context.Context, tx *sql.Tx, workID, domainID, productWideRationale string) error {
+	return validateWorkContextDomain(ctx, tx, workID, domainID, productWideRationale)
+}
+
+func validateWorkContextDomain(ctx context.Context, tx queryer, workID, domainID, productWideRationale string) error {
 	if !validateWorkContextDomainID(domainID) {
 		return workContextFailure(KindInvalidPayload, "work_context_domain", "domain_id must be between 1 and 256 bytes", "name a current Domain of the Product registry")
 	}
 	if !validateWorkContextRationale(productWideRationale) {
 		return workContextFailure(KindInvalidPayload, "work_context_domain", "product_wide_rationale exceeds 512 bytes", "bound the product-wide rationale")
 	}
-	productID, err := architectureBindingProductIDTx(ctx, tx, workID)
+	productID, err := architectureBindingProductID(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
@@ -545,6 +556,15 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	for _, reading := range payload.RequiredReading {
 		if err := ValidateWorkContextDomainTx(ctx, tx, request.WorkID, reading.DomainID, reading.ProductWideRationale); err != nil {
 			return nil, err
+		}
+		if reading.Source.Kind == WorkContextSourceDomainShape {
+			product, err := architectureBindingProductIDTx(ctx, tx, request.WorkID)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := sampleDomainShapeReading(ctx, tx, product, reading); err != nil {
+				return nil, err
+			}
 		}
 	}
 	for _, finding := range payload.ContextFindings {

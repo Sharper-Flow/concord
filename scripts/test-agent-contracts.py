@@ -28,6 +28,49 @@ RETIRED_PUBLISHED_ACTIONS = {
 }
 
 
+class DomainFactProjectionTests(unittest.TestCase):
+    def test_delegated_shape_reading_projects_the_same_closed_source(self):
+        packet = copy.deepcopy(packet_schema)
+        lanes_generator.project_domain_shape_reading(packet)
+        lanes_generator.project_domain_shape_reading(packet)
+        source = {"kind": "domain_shape", "source_id": "project", "commit_oid": "a" * 40,
+                  "content_hash": "sha256:" + "b" * 64, "selector": {"path": "source/main.go"}}
+        reading = {"domain_id": "root", "reason": "inspect selected shape", "source": source}
+        schema = packet["$defs"]["lane_work_context_reading"]
+        generator.schema_validate(reading, schema, packet)
+        self.assertEqual(len(schema["properties"]["source"]["oneOf"]), 3)
+        for extra in ["command", "law_id", "project_id"]:
+            with self.subTest(extra=extra):
+                bad = copy.deepcopy(reading)
+                bad["source"][extra] = "not-admitted"
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(bad, schema, packet)
+        source["selector"]["domain_id"] = "root"
+        with self.assertRaises(ValueError):
+            generator.schema_validate(reading, schema, packet)
+
+    def test_fact_projection_resolves_local_refs_and_preserves_path_rules(self):
+        source = json.loads((ROOT / "contracts/domain-fact.v1.schema.json").read_text())
+        projected = {"$defs": {}}
+        generator.project_domain_fact_schema(projected)
+        generator.check_schema_keywords(projected)
+        generator.check_payload_closed(projected)
+        # Exercise both the source's lookahead and the equivalent RE2-friendly
+        # not constraints. Go round-trip tests exercise the projected validator.
+        for path in ["source", "source/main.go", "one/two/three", "/source", "a//b", "a/", ".", "..", "a/../b", "a/./b", "a\\b", "a*b", "a?b", "a[b]", "a{b}"]:
+            with self.subTest(path=path):
+                def accepts(schema, root):
+                    try:
+                        generator.schema_validate(path, schema, root)
+                        return True
+                    except ValueError:
+                        return False
+                self.assertEqual(accepts(source["$defs"]["path"], source),
+                                 accepts(projected["$defs"]["domain_fact_path"], projected))
+        for name in source["$defs"]:
+            self.assertIn("domain_fact_" + name, projected["$defs"])
+
+
 class IndependentPartIntegrationTests(unittest.TestCase):
     """Exercise composition identity and real regeneration on disposable source bytes."""
 
@@ -626,11 +669,11 @@ class ToolDescriptionTests(unittest.TestCase):
         self.assertEqual(tool["operations"], [
             "concord_domain.list", "concord_domain.detail",
             "concord_domain.attachments", "concord_domain.overlaps",
-            "concord_domain.footprint",
+            "concord_domain.footprint", "concord_domain.shape",
         ])
         self.assertEqual(tool["description"],
-                         "Navigate Product architecture: current Domains, current law, "
-                         "attachments, unresolved overlap, and the footprint of a change.")
+                          "Navigate Product architecture: current Domains, current law, "
+                          "attachments, unresolved overlap, the footprint of a change, and typed Domain Shape selected by one path, Domain or subject. Shape results are bounded to 32768 bytes and never execute Product checks.")
 
     def test_tool_descriptions_do_not_name_retired_operations(self):
         retired = [

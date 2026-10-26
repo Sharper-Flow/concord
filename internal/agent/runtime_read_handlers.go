@@ -875,6 +875,22 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 	}
 }
 
+func (r runtime) readDomainShape(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+	var in domainShapeInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	result, err := r.Store.QueryDomainShape(ctx, in.ProductID, in.DomainShapeSelector)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	meta := store.ResultMeta{QueryID: "C22.DomainShape", ContractVersion: "C22/1.0",
+		ResolvedScope: store.ResolvedScope{ProductID: in.ProductID, DomainID: in.DomainID},
+		Authority:     "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)},
+		OrderingKeys: []string{"roots.path", "facts.fact.id", "governing_law.law_id"}}
+	return r.resultEnvelope(base, meta, r.scope(meta), result)
+}
+
 // readDomainFootprint answers concord_domain.footprint. It freshens the
 // Product's knowledge like every Domain read, then fits the law page to the
 // envelope through pagedQuery, so an oversize page shrinks and says so.

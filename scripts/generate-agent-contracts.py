@@ -1740,6 +1740,45 @@ def contains_schema_ref(node: object) -> bool:
     return False
 
 
+def project_domain_fact_schema(payload: dict) -> None:
+    """Reuse the fact contract with namespaced local refs in the payload document.
+
+    Runtime/publication validators resolve local $defs, not external documents.
+    The fact's variant and standing constraints remain owned by its schema.
+    """
+    document = json.loads((ROOT / "contracts/domain-fact.v1.schema.json").read_text())
+    def project(node):
+        if isinstance(node, list):
+            return [project(child) for child in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: project(value) for key, value in node.items()
+                  if key not in {"$schema", "$id", "$defs"}}
+        if "$ref" in result:
+            ref = result["$ref"]
+            if not ref.startswith("#/$defs/"):
+                fail(f"non-local Domain fact reference {ref}")
+            result["$ref"] = "#/$defs/domain_fact_" + ref.removeprefix("#/$defs/")
+        if "enum" in result and "type" not in result:
+            result["type"] = "string"
+        # The fact ID's anchored pattern already bounds it to 128 characters.
+        if result.get("pattern") == "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$":
+            result.update(minLength=1, maxLength=128)
+        return result
+    defs = payload["$defs"]
+    defs["domain_fact"] = project(document)
+    for name, schema in document["$defs"].items():
+        defs["domain_fact_" + name] = project(schema)
+    # Go's RE2 has no lookahead. Express the source path's two negative
+    # lookaheads as JSON Schema `not` constraints, preserving their meaning.
+    path = defs["domain_fact_path"]
+    prefix = r"^(?!/)(?!.*(?:^|/)\.{1,2}(?:/|$))"
+    if not path["pattern"].startswith(prefix):
+        fail("Domain fact path pattern changed; review its RE2 projection")
+    path["pattern"] = "^" + path["pattern"].removeprefix(prefix)
+    path["not"] = {"anyOf": [path["not"], {"pattern": r"^/|(?:^|/)\.{1,2}(?:/|$)"}]}
+
+
 def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
     """Project the current packet and its job from the canonical lane input.
 
@@ -1966,7 +2005,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 62
+    expected_operations = 63
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -2275,7 +2314,7 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
             if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
             pattern=schema.get("pattern","")
             if "sha256:" in pattern: return "sha256:"+"0"*64
-            if "[0-9a-f]{40}" in pattern: return "0"*40
+            if "[0-9a-f]{40}" in pattern or "[0-9a-f]{40,64}" in pattern: return "0"*40
             if pattern.startswith("^[a-z][a-z0-9_-]"): return "fence:prod-pause"
             # Uppercase issue-key patterns (CD-0213 D3 human_key, e.g. "EX-1"):
             # the generic "id-1" exemplar fails ^[A-Z][A-Z0-9]*-[1-9][0-9]*$.
@@ -2619,6 +2658,7 @@ def main() -> int:
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
+        project_domain_fact_schema(projected_payload)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
         project_review_report_types(projected_payload, json.loads(LANE_REPORT.read_text()))
         # The adapter publishes public action variants, never the core-owned

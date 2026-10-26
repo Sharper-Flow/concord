@@ -273,6 +273,10 @@ type domainFootprintInput struct {
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
 }
+type domainShapeInput struct {
+	ProductID string `json:"product_id"`
+	store.DomainShapeSelector
+}
 type knowledgeSearchInput struct {
 	ProductID string   `json:"product_id"`
 	ProjectID string   `json:"project_id"`
@@ -1348,6 +1352,8 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readDomain(ctx, base, input, queryID)
 	case "concord_domain.footprint":
 		return r.readDomainFootprint(ctx, base, input)
+	case "concord_domain.shape":
+		return r.readDomainShape(ctx, base, input)
 	default:
 		return base, errors.New("unsupported read operation")
 	}

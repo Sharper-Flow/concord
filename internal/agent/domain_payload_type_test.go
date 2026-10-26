@@ -33,6 +33,8 @@ func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 		{operation: "detail", result: store.DomainDetailResult{}, payload: store.DomainDetailPayload{}},
 		{operation: "attachments", result: store.DomainAttachmentsResult{}, payload: store.DomainAttachmentsPayload{}},
 		{operation: "overlaps", result: store.DomainOverlapsResult{}, payload: store.DomainOverlapsPayload{}},
+		{operation: "footprint", result: store.DomainFootprintResult{}, payload: store.DomainFootprintPayload{}},
+		{operation: "shape", result: store.DomainShapeResult{}, payload: store.DomainShapeResult{}},
 	} {
 		t.Run(testCase.operation, func(t *testing.T) {
 			contract, ok := ValidateContractOperation("concord_domain", testCase.operation)
@@ -168,7 +170,7 @@ func resolveSchemaRef(t *testing.T, root, schema map[string]any) map[string]any 
 	for {
 		ref, ok := schema["$ref"].(string)
 		if !ok {
-			return schema
+			break
 		}
 		target, ok := schemaDefinitions(t, root)[strings.TrimPrefix(ref, "#/$defs/")].(map[string]any)
 		if !ok {
@@ -176,6 +178,33 @@ func resolveSchemaRef(t *testing.T, root, schema map[string]any) map[string]any 
 		}
 		schema = target
 	}
+	if branches, ok := schema["allOf"].([]any); ok {
+		// An array may inherit its items through an allOf reference and add a
+		// local minItems. Inspect that effective layout rather than overlooking
+		// its element type. Conflicting declarations need an explicit review.
+		merged := map[string]any{}
+		merge := func(node map[string]any) {
+			for key, value := range node {
+				if key == "allOf" {
+					continue
+				}
+				if previous, exists := merged[key]; exists && !reflect.DeepEqual(previous, value) {
+					t.Fatalf("schema layout has conflicting allOf %s declarations", key)
+				}
+				merged[key] = value
+			}
+		}
+		for _, branch := range branches {
+			node, ok := branch.(map[string]any)
+			if !ok {
+				t.Fatal("allOf branch is not an object")
+			}
+			merge(resolveSchemaRef(t, root, node))
+		}
+		merge(schema)
+		return merged
+	}
+	return schema
 }
 
 func schemaRequiredNames(schema map[string]any) []string {

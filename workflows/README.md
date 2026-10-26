@@ -1,4 +1,5 @@
 # Workflows
 
-Reserved for purpose-built Concord workflow definitions. Runtime workflow
-implementation is intentionally outside the bootstrap candidate.
+Reserved boundary; no workflow definitions live here. The current workflow
+model and runtime owners are described in
+[`.concord/docs/workflows.md`](../.concord/docs/workflows.md).

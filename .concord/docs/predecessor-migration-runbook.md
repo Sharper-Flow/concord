@@ -56,7 +56,6 @@ Derivation rules, pinned by the v1 capture and reused unchanged:
 - **archived/closed totals** come from the status CLI's terminal counts.
 - **Wisdom entries** carry `recorded_at` from the predecessor's promotion
   timestamp; `change_id` is the originating change, empty for none.
-- **Reflections** carry per-entry friction and suggestion counts.
 
 Record every capture gap in the snapshot's `producer` field. The reader does
 this, and refuses to write a gapped snapshot unless `--accept-gaps` is given.
@@ -85,10 +84,6 @@ the structural capture gap where one exists:
 Run the inventory before any import. A surface the inventory does not
 enumerate does not migrate, and an import request naming a surface outside the
 mode refuses before import starts.
-
-Validated example: the Corded per-Product capture of 2026-08-30 (1 active
-change, 23 archived, 0 closed, 4 wisdom entries, 11 enumerated reflections)
-validated through the inventory verb on first use.
 
 ## Import
 

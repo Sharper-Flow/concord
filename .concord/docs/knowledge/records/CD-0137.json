@@ -37,10 +37,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0130"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0133"
     }
   ],
@@ -52,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b1da7499d6e73d4a89f710dfa7546dae40ac31057b86603e1713296d70d9a135",
+  "sha256": "sha256:bf721356feab5d639b96b82f40bdea47ef585f15b48edcc2c48ba714dc884764",
   "status": "accepted",
   "summary": "Each terminal worker result is accepted or rejected once, and authorization, actual start, terminal result, and result acceptance stay distinct recorded facts. Under CD-0242 D6 each launch is one admitted request with its own scope and subject bindings, and no attempt count, correction count, or escalation wall exists.",
   "tags": [

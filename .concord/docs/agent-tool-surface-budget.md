@@ -154,7 +154,7 @@ approval, transaction, or recovery boundary.
   typed queries rather than free-form SQL or dispatch.
 - Advance's large tool catalog and repeated target-path/repair surfaces are
   predecessor evidence against mechanical command-to-tool mapping, not a candidate
-  Concord surface (`feature-inventory.md`, `advance-postmortem.md`).
+  Concord surface ([`advance-postmortem.md`](./advance-postmortem.md)).
 - Anthropic recommends consolidating related operations and keeping tool sets
   focused to reduce selection ambiguity:
   <https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools>.

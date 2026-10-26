@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8de43012044d7be2c76d629d4b587c58abfe508af27acf3e9a4a9f2958f75bc6",
+  "sha256": "sha256:05ce7587e3ad75e81fa6618a03ecb0e6256bdaf55698d76e698df5253f7832d6",
   "status": "accepted",
-  "summary": "Acknowledged consequential operations are durable across power loss via a TRUNCATE-checkpoint barrier that syncs the whole WAL even under synchronous=NORMAL; ordinary writes stay NORMAL and are durable through the last boundary; the barrier lives at the acknowledgement layer, not inside fence primitives.",
+  "summary": "Acknowledged consequential operations survive power loss and operating-system crash; ordinary writes stay synchronous=NORMAL and are durable through the last consequential acknowledgement; schema migrations remain excluded. CD-0207 owns the durable transaction mechanism, consequential-family enumeration, and public fence placement.",
   "tags": [
     "durability",
     "sqlite",

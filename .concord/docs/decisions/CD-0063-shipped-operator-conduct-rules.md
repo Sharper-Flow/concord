@@ -79,8 +79,10 @@ keeps an always-on corpus out of unrelated projects.
 
 Agents have no path key. They are discovered from fixed directories or
 redirected wholesale by environment, so no per-project pointer exists. The
-installer places generated definitions in the central OpenCode agents directory,
-which `computeHostPromptProvenance` prefers over the project copy. Ownership
+installer places generated definitions in the central OpenCode agents directory.
+`computeHostPromptProvenance` checks the working directory's agent definition,
+then the repository root's, then the central definition, recording the first
+existing match. Ownership
 covers only the files recorded in the installer manifest, not that directory
 or every Concord-named file. An agent definition is inert until
 invoked by name, so central visibility carries none of the always-on leakage

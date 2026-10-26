@@ -6,7 +6,6 @@
 > [CD-0229](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
 > [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated definitions, current state, and finite snapshots.
 > Companion to [`README.md`](./README.md),
-> [`feature-inventory.md`](./feature-inventory.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution selects one of three retained workflow families
@@ -16,8 +15,9 @@
 > panel or web UI is optional and secondary.
 
 **Approval amendment:** [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies current outcome-contract consent and revision authority. Released
-historical definitions and the operator-owned release cutover retain their
+qualifies current outcome-contract consent and revision authority. Definitions
+derive from one canonical source with no released definition version retained
+for history (CD-0242 D14). The operator-owned release cutover retains its
 existing requirements.
 
 ## TL;DR
@@ -247,7 +247,7 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 
 ## 6. Relationship to work-type taxonomy
 
-- **Business work categories** (inventory §3.11: ideas / bugs / optimization;
+- **Business work categories** (ideas / bugs / optimization;
   the taxonomy in §3) describe *what the work is*.
 - **Workflow families** describe *how that work executes*; §3 maps operator kinds to families.
 
@@ -285,8 +285,6 @@ status.
 
 | Doc | Link |
 |---|---|
-| `feature-inventory.md` §3.13 | The capability entry. |
-| [`architecture-spike.md`](./architecture-spike.md) | Historical model of the retired `architecture_spike` family; retired families select no new execution (CD-0218 D1), and definitions are generated from one canonical source with no retained pins (CD-0242 D14). |
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution constraints; a composition change is a new part version compiled from the one canonical source (§7; CD-0229 D2; CD-0242 D14). |

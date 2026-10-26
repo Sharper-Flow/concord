@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-12
 - **Scope:** Worker result disposition and fresh-attempt correction
-- **Related:** CD-0008, CD-0017, CD-0027, CD-0112, CD-0113, CD-0130, CD-0133, CD-0193, CD-0205
+- **Related:** CD-0008, CD-0017, CD-0027, CD-0112, CD-0113, CD-0133, CD-0193, CD-0205
 - **Preserves:** Approved contracts, immutable attempt history, and fail-closed completion
 - **Approval:** The Snowball coordinator approved this law change on 2026-10-16 under the operator's delegation.
 

@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2b1d79091d6be61d72369481367087fd12d94aa6816d362b32b109b051396a08",
+  "sha256": "sha256:1f55ce2d4df2cb1189bb5a15ccff4b4eae03a8085ab6be64057dd6bfea9936d1",
   "status": "accepted",
   "summary": "Concord owns its development workflow and supersedes the self-hosting prohibition. CD-0213 amends its planning and issue-linkage clauses. Pull requests and required checks retain main-branch review and merge authority; CD-0241 defines eligible rapid-phase local integration evidence without waiving existing independent review.",
   "tags": [

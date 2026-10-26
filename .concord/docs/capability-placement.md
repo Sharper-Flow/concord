@@ -2,7 +2,6 @@
 
 > **Status:** Draft v2. Companion to [`README.md`](./README.md),
 > [`priorities.md`](./priorities.md),
-> [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md).
 > **Purpose:** Every command/tool/policy goes in **exactly the right place** by
 > shape. This doc is the rubric for deciding *where* a capability lives (plugin /
@@ -12,7 +11,7 @@
 > **Origin:** User direction, 2026-07-25; expanded for ownership-aligned
 > placement, 2026-07-26.
 > **Tool-surface hold:** This rubric still governs **authority before placement**,
-> but its Advance-era host/MCP examples do not authorize Concord tool names,
+> but the surface categories below do not authorize Concord tool names,
 > counts, or placements. TS1–TS9 in [`clarifications.md`](./clarifications.md)
 > decide the minimal surface first; this rubric places only accepted capabilities.
 
@@ -32,11 +31,11 @@ default dumping ground.
 | Surface | What it is | Characteristics |
 |---|---|---|
 | **External native authority** | The system that already owns the responsibility | GitHub Actions, the database, the cloud provider, the OS process manager, provider APIs. Holds canonical enforcement; Concord observes, links, coordinates. |
-| **Host plugin tools** (`adv_*`) | Tools registered in the plugin, called top-level by agents | Mutations + reads; host-coupled (OpenCode); validated/authorized/approved |
+| **Host plugin tools** | Tools registered in the plugin, called top-level by agents | Mutations + reads; host-coupled (OpenCode); validated/authorized/approved |
 | **MCP tools** (`tools.*`) | Standard protocol tools, cross-client | Primarily reads; cross-client; CodeMode-exposed |
 | **Instructions** (always-on) | Policy/routing loaded into every agent prompt | Behavioral, not executable; universal guidance |
 | **Skills** | Methodology loaded on demand | Procedural; not executable code; heavy guidance |
-| **Commands** (`/adv-*`) | User entry points / workflow contracts | Read as contracts; executed inline |
+| **Commands** | User entry points / workflow contracts | Read as contracts; executed inline |
 | **Host scripts** (`~/.local/bin/`) | CLI tools | Executable; cross-tool; durable binaries |
 | **Durable state** (specs, changes, …) | The data layer | Persisted; queryable; the source of truth |
 
@@ -141,10 +140,7 @@ re-evaluation, never "set and forget."
 |---|---|---|
 | CI/CD policy / branch protection | External native authority (GitHub) | Enforced by the provider; Concord records intent and links to evidence. |
 | Database schema / migrations | External native authority (database) | Constraints and migrations enforce correctness; Concord reads the state. |
-| Advance `adv_change_create` (predecessor mutation) | Evidence for TS4 | Shows mutation/approval needs; does not select Concord transport or tool identity. |
-| Advance `adv_status` / `adv_spec` reads | Evidence for TS3/TS6 | Shows read jobs and cross-client tradeoffs; does not require Concord MCP duplication. |
 | `morph_edit` vs `edit` routing | Instruction (always-on) | Behavioral policy every agent needs. |
-| `/adv-triage` methodology | Skill (→ workflow type per `workflows.md`) | Procedural; on-demand. |
 | `oc-test-gate`, `oc-fresh` | Host scripts | Standalone executables, cross-tool. |
 | CI waiting (`concord_ci_watch`) | OpenCode plugin tool | The plugin spawns the `concord ci-wait` verb slice by slice as a child process with zero model turns and wakes the calling session with the terminal report; the verb keeps polling, the deadline, and classification (CD-0160, CD-0199). |
 | `concord-explore` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap. |
@@ -161,15 +157,11 @@ re-evaluation, never "set and forget."
 1. **Cadence** — how often is the current-state placement map re-evaluated?
    Trigger-based (when tooling or external authorities shift) or scheduled?
 2. **Migration** — when a capability's optimal placement changes, how is the move
-    executed without breaking agents? (Couples to `design-constraints.md` §3,
-   workflow evolution without migration.)
-3. **Visibility** — should the current-state placement map be self-documenting
-   (browsable in the launcher)? Likely yes (couples to
-   `self-documentation.md`).
-4. **Rubric authority** — is the rubric enforced structurally (a check that
-    blocks misplaced capabilities) or advisory? **Lean:** advisory + recorded, with
-   structural enforcement only for hard rules (the adapter never owns domain
-   authorization/approval; external authority is not reimplemented in Concord).
+    executed without breaking agents? (Couples to
+   [`design-constraints.md` §3](./design-constraints.md#3-workflow-evolution-and-full-coordination).)
+
+[`clarifications.md` C9](./clarifications.md#c9-capability-placement-rubric-enforcement)
+owns the open rubric-enforcement question and its current lean.
 
 ---
 
@@ -178,7 +170,6 @@ re-evaluation, never "set and forget."
 | Doc | Link |
 |---|---|
 | `priorities.md` | Ownership-aligned placement principle. |
-| `feature-inventory.md` §3.14 | The capability entry. |
 | `README.md` | Navigation hub. |
 | `design-constraints.md` §8 | Tool-suite interaction / portability — placement of the cross-client surface. |
 | `design-constraints.md` §12 | Ownership-aligned placement: respect native authority. |

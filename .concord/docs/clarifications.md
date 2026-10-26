@@ -20,18 +20,18 @@ questions get added here as the vision evolves.**
 
 Two ordered, build-authorizing backlogs now govern the foundation:
 
-- **PM1–PM10:** Product-memory and per-store decisions.
+- **Product-memory contracts:** Product-memory and per-store decisions.
 - **TS1–TS9:** minimal agent tool-surface decisions.
 
-**PM1–PM10, TS1–TS9, C7, C15, C20, and CD-0006 through CD-0042 are accepted.**
+**The product-memory contracts, TS1–TS9, C7, and C15 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; pre-go-live changes remain subject
 to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
 mechanics; CD-0215 fixes research work identity and pack
-retention. CD-0222 makes Product law and architectural
-concordance Priority 1, replaces opaque component authority with canonical
+retention. CD-0222 binds Product law and architectural
+concordance to canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
 CD-0042 keeps Concord pre-go-live on one generated, digest-identified agent surface:
@@ -42,8 +42,8 @@ the first go-live decision must define future compatibility and measurement law.
 Open clarifications remain open; acceptance of these records does not close C8–C10
 or other explicitly deferred questions.
 
-The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
-follows them without restating the ranked list.
+[`goals.md`](./goals.md) owns the unranked goals and conflict rules;
+[`priorities.md`](./priorities.md) owns the operating envelope and standing law.
 
 ---
 
@@ -76,8 +76,8 @@ re-litigate them silently.
   and a web UI remain optional projections.
 - **Why:** Concord is optimized for a solo dev + many local agents. The terminal
   is the fastest path; optional views are for convenience, not correctness.
-- **Effect:** `design-constraints.md` §6, `workflows.md` §0, `feature-inventory.md`
-  §3.10, `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
+- **Effect:** `design-constraints.md` §6, `workflows.md` §0,
+  `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
 - **Decision:** Substantive decisions happen inside the selected Product/workflow.
   The host owns operator session start and resume; Concord owns
@@ -131,11 +131,9 @@ re-litigate them silently.
 
 ### R6. Go core; TypeScript only at the accepted adapter boundary
 - **Direction (2026-08-02, finalized 2026-08-06):** The Concord core is written in
-  **Go**. Accepted TS6 permits one global `concord.ts` custom-tool module for typed
-  declarations, context/permission mapping, and transport only. It is not a plugin,
-  contains no hooks/domain logic, and invokes the short-lived Go CLI.
-  See [`core-architecture.md`](./core-architecture.md) §1 for the full
-  language ownership statement.
+  **Go**. The thin plugin entry and shared `concord.ts` transport follow
+  [`core-architecture.md` §1](./core-architecture.md#1-language-ownership),
+  which owns the language boundary. Domain logic stays in Go.
 - **Why:** the core domain benefits from compile-time guarantees, static binary
   distribution, and the pure-Go SQLite binding. TS6 prevents the adapter from
   becoming a second domain/tool surface.
@@ -228,7 +226,7 @@ re-litigate them silently.
 
 ### C7. Research trackable ✅ Accepted 2026-08-07
 - **Question:** Option A (reframe backlog items as investigations) or Option B
-  (new trackable type)? (`feature-inventory.md` §2.5/§3.6)
+  (new trackable type)? ([CD-0215 D2](./decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work))
 - **Why:** decides whether the research surface is a small reframe or a new
   primitive.
 - **Decision:** CD-0215 D2 keeps Option A. Independent research is an ordinary
@@ -239,7 +237,7 @@ re-litigate them silently.
 - **Question:** Does a managed resource (infrastructure, SaaS) remain a **member
   beneath one owning Product** with an optional `shared_with` list, or become a
   **first-class registry entity** with its own identity that Products link to
-  many-to-many? (`product-data-model.md` §9, `feature-inventory.md` §3.18)
+  many-to-many? (`product-data-model.md` §9)
 - **Why:** sharing is a stated requirement — one database, queue, observability
   account, or runner pool can serve several Products. Per-resource lifecycle stage
   (`product-data-model.md` §8.2) makes a consistent shared-resource identity
@@ -254,8 +252,8 @@ re-litigate them silently.
 ### C17. What does the Product coordination drill-down render?
 - **Question:** After a Product row is selected, what does the coordination detail
   show for dependencies, blockage, and next work? (the retired Product-row
-  contract §1, `priorities.md` §5)
-- **Why:** Priority 5 requires that dependencies and sequences are visible before
+  contract §1, [`priorities.md` — Planning and coordination](./priorities.md#planning-and-coordination))
+- **Why:** The planning and coordination obligations require that dependencies and sequences are visible before
   they become blockers, and that the operator sees what is ready, what is blocked,
   and what is next. The retired Product-row contract deliberately answered none of
   this: the row was an orientation projection with one focus item and explicitly
@@ -274,17 +272,6 @@ re-litigate them silently.
   `rollout-plan.md` and CD-0006 D6.
 - **Unblocks:** the first Product coordination drill-down consumer. Storage and
   workflow execution were never blocked by C17.
-
-### C18. What is the terminal launcher itself?
-- **Decision:** CD-0219 retires the interactive terminal launcher, its screen
-  and rendering obligations, and its launcher contracts.
-- **Surviving owners:** CD-0108 D4 keeps the store-write-free managed-entry
-  boundary; CD-0031's core-derived packet reaches sessions through work-start
-  preparation and the per-turn hook. The store query contracts retain their
-  bounded reads. CD-0222 keeps repository navigation and exact Domain-detail
-  reads without a launcher display consumer.
-- **Coverage:** The launcher-rendered floor items are `out_of_scope` in
-  [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
 ### C19. Agent context continuity
 - **Contract:** [CD-0016](./decisions/CD-0016-context-continuity.md) governs
@@ -345,7 +332,7 @@ re-litigate them silently.
 ### C16. Proportional-rigor policy ✅ Accepted 2026-08-06
 - **Question:** What do the independent `maturity` and `audience_commitment` bands
   require as proof before work is called done, and how does each axis affect
-  that bar? (`product-data-model.md` §8.4, `feature-inventory.md` §3.17)
+  that bar? (`product-data-model.md` §8.4)
 - **Why:** lifecycle stage is only useful once it resolves to a concrete evidence
   bar. Until then, stage is declared but inert.
 - **Decision (CD-0006):** independent maturity and user-declared audience-commitment
@@ -394,33 +381,14 @@ re-litigate them silently.
 
 ---
 
-## ✅ Accepted Product-row decision (retired)
-
-### C14. Which fields appear on each Product row?
-- **Question:** What exactly belongs in the default Product-row glance view
-  (terminal launcher, optional admin panel)?
-- **Why:** drives the launcher UX, the read-path projections, and the
-  fast-portfolio dashboard.
-- **Direction (2026-08-06):** ✅ **Accepted.** The binding field set was
-  `product-row-contract.md`: Product identity,
-  declared stage, reliance state, five typed action counts, and one deterministic
-  focus item. Unknown counts are unavailable—not zero; mixed stages are not ranked;
-  terminal/resource/dashboard detail stays behind drill-down.
-- **Blocks:** cleared for Product-row projection implementation. Terminal interaction
-  design remains a separate prototype concern.
-- **Retired:** the row's render and read retired (CD-0219, CD-0224); the contract
-  file, its knowledge record, and its coverage record are deleted.
-
----
-
 ## ✅ Product-memory decision record — ordered, build-authorizing
 
 Concord's core is **optimized Product memory**: Products, their Projects, and
 work needed/active/blocked/terminal across them. CD-0002/CD-0003 as narrowed by
 accepted PM2–PM5 are the current build-authorizing storage baseline.
 
-**A lean below is evidence-ranking only — never implementation authority.** PM1–PM10
-are accepted; the storage/core acceptance slice may begin after CD-0007 repository
+**A lean below is evidence-ranking only — never implementation authority.** The product-memory
+contracts are accepted; the storage/core acceptance slice may begin after CD-0007 repository
 creation/migration is separately authorized and completed.
 Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 
@@ -439,13 +407,13 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 | PM9 | Exhaust salvage and audit receipt | none — existing record/note/locator sequence | excludes v1 receipt |
 | PM10 ✅ | Backup, restore, and garbage collection | SQLite + git authorities | recovery policy accepted |
 
-### PM1–PM10 — decisions at a glance
+### Product-memory contracts — decisions at a glance
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |
 |---|---|---|---|---|
-| **PM1 ✅ Accepted 2026-08-05** Canonical Product-memory query contract. *Binding:* Q1–Q10 + universal result/authority/freshness/pagination/error/performance contract in [`product-memory-query-contract.md`](./product-memory-query-contract.md). | Ten storage/tool-neutral jobs: Product context, snapshot, work lists, blockage, ready work, cross-Project work, history, relations/supersession, durable-knowledge search, canonical note resolution. | Binding 23-scenario corpus at [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json). PM2/PM3 use jobs/oracles + authoritative research to reject structurally wrong shapes; the selected implementation later runs the corpus at representative scale for plans/P99. Amend PM1 only on a repeated unmet real job or measured query-granularity failure. | — → **PM1 contract + TS1/TS3 input**, operator-approved. |
+| **PM1 ✅ Accepted 2026-08-05** Canonical Product-memory query contract. *Binding:* Q1–Q10 + universal result/authority/freshness/pagination/error/performance contract in [`product-memory-query-contract.md`](./product-memory-query-contract.md). | Storage/tool-neutral jobs: Product context, snapshot, work lists, blockage, ready work, cross-Project work, history, relations/supersession, durable-knowledge search, canonical note resolution. | Binding corpus at [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json). PM2/PM3 use jobs/oracles + authoritative research to reject structurally wrong shapes; the selected implementation later runs the corpus at representative scale for plans/P99. Amend PM1 only on a repeated unmet real job or measured query-granularity failure. | — → **PM1 contract + TS1/TS3 input**, operator-approved. |
 
-> **PM1–PM10 are accepted and binding.** PM4/PM5 bridge provisional lifecycle/
+> **The product-memory contracts are accepted and binding.** PM4/PM5 bridge provisional lifecycle/
 > relation/membership fixture fields through explicit normalization notes; PM6 fixes
 > canonical durable-note placement; compaction-retention-policy fixes bounded projection retention; PM8 excludes
 > WIP-byte storage and generic screenshot requirements; PM9 rejects a separate receipt.
@@ -499,7 +467,7 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 - No command-for-command port of Advance.
 - No single untyped "invoke anything" mega-tool.
 - No 1:1 mapping from Go CLI subcommands to agent tools.
-- TS6 selects one global custom-tool module; no plugin/MCP implementation in v1.
+- Adapter ownership follows [`core-architecture.md` §1](./core-architecture.md#1-language-ownership); no second domain implementation belongs in TypeScript.
 
 ### Tool-surface decision order
 
@@ -522,12 +490,12 @@ The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blockin
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |
 |---|---|---|---|---|
-| **TS1 ✅ Accepted 2026-08-06; amendments approved 2026-08-16, 2026-08-17, and 2026-08-19** Canonical agent jobs + evaluation scenarios. *Binding:* [`agent-tool-surface-jobs.md`](./agent-tool-surface-jobs.md) and [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json). | Eight tool-neutral jobs: orient/choose, explain blockage, capture, transition with evidence, relate/scope, compact/reconcile, retrieve knowledge, and execute ops. Twenty-two scenarios judge resulting state, required communication, prohibited effects, and shared invariants. The first amendment adds one `authority` assertion to `AJ1-ambient-ready-work`; the second corrects four AJ4 version integers and adds structural version-increment assertions; the third adds `AJ5-resolve-domain-overlap`, whose real-dispatch binding proves that ordinary relations cannot confer overlap authority and that `resolve_overlap` consumes an operator approval pinned to both work and contract versions. | Local Concord requirements/postmortem + official MCP/Anthropic/OpenAI guidance + tau²/WebArena/BFCL evaluation patterns. Reopen only for a repeated unmet intent, measured merge/split need, unbounded job, wrong-state oracle, or missing recurring recovery case. | PM1 → **CD-0005 §1 + TS2–TS9 input**, operator-approved. |
-| **TS2 ✅ Accepted 2026-08-06** Surface budget + granularity. *Binding:* [`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md). | At most nine always-visible domain tools; exact count belongs to TS3/TS4. Merge only across aligned intent, authority, consequence, retry, and result families; split at material boundary changes. Static v1 exposure; no discovery meta-tool before evidence. | TS1 corpus candidate comparison; hard-oracle correctness first, then success/recovery, tool count, schema/context cost, calls, and retries. Reopen if no valid sub-nine candidate passes, tools are measurably indistinguishable/always chained, context cost causes failure, or discovery becomes materially better. | TS1 → **CD-0005 §2 + TS3–TS9 input**, operator-approved. |
+| **TS1 ✅ Accepted** Canonical agent jobs + evaluation scenarios. *Binding:* [`agent-tool-surface-jobs.md`](./agent-tool-surface-jobs.md) and [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json). | Tool-neutral jobs and scenarios judge resulting state, required communication, prohibited effects, and shared invariants. The linked contract and corpus own the current set. | Local Concord requirements/postmortem + official MCP/Anthropic/OpenAI guidance + tau²/WebArena/BFCL evaluation patterns. Reopen only for a repeated unmet intent, measured merge/split need, unbounded job, wrong-state oracle, or missing recurring recovery case. | PM1 → **CD-0005 §1 + TS2–TS9 input**, operator-approved. |
+| **TS2 ✅ Accepted 2026-08-06** Surface budget + granularity. *Binding:* [`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md). | The linked contract owns the surface budget. Merge only across aligned intent, authority, consequence, retry, and result families; split at material boundary changes. Static v1 exposure; no discovery meta-tool before evidence. | TS1 corpus candidate comparison; hard-oracle correctness first, then success/recovery, tool count, schema/context cost, calls, and retries. Reopen if no candidate within the accepted budget passes, tools are measurably indistinguishable/always chained, context cost causes failure, or discovery becomes materially better. | TS1 → **CD-0005 §2 + TS3–TS9 input**, operator-approved. |
 | **TS3 ✅ Accepted 2026-08-06** Read/query tool shape. *Binding:* [`agent-read-tool-contract.md`](./agent-read-tool-contract.md). | Four always-visible reads: `concord_product_view` (`resolve|snapshot`), `concord_work_browse` (`list|ready|blocked|scope`), `concord_work_trace` (`history|relations`), and `concord_knowledge` (`search|resolve_note`). Strict typed unions, bounded detail/cursors/graphs, no read-side mutation. | PM1 Q1–Q10 + TS1 scenarios under TS2 rules. Reopen for an unexpressible accepted read, repeated selection confusion, prose-only union validation, measurable always-chained tools, unbounded payloads, or a new distinct read authority/oracle. | PM1, TS1–TS2 → **CD-0005 §3 + TS5–TS9 input**, operator-approved. |
 | **TS4 ✅ Accepted 2026-08-06** Intent mutation tool shape. *Binding:* [`agent-mutation-tool-contract.md`](./agent-mutation-tool-contract.md). | Four tools: `concord_work_define` (`capture|revise_intent`), `concord_work_transition` (`lifecycle|workflow_action`), `concord_work_relate` (memberships/links/supersession), and `concord_work_compact` (`publish|reconcile`). Single-intent calls, no generic patch/mixed batch; native systems retain external execution. | PM3–PM6, compaction-retention-policy + TS1 scenarios under TS2 rules. Reopen for client-sequenced invariants, repeated selection confusion, demonstrated full-replacement failure, justified homogeneous batch, unrecoverable PM6 interruption, or a recurring operation requiring new Concord authority. | PM3–PM6, compaction-retention-policy, TS1–TS3 → **CD-0005 §4 + TS5–TS9 input**, operator-approved. |
 | **TS5 ✅ Accepted 2026-08-06** Scope, context, authorization, idempotency. *Binding:* [`agent-call-context-contract.md`](./agent-call-context-contract.md). | Trusted host injects a typed self-contained envelope; the registered client policy and resolved scope prove principal/client/scope/capabilities. Core re-resolves ambient scope every call; mutations require current scope/entity versions, operation-bound approval where needed, and durable idempotency. No path/trust booleans. | Shared/cross-Product, stale-context, spoofed-principal, approval-change, duplicate-delivery, and partial-operation scenarios. Reopen if the primary client cannot inject proof, scope resolution fails, client scope is too broad, approval cannot bind transport, dedupe dominates retention, or another client cannot map to the envelope. | PM2, PM5, TS3–TS4 → **CD-0005 §5 + TS6–TS9 input**, operator-approved. |
-| **TS6 ✅ Accepted 2026-08-06** Adapter, plugin, transport role. *Binding:* [`agent-adapter-transport-contract.md`](./agent-adapter-transport-contract.md). | One global `concord.ts` custom-tool module exports all eight accepted tools and invokes the short-lived Go CLI over JSON stdin/stdout. No plugin hooks, MCP, daemon, FFI, TS domain logic, or native-system proxy. Registered client key + current pinned `ToolContext.ask`; core remains authority. | Official OpenCode docs/current source + TS1–TS5. Reopen if pinned approval API fails, the hidden envelope cannot be established, module lifecycle loses to another adapter, spawn reversal fires, a real second client appears, or OpenCode adds a simpler equivalent binary adapter. | TS2–TS5 → **CD-0005 §6 + TS7–TS9 input**, operator-approved. |
+| **TS6 ✅ Accepted 2026-08-06** Adapter, plugin, transport role. *Binding:* [`agent-adapter-transport-contract.md`](./agent-adapter-transport-contract.md). | The thin plugin entry and shared `concord.ts` transport follow [`core-architecture.md` §1](./core-architecture.md#1-language-ownership). The adapter invokes the short-lived Go CLI over JSON stdin/stdout; domain logic and authority stay in Go. | Official OpenCode docs/current source + TS1–TS5. Reopen if pinned approval API fails, the hidden envelope cannot be established, module lifecycle loses to another adapter, spawn reversal fires, a real second client appears, or OpenCode adds a simpler equivalent binary adapter. | TS2–TS5 → **CD-0005 §6 + TS7–TS9 input**, operator-approved. |
 | **TS7 ✅ Accepted 2026-08-06; amendment approved 2026-08-11** Result/error/evidence/pagination envelope. *Binding:* [`agent-result-envelope.md`](./agent-result-envelope.md) + [`agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json). | Strict `ok|pending|partial|error`; producer-validated closed results; required origin/scope/authority/freshness/watermarks/pagination/omissions/evidence; typed errors/effect/recovery; mutation changed refs + next intents; 64 KiB cap; authenticated cursor; no raw exhaust or excerpts. | PM1/TS1/TS5 scenario replay plus Draft 2020-12 structural probes and producer-side budget/schema vectors. Reopen if agents must parse messages, routine success needs follow-up status, bounds cause pathological calls, cursor binding blocks legitimate continuation, locators cannot identify proof, client validators diverge, or a distinct outcome class is proven. | TS3–TS6 → **CD-0005 §7 + TS8–TS9 input**, operator-approved. |
 | **TS8 ✅ Accepted 2026-08-06, amended by CD-0024 and CD-0042** Current surface identity and change evidence. *Binding:* [`agent-tool-surface-evolution.md`](./agent-tool-surface-evolution.md). | One generated manifest and exact digest; static registration, strict generation, mismatch failure, named deterministic proof, and operator acceptance for authority/consequence changes. No pre-go-live surface versions, negotiation, aliases, deprecation windows, or old-client paths. First go-live defines future compatibility law. | Generated drift, digest mismatch, unknown inputs, authority/transaction failures, unsafe static loading, or a concrete supported client requiring a different identity. | TS2–TS7 → **current-surface evolution contract + TS9 evidence**, operator-approved. |
 | **TS9 ✅ Accepted 2026-08-06; amended by CD-0042** Pre-go-live measurement/evidence contract. *Binding:* [`agent-tool-surface-measurement.md`](./agent-tool-surface-measurement.md). | PM1/TS1 deterministic scenarios, strict schemas, authority/transaction/negative/conformance proof. Supported-model trials and production telemetry are research only before go-live. First go-live defines populations and re-accepts any measurement gate. | A named unmet intent, schema defect, authority/recovery regression, conformance failure, or later supported population requiring a new method. | TS1–TS8 → **pre-go-live evidence contract**, operator-approved. |
@@ -536,7 +504,7 @@ The current AJ5 overlap binding follows CD-0013 D11: routine dependency, blockin
 
 ## Recommended answering order
 
-**PM1–PM10, TS1–TS9, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** PM
+**The product-memory contracts, TS1–TS9, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** Product-memory
 decisions authorize the storage/core acceptance slice; CD-0005 consolidates the
 accepted agent surface; C15 fixes resource ownership projections;
 CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,

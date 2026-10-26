@@ -42,7 +42,9 @@ Runtime implementation proceeds only when all of these are true:
 5. CD-0006 fixes root Product policy, workflow composition, rigor bands, and
    cross-workflow impact propagation.
 6. CD-0008 fixes mechanism hardening: immutable evidence subjects, typed degradation,
-   attempt fencing, external conditions, and schema/history evolution.
+   and external conditions. [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+   governs current-state recovery and schema evolution; [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+   governs each attempt's scope, assignment, and subject bindings.
 7. CD-0215 fixes research context as bounded working context, not a second
    durable-knowledge authority.
 8. The accepted storage-spine conformance slice has a public verification plan.

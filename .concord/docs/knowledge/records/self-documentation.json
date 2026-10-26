@@ -4,8 +4,7 @@
   },
   "date": "2026-08-07T00:00:00Z",
   "evidence": [
-    ".concord/docs/priorities.md",
-    ".concord/docs/feature-inventory.md"
+    ".concord/docs/priorities.md"
   ],
   "id": "self-documentation",
   "kind": "reference",
@@ -17,7 +16,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8dde9151ed65defc74610e8d32f536fd18458848f6acf8ffe5440b80c8938865",
+  "sha256": "sha256:cc8ae4cff7da637a719c0d535e4c610e851f3ca00dd9220304da4ca188548c83",
   "status": "published",
   "summary": "Describes Concord's self-documentation surfaces and its input, output, storage, and memory model.",
   "tags": [

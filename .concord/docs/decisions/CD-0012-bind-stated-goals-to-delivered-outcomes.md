@@ -4,7 +4,7 @@
 **Date:** 2026-08-08
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
-**Reviewer:** Independent review per [`architecture-spike.md`](../architecture-spike.md) §5; three rounds, approved.
+**Reviewer:** Independent review; three rounds, approved.
 **Scope:** The outcome contract carried by a work item, its revision authorities, the
 refusal of weakened deliveries, the handling of work discovered mid-execution, and the
 verification boundary at completion.
@@ -200,7 +200,7 @@ and it mirrors the three options in [`specs-as-laws.md`](../specs-as-laws.md) §
 | Option | Meaning |
 |---|---|
 | **(a) Clarify** | The discovery is already within the approved end-state; no contract change. |
-| **(b) Revise the end-state** | The operator changes what must be delivered. The prior contract is superseded, not edited, and the item's history retains both. Revision re-enters planning under CD-0006 D5 — which already requires that "a new execution-time conflict stops and returns to planning" — and execution resumes only against the superseding contract. |
+| **(b) Revise the end-state** | The operator changes what must be delivered. The prior contract is superseded, not edited; the store keeps current state under CD-0242 D2. Revision re-enters planning under CD-0006 D5 — which already requires that "a new execution-time conflict stops and returns to planning" — and execution resumes only against the superseding contract. |
 | **(c) Consciously defer** | The operator keeps the approved end-state and records the discovery as separate work. |
 
 Never silent, and never the agent's decision. This extends CD-0215 D7 — "no automatic
@@ -222,9 +222,8 @@ execution rather than discovered at completion.
 
 This is deliberately the lightest of the eleven decisions. It adds a declaration, not a
 review step, and it is bounded to conventions that bear on the verb — not to every
-practice a route touches. The posture follows
-[`architecture-spike.md`](../architecture-spike.md) §4.1: the rule is structural rather
-than a matter of intent or review vigilance.
+practice a route touches. The rule is structural rather than a matter of intent or
+review vigilance.
 
 ### D9. Predicate satisfaction is necessary but never sufficient
 
@@ -258,12 +257,8 @@ count, and that is unchanged.
 | Workflow type | Required end-state asserts |
 |---|---|
 | Implementation change | The capability exists and the specified behavior holds. |
-| Architecture spike | An accepted binding decision record exists. The verb is fixed by [`architecture-spike.md`](../architecture-spike.md) §1.1 and §2.3, which make a reached decision the completion criterion and `insufficient evidence` a satisfying decision outcome. CD-0215 D2 reinforces it by distinguishing spikes, which "must publish an accepted binding decision," from research, which "may conclude `no change`". |
 | Research / investigation | Findings are recorded. A `no change` conclusion **satisfies** this end-state; it is not a failure, and D3 does not convert it into one. |
-| Ops runbook | The operational postcondition holds, with the step evidence the type requires. |
 | Break-fix | The reproduced defect no longer reproduces. |
-| Static analysis | The report exists over the declared surface. |
-| Generic one-off | An operator-authored end-state. The generic type is not an exemption. |
 
 The research row is the one that would break if stated carelessly. A research workflow's
 freedom to conclude `no change` is preserved exactly, because its required end-state is
@@ -345,9 +340,9 @@ follow the existing corpus conventions; this decision does not itself modify
 10. Work discovered mid-execution that lies outside the approved end-state produces
     forward-linked successor work and does not close the current item (D6).
 11. End-state revision by the operator supersedes the prior contract, re-enters planning
-    before execution resumes, retains both contracts in history, and records which option
+    before execution resumes, writes current rows, and records which option
     was chosen, by whom, and when (D6, CD-0006 D5), matching the audit shape in
-    [`specs-as-laws.md`](../specs-as-laws.md) §6.
+    [`specs-as-laws.md`](../specs-as-laws.md) §6 under CD-0242 D2.
 12. An executing agent attempting to author, replace, or disable its own end-state check is
     refused (D7).
 13. A review pass that committed corrective edits is accepted after its verified
@@ -360,8 +355,6 @@ follow the existing corpus conventions; this decision does not itself modify
     highest bands (D10).
 16. A research work item concluding `no change` satisfies its required end-state and
     completes (D11).
-17. An architecture spike concluding `insufficient evidence` satisfies its required
-    end-state and completes (D11).
 18. Completion where all postconditions pass but the operator has not confirmed premise
     satisfaction does not reach an accepted terminal state (D9).
 19. Contract and terminal metadata commit together; no observer sees an item terminal with
@@ -398,7 +391,6 @@ Every document this decision touches or introduces, classified by the force of t
 | [`workflows.md`](../workflows.md) §2.1 | The one-sentence value statement remains and gains a stated limit: it answers why the work matters, not what must be true when it is done. | Binding amendment |
 | [`workflows.md`](../workflows.md) §2.1a | New section defining the outcome contract, plus an `Outcome contract` row in the §2 workflow-type aspect table. | Binding amendment |
 | [`design-constraints.md`](../design-constraints.md) §10 | Completion criteria declared by a workflow type must include an outcome contract. | Binding amendment |
-| [`feature-inventory.md`](../feature-inventory.md) §3.16a | New inventory entry. §3.16 is unchanged — the outcome contract is a distinct entry beside the value statement, not a rewrite of it. | Binding amendment |
 | [`specs-as-laws.md`](../specs-as-laws.md) §9 | Relationship-table row naming this decision as the counterpart direction. No policy text altered. | Non-normative cross-reference |
 | [`priorities.md`](../priorities.md) | New decision-tracker row and an adjusted resolved-question count in the tracker preamble. §2 attributes are unchanged. | Non-normative index update |
 | [`README.md`](../README.md) | Companion-table rows for this decision and for R5, plus one sentence of status prose. | Non-normative index update |
@@ -415,6 +407,7 @@ which D2 defers to rather than pre-empts; or Priority 2's governance by attribut
 than gate count.
 
 This record was accepted by the operator on 2026-08-08 and binds downstream work until
-superseded. Per [`architecture-spike.md`](../architecture-spike.md) §3.1, a downstream
-change that contradicts it surfaces a conflict requiring explicit resolution, and the
-escape hatch is a superseding spike rather than divergence inside implementation work.
+superseded. A downstream change that contradicts it surfaces a conflict requiring
+explicit resolution rather than divergence inside implementation work. Decision
+records follow the outline governed by
+[CD-0175](CD-0175-decision-record-outline.md).

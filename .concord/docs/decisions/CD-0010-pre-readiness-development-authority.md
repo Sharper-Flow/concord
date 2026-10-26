@@ -5,16 +5,12 @@
 **Approval:** Operator plan approval.
 **Type:** Development-authority decision.
 
-**Current applicability:** CD-0089 supersedes the self-hosting prohibition.
-[CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) amends planning authority
-and issue linkage. Other authority boundaries remain in force.
-
 ## Decision
 
-Before Concord reaches replacement readiness, public GitHub and Git remain the
-development authority:
+Concord development preserves these authority boundaries:
 
-- GitHub Issues are the authority for planned work and defects.
+- Linear is the authority for planned work and defects, accessed only through
+  the Linear MCP server ([CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md) D1).
 - Pull requests and required checks are the authority for review and merge
   evidence for changes entering main. CD-0241 defines eligible rapid-phase local
   integration evidence without waiving existing independent review, workflow
@@ -24,9 +20,9 @@ development authority:
   authority for Product law.
 - Advance is reference-only. Concord does not dual-write predecessor state.
 
-Concord does not self-host its own development workflow before the replacement-ready
-floor is proven. Migration is deferred until then and proceeds later under the
-accepted Product-at-a-time fix-forward policy.
+[`goals.md` — How Concord's own development runs during the rebuild](../goals.md#how-concords-own-development-runs-during-the-rebuild)
+owns the outside-workflow development route and its measured adoption boundary.
+Replacement readiness does not grant workflow-adoption authority.
 
 ## Rationale
 

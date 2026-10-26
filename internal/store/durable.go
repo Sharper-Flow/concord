@@ -40,6 +40,10 @@ func (w *writeTx) finish(resultErr *error) {
 // mechanismFailure translates every localized mechanism failure, including
 // siblings in a joined rollback failure, without flattening driver causes.
 func mechanismFailure(err error) error {
+	var mechanism *sqlitedb.Error
+	if !errors.As(err, &mechanism) {
+		return err
+	}
 	switch e := err.(type) {
 	case *sqlitedb.Error:
 		f := wrapFailure(FailureKind(e.Kind), e.Op, e.Detail, e.RetrySafe, e.RecoveryAction, mechanismFailure(e.Err))

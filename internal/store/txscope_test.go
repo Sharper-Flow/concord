@@ -160,6 +160,24 @@ func TestTxScopeUnrelatedQualifiedTypes(t *testing.T) {
 	}
 }
 
+func TestTxScopeDurablePoolBites(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{
+		`package sqlitedb; import "database/sql"; func violates(tx *WriteTx, db *sql.DB) { _ = tx }`,
+		`package sqlitedb; import dbsql "database/sql"; func violates(q Queryer, db *dbsql.DB) { _ = q }`,
+	} {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, "pool.go", source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := scanTxScopeFile("internal/store/internal/sqlitedb/pool.go", file, fset)
+		if len(findings) != 1 || findings[0].Property != 1 {
+			t.Fatalf("live durable handle plus pool must refuse: %v", findings)
+		}
+	}
+}
+
 func scanTxScope(root string) ([]txScopeFinding, int) {
 	var paths []string
 	var findings []txScopeFinding
@@ -278,7 +296,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 	}
 	for _, param := range params {
 		if param.kind == txScopeStore {
-			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function receives a *Store; use a tx-scoped core with only the live transaction handle"})
+			findings = append(findings, txScopeFinding{path, fset.Position(param.ident.Pos()).Line, param.ident.Name, 1, "transaction-scoped function receives a *Store or *sql.DB; use a tx-scoped core with only the live transaction handle"})
 		}
 	}
 	ast.Inspect(body, func(node ast.Node) bool {
@@ -290,7 +308,7 @@ func scanTxScopeFunction(path string, body *ast.BlockStmt, params []txScopeParam
 		}
 		ident, ok := node.(*ast.Ident)
 		if ok && stores[ident.Name] {
-			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store value; use tx-scoped query helpers instead"})
+			findings = append(findings, txScopeFinding{path, fset.Position(ident.Pos()).Line, ident.Name, 1, "transaction-scoped function references a *Store or *sql.DB value; use tx-scoped query helpers instead"})
 		}
 		return true
 	})
@@ -537,8 +555,13 @@ func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
 	if ok {
 		selectorBase, baseOK := selector.X.(*ast.Ident)
 		if baseOK {
-			if (selectorBase.Name == "sql" || aliases[selectorBase.Name] == "database/sql") && selector.Sel.Name == "Tx" {
-				return txScopeTx
+			if selectorBase.Name == "sql" || aliases[selectorBase.Name] == "database/sql" {
+				switch selector.Sel.Name {
+				case "Tx":
+					return txScopeTx
+				case "DB":
+					return txScopeStore
+				}
 			}
 			if aliases[selectorBase.Name] == "github.com/sharper-flow/concord/internal/store/internal/sqlitedb" && selector.Sel.Name == "WriteTx" {
 				return txScopeTx

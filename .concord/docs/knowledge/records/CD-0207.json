@@ -6,6 +6,7 @@
   "doc_contract_profile": "current",
   "evidence": [
     "internal/store/durable.go",
+    "internal/store/internal/sqlitedb/write.go",
     "internal/store/transaction.go",
     "internal/store/fence.go",
     "internal/store/bootstrap.go",

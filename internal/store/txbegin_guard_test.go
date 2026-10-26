@@ -254,6 +254,8 @@ func TestTxConnectionGuardFixtures(t *testing.T) {
 		{"expression pool", owner, `package sqlitedb; import "database/sql"; func Open(db *sql.DB) { db.SetMaxOpenConns(1+0) }`, 1, 0, 1},
 		{"aliased outside", "cmd/concord/other.go", `package main; import dbsql "database/sql"; func other(db *dbsql.DB) { dbsql.Open("sqlite", ""); db.SetMaxOpenConns(1) }`, 2, 0, 0},
 		{"dot import outside", "internal/agent/other.go", `package agent; import . "database/sql"; func other(db *DB) { Open("sqlite", ""); db.SetMaxOpenConns(1) }`, 2, 0, 0},
+		{"connector pool in owner", owner, `package sqlitedb; import ("database/sql"; "database/sql/driver"); func Open(c driver.Connector) { sql.OpenDB(c) }`, 1, 0, 0},
+		{"connector pool outside", "internal/agent/other.go", `package agent; import ("database/sql"; "database/sql/driver"); func other(c driver.Connector) { sql.OpenDB(c) }`, 1, 0, 0},
 		{"unrelated methods", owner, `package sqlitedb; type other struct{}; func (other) SetMaxOpenConns(int) {}; func Open(db other) { db.SetMaxOpenConns(2) }`, 0, 0, 0},
 	}
 	for _, tt := range tests {
@@ -390,11 +392,11 @@ func scanTxConnectionFile(path string, file *ast.File, fset *token.FileSet, info
 			return true
 		}
 		fn, ok := info.Uses[ident].(*types.Func)
-		if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "database/sql" || (fn.Name() != "Open" && fn.Name() != "SetMaxOpenConns") {
+		if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "database/sql" || (fn.Name() != "Open" && fn.Name() != "OpenDB" && fn.Name() != "SetMaxOpenConns") {
 			return true
 		}
 		message := fn.Name() + " outside connection owner; use sqlitedb.Open"
-		if call := direct[ident]; call != nil {
+		if call := direct[ident]; call != nil && fn.Name() != "OpenDB" {
 			if fn.Name() == "Open" {
 				opens++
 				return true

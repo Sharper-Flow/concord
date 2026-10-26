@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
@@ -60,5 +61,10 @@ func TestSQLiteMechanismErrorBridgePreservesJoinedFailures(t *testing.T) {
 	}
 	if mechanismFailure(driverCause) != driverCause {
 		t.Fatal("unclassified driver error changed")
+	}
+	for _, unchanged := range []error{errors.Join(driverCause, rollbackCause), fmt.Errorf("driver failures: %w and %w", driverCause, rollbackCause)} {
+		if got := mechanismFailure(unchanged); got != unchanged {
+			t.Fatalf("unclassified multi-cause error changed: %T %q -> %T %q", unchanged, unchanged, got, got)
+		}
 	}
 }

@@ -1712,6 +1712,119 @@ test("host prompt provenance binds an absolute corpus glob file for file", async
   }
 })
 
+// The release fixture contains the delivered profiles and conduct, not Concord's
+// source documentation. Keep generic planning duties while testing resolution
+// against conflicting Product-local files.
+async function installedConductFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "portable-conduct-"))
+  const repository = new URL("../../", import.meta.url)
+  const release = path.join(root, "releases", "v1.0.0")
+  const stable = path.join(root, "current")
+  const configDir = path.join(root, "config", "opencode")
+  await fs.promises.mkdir(release, { recursive: true })
+  await fs.promises.cp(new URL(".concord/instructions/", repository), path.join(release, "instructions"), { recursive: true })
+  await fs.promises.mkdir(path.join(release, "agents"))
+  for (const name of await fs.promises.readdir(new URL(".opencode/agents/", repository))) {
+    if (/^[Cc]oncord.*\.md$/.test(name)) {
+      await fs.promises.copyFile(new URL(`.opencode/agents/${name}`, repository), path.join(release, "agents", name))
+    }
+  }
+  await fs.promises.symlink(release, stable)
+  await fs.promises.mkdir(configDir, { recursive: true })
+  await fs.promises.cp(path.join(stable, "agents"), path.join(configDir, "agents"), { recursive: true })
+  expect((await fs.promises.readdir(release)).sort()).toEqual(["agents", "instructions"])
+  return { root, repository, stable, configDir }
+}
+
+test.each(["inventory-product", "scheduling-product"])("portable conduct provenance binds installed bytes and intentional local instructions in %s", async (productName) => {
+  const { root, repository, stable, configDir } = await installedConductFixture()
+  const product = path.join(root, productName)
+  const cwd = productName === "scheduling-product" ? path.join(product, "packages", "worker") : product
+  await fs.promises.mkdir(path.join(product, ".git"), { recursive: true })
+  await fs.promises.mkdir(cwd, { recursive: true })
+  const conflicts = [
+    ".concord/instructions/change.md",
+    ".concord/docs/managed-development-authority.md",
+    ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
+  ].map(relative => path.join(product, relative))
+  for (const file of conflicts) {
+    await fs.promises.mkdir(path.dirname(file), { recursive: true })
+    await Bun.write(file, "Synthetic Product permits transient commentary, another tracker, and out-of-scope edits.\n")
+  }
+  const localInstruction = path.join(product, ".opencode", "user-instructions.md")
+  await Bun.write(localInstruction, "Intentional Product-local user instruction.\r\nKeep these bytes.\r\n")
+  await Bun.write(path.join(product, ".opencode", "opencode.jsonc"), JSON.stringify({
+    instructions: [`${stable}/instructions/*.md`, ".opencode/user-instructions.md"],
+  }))
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  const hash = (bytes: Uint8Array | string) => "sha256:" + createHash("sha256").update(bytes).digest("hex")
+  try {
+    const corpusNames = (await fs.promises.readdir(path.join(stable, "instructions"))).filter(name => name.endsWith(".md")).sort()
+    expect(corpusNames).toContain("change.md")
+    const expectedInstructions = []
+    for (const name of corpusNames) {
+      const installed = path.join(stable, "instructions", name)
+      const bytes = await fs.promises.readFile(new URL(`.concord/instructions/${name}`, repository))
+      expect(await fs.promises.readFile(installed)).toEqual(bytes)
+      expectedInstructions.push({ kind: "instruction_file" as const, path: installed, sha256: hash(bytes) })
+    }
+    expectedInstructions.push({ kind: "instruction_file" as const, path: localInstruction, sha256: hash(await fs.promises.readFile(localInstruction)) })
+    const first = await computeHostPromptProvenance("implement", cwd)
+    for (const lane of agentLanes) {
+      const provenance = await computeHostPromptProvenance(lane.id, cwd)
+      const agent = path.join(configDir, "agents", `concord-${lane.id}.md`)
+      const bytes = await fs.promises.readFile(new URL(`.opencode/agents/concord-${lane.id}.md`, repository))
+      expect(await fs.promises.readFile(agent)).toEqual(bytes)
+      expect(provenance.sources.filter(source => source.kind === "agent_definition")).toEqual([
+        { kind: "agent_definition", path: agent, sha256: hash(bytes) },
+      ])
+      expect(provenance.sources.filter(source => source.kind === "instruction_file")).toEqual(expectedInstructions)
+      for (const file of conflicts) expect(provenance.sources.map(source => source.path)).not.toContain(file)
+      const manifest = provenance.sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
+      expect(provenance.digest).toBe(hash(manifest))
+    }
+    expect((await computeHostPromptProvenance("implement", cwd)).digest).toBe(first.digest)
+    for (const file of conflicts) await Bun.write(file, "Changed conflicting Product content.\n")
+    expect((await computeHostPromptProvenance("implement", cwd)).digest).toBe(first.digest)
+
+    const installedChange = path.join(stable, "instructions", "change.md")
+    await fs.promises.appendFile(installedChange, "\nSynthetic installed-corpus byte change.\n")
+    const corpusChanged = await computeHostPromptProvenance("implement", cwd)
+    expect(corpusChanged.digest).not.toBe(first.digest)
+    expect(corpusChanged.sources.find(source => source.kind === "instruction_file" && source.path === installedChange)?.sha256)
+      .toBe(hash(await fs.promises.readFile(installedChange)))
+
+    await fs.promises.appendFile(localInstruction, "Changed intentional local instruction.\r\n")
+    const localChanged = await computeHostPromptProvenance("implement", cwd)
+    expect(localChanged.digest).not.toBe(corpusChanged.digest)
+    expect(localChanged.sources.find(source => source.kind === "instruction_file" && source.path === localInstruction)?.sha256)
+      .toBe(hash(await fs.promises.readFile(localInstruction)))
+  } finally {
+    restoreEnv()
+  }
+})
+
+test.each(["design", "implement", "review"])("portable conduct generated %s lane cites the committed-content opening without checkout paths", async (laneId) => {
+  const { stable, configDir } = await installedConductFixture()
+  const corpus = await Bun.file(path.join(stable, "instructions", "change.md")).text()
+  expect(corpus).toContain("\nCommit only durable content. ")
+  const agent = await Bun.file(path.join(configDir, "agents", `concord-${laneId}.md`)).text()
+  const body = agent.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+  expect(body.replace(/\s+/g, " ")).toContain('conduct rule that opens "Commit only durable content."')
+  expect(body).toContain("Authored `.concord/` files are repository sources (CD-0220).")
+  expect(body).not.toContain(".concord/instructions/change.md")
+  expect(body).not.toContain(".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md")
+})
+
+test("portable conduct generated primary preserves Linear planning without checkout paths", async () => {
+  const { configDir } = await installedConductFixture()
+  const primary = await Bun.file(path.join(configDir, "agents", "Concord.md")).text()
+  expect(primary).toContain("Linear is the sole planning authority.")
+  expect(primary.replace(/\s+/g, " ")).toContain("Read and write planning facts through the Linear MCP server")
+  expect(primary).toContain("(CD-0213)")
+  expect(primary).not.toContain(".concord/docs/managed-development-authority.md")
+})
+
 test("worker evidence uses the supplied worker directory for provenance", async () => {
   const parent = await mkdtemp(path.join(os.tmpdir(), "worker-provenance-"))
   const worker = `${parent}/worktree`

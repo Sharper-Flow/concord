@@ -99,7 +99,7 @@ The Markdown-path requirement above applies to document records, not facts.
 
 Schema `1.3` and its document readers do not yet implement these fact kinds.
 Their schema, validation, Product-declared checks, bounded retrieval, and setup
-remain outstanding in [Concord (CON) issue 1319](https://linear.app/sharper-flow/issue/CON-1319).
+remain outstanding in [CD-0244's coverage shard](knowledge/coverage/CD-0244.json).
 Publication of CD-0244 neither inserts facts into the existing document-record
 schema nor claims implementation or real Product migration.
 

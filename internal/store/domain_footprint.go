@@ -281,10 +281,6 @@ func (p preparedDomainFootprint) queryTx(ctx context.Context, q queryer, limit i
 	return queryDomainFootprintTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, limit)
 }
 
-func (p preparedDomainFootprint) completeTx(ctx context.Context, q queryer) (DomainFootprintResult, error) {
-	return footprintCompleteTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, footprintWithShapes)
-}
-
 // Sizing records ownership and laws, not facts or their model-owned references.
 func (p preparedDomainFootprint) ownershipTx(ctx context.Context, q queryer) (DomainFootprintResult, error) {
 	return footprintCompleteTx(ctx, q, p.req, p.home, p.paths, p.behaviorLaws, p.behaviorCommit, footprintOwnershipOnly)

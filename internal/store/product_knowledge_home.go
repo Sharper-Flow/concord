@@ -144,17 +144,6 @@ type ProductKnowledgeHomeDesignation struct {
 	ExpectedVersion int64
 }
 
-// DesignateProductKnowledgeHome records a Product's durable knowledge home as
-// event-sourced operator configuration (PM6 §2/§3).
-func (s *Store) DesignateProductKnowledgeHome(ctx context.Context, request ProductKnowledgeHomeDesignation) (ApplyOperationResult, error) {
-	return applyProductKnowledgeConfiguration(ctx, s, "product_knowledge_home_designate", "product.knowledge_home_designated", "operator designation", ProductKnowledgeSourceRegistration(request), func(reason string) any {
-		return knowledgeHomePayload{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
-		}
-	})
-}
-
 // ClearProductKnowledgeHome removes a Product's knowledge home designation.
 // PM6 §7 locks a designation only inside an in-flight publish; no publish
 // state machine exists yet, so the clear is unguarded here and the lock lands

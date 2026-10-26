@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+func ParseDomainShapeCheckInput(raw []byte) (DomainShapeCheckInput, error) {
+	var input DomainShapeCheckInput
+	if err := domainShapeJSON(raw, &input); err != nil {
+		return input, err
+	}
+	return input, validateDomainShapeInput(input)
+}
+
 func domainShapeFixture(operation string) DomainShapeCheckInput {
 	return DomainShapeCheckInput{
 		SchemaVersion: "1.0", Operation: operation,

@@ -313,16 +313,8 @@ func validateDomainShapeRequestedAnchors(input DomainShapeCheckInput, checks map
 	return nil
 }
 
-// ParseDomainShapeCheckInput and ParseDomainShapeCheckOutput refuse whole
+// ParseDomainShapeCheckOutput refuses whole
 // oversized, duplicate-key, unknown-field, null or incomplete wire documents.
-func ParseDomainShapeCheckInput(raw []byte) (DomainShapeCheckInput, error) {
-	var input DomainShapeCheckInput
-	if err := domainShapeJSON(raw, &input); err != nil {
-		return input, err
-	}
-	return input, validateDomainShapeInput(input)
-}
-
 func ParseDomainShapeCheckOutput(raw []byte) (DomainShapeCheckOutput, error) {
 	var output DomainShapeCheckOutput
 	if err := domainShapeJSON(raw, &output); err != nil {

@@ -56,7 +56,7 @@ func TestDomainFootprintShapeUsesSelectedCoreAndProductHome(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		complete, err := prepared.completeTx(ctx, tx)
+		complete, err := footprintCompleteTx(ctx, tx, prepared.req, prepared.home, prepared.paths, prepared.behaviorLaws, prepared.behaviorCommit, footprintWithShapes)
 		_ = tx.Rollback()
 		if err != nil || !reflect.DeepEqual(got.Shapes, complete.Shapes) {
 			t.Fatal("complete footprint did not use the same selection", err)

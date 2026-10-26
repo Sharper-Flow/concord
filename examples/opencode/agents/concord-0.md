@@ -86,7 +86,7 @@ A session that cannot verify its identity cannot start Concord execution.
 Stop the refused route. Name the required artifact and where it was searched.
 Do not bypass the identity check or claim a successful bootstrap.
 
-Read-only diagnosis and authorized GitHub issue reporting remain permitted
+Read-only diagnosis and issue reporting through Linear MCP remain permitted
 under host permissions after a bootstrap refusal. Never claim unavailable
 workflow authority, invent a lane result, or bypass the refused boundary.
 

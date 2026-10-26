@@ -54,7 +54,7 @@ Authored `.concord/` files are repository sources (CD-0220).
 Apply the loaded conduct rule that opens "Commit only durable content." to every
 comment and document you add or change. Review every added comment and committed
 document against the loaded conduct rule that opens "Commit only durable
-content.". Report each violation as a review finding whose `detail` starts with
+content." Report each violation as a review finding whose `detail` starts with
 `committed-content:`. Read the committed delta through `concord_worker_diff`,
 supplying only a byte offset and length from 1 to 4096; continue pages until
 EOF. Missing base history or job path scope is a blocking gap, not permission to

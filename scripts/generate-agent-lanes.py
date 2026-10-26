@@ -537,7 +537,7 @@ def committed_content_instructions(lane: dict) -> str:
         duties.append(f"Apply {rule} to every comment and document you add or change.")
     if "inspect_diff" in capabilities:
         duties.append(
-            f"Review every added comment and committed document against {rule}. Report "
+            f"Review every added comment and committed document against {rule} Report "
             "each violation as a review finding whose `detail` starts with `committed-content:`."
             " Read the committed delta through `concord_worker_diff`, supplying only a "
             "byte offset and length from 1 to 4096; continue pages until EOF. Missing "

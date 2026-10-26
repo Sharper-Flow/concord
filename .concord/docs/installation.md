@@ -118,16 +118,17 @@ python3 concord-installer.py status
 
 Restart OpenCode after installation or upgrade. OpenCode reads the registered
 stable `skills.paths` entry and the plugin entry module at startup. The
-installer manages only those two registrations; it does not modify unrelated
-configuration keys.
+installer also registers project-scoped conduct when linking a project; it does
+not modify unrelated configuration keys.
 
 ### Shared requirements and Product knowledge
 
 The release ships generated primary profiles and worker lanes in its agents
 directory and the shared conduct corpus in its instructions directory. The
 installer owns these assets and registers the corpus through an absolute
-`current/instructions/*.md` pointer in each linked project's OpenCode configuration. It does not copy
-Concord's source documentation into the adopting Product.
+`current/instructions/*.md` pointer in each linked project's OpenCode
+configuration. It does not copy Concord's source documentation into the adopting
+Product.
 
 | Requirement | Canonical owner and authority | Applicability and delivery |
 |---|---|---|

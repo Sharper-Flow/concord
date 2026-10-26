@@ -294,6 +294,10 @@ func TestLawBoundaryVersionGatesV22(t *testing.T) {
 		}
 		err := approve(s, "law-boundary-unknown", actor)
 		assertFailureKind(t, err, KindProjectionNotFound)
+		var failure *Failure
+		if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "no law record") || strings.Contains(failure.RecoveryAction, "rebuild") {
+			t.Fatalf("approval must preserve the record diagnosis without inferring lag: %v", err)
+		}
 		assertTableCount(t, s, "workflow_contracts", 0)
 	})
 	t.Run("2.2 contract passes accepted Git law projection", func(t *testing.T) {

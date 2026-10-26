@@ -244,7 +244,11 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("internal/store", counts)
         store_count = counts["internal/store"].pop()
         example = f'go-test-shard.py ./internal/store 1 {store_count})" ./internal/store'
-        prose = {"bin/oc-test": f"shard 1 of {store_count}:", "README.md": f"shard 1 of the {store_count} `internal/store` shards"}
+        prose = {
+            "bin/oc-test": f"shard 1 of {store_count}:",
+            "README.md": f"shard 1 of the {store_count} `internal/store` shards",
+            "TESTING.md": f"store shard 1 of {store_count}:",
+        }
         for path, phrase in prose.items():
             with self.subTest(path=path):
                 text = (REPOSITORY / path).read_text()

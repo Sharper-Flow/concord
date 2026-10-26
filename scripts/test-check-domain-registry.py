@@ -79,7 +79,7 @@ class DomainRegistryReferentialTests(unittest.TestCase):
         section = architecture.split("## 4. Entry points by responsibility\n", 1)[1].split("\n## 5.", 1)[0]
         rows = [line for line in section.splitlines() if line.startswith("| ")]
         self.assertLessEqual(len(rows) - 1, 12)
-        task = "SQLite and event authority"
+        task = "SQLite current-state and effect-receipt authority"
         owner = next(line for line in rows if line.startswith(f"| {task} |"))
         columns = owner.split("|")
         for entry in re.findall(r"`([^`]+)`", columns[2]):

@@ -356,11 +356,11 @@ func init() {
 
 	// Repair metadata is guarded on append and replay before a packet copies it.
 	registerOutputBound(defChecksRepair+"/properties/reason/maxLength",
-		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(payload.ChecksRepair.Reason)", boundBytes))
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobChecksRepairShape", "len(payload.ChecksRepair.Reason)", boundBytes))
 	registerOutputBound(defChecksRepair+"/properties/revisions/maxItems",
-		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(entries)", boundItems))
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobChecksRepairShape", "len(entries)", boundItems))
 	registerOutputBound(defChecksRepair+"/properties/revisions/items/properties/checks/maxItems",
-		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobRecordedPayload", "len(entry.Checks)", boundItems))
+		goInlineBound("internal/store/worker_jobs.go", "validateWorkerJobChecksRepairShape", "len(entry.Checks)", boundItems))
 	// Old checks copy the named revision's admitted checks verbatim.
 	registerOutputBound(defChecksRepair+"/properties/revisions/items/properties/checks/items/maxLength",
 		inputBound(defPacketJob+"/properties/checks/items/maxLength"))

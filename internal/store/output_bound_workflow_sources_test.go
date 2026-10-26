@@ -41,7 +41,7 @@ func init() {
 	// helper verifies each cited writer carries exactly one Format layout
 	// and derives the maximum render width from its tokens and the stdlib
 	// time representation, without assuming a four-digit year or bounded zone.
-	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContractApproved", "time.RFC3339Nano")
+	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "persistWorkflowContractApprovalTx", "time.RFC3339Nano")
 	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	observationRecordedAt := pkTimeLayoutWidthBound("internal/store/work_observations.go", "foldWorkObservationRecorded", "time.RFC3339Nano")
@@ -128,10 +128,10 @@ func init() {
 	// resolved through the fold's own body, the inline comparison the
 	// validation helper carries, or the deterministic digest identity the
 	// writer derives.
-	contractRequiredEvidence := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContractApproved", "workflowList", "p.RequiredEvidence", 1, boundItems)
-	contractRouteConventions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContractApproved", "workflowList", "p.RouteConventions", 1, boundItems)
-	contractSpecMandate := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContractApproved", "workflowList", "p.SpecMandate", 1, boundItems)
-	contractLawModifies := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContractApproved", "workflowList", "p.LawModifies", 1, boundItems)
+	contractRequiredEvidence := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.RequiredEvidence", 1, boundItems)
+	contractRouteConventions := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.RouteConventions", 1, boundItems)
+	contractSpecMandate := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.SpecMandate", 1, boundItems)
+	contractLawModifies := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.LawModifies", 1, boundItems)
 	actorRefDerived := workflowDigestRefCharactersBound("internal/store/workflow.go", "DeriveWorkflowActorRef")
 	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowActorRecorded", "workflowString", "p.SessionRef", 1, boundBytes)
 	checkpointActiveUnit := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.ActiveUnit", 1, boundBytes)

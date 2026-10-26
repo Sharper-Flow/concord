@@ -959,7 +959,7 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
         return lane_checker.cd0043_lane_methodology_findings(
             copy.deepcopy(packet if packet is not None else packet_schema),
             copy.deepcopy(registry if registry is not None else lane_registry),
-            list(skills if skills is not None else ["README.md", "concord-domain-shape-stewardship"]),
+            list(skills if skills is not None else ["README.md", *sorted(lane_checker.ADMITTED_SKILLS)]),
         )
 
     def test_shipped_contracts_satisfy(self):
@@ -1112,12 +1112,10 @@ class ShippedSkillTests(unittest.TestCase):
 
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
-            skills = Path(temporary)
-            (skills / "README.md").write_text("# Skills\n")
+            skills = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills", skills)
             entry = skills / self.NAME
-            entry.mkdir()
             content = entry / "SKILL.md"
-            content.write_text(self.content())
             self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [])
             extra = entry / "unadmitted.md"
             extra.write_text("Not admitted")
@@ -1142,6 +1140,46 @@ class ShippedSkillTests(unittest.TestCase):
             self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [
                 "skills/: symlink is not an admitted skill directory",
             ])
+
+
+class LawWritingSkillTests(unittest.TestCase):
+    NAME = "concord-law-writing"
+    OPERATIONS = {
+        "concord_product_view.resolve", "concord_domain.list", "concord_domain.footprint",
+        "concord_knowledge.search", "concord_knowledge.resolve_note",
+    }
+
+    def content(self):
+        return (ROOT / "skills" / self.NAME / "SKILL.md").read_text(encoding="utf-8")
+
+    def findings(self, content):
+        return lane_checker.shipped_skill_content_findings(
+            content, skill_name=self.NAME, commands=set(), operations=self.OPERATIONS,
+        )
+
+    def test_law_writing_is_admitted_with_its_own_portable_references(self):
+        self.assertIn(self.NAME, lane_checker.ADMITTED_SKILLS)
+        self.assertEqual(self.findings(self.content()), [])
+
+    def test_law_approval_reference_is_required_independently_of_shape_references(self):
+        content = re.sub(r"\[Operator approval boundary\]\([^)]*\)", "Approval", self.content())
+        self.assertTrue(any("missing canonical approval reference" in finding for finding in self.findings(content)))
+
+    def test_law_references_resolve_in_delivered_history(self):
+        self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
+
+    def test_law_license_is_required_without_admitting_arbitrary_support_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            skills = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills", skills)
+            self.assertEqual(lane_checker.shipped_skill_inventory_findings(skills), [])
+            license_path = skills / self.NAME / "LICENSE"
+            self.assertIn("Copyright (c) 2026 Matt Pocock", license_path.read_text(encoding="utf-8"))
+            license_path.unlink()
+            findings = lane_checker.shipped_skill_inventory_findings(skills)
+            self.assertTrue(any(f"{self.NAME}/LICENSE: missing admitted file" in finding for finding in findings))
+            license_path.symlink_to(skills / "README.md")
+            self.assertTrue(any("symlink" in finding for finding in lane_checker.shipped_skill_inventory_findings(skills)))
 
 
 class EvidenceBoundParityTests(unittest.TestCase):

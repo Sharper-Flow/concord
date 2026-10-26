@@ -2633,20 +2633,26 @@ esac''',
             for path in sorted((repository / origin).rglob("*"))
             if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
         }
-        skill_relative = "skills/concord-domain-shape-stewardship/SKILL.md"
+        skill_relatives = {
+            "skills/concord-domain-shape-stewardship/SKILL.md",
+            "skills/concord-law-writing/SKILL.md",
+        }
         self.assertEqual(
             {name for name in expected_files if name.startswith("skills/")},
-            {"skills/README.md", skill_relative},
-            "CD-0245 admits the stewardship skill, not arbitrary executable skills",
+            {"skills/README.md", *skill_relatives, "skills/concord-law-writing/LICENSE"},
+            "CD-0245 admits the declared skills and their support files, not arbitrary executable skills",
         )
         self.assertIn(b"\nCommit only durable content. ", expected_files["instructions/change.md"])
         expected_by_version = {
-            "v1.0.0": expected_files | {skill_relative: expected_files[skill_relative] + b"\nSynthetic prior release skill content.\n"},
+            "v1.0.0": expected_files | {
+                relative: expected_files[relative] + b"\nSynthetic prior release skill content.\n"
+                for relative in skill_relatives
+            },
             "v1.1.0": expected_files,
         }
         for version, inventory in expected_by_version.items():
             self.make_release(version, release_content=True, skill_contents={
-                skill_relative.removeprefix("skills/"): inventory[skill_relative],
+                relative.removeprefix("skills/"): inventory[relative] for relative in skill_relatives
             })
 
         project = self.root / "synthetic-product"
@@ -2695,15 +2701,16 @@ esac''',
             global_data = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
             self.assertIn(str(stable / "skills"), global_data["skills"]["paths"])
             registered = stable / "skills"
-            skill = registered / "concord-domain-shape-stewardship" / "SKILL.md"
-            self.assertEqual(skill.resolve(), version_root / skill_relative)
-            body = skill.read_text(encoding="utf-8")
-            self.assertTrue(body.startswith("---\nname: concord-domain-shape-stewardship\ndescription: "))
-            self.assertIn("\n---\n", body)
-            self.assertEqual(skill.read_bytes(), expected_files[skill_relative])
+            for relative in sorted(skill_relatives):
+                skill = stable / relative
+                self.assertEqual(skill.resolve(), version_root / relative)
+                body = skill.read_text(encoding="utf-8")
+                self.assertTrue(body.startswith(f"---\nname: {skill.parent.name}\ndescription: "))
+                self.assertIn("\n---\n", body)
+                self.assertEqual(skill.read_bytes(), expected_files[relative])
             self.assertEqual(
                 sorted(path.parent.name for path in registered.glob("*/SKILL.md")),
-                ["concord-domain-shape-stewardship"],
+                ["concord-domain-shape-stewardship", "concord-law-writing"],
             )
             for path, content in user_files.items():
                 self.assertEqual(path.read_bytes(), content, str(path.relative_to(self.root)))

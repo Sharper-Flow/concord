@@ -5,7 +5,8 @@
 # Tiers:
 #   smoke       Go packages CI tests without shards, adapter tests, and
 #               JSON/law validation.
-#   targeted    Caller-supplied command and arguments, passed through unchanged.
+#   targeted    Bounded command shapes checked without executing discovery.
+#   broad       Explicit arbitrary command under full host admission.
 #   conformance Gated production-like ten-process conformance harness.
 #   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #
@@ -14,11 +15,11 @@
 # job" command, and scripts/test-oc-test.py fails when the two differ. To test
 # one shard locally, run CI's selection for it, for example shard 1 of 5:
 #
-#   bin/oc-test targeted -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
+#   bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store'
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
-# When it is missing the tier still runs, unthrottled, after a warning. Smoke
-# uses smoke admission; targeted uses ungated targeted admission; conformance
+# When it is missing only targeted runs, after a warning. Smoke
+# uses smoke admission; targeted uses ungated targeted admission; broad and conformance
 # uses full admission; preflight uses smoke admission because its gates vet,
 # build, lint, and compile every package, which is heavy on a shared host when
 # several worktrees push at once. The
@@ -51,10 +52,13 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance | preflight
+Usage: bin/oc-test smoke | targeted -- <command> [args...] | broad -- <command> [args...] | plan <targeted|broad> -- <command> [args...] | read-go ARTIFACT_DIR [package=TestName ...] | conformance | preflight
 
   smoke        Go packages CI tests without shards, adapter suite, and JSON/law validation under host admission control
-  targeted     caller-supplied command and arguments without heavy admission
+  targeted     bounded Go selection, adapter test files, or one Python check/test suite
+  broad        arbitrary caller command under full host admission (including suites/shards)
+  plan         print command/admission/selection JSON without discovery or execution
+  read-go      compare named expectations with retained shared Go producer artifacts
   conformance  long uninstrumented ten-process SQLite harness under host admission control
   preflight    Lefthook pre-push gates from lefthook.yml under smoke admission
 
@@ -92,6 +96,10 @@ run_tier() {
   if command -v oc-test-gate >/dev/null 2>&1; then
     gate=(oc-test-gate "$admission_class" --)
   else
+    if [[ "$admission_class" != targeted ]]; then
+      printf 'bin/oc-test: %s requires oc-test-gate on PATH; refusing an unthrottled heavy workload.\n' "$tier" >&2
+      exit 69
+    fi
     printf 'bin/oc-test: oc-test-gate not found on PATH; running the %s tier unthrottled.\n' "$tier" >&2
     printf 'bin/oc-test: concurrent runs on this machine are not admission-controlled.\n' >&2
   fi
@@ -104,14 +112,22 @@ run_tier() {
   fi
   set +e
   if [[ ${#gate[@]} -gt 0 ]]; then
-    "${gate[@]}" "$@"
+    "${gate[@]}" "$@" &
+    local child=$!
+    # Forward cancellation to the existing host owner; it terminates its own
+    # workload subtree. Do not build another descendant walker here.
+    trap 'kill -TERM "$child" 2>/dev/null || true; wait "$child"; exit 143' TERM
+    trap 'kill -INT "$child" 2>/dev/null || true; wait "$child"; exit 130' INT
+    wait "$child"
+    rc=$?
+    trap - TERM INT
   else
     "$@"
+    rc=$?
   fi
-  rc=$?
   set -e
   if [[ "$rc" -eq 0 ]]; then
-    printf 'PASS %s\n' "$tier"
+    printf 'PASS %s (process exit 0; named test execution not verified)\n' "$tier"
   else
     printf 'FAIL %s (exit %s)\n' "$tier" "$rc" >&2
     if [[ "$rc" -eq 153 ]]; then
@@ -143,7 +159,20 @@ case "$tier" in
     ;;
   targeted)
     [[ $# -gt 0 ]] || usage
+    python3 "$repo_root/scripts/local-test-plan.py" targeted -- "$@"
     run_tier targeted targeted "$@"
+    ;;
+  broad)
+    [[ $# -gt 0 ]] || usage
+    run_tier broad full "$@"
+    ;;
+  plan)
+    [[ $# -gt 1 ]] || usage
+    exec python3 "$repo_root/scripts/local-test-plan.py" --json "$@"
+    ;;
+  read-go)
+    [[ $# -gt 0 ]] || usage
+    exec python3 "$repo_root/scripts/read-local-go-results.py" "$@"
     ;;
   conformance)
     [[ $# -eq 0 ]] || usage

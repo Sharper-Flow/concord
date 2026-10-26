@@ -45,7 +45,7 @@ sys.exit(int(os.getenv("FAIL_GATE", "0")))
             "go.mod": "module example.invalid/synthetic\n\ngo 1.26\n",
             "internal/example/example.go": "package example\n\nfunc Value() int { return 1 }\n",
             "internal/example/example_test.go": 'package example\n\nimport "testing"\n\nfunc TestValue(t *testing.T) { if Value() < 1 { t.Fatal("invalid") } }\n',
-            "bin/oc-test": '#!/bin/sh\n[ "$1" = targeted ] && [ "$2" = -- ] || exit 2\nshift 2\nexec "$@"\n',
+            "bin/oc-test": '#!/bin/sh\n[ "$1" = broad ] && [ "$2" = -- ] || exit 2\nshift 2\nexec "$@"\n',
         }.items():
             file = self.repo / path
             file.parent.mkdir(parents=True, exist_ok=True)

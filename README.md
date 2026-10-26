@@ -200,10 +200,10 @@ bin/oc-test conformance
 ```
 
 To test one shard of a package that smoke leaves out, run CI's selection for
-it, here shard 1 of the 6 `internal/store` shards:
+it, here shard 1 of the 7 `internal/store` shards:
 
 ```sh
-bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 6)" ./internal/store'
+bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
 ```
 
 Every tier sets a kernel-enforced 1024 MiB limit on each file a test writes.

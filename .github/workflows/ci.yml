@@ -458,7 +458,7 @@ jobs:
   #     sort -n | awk '{v[NR]=$1} END {i=int(NR*0.9); if (i < NR*0.9) i++; print "p90", v[i], "max", v[NR]}'
   verify-tests:
     name: verify-tests
-    needs: [verify-tests-rest, verify-tests-store-1, verify-tests-store-2, verify-tests-store-3, verify-tests-store-4, verify-tests-store-5, verify-tests-store-6, verify-tests-cli-1, verify-tests-cli-2]
+    needs: [verify-tests-rest, verify-tests-store-1, verify-tests-store-2, verify-tests-store-3, verify-tests-store-4, verify-tests-store-5, verify-tests-store-6, verify-tests-store-7, verify-tests-cli-1, verify-tests-cli-2]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -471,6 +471,7 @@ jobs:
           STORE_4_RESULT: ${{ needs.verify-tests-store-4.result }}
           STORE_5_RESULT: ${{ needs.verify-tests-store-5.result }}
           STORE_6_RESULT: ${{ needs.verify-tests-store-6.result }}
+          STORE_7_RESULT: ${{ needs.verify-tests-store-7.result }}
           CLI_1_RESULT: ${{ needs.verify-tests-cli-1.result }}
           CLI_2_RESULT: ${{ needs.verify-tests-cli-2.result }}
         run: |
@@ -481,6 +482,7 @@ jobs:
           test "$STORE_4_RESULT" = success
           test "$STORE_5_RESULT" = success
           test "$STORE_6_RESULT" = success
+          test "$STORE_7_RESULT" = success
           test "$CLI_1_RESULT" = success
           test "$CLI_2_RESULT" = success
 
@@ -589,7 +591,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 1 of 6 of ./internal/store
+      - name: Test shard 1 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -605,7 +607,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -673,7 +675,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 2 of 6 of ./internal/store
+      - name: Test shard 2 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -689,7 +691,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -757,7 +759,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 3 of 6 of ./internal/store
+      - name: Test shard 3 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -773,7 +775,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -841,7 +843,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 4 of 6 of ./internal/store
+      - name: Test shard 4 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -857,7 +859,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 4 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 4 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -925,7 +927,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 5 of 6 of ./internal/store
+      - name: Test shard 5 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -941,7 +943,7 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 5 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 5 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -1009,7 +1011,7 @@ jobs:
           uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
           uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
           chmod -R a-w "$UV_CACHE_DIR"
-      - name: Test shard 6 of 6 of ./internal/store
+      - name: Test shard 6 of 7 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -1025,7 +1027,91 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 6 6)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 6 7)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
+      - name: Restore write access to the uv fixture cache
+        if: always()
+        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
+
+  verify-tests-store-7:
+    name: verify-tests-store-7
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # Release-pair tests build their baselines from these tags.
+        # The default checkout is shallow and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.11.26
+          enable-cache: "false"
+      - name: Provision the committed adapter recipe Python
+        # Any store shard can own the recipe test after sorted inventory changes.
+        # Install its existing exact pin before the offline test phase.
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open(".concord/oracles/adapter/dispatch-acceptance.v1.json"))["pin"]["python"])')"
+          uv python install --no-bin "$version"
+          python_path="$(uv python find --managed-python "$version")"
+          python_dir="$(dirname "$python_path")"
+          test "$("$python_dir/python3" --version)" = "Python $version"
+          printf '%s\n' "$python_dir" >> "$GITHUB_PATH"
+      - name: Warm the uv fixture cache from the committed lock
+        # The package-network step. Both commands refuse a lock that no
+        # longer matches its project, and the sync checks every wheel
+        # against the lock's hashes. The store tests copy this cache into
+        # private scratch and run uv offline, so the cache is made read-only.
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
+          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
+          chmod -R a-w "$UV_CACHE_DIR"
+      - name: Test shard 7 of 7 of ./internal/store
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
+          UV_OFFLINE: "1"
+          UV_PYTHON_DOWNLOADS: never
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 7 7)" ./internal/store
       - name: Retain native Go results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

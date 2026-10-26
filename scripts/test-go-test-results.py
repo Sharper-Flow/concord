@@ -325,7 +325,7 @@ class CIContractTests(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
         owners = {"verify-go", "verify-tests-rest", "verify-race", "verify-acceptance"} | {
-            f"verify-tests-store-{i}" for i in range(1, 7)} | {f"verify-tests-cli-{i}" for i in (1, 2)}
+            f"verify-tests-store-{i}" for i in range(1, 8)} | {f"verify-tests-cli-{i}" for i in (1, 2)}
         for name in owners:
             steps = jobs[name]["steps"]
             producers = [s for s in steps if "scripts/go-test-results.py --output-dir" in s.get("run", "")]
@@ -337,7 +337,7 @@ class CIContractTests(unittest.TestCase):
             self.assertEqual(uploads[0]["with"]["if-no-files-found"], "error")
         gate = jobs["verify-tests"]
         self.assertEqual(gate["if"], "always()")
-        for result in ("REST", "STORE_1", "STORE_2", "STORE_3", "STORE_4", "STORE_5", "STORE_6", "CLI_1", "CLI_2"):
+        for result in ("REST", "STORE_1", "STORE_2", "STORE_3", "STORE_4", "STORE_5", "STORE_6", "STORE_7", "CLI_1", "CLI_2"):
             self.assertIn(f'test "${result}_RESULT" = success', gate["steps"][0]["run"])
         compile_step = next(s for s in jobs["verify-go"]["steps"] if s.get("name") == "Compile all tests")
         self.assertEqual(compile_step["run"], "go test -run '^$' -timeout=15m ./...")

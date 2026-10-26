@@ -20,6 +20,7 @@ ExampleStore
 FuzzParse
 TestZeta
 TestBeta
+TestGamma
 ok  \tgithub.com/example/pkg\t0.012s
 """
 
@@ -28,13 +29,13 @@ class ShardTests(unittest.TestCase):
     def test_listing_keeps_runnable_names_and_drops_the_status_line(self) -> None:
         self.assertEqual(
             go_test_shard.listed_names(LIST_OUTPUT),
-            ["ExampleStore", "FuzzParse", "TestAlpha", "TestBeta", "TestOpen", "TestZeta"],
+            ["ExampleStore", "FuzzParse", "TestAlpha", "TestBeta", "TestGamma", "TestOpen", "TestZeta"],
         )
 
     def test_shards_are_disjoint_and_cover_every_name(self) -> None:
         names = go_test_shard.listed_names(LIST_OUTPUT)
         for inventory in (names, sorted([*names, "TestNew"])):
-            for count in range(1, 7):
+            for count in range(1, 8):
                 with self.subTest(count=count, inventory=inventory):
                     shards = [go_test_shard.shard(inventory, index, count) for index in range(1, count + 1)]
                     dealt = [name for part in shards for name in part]

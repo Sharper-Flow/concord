@@ -53,7 +53,7 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 
 # The internal/store shard count that the shard margin rule in ci.yml sets.
-STORE_SHARDS = 6
+STORE_SHARDS = 7
 
 CI_JOB_IDS = (
     "verify-history",
@@ -72,6 +72,7 @@ CI_JOB_IDS = (
     "verify-tests-store-4",
     "verify-tests-store-5",
     "verify-tests-store-6",
+    "verify-tests-store-7",
     "verify-tests-cli-1",
     "verify-tests-cli-2",
     "verify-race",

@@ -21,6 +21,8 @@ import (
 // refuses it. A registered source home carries neither in this version.
 const (
 	packageMapSchemaVersion = "1.0"
+	packageMapShapeVersion  = "1.1"
+	maxPackageMapBytes      = 16 * 1024
 	maxPackageMapEntries    = 512
 	maxPackageMapDomains    = 16
 	maxPackageMapPath       = 256
@@ -43,8 +45,25 @@ var coverageAnchorKinds = map[string]bool{"adapter_test": true, "generated": tru
 var coverageIssuePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[1-9][0-9]*$`)
 
 type knowledgePackageEntry struct {
-	Path      string   `json:"path"`
-	DomainIDs []string `json:"domain_ids"`
+	Path          string   `json:"path"`
+	DomainIDs     []string `json:"domain_ids"`
+	Role          string   `json:"role,omitempty"`
+	OwnerDomainID string   `json:"owner_domain_id,omitempty"`
+}
+
+// MarshalJSON retains the historical field order and mandatory domain_ids for
+// 1.0 entries. Explicit roles encode only the ownership fields their role uses.
+func (entry knowledgePackageEntry) MarshalJSON() ([]byte, error) {
+	if entry.Role == "" {
+		type historical knowledgePackageEntry
+		return json.Marshal(historical(entry))
+	}
+	return json.Marshal(struct {
+		Path          string   `json:"path"`
+		Role          string   `json:"role"`
+		OwnerDomainID string   `json:"owner_domain_id,omitempty"`
+		DomainIDs     []string `json:"domain_ids,omitempty"`
+	}{entry.Path, entry.Role, entry.OwnerDomainID, entry.DomainIDs})
 }
 
 type knowledgePackageMapDocument struct {
@@ -64,6 +83,7 @@ type knowledgeArchitecture struct {
 	MapHash  string
 	Packages []knowledgePackageEntry
 	Anchors  map[string][]knowledgeCoverageAnchor
+	Shape    *domainShapeProjection
 }
 
 // prepareKnowledgeArchitecture parses the designated home's package map and
@@ -108,48 +128,137 @@ func packageMapFailure(detail string) error {
 // parseKnowledgePackageMap parses the map strictly and returns it with its
 // entries sorted by path and each entry's Domains sorted.
 func parseKnowledgePackageMap(data []byte, registry KnowledgeDomainRegistry) (knowledgePackageMapDocument, error) {
-	var document knowledgePackageMapDocument
-	if err := decodeStrictKnowledgeJSON(data, &document); err != nil {
-		return document, packageMapFailure("is not one strict JSON object with schema_version and packages")
+	document, entries, err := decodeKnowledgePackageMap(data)
+	if err != nil {
+		return document, err
 	}
-	if document.SchemaVersion != packageMapSchemaVersion {
-		return document, packageMapFailure("schema_version must be " + packageMapSchemaVersion)
+	minimum := 1
+	if document.SchemaVersion == packageMapShapeVersion {
+		minimum = 0
 	}
-	if len(document.Packages) == 0 || len(document.Packages) > maxPackageMapEntries {
-		return document, packageMapFailure("must list between 1 and 512 packages")
+	if len(document.Packages) < minimum || len(document.Packages) > maxPackageMapEntries {
+		return document, packageMapFailure("packages count is outside the schema's bound (maximum 512)")
 	}
 	declared := map[string]bool{}
 	for _, domain := range registry.Domains {
-		declared[domain.DomainID] = true
+		declared[domain.DomainID] = domain.Status == "current" || (document.SchemaVersion == packageMapSchemaVersion && domain.Status == "")
 	}
 	seenPaths := map[string]bool{}
 	for index := range document.Packages {
 		entry := &document.Packages[index]
-		if !validPackageMapPath(entry.Path) {
+		if !validPackageRootPath(entry.Path) {
 			return document, packageMapFailure("path is not a normalized relative directory without globs: " + entry.Path)
 		}
 		if seenPaths[entry.Path] {
 			return document, packageMapFailure("lists a package path twice: " + entry.Path)
 		}
 		seenPaths[entry.Path] = true
-		if len(entry.DomainIDs) == 0 || len(entry.DomainIDs) > maxPackageMapDomains {
-			return document, packageMapFailure("entry must name between 1 and 16 Domains: " + entry.Path)
+		if err := validateKnowledgePackageEntry(entry, entries[index], document.SchemaVersion, declared); err != nil {
+			return document, err
 		}
-		domains := uniqueSorted(entry.DomainIDs)
-		if len(domains) != len(entry.DomainIDs) {
-			return document, packageMapFailure("entry names an empty or repeated Domain: " + entry.Path)
-		}
-		for _, domainID := range domains {
-			if !declared[domainID] {
-				return document, newFailure(KindUnknownScope, "rebuild_knowledge_index", "package map names an unknown Domain: "+domainID, false, "name only Domains the same commit's registry declares")
-			}
-		}
-		entry.DomainIDs = domains
 	}
 	sort.Slice(document.Packages, func(left, right int) bool {
 		return document.Packages[left].Path < document.Packages[right].Path
 	})
 	return document, nil
+}
+
+// decodeKnowledgePackageMap retains exact field presence beside typed entries.
+// An omitted field is not an empty or null ownership claim, and JSON's
+// case-insensitive struct matching must not admit alternate field names.
+func decodeKnowledgePackageMap(data []byte) (knowledgePackageMapDocument, []map[string]json.RawMessage, error) {
+	var document knowledgePackageMapDocument
+	if len(data) > maxPackageMapBytes || !utf8.Valid(data) {
+		return document, nil, packageMapFailure("must be UTF-8 JSON within 16384 bytes")
+	}
+	if err := decodeStrictKnowledgeJSON(data, &document); err != nil {
+		return document, nil, packageMapFailure("is not one strict JSON object with schema_version and packages")
+	}
+	if document.SchemaVersion != packageMapSchemaVersion && document.SchemaVersion != packageMapShapeVersion {
+		return document, nil, packageMapFailure("schema_version must be 1.0 or 1.1")
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil || len(raw) != 2 || raw["schema_version"] == nil || raw["packages"] == nil || bytes.Equal(bytes.TrimSpace(raw["packages"]), []byte("null")) {
+		return document, nil, packageMapFailure("requires exactly schema_version and a packages array")
+	}
+	var entries []map[string]json.RawMessage
+	_ = json.Unmarshal(raw["packages"], &entries) // The strict decode proved the array's element types.
+	return document, entries, nil
+}
+
+// validateKnowledgePackageEntry checks the role's closed ownership shape and
+// current Domain references, then normalizes only its listed Domain IDs.
+func validateKnowledgePackageEntry(entry *knowledgePackageEntry, fields map[string]json.RawMessage, schemaVersion string, declared map[string]bool) error {
+	expected := []string{"path", "domain_ids"}
+	domains := entry.DomainIDs
+	minimumDomains := 1
+	if schemaVersion == packageMapShapeVersion {
+		expected = []string{"path", "role"}
+		switch entry.Role {
+		case "domain":
+			expected = append(expected, "owner_domain_id")
+			if !validManifestID(entry.OwnerDomainID) {
+				return packageMapFailure("domain root requires exactly one owner_domain_id: " + entry.Path)
+			}
+			domains = []string{entry.OwnerDomainID}
+		case "mixed":
+			expected = append(expected, "domain_ids")
+			minimumDomains = 2
+		case "composition", "test_support":
+			minimumDomains = 0
+		default:
+			return packageMapFailure("entry requires an explicit domain, mixed, composition or test_support role: " + entry.Path)
+		}
+	}
+	if len(fields) != len(expected) {
+		return packageMapFailure("entry carries fields forbidden by its schema or role: " + entry.Path)
+	}
+	for _, field := range expected {
+		if fields[field] == nil || bytes.Equal(bytes.TrimSpace(fields[field]), []byte("null")) {
+			return packageMapFailure("entry requires non-null " + field + ": " + entry.Path)
+		}
+	}
+	if len(domains) < minimumDomains || len(domains) > maxPackageMapDomains {
+		return packageMapFailure("entry Domain count is outside its role's bound: " + entry.Path)
+	}
+	sortedDomains := uniqueSorted(domains)
+	if len(sortedDomains) != len(domains) {
+		return packageMapFailure("entry names an empty or repeated Domain: " + entry.Path)
+	}
+	for _, domainID := range sortedDomains {
+		if !declared[domainID] {
+			return newFailure(KindUnknownScope, "rebuild_knowledge_index", "package map names an unknown or non-current Domain: "+domainID, false, "name only current Domains the same commit's registry declares")
+		}
+	}
+	if entry.Role == "" || entry.Role == "mixed" {
+		entry.DomainIDs = sortedDomains
+	}
+	return nil
+}
+
+// domainFactRoots converts a validated map without inferring exclusive ownership
+// from 1.0. Even a historical single-Domain entry is transitional mixed; it does
+// not satisfy the fact validator's explicit domain or multi-Domain mixed rule.
+func (document knowledgePackageMapDocument) domainFactRoots() map[string]DomainFactRoot {
+	roots := make(map[string]DomainFactRoot, len(document.Packages))
+	for _, entry := range document.Packages {
+		role := entry.Role
+		if document.SchemaVersion == packageMapSchemaVersion {
+			role = "mixed"
+		}
+		owners := append([]string(nil), entry.DomainIDs...)
+		if role == "domain" {
+			owners = []string{entry.OwnerDomainID}
+		}
+		roots[entry.Path] = DomainFactRoot{Role: role, OwnerDomainIDs: owners}
+	}
+	return roots
+}
+
+// Parsing checks path syntax without guessing file type from an extension.
+// The filesystem-aware validator proves that roots are contained directories.
+func validPackageRootPath(value string) bool {
+	return validPackageMapPath(value) && !strings.Contains(value, "\\") && !strings.ContainsFunc(value, func(char rune) bool { return char < 32 })
 }
 
 // validPackageMapPath admits a normalized relative directory path: no glob
@@ -260,7 +369,11 @@ func decodeStrictKnowledgeJSON(data []byte, target any) error {
 // coverage anchors.
 func insertKnowledgeArchitecture(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw, architecture knowledgeArchitecture) error {
 	for _, entry := range architecture.Packages {
-		for _, domainID := range entry.DomainIDs {
+		domains := entry.DomainIDs
+		if entry.Role == "domain" {
+			domains = []string{entry.OwnerDomainID}
+		}
+		for _, domainID := range domains {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_package_domains(home_project_id,home_locator_id,package_path,domain_id,map_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, entry.Path, domainID, architecture.MapHash, commit); err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write a package Domain", true, "retry once the database is writable", err)
 			}

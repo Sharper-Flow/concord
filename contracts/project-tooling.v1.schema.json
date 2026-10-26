@@ -15,12 +15,32 @@
     },
     "tools": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 64,
       "items": { "$ref": "#/$defs/tool" }
-    }
+    },
+    "domain_shape": { "$ref": "#/$defs/domain_shape" }
   },
+  "allOf": [
+    { "if": { "properties": { "tools": { "maxItems": 0 } } }, "then": { "required": ["domain_shape"] } }
+  ],
   "$defs": {
+    "domain_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional Product commands, referenced by existing tool ID. Membership must resolve to tools in this document. No automatic execution or workflow authority. An empty object is visibly unverified.",
+      "properties": {
+        "boundary_check": { "$ref": "#/$defs/tool_id" },
+        "data_object_extractor": { "$ref": "#/$defs/tool_id" },
+        "config_extractor": { "$ref": "#/$defs/tool_id" },
+        "reference_check": { "$ref": "#/$defs/tool_id" },
+        "required_checks": {
+          "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": { "$ref": "#/$defs/tool_id" }
+        }
+      }
+    },
+    "tool_id": { "type": "string", "pattern": "^(?!.*[\\r\\n])[a-z][a-z0-9-]{1,63}$" },
     "tool": {
       "type": "object",
       "additionalProperties": false,

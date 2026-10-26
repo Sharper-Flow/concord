@@ -27,6 +27,9 @@ PATH_MIN_LENGTH = 3
 PATH_MAX_LENGTH = 512
 
 ROOT_FIELDS = {"schema_version", "project", "tools"}
+OPTIONAL_ROOT_FIELDS = {"domain_shape"}
+DOMAIN_SHAPE_COMMANDS = {"boundary_check", "data_object_extractor", "config_extractor", "reference_check"}
+DOMAIN_SHAPE_FIELDS = DOMAIN_SHAPE_COMMANDS | {"required_checks"}
 TOOL_FIELDS = {
     "id",
     "purpose",
@@ -136,7 +139,7 @@ def check(*, root: Path = ROOT) -> list[str]:
 
     if not isinstance(document, dict):
         return [f"{MANIFEST}: top-level JSON value must be an object"]
-    unknown_root = set(document) - ROOT_FIELDS
+    unknown_root = set(document) - ROOT_FIELDS - OPTIONAL_ROOT_FIELDS
     if unknown_root:
         findings.append(f"{MANIFEST}: unknown root field(s): {', '.join(sorted(unknown_root))}")
     missing_root = ROOT_FIELDS - set(document)
@@ -151,9 +154,11 @@ def check(*, root: Path = ROOT) -> list[str]:
         findings.append(f"{MANIFEST}: project must match {IDENTIFIER.pattern}")
 
     tools = document["tools"]
-    if not isinstance(tools, list) or not tools:
-        findings.append(f"{MANIFEST}: tools must be a non-empty array")
+    if not isinstance(tools, list):
+        findings.append(f"{MANIFEST}: tools must be an array")
         return findings
+    if not tools and "domain_shape" not in document:
+        findings.append(f"{MANIFEST}: empty tools requires domain_shape declarations")
     if len(tools) > MAX_TOOLS:
         findings.append(f"{MANIFEST}: tools must hold at most {MAX_TOOLS} entries")
 
@@ -189,6 +194,32 @@ def check(*, root: Path = ROOT) -> list[str]:
         for key in ("config_path", "automation_path"):
             if key in tool:
                 validate_file_path(root, label, key, tool[key], findings)
+
+    if "domain_shape" in document:
+        shape = document["domain_shape"]
+        label = f"{MANIFEST}: domain_shape"
+        if not isinstance(shape, dict):
+            findings.append(f"{label}: must be an object")
+            return findings
+        unknown = set(shape) - DOMAIN_SHAPE_FIELDS
+        if unknown:
+            findings.append(f"{label}: unknown field(s): {', '.join(sorted(unknown))}")
+        for key in sorted(DOMAIN_SHAPE_COMMANDS):
+            if key in shape:
+                identifier = shape[key]
+                if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier) or identifier not in seen_ids:
+                    findings.append(f"{label}: {key} must reference a declared tool id")
+        if "required_checks" in shape:
+            checks = shape["required_checks"]
+            if not isinstance(checks, list) or len(checks) > MAX_TOOLS:
+                findings.append(f"{label}: required_checks must be an array of at most {MAX_TOOLS} declared tool ids")
+            else:
+                seen_checks: set[str] = set()
+                for identifier in checks:
+                    if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier) or identifier not in seen_ids or identifier in seen_checks:
+                        findings.append(f"{label}: required_checks must reference distinct declared tool ids")
+                    else:
+                        seen_checks.add(identifier)
 
     return findings
 

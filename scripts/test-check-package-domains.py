@@ -58,9 +58,13 @@ class PackageDomainMapTests(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name)
         (self.root / checker.MAP_PATH).parent.mkdir(parents=True)
+        for name in FILES:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch()
 
-    def write(self, packages: list[dict], raw: bytes | None = None) -> None:
-        document = {"packages": packages, "schema_version": "1.0"}
+    def write(self, packages: list[dict], raw: bytes | None = None, version: str = "1.0") -> None:
+        document = {"packages": packages, "schema_version": version}
         (self.root / checker.MAP_PATH).write_bytes(raw if raw is not None else checker.shard_format.canonical_bytes(document))
 
     def check(
@@ -104,12 +108,13 @@ class PackageDomainMapTests(unittest.TestCase):
         self.assertFalse(any("README.md" in finding for finding in findings))
 
     def test_entry_without_code_refuses(self) -> None:
-        findings = self.check(packages=[*clean_entries()[:3], entry("docs", "surface"), clean_entries()[3]])
+        findings = self.check(packages=sorted([*clean_entries(), entry("docs", "surface")], key=lambda value: value["path"]))
         self.assertFinding(findings, "package docs: resolves no tracked code file")
 
     def test_file_entry_resolves_nothing(self) -> None:
-        entries = [*clean_entries()[:2], entry("internal/store/store.go", "storage"), *clean_entries()[2:]]
-        self.assertFinding(self.check(packages=entries), "package internal/store/store.go: resolves no tracked code file")
+        entries = sorted([*clean_entries(), entry("internal/store/store.go", "storage")], key=lambda value: value["path"])
+        # CD-0244 D2 refuses files using actual filesystem type, not suffixes.
+        self.assertFinding(self.check(packages=entries), "repository-contained directory/module root")
 
     def test_nested_package_resolves_to_longest_prefix(self) -> None:
         records = [law("CD-1", "verification", "internal/store/storetest/fixture.go")]
@@ -173,6 +178,97 @@ class PackageDomainMapTests(unittest.TestCase):
         self.write(clean_entries(), raw=b" " * (checker.MAX_MAP_BYTES + 1))
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
             self.assertFinding(checker.validate(self.root, FILES, PACKAGES), "exceeds the 16384-byte knowledge shard bound")
+
+    def test_explicit_root_roles_and_empty_product(self) -> None:
+        entries = [
+            {"path": "cmd/demo", "role": "composition"},
+            {"path": "internal/store", "role": "domain", "owner_domain_id": "storage"},
+            {"path": "internal/store/storetest", "role": "test_support"},
+            {"path": "scripts", "role": "mixed", "domain_ids": ["storage", "verification"]},
+        ]
+        for name in FILES:
+            if checker.is_code_file(name):
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+        self.write(entries, version="1.1")
+        # CD-0244 D2 retires evidence-to-multi-Domain ownership inference for 1.1.
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest([law("CD-1", "surface", "internal/store/store.go")])):
+            self.assertEqual(checker.validate(self.root, FILES, PACKAGES), [])
+        self.write([], version="1.1")
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
+            self.assertEqual(checker.validate(self.root, [], []), [])
+            self.assertFinding(checker.validate(self.root, FILES, PACKAGES), "has no package-map entry")
+
+    def test_root_role_cardinalities(self) -> None:
+        invalid = [
+            {"role": "domain"},
+            {"role": "domain", "owner_domain_id": ""},
+            {"role": "domain", "owner_domain_id": ["storage", "surface"]},
+            {"role": "domain", "owner_domain_id": "storage", "domain_ids": []},
+            {"role": "mixed", "domain_ids": []},
+            {"role": "mixed", "domain_ids": ["storage"]},
+            {"role": "mixed", "domain_ids": ["storage", "storage"]},
+            {"role": "mixed", "domain_ids": [f"domain-{i:02d}" for i in range(17)]},
+            {"role": "mixed", "domain_ids": ["storage", "surface"], "owner_domain_id": "storage"},
+            {"role": "composition", "domain_ids": []},
+            {"role": "test_support", "owner_domain_id": "storage"},
+            {"role": "unknown"},
+            {"domain_ids": ["storage"]},
+        ]
+        for fields in invalid:
+            with self.subTest(fields=fields):
+                raw = checker.shard_format.canonical_bytes({"schema_version": "1.1", "packages": [{"path": "src", **fields}]})
+                self.assertTrue(checker.validate_shape(raw)[1])
+
+    def test_root_filesystem_and_current_domains(self) -> None:
+        (self.root / "src").mkdir()
+        (self.root / "src" / "source.go").touch()
+        for role_fields in [
+            {"role": "domain", "owner_domain_id": "missing"},
+            {"role": "domain", "owner_domain_id": "retired"},
+            {"role": "mixed", "domain_ids": ["retired", "storage"]},
+        ]:
+            self.write([{"path": "src", **role_fields}], version="1.1")
+            with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest(deprecated=("retired",))):
+                self.assertFinding(checker.validate(self.root, ["src/source.go"], []), "not a current registry Domain")
+        for version in ("1.0", "1.1"):
+            for name in ["src/source.go", "missing", "src/source"]:
+                if name == "src/source":
+                    (self.root / name).touch()
+                fields = {"domain_ids": ["storage"]} if version == "1.0" else {"role": "composition"}
+                self.write([{"path": name, **fields}], version=version)
+                with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
+                    self.assertFinding(checker.validate(self.root, [], []), "directory")
+
+    def test_both_versions_refuse_glob_and_noncanonical_json(self) -> None:
+        for version in ("1.0", "1.1"):
+            for name in ("src/*.go", "src\\file", "src/../other"):
+                fields = {"domain_ids": ["storage"]} if version == "1.0" else {"role": "composition"}
+                raw = checker.shard_format.canonical_bytes({"schema_version": version, "packages": [{"path": name, **fields}]})
+                self.assertTrue(checker.validate_shape(raw)[1], (version, name))
+        for raw in (b'{"schema_version":"1.1","packages":[],"packages":[]}', b'{"schema_version":"1.1","packages":null}'):
+            self.assertTrue(checker.validate_shape(raw)[1])
+
+    def test_root_symlink_cannot_escape_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as outside:
+            (self.root / "escape").symlink_to(outside, target_is_directory=True)
+            self.write([{"path": "escape", "role": "composition"}], version="1.1")
+            with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
+                self.assertFinding(checker.validate(self.root, ["escape/main.go"], []), "repository-contained directory/module root")
+
+    def test_module_directory_is_not_inferred_from_filename_suffix(self) -> None:
+        (self.root / "module.go").mkdir()
+        self.write([{"path": "module.go", "role": "composition"}], version="1.1")
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest()):
+            self.assertEqual(checker.validate(self.root, ["module.go/entry.py"], []), [])
+
+    def test_schema_path_pattern_matches_root_shape(self) -> None:
+        schema = json.loads((checker.ROOT / "contracts/package-domains.v1.schema.json").read_text())
+        pattern = checker.re.compile(schema["$defs"]["path"]["pattern"])
+        for name in ("src", "src/module.v1", "src/nested", "src/file.go", "src/file.TSX", "src/*.go", "src\\file", "../src", "src/../other", "src/", "src//nested", ".", "/src"):
+            with self.subTest(name=name):
+                self.assertEqual(bool(pattern.fullmatch(name)), checker.normalized_path(name))
 
     def test_repository_map_passes(self) -> None:
         root = checker.ROOT

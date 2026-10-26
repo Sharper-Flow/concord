@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
-"""Validate the package-to-Domain map against the code tree and current law.
+"""Validate package-grain roots against the code tree and current Domains.
 
-CD-0222 D2 declares which Domains each code package serves in a Git-authored
-map, .concord/docs/knowledge/package-domains.json. The map is architecture
-data, not law, and the footprint read joins it with the law index. This
-validator owns the propositions that keep it true:
-
-  shape     at most 16 KiB; schema_version "1.0"; packages sorted by path with unique,
-            normalized relative directory paths and no glob characters; each
-            entry names 1-16 sorted, unique Domain IDs; canonical shard bytes
-  go        every Go package that `go list ./...` reports has an exact entry
-  coverage  every tracked code file resolves to an entry, and every entry
-            resolves at least one code file
-  domains   every named Domain is a current Domain in the registry
-  law       every child Domain that homes a current law whose evidence names a
-            code file is listed on that file's entry
-
-A path resolves to the entry with the longest directory prefix that contains
-it. No Domain is required to appear in the map.
+Schema 1.1 declares domain, mixed, composition and test_support roots under
+CD-0244 D2. Schema 1.0 retains historical evidence-to-Domain validation.
+Both versions require canonical JSON within 16 KiB, current Domain references,
+real contained directories, exact Go package entries and tracked code coverage.
+A path resolves through the longest containing directory prefix. Schema 1.1
+permits an empty map only when there is no declared code to cover.
 """
 from __future__ import annotations
 
@@ -35,6 +24,7 @@ import shard_format  # noqa: E402
 
 MAP_PATH = ".concord/docs/knowledge/package-domains.json"
 SCHEMA_VERSION = "1.0"
+SHAPE_VERSION = "1.1"
 MAX_DOMAINS = 16
 MAX_PACKAGES = 512
 # The store reads every file under the knowledge root through one bounded
@@ -72,10 +62,31 @@ def resolve(path: str, entries: list[str]) -> str | None:
 
 
 def normalized_path(value: object) -> bool:
-    if not isinstance(value, str) or not value or len(value) > 256 or GLOB.search(value):
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
+    if size > 256 or GLOB.search(value) or any(char == "\\" or ord(char) < 32 for char in value):
         return False
     pure = PurePosixPath(value)
     return not pure.is_absolute() and ".." not in pure.parts and pure.as_posix() == value and value != "."
+
+
+def unique_object(pairs: list[tuple]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate key: {key}")
+        result[key] = value
+    return result
+
+
+def entry_domains(entry: dict) -> list[str]:
+    if entry.get("role") == "domain":
+        return [entry["owner_domain_id"]]
+    return entry.get("domain_ids", [])
 
 
 def validate_shape(raw: bytes) -> tuple[list[dict], list[str]]:
@@ -83,32 +94,52 @@ def validate_shape(raw: bytes) -> tuple[list[dict], list[str]]:
     if len(raw) > MAX_MAP_BYTES:
         return [], [f"{MAP_PATH}: {len(raw)} bytes exceeds the {MAX_MAP_BYTES}-byte knowledge shard bound"]
     try:
-        document = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        document = json.loads(raw, object_pairs_hook=unique_object)
+    except (ValueError, UnicodeDecodeError) as exc:
         return [], [f"{MAP_PATH}: not valid JSON: {exc}"]
     if not isinstance(document, dict) or set(document) != {"schema_version", "packages"}:
         return [], [f"{MAP_PATH}: the document must carry exactly schema_version and packages"]
-    if document["schema_version"] != SCHEMA_VERSION:
-        findings.append(f"{MAP_PATH}: schema_version must be {SCHEMA_VERSION!r}")
+    version = document["schema_version"]
+    if version not in (SCHEMA_VERSION, SHAPE_VERSION):
+        return [], [f"{MAP_PATH}: schema_version must be '1.0' or '1.1'"]
     packages = document["packages"]
-    if not isinstance(packages, list) or not 1 <= len(packages) <= MAX_PACKAGES:
-        return [], findings + [f"{MAP_PATH}: packages must list 1-{MAX_PACKAGES} entries"]
+    minimum = 0 if version == SHAPE_VERSION else 1
+    if not isinstance(packages, list) or not minimum <= len(packages) <= MAX_PACKAGES:
+        return [], findings + [f"{MAP_PATH}: packages must list {minimum}-{MAX_PACKAGES} entries"]
     entries: list[dict] = []
     for position, entry in enumerate(packages):
         anchor = f"{MAP_PATH} packages[{position}]"
-        if not isinstance(entry, dict) or set(entry) != {"path", "domain_ids"}:
-            findings.append(f"{anchor}: an entry carries exactly path and domain_ids")
+        if not isinstance(entry, dict):
+            findings.append(f"{anchor}: an entry must be an object")
+            continue
+        expected = {"path", "domain_ids"}
+        minimum_domains = 1
+        if version == SHAPE_VERSION:
+            role = entry.get("role")
+            if role == "domain":
+                expected = {"path", "role", "owner_domain_id"}
+            elif role == "mixed":
+                expected = {"path", "role", "domain_ids"}
+                minimum_domains = 2
+            elif role in ("composition", "test_support"):
+                expected = {"path", "role"}
+                minimum_domains = 0
+            else:
+                findings.append(f"{anchor}: requires an explicit domain, mixed, composition or test_support role")
+                continue
+        if set(entry) != expected:
+            findings.append(f"{anchor}: entry fields must be exactly {', '.join(sorted(expected))}")
             continue
         if not normalized_path(entry["path"]):
             findings.append(f"{anchor}: path {entry['path']!r} is not a normalized relative directory without globs")
             continue
-        domain_ids = entry["domain_ids"]
+        domain_ids = entry_domains(entry)
         if (
             not isinstance(domain_ids, list)
-            or not 1 <= len(domain_ids) <= MAX_DOMAINS
+            or not minimum_domains <= len(domain_ids) <= MAX_DOMAINS
             or any(not isinstance(domain_id, str) or not domain_id for domain_id in domain_ids)
         ):
-            findings.append(f"{anchor}: domain_ids must list 1-{MAX_DOMAINS} Domain IDs")
+            findings.append(f"{anchor}: domain_ids must list {minimum_domains}-{MAX_DOMAINS} Domain IDs (domain role requires one owner_domain_id)")
             continue
         if domain_ids != sorted(set(domain_ids)):
             findings.append(f"{anchor}: domain_ids must be sorted and unique")
@@ -127,9 +158,11 @@ def validate(root: Path, files: list[str], packages: list[str]) -> list[str]:
     map_file = root / MAP_PATH
     if not map_file.is_file():
         return [f"{MAP_PATH}: missing"]
-    entries, findings = validate_shape(map_file.read_bytes())
-    if not entries:
+    raw = map_file.read_bytes()
+    entries, findings = validate_shape(raw)
+    if findings:
         return findings
+    version = json.loads(raw)["schema_version"]
     try:
         manifest = knowledge_index.compose_manifest(root)
     except knowledge_index.ComposeError as exc:
@@ -137,11 +170,19 @@ def validate(root: Path, files: list[str], packages: list[str]) -> list[str]:
     registry = manifest.get("domain_registry") or {}
     root_id = registry.get("root_domain_id")
     current = {domain.get("domain_id") for domain in registry.get("domains", []) if domain.get("status") == "current"}
-    served = {entry["path"]: set(entry["domain_ids"]) for entry in entries}
+    served = {entry["path"]: set(entry_domains(entry)) for entry in entries}
     paths = list(served)
 
     for entry in entries:
-        for domain_id in entry["domain_ids"]:
+        directory = root / entry["path"]
+        try:
+            contained = directory.resolve().is_relative_to(root.resolve())
+            exists = directory.is_dir()
+        except (OSError, RuntimeError):
+            contained, exists = False, False
+        if not contained or not exists:
+            findings.append(f"package {entry['path']}: must resolve to an existing repository-contained directory/module root")
+        for domain_id in entry_domains(entry):
             if domain_id not in current:
                 findings.append(f"package {entry['path']}: {domain_id!r} is not a current registry Domain")
 
@@ -160,7 +201,9 @@ def validate(root: Path, files: list[str], packages: list[str]) -> list[str]:
     for package in sorted(set(paths) - resolved):
         findings.append(f"package {package}: resolves no tracked code file")
 
-    for record in manifest.get("records", []):
+    # CD-0244 D2 replaces evidence-based multi-Domain ownership. Historical
+    # maps retain their validation until explicitly moved to schema 1.1.
+    for record in manifest.get("records", []) if version == SCHEMA_VERSION else []:
         if not isinstance(record, dict) or record.get("status") != "accepted":
             continue
         home = record.get("home_domain_id")

@@ -53,46 +53,86 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var projection *ast.FuncDecl
+	readers := map[string]*ast.FuncDecl{}
 	for _, decl := range projectionFile.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "readWorkflowProjectionTx" {
-			projection = fn
-			break
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			readers[fn.Name.Name] = fn
 		}
 	}
-	if projection == nil {
-		t.Fatal("readWorkflowProjectionTx not found in internal/store/workflow_read.go")
-	}
-	// The projection runs inside its caller's snapshot, so the question
-	// must be read on that same queryer and never through a reader that
-	// opens its own snapshot.
-	queryerName := projection.Type.Params.List[1].Names[0].Name
-	questionReads, foreignReads := 0, 0
-	ast.Inspect(projection.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
+	// Both edges must carry the caller's original queryer binding. Neither
+	// reader may replace it, use the pool, or open another snapshot.
+	for _, edge := range []struct{ caller, callee string }{
+		{"readWorkflowProjectionTx", "readWorkflowProjectionContractTx"},
+		{"readWorkflowProjectionContractTx", "workflowOperatorQuestionTx"},
+	} {
+		caller := readers[edge.caller]
+		if caller == nil {
+			t.Fatalf("%s not found in internal/store/workflow_read.go", edge.caller)
 		}
-		if fn, ok := call.Fun.(*ast.Ident); ok {
-			switch fn.Name {
-			case "workflowOperatorQuestionTx", "workflowOperatorQuestionForDefinitionTx":
-				if arg, ok := call.Args[1].(*ast.Ident); ok && arg.Name == queryerName {
-					questionReads++
-				} else {
+		reads, foreignReads := operatorQuestionQueryerEdgeCounts(caller, edge.callee)
+		if reads < 1 {
+			t.Errorf("%s must pass its original queryer to %s (CD-0173 D2); found %d such calls", edge.caller, edge.callee, reads)
+		}
+		if foreignReads != 0 {
+			t.Errorf("%s has %d queryer substitutions or reads outside its caller's snapshot (CD-0173 D2)", edge.caller, foreignReads)
+		}
+	}
+}
+
+func operatorQuestionQueryerEdgeCounts(caller *ast.FuncDecl, callee string) (int, int) {
+	if caller.Type.Params == nil || len(caller.Type.Params.List) < 2 || len(caller.Type.Params.List[1].Names) != 1 {
+		return 0, 1
+	}
+	queryer := caller.Type.Params.List[1].Names[0]
+	if queryer.Obj == nil {
+		return 0, 1
+	}
+	isQueryer := func(expr ast.Expr) bool {
+		ident, ok := expr.(*ast.Ident)
+		return ok && ident.Obj == queryer.Obj
+	}
+	reads, foreignReads := 0, 0
+	ast.Inspect(caller.Body, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignStmt:
+			for _, target := range n.Lhs {
+				if isQueryer(target) {
 					foreignReads++
 				}
+			}
+		case *ast.RangeStmt:
+			if isQueryer(n.Key) || isQueryer(n.Value) {
+				foreignReads++
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND && isQueryer(n.X) {
+				foreignReads++
+			}
+		case *ast.SelectorExpr:
+			if n.Sel.Name == "db" {
+				foreignReads++
+			}
+		case *ast.CallExpr:
+			fn, ok := n.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			switch fn.Name {
 			case "ReadWorkPin", "beginReadTx":
 				foreignReads++
+			default:
+				if fn.Name == callee || fn.Name == "workflowOperatorQuestionTx" || fn.Name == "workflowOperatorQuestionForDefinitionTx" {
+					if len(n.Args) < 2 || !isQueryer(n.Args[1]) {
+						foreignReads++
+					} else if fn.Name == callee {
+						reads++
+					}
+				}
 			}
 		}
 		return true
 	})
-	if questionReads < 1 {
-		t.Errorf("readWorkflowProjectionTx must read the operator question on its own queryer %q (CD-0173 D2); found %d such reads", queryerName, questionReads)
-	}
-	if foreignReads != 0 {
-		t.Errorf("readWorkflowProjectionTx reads the operator question outside its caller's snapshot %d times (CD-0173 D2)", foreignReads)
-	}
+	return reads, foreignReads
 }
 
 func operatorQuestionReadSnapshotCounts(body *ast.BlockStmt) (int, int) {
@@ -142,6 +182,50 @@ func TestOperatorQuestionReadSnapshotGuardBites(t *testing.T) {
 			valid := begins == 1 && refs <= 1+begins
 			if valid != tt.valid {
 				t.Fatalf("begins=%d pool references=%d: valid=%t, want %t", begins, refs, valid, tt.valid)
+			}
+		})
+	}
+}
+
+func TestOperatorQuestionQueryerEdgeGuardBites(t *testing.T) {
+	t.Parallel()
+	for _, edge := range []struct{ caller, callee string }{
+		{"readWorkflowProjectionTx", "readWorkflowProjectionContractTx"},
+		{"readWorkflowProjectionContractTx", "workflowOperatorQuestionTx"},
+	} {
+		t.Run(edge.caller, func(t *testing.T) {
+			call := edge.callee + `(ctx, q)`
+			for _, tt := range []struct {
+				name, body string
+				valid      bool
+			}{
+				{"original queryer", call, true},
+				{"missing edge", `_ = q`, false},
+				{"pool argument", edge.callee + `(ctx, s.db)`, false},
+				{"other queryer", edge.callee + `(ctx, other)`, false},
+				{"missing argument", edge.callee + `(ctx)`, false},
+				{"reassigned queryer", `q = other; ` + call, false},
+				{"redeclared queryer", `q, err := other, nil; _ = err; ` + call, false},
+				{"shadowed queryer", `{ q := other; ` + call + ` }`, false},
+				{"range replacement", `for q = range others { ` + call + ` }`, false},
+				{"queryer address escapes", `replace(&q); ` + call, false},
+				{"extra pool read", `s.db.QueryRowContext(ctx, "SELECT 1"); ` + call, false},
+				{"new snapshot", `beginReadTx(ctx, other); ` + call, false},
+				{"nested pin snapshot", `ReadWorkPin(ctx, s, workID); ` + call, false},
+				{"extra foreign question read", call + `; workflowOperatorQuestionForDefinitionTx(ctx, other)`, false},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					source := "package store; func " + edge.caller + "(ctx context.Context, q queryer) {" + tt.body + "}"
+					file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
+					if err != nil {
+						t.Fatal(err)
+					}
+					reads, foreignReads := operatorQuestionQueryerEdgeCounts(file.Decls[0].(*ast.FuncDecl), edge.callee)
+					valid := reads >= 1 && foreignReads == 0
+					if valid != tt.valid {
+						t.Fatalf("same-queryer calls=%d foreign reads=%d: valid=%t, want %t", reads, foreignReads, valid, tt.valid)
+					}
+				})
 			}
 		})
 	}

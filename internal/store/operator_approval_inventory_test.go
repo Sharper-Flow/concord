@@ -1633,7 +1633,7 @@ func (m otherMutation) check() error { return nil }
 		{name: "cycle does not reach demand", old: "return m.demand()", replacement: "return m.check()", want: "carries no inventoried runtime demand"},
 		{name: "missing delegated method", old: "return mutation.check()", replacement: "return mutation.absent()", want: "carries no inventoried runtime demand"},
 		{name: "same method on wrong receiver", old: "mutation := syntheticMutation{}", replacement: "mutation := otherMutation{}", want: "carries no inventoried runtime demand"},
-		{name: "callback is not delegation", old: "return mutation.check()", replacement: "return invoke(func() error { return mutation.check() })", want: "carries no inventoried runtime demand"},
+		{name: "callback is not delegation", old: "return mutation.check()", replacement: "invoke(func() error { return mutation.check() })\n\treturn nil", want: "carries no inventoried runtime demand"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := source

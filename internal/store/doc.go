@@ -28,7 +28,7 @@
 //     effect-receipt storage and sequence mechanics.
 //   - store.go, transaction.go: domain-facing open and transaction lifecycles.
 //   - events.go, operation.go, fold.go: domain-facing effect identity, registered
-//     current-row writers, and transaction-owned write context.
+//     current-row writers, and transaction-owned write scopes.
 //   - work_context.go, worker_packet_binding.go,
 //     worker_context_findings.go: declared immutable readings, findings,
 //     dispatch packets, and typed bounds.

@@ -86,7 +86,11 @@ func TestEffectReceiptSequenceRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AppendReceipt(ctx, tx, r, false, nil); err != nil {
+	relationSeq, err := AllocateSequence(ctx, tx, "relation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendReceipt(ctx, tx, r, false, relationSeq); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Rollback(); err != nil {
@@ -95,9 +99,11 @@ func TestEffectReceiptSequenceRollback(t *testing.T) {
 	if got, found, err := ReadReceipt(ctx, db, r.EventID); err != nil || found || got != (EffectReceipt{}) {
 		t.Fatalf("rolled-back receipt: %+v found=%t err=%v", got, found, err)
 	}
-	var last int64
-	if err := db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 0 {
-		t.Fatalf("rollback consumed sequence: %d err=%v", last, err)
+	for _, name := range []string{"effect", "relation"} {
+		var last int64
+		if err := db.QueryRow(`SELECT last FROM store_sequences WHERE name=?`, name).Scan(&last); err != nil || last != 0 {
+			t.Fatalf("rollback consumed %s sequence: %d err=%v", name, last, err)
+		}
 	}
 }
 

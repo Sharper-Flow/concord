@@ -17,6 +17,11 @@
       {
         "check_id": "go-test-race",
         "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestEffectReceiptSequenceRollback"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
         "value": "internal/store/internal/sqlitedb.TestEffectReceiptRawErrors"
       },
       {
@@ -33,6 +38,11 @@
         "check_id": "go-test-race",
         "kind": "go_test",
         "value": "internal/store.TestAppendEventConcurrentDivergentAppends"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestAppendEventRejectsDivergentReuseOfEventID"
       },
       {
         "check_id": "go-test-race",

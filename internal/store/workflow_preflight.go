@@ -1009,8 +1009,7 @@ func validateWorkflowPayloadText(field WorkflowPayloadField, value any) bool {
 	// the enforcing owner's unit and a schema-bound payload cannot be
 	// refused by a deeper guard for length alone. JSON Schema
 	// minLength/maxLength count code points — that published
-	// representation limit is recorded beside the corpus tests
-	// (CON-412).
+	// representation limit is recorded beside the corpus tests.
 	if field.MinLength != nil && int64(len(text)) < *field.MinLength || field.MaxLength != nil && int64(len(text)) > *field.MaxLength {
 		return false
 	}

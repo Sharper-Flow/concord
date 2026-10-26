@@ -1,6 +1,7 @@
 {
   "schema_version": "1.0",
   "project": "concord",
+  "domain_shape": {},
   "tools": [
     {
       "id": "local-test-plan",

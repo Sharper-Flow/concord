@@ -397,6 +397,30 @@ func nativeFuncDecl(rt *ledgerRuntime, file, name string) (*ast.FuncDecl, error)
 	return fns[0], nil
 }
 
+// nativeMethodDecl keeps an extracted proof tied to its exact receiver owner.
+func nativeMethodDecl(rt *ledgerRuntime, file, receiver, name string) (*ast.FuncDecl, error) {
+	fn, err := nativeFuncDecl(rt, file, name)
+	if err != nil {
+		return nil, err
+	}
+	if fn.Recv == nil || len(fn.Recv.List) != 1 || ledgerExprText(fn.Recv.List[0].Type) != "*"+receiver {
+		return nil, fmt.Errorf("native bound: %s is not owned by *%s in %s", name, receiver, file)
+	}
+	return fn, nil
+}
+
+func nativeUnavailableReturn(block *ast.BlockStmt) bool {
+	if block == nil || len(block.List) != 1 {
+		return false
+	}
+	ret, ok := block.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return false
+	}
+	call, ok := ret.Results[0].(*ast.CallExpr)
+	return ok && ledgerCalleeMatches(call, "nativeUnavailable")
+}
+
 // nativeGoFile loads a parsed Go source.
 func nativeGoFile(rt *ledgerRuntime, file string) (*goSource, error) {
 	return rt.loadGo(file)
@@ -871,12 +895,12 @@ func nativeStageNameDerived() outputBoundSource {
 }
 
 // nativeGitOIDWidthDerived proves every published blob_oid is a git object
-// identity the snapshot verifier re-derived: materializeNativeSnapshot's
+// identity the snapshot verifier re-derived: validateNativeSnapshotBlob's
 // expression switch must still admit exactly the 40- and 64-hex widths, and
 // must still refuse when the recomputed identity differs from the tree's.
 func nativeGitOIDWidthDerived() outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		fn, err := nativeFuncDecl(rt, nativeOracleGoFile, "materializeNativeSnapshot")
+		fn, err := nativeFuncDecl(rt, nativeOracleGoFile, "validateNativeSnapshotBlob")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
@@ -889,7 +913,7 @@ func nativeGitOIDWidthDerived() outputBoundSource {
 				if !ok || !ledgerCalleeMatches(call, "len") || len(call.Args) != 1 {
 					return true
 				}
-				if name, ok := nativeSelectorName(call.Args[0]); !ok || name != "oid" {
+				if ledgerExprText(call.Args[0]) != "wantOID" {
 					return true
 				}
 				switchFound = true
@@ -899,32 +923,83 @@ func nativeGitOIDWidthDerived() outputBoundSource {
 						continue
 					}
 					if clause.List == nil {
-						defaultFound = true
+						defaultFound = nativeUnavailableReturn(&ast.BlockStmt{List: clause.Body})
 						continue
 					}
 					for _, expr := range clause.List {
 						if value, ok := nativeIntLit(expr); ok {
-							widths[value] = true
+							hash := map[int64]string{40: "sha1.Sum", 64: "sha256.Sum256"}[value]
+							hashes := nativeCalls(clause, hash)
+							formats := nativeCalls(clause, "fmt.Sprintf")
+							widths[value] = hash != "" && len(hashes) == 1 && len(hashes[0].Args) == 1 && ledgerExprText(hashes[0].Args[0]) == "object" && len(formats) == 1 && len(formats[0].Args) == 2 && ledgerExprText(formats[0].Args[0]) == `"%x"` && ledgerExprText(formats[0].Args[1]) == "sum"
 						}
 					}
 				}
-			case *ast.BinaryExpr:
-				if e.Op != token.NEQ {
-					return true
-				}
-				leftIdent, leftIsIdent := e.X.(*ast.Ident)
-				rightSel, rightIsSelector := e.Y.(*ast.SelectorExpr)
-				if leftIsIdent && leftIdent.Name == "oid" && rightIsSelector && rightSel.Sel != nil && rightSel.Sel.Name == "oid" {
+			case *ast.IfStmt:
+				if ledgerExprText(e.Cond) == "oid != wantOID" && nativeUnavailableReturn(e.Body) {
 					equalityFound = true
 				}
 			}
 			return true
 		})
 		if !switchFound || !defaultFound || !equalityFound || len(widths) != 2 || !widths[40] || !widths[64] {
-			return evaluatedBound{}, fmt.Errorf("native bound: materializeNativeSnapshot no longer re-derives git object identities at exactly the 40- and 64-hex widths with a refuse-on-mismatch equality")
+			return evaluatedBound{}, fmt.Errorf("native bound: validateNativeSnapshotBlob no longer re-derives git object identities at exactly the 40- and 64-hex widths with a refuse-on-mismatch equality")
 		}
 		return nativeASCIIWidth(64, "derived git object identity width: the snapshot verifier admits exactly 40- and 64-hex identities and refuses any mismatch"), nil
 	}}
+}
+
+func TestOutputBoundExtractedNativeProofBites(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, file, from, to string
+		source               outputBoundSource
+	}{
+		{"blob width", nativeOracleGoFile, "case 40:", "case 41:", nativeGitOIDWidthDerived()},
+		{"blob SHA1", nativeOracleGoFile, "sha1.Sum(object)", "sha1.Sum(other)", nativeGitOIDWidthDerived()},
+		{"blob SHA256", nativeOracleGoFile, "sha256.Sum256(object)", "sha256.Sum256(other)", nativeGitOIDWidthDerived()},
+		{"blob equality", nativeOracleGoFile, "if oid != wantOID {", "if oid != otherOID {", nativeGitOIDWidthDerived()},
+		{"blob mismatch refusal", nativeOracleGoFile, `return nativeUnavailable("snapshot blob differs from subject: " + name)`, "return nil", nativeGitOIDWidthDerived()},
+		{"blob unsupported width refusal", nativeOracleGoFile, `return nativeUnavailable("unsupported Git object identity")`, "return nil", nativeGitOIDWidthDerived()},
+		{"Go selected input", nativeOracleGoFile, "result.SelectedTestNames, n.testStdout)", "other.SelectedTestNames, n.testStdout)", nativeObservedNamesDerived()},
+		{"Go observed output", nativeOracleGoFile, "result.ObservedTestNames, err =", "other.ObservedTestNames, err =", nativeObservedNamesDerived()},
+		{"Go selected clone", nativeOracleGoFile, "return slices.Clone(selected), nil", "return slices.Clone(other), nil", nativeObservedNamesDerived()},
+		{"Go exact method owner", nativeOracleGoFile, "(n *nativeGoOracleRun) consumeStage", "(n *otherRun) consumeStage", nativeObservedNamesDerived()},
+		{"target selected input", nativeOracleHostRun, "!slices.Equal(n.result.ObservedWitnessIDs, selected)", "!slices.Equal(n.result.ObservedWitnessIDs, other)", nativeObservedWitnessDerived()},
+		{"target observed output", nativeOracleHostRun, "!slices.Equal(n.result.ObservedWitnessIDs, selected)", "!slices.Equal(other.ObservedWitnessIDs, selected)", nativeObservedWitnessDerived()},
+		{"target mismatch refusal", nativeOracleHostRun, `return nativeUnavailable("observed witnesses differ from the exact selected population")`, "return nil", nativeObservedWitnessDerived()},
+		{"target exact method owner", nativeOracleHostRun, "(n *nativeTargetOracleRun) finish", "(n *otherRun) finish", nativeObservedWitnessDerived()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := ledgerRepoRoot(t)
+			raw, err := os.ReadFile(filepath.Join(root, tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := string(raw)
+			if strings.Count(original, tc.from) != 1 {
+				t.Fatalf("mutation must target exactly one live source occurrence: %q", tc.from)
+			}
+			for _, mutated := range []bool{false, true} {
+				rt := newLedgerRuntime(root)
+				source := original
+				if mutated {
+					source = strings.Replace(source, tc.from, tc.to, 1)
+				}
+				if err := rt.parseGoSource(tc.file, source); err != nil {
+					t.Fatal(err)
+				}
+				_, err := rt.evaluateSource(tc.source, nil)
+				if !mutated && err != nil {
+					t.Fatalf("live enforcing owner must prove: %v", err)
+				}
+				if mutated && err == nil {
+					t.Fatal("the source proof accepted a broken enforcing owner")
+				}
+			}
+		})
+	}
 }
 
 // nativeAcquiredAtDerived proves the lease's acquired_at is written exactly
@@ -1504,7 +1579,7 @@ func nativeObservedNamesDerived() outputBoundSource {
 		if !cloneFound {
 			return evaluatedBound{}, fmt.Errorf("native bound: nativeOracleWitnesses no longer returns slices.Clone(selected)")
 		}
-		run, err := nativeFuncDecl(rt, nativeOracleGoFile, "runNativeGoOracle")
+		run, err := nativeMethodDecl(rt, nativeOracleGoFile, "nativeGoOracleRun", "consumeStage")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
@@ -1514,22 +1589,18 @@ func nativeObservedNamesDerived() outputBoundSource {
 			if !ok || len(assign.Rhs) != 1 {
 				return true
 			}
-			if name, ok := nativeSelectorName(assign.Lhs[0]); !ok || name != "ObservedTestNames" {
+			if len(assign.Lhs) != 2 || ledgerExprText(assign.Lhs[0]) != "result.ObservedTestNames" {
 				return true
 			}
 			call, ok := assign.Rhs[0].(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "nativeOracleWitnesses") {
+			if !ok || !ledgerCalleeMatches(call, "nativeOracleWitnesses") || len(call.Args) != 4 {
 				return true
 			}
-			for _, arg := range call.Args {
-				if member, ok := nativeSelectorName(arg); ok && member == "SelectedTestNames" {
-					joined = true
-				}
-			}
+			joined = ledgerExprText(call.Args[2]) == "result.SelectedTestNames"
 			return true
 		})
 		if !joined {
-			return evaluatedBound{}, fmt.Errorf("native bound: runNativeGoOracle no longer derives ObservedTestNames from result.SelectedTestNames")
+			return evaluatedBound{}, fmt.Errorf("native bound: nativeGoOracleRun.consumeStage no longer derives ObservedTestNames from result.SelectedTestNames")
 		}
 		return nativeItemsWidth(namesMax, describe+"; observed population equals the selected set (slices.Clone)"), nil
 	}}
@@ -1631,21 +1702,20 @@ func nativeObservedWitnessDerived() outputBoundSource {
 		if err != nil {
 			return evaluatedBound{}, err
 		}
-		run, err := nativeFuncDecl(rt, nativeOracleHostRun, "runNativeTargetOracle")
+		run, err := nativeMethodDecl(rt, nativeOracleHostRun, "nativeTargetOracleRun", "finish")
 		if err != nil {
 			return evaluatedBound{}, err
 		}
 		equalityFound := false
-		for _, call := range nativeCalls(run, "slices.Equal") {
-			if len(call.Args) != 2 {
-				continue
-			}
-			if member, ok := nativeSelectorName(call.Args[0]); ok && member == "ObservedWitnessIDs" {
+		ast.Inspect(run, func(node ast.Node) bool {
+			branch, ok := node.(*ast.IfStmt)
+			if ok && ledgerExprText(branch.Cond) == "!slices.Equal(n.result.ObservedWitnessIDs, selected)" && nativeUnavailableReturn(branch.Body) {
 				equalityFound = true
 			}
-		}
+			return true
+		})
 		if !equalityFound {
-			return evaluatedBound{}, fmt.Errorf("native bound: runNativeTargetOracle no longer refuses observed witnesses that differ from the selected population")
+			return evaluatedBound{}, fmt.Errorf("native bound: nativeTargetOracleRun.finish no longer refuses observed witnesses that differ from the selected population")
 		}
 		return nativeItemsWidth(witnessesMax, describe+"; the execute join refuses observed witnesses that differ from the selected set"), nil
 	}}

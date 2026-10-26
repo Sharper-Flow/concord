@@ -50,8 +50,9 @@ OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
 [CD-0243 D7](decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
-acceptance criteria. Other admission, safety, evidence, and historical-pin
-requirements remain required.
+acceptance criteria. Other admission, safety, and evidence requirements remain
+required. No released workflow-definition version or historical pin is retained
+(CD-0242 D14).
 
 ## Context
 
@@ -408,9 +409,10 @@ which governs [CD-0235](./decisions/CD-0235-the-independent-verdict-is-the-outco
 At contract approval and again at completion, each approved predicate is
 validated against the pinned definition's `outcome_schema`, not only against the
 generic outcome union. The validator rejects a predicate kind outside
-`allowed_kinds` and an outcome token not in `allowed_outcome_tokens`. An inline
-decision record is validated whenever one is supplied. This check runs for all seven families; the generic union is only
-the syntax check, while the selected definition is the authority for meaning.
+`allowed_kinds` and an outcome token not in `allowed_outcome_tokens`. This check
+runs for each live family; the generic union is only the syntax check, while the
+selected definition is the authority for meaning. New authoring admits no
+`decision_record` (CD-0218 D1).
 
 1. **`exists`:** resolve every approved subject on the named ground-truth surface.
    Unknown/unreadable is not absent. A delivered `exists(S,D)` is strengthening
@@ -423,10 +425,8 @@ the syntax check, while the selected definition is the authority for meaning.
    is therefore weaker, never success. Different surface or changed
    distinction rules is incomparable.
 3. **`outcome`:** evaluate the recorded token. It passes iff the token is a member
-   of the approved `allowed` set. `no_change` is a valid research result. A spike's
-   `accepted_decision` or `insufficient_evidence` token additionally requires the
-   bound decision record in §6.1, and the record's decision token must sit in the
-   approved `allowed` set. A token outside the set is weaker/mismatched.
+   of the approved `allowed` set. Research permits `no_change`, `resolved`, and
+   `report_recorded` (CD-0218 D1). A token outside the set is weaker/mismatched.
 4. **`check`:** evaluate the named check against the exact immutable subject
    and compare its closed result with `expected_result`. A changed immutable
    subject is stale evidence, not a new result.
@@ -443,22 +443,6 @@ Job-oracle controls use exit-status results and retained execution references
 evaluation, review verdicts, criterion discharge, or completion authority.
 Earlier-subject receipts are regression baselines. The oracle does not supply
 the deferred registered evaluator catalog or change the closed predicate union.
-
-### 6.1 Architecture-spike record
-
-`accepted_decision` and `insufficient_evidence` require a bound decision record
-containing framed questions, options with source-backed evidence, decision,
-rationale, consequences, inputs, proof of concept (POC) findings (or an explicit no-POC value),
-supersession position, reviewer actor, operator acceptance, and for
-`insufficient_evidence`, recorded unknowns plus what would be required to decide.
-The verdict actor reads the latest accepted row in
-`workflow_decision_records` — the row `record_decision` writes and
-`accept_decision` accepts — and records `ok` only when its decision token sits
-inside the approved `allowed` set. A lifecycle completion outside the workflow
-gate reads the same row and refuses with `decision_record_required` when the
-row is missing or its token is outside the pinned definition's allowed tokens. Contract approval validates the predicate kind and its allowed
-tokens, and validates an inline record only when one is supplied. An unaccepted
-record does not satisfy the predicate or unblock a dependent managed work unit.
 
 ## 7. Ordered completion gate
 
@@ -701,9 +685,9 @@ WF09, WF22, and WF25 each bind their criterion to a production route.
   durable-operation claims only. The fenced-start takeover of a held attempt
   is a separate route for criterion 25, covered by its own tests.
 
-## 12. Built-in family graphs and actions
+## 12. Live-family graphs and declared action mappings
 
-Every family has typed
+Every live family has typed
 action execution modes. The
 `accept_worker_result`, `record_worker_failure`, and `dispatch_worker` set lands
 on each dispatchable, non-terminal step. The generated lane-step join decides
@@ -735,20 +719,18 @@ the exact argv.
 
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
-| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) and [`feature-inventory.md` §1.6](./feature-inventory.md#16-durable-execution-safety-substrate) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
+| **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory at the `larger` and `crucial` sizes and requires artifact evidence at that step (CD-0138 D1; CD-0229 D5); the `small` composition walks define, implement, review, and ship. The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |
 | **Break-fix / RCA** — [`workflows.md` §3](./workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify carries the hold-mode `bind_evidence` route (CD-0124), so a green verify-tier run at `worktree_verify:sha256:<digest>` can be named as the verification producer. The CD-0156 alignment step follows reproduce on the same terms. |
 | **Research / investigation** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
-| **Architecture spike** — [`architecture-spike.md` §2](./architecture-spike.md#2-shape) | `frame[frame_question, approve_contract] → research[record_research, bind_evidence] → options[record_option] → poc_optional[start_poc, checkpoint_poc, discard_poc, record_delivery] → decision_record[record_decision] → review[record_verdict, accept_decision] → acceptance[confirm_premise] → complete[complete]`. The optional POC edge skips only `poc_optional`; completion still requires the accepted decision record, verdict, premise confirmation, and `complete`. |
-| **Ops runbook** — [`workflows.md` §4](./workflows.md#4-example-workflow-types) and [`managed-resource-inventory.md` §3](./managed-resource-inventory.md#3-stage-rule) | `plan[approve_contract, resolve_condition, cancel_condition] → approval[approve_operation, resolve_condition, cancel_condition] → execute[start_run, checkpoint_run, bind_evidence, add_condition, resolve_condition, cancel_condition, record_delivery] → health[record_health, record_verdict, resolve_condition, cancel_condition] → rollback_optional[rollback_run, resolve_condition, cancel_condition, record_delivery] → cleanup[cleanup_run, confirm_premise, resolve_condition, cancel_condition] → complete[complete, resolve_condition, cancel_condition]`. Rollback is optional recovery, not a second completion path. |
-| **Static analysis** — [`workflows.md` §4–§5](./workflows.md#5-coordinating-external-analysis-tools) | `scope[approve_contract, declare_scope] → analyze[run_analysis, checkpoint_analysis, record_delivery] → report[record_report, bind_evidence] → review[record_verdict, confirm_premise] → complete[complete]`. Completion verb: report exists over the declared surface. |
-| **Generic one-off** — [`workflows.md` §2.1a](./workflows.md#21a-outcome-contract) and CD-0013 D14 | `define[approve_contract] → execute[start_action, checkpoint_action, bind_evidence, link_successor, record_delivery] → verify[record_verdict, confirm_premise] → complete[complete]`. It may use any operator-authored allowed predicate without copying another family's semantics. |
 
 ### 12.1 Action-to-event mapping
 
-The dispatcher validates every action above against its root `action_definitions`
-entry. Each entry carries one closed `execution_mode`: `advance`, `hold`,
-`fenced`, or `checkpoint`. The following table is exhaustive; an action not listed is invalid. An
-internal action records its listed result;
+The table maps the declared action IDs below to their result records, including
+actions from archived definitions. It grants no new-execution permission:
+CD-0218 D1 limits new execution to the three live families, and §11 requires the
+selected definition and current step to declare the action. Each
+`action_definitions` entry carries one closed `execution_mode`: `advance`,
+`hold`, `fenced`, or `checkpoint`. An internal action records its listed result;
 a fenced action records its start under the current attempt epoch and then its
 terminal result
 ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
@@ -823,16 +805,15 @@ step endpoints, undeclared start/terminal nodes, and non-retry cycles. The runti
 also requires the action's current step and rejects a terminal transition unless
 the graph declares `complete` on that path.
 
-The family defaults and allowed predicate forms are exactly those in CD-0013 D14:
-implementation/check, break-fix/absent, research/outcome, architecture-spike/
-outcome, ops-runbook/check, static-analysis/check, and generic outcome-or-check.
-Database, configuration, infrastructure, options research, evidence research, and
-RCA are represented by the documented family whose shape they use; they do not add
-an eighth family.
+The live families' allowed predicate forms follow CD-0218 D1: implementation
+and break-fix allow `exists`, `absent`, and `check`; research allows `outcome`
+with `no_change`, `resolved`, and `report_recorded`. Definitions derive from one
+canonical source, with no released definition version retained for history
+(CD-0242 D14).
 
-Composition is forward-link only. A spike cannot nest under a spike; an
-implementation change cannot nest under research; a generic one-off may link to
-any family. A successor retains independent authority and recovery.
+Composition across work items is forward-link only. An implementation change
+cannot nest under research. A successor retains independent authority and
+recovery; shared-stage composition within a definition follows CD-0242 D4.
 
 ## 13. Remaining implementation-deferred items
 

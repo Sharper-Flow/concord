@@ -301,17 +301,42 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	if out.BacklogAlignment, err = readWorkflowBacklogAlignment(ctx, q, request.WorkID); err != nil {
 		return out, err
 	}
+	if err := readWorkflowProjectionProposalTx(ctx, q, request.WorkID, &out); err != nil {
+		return out, err
+	}
+	if err := readWorkflowProjectionContractTx(ctx, q, request, activeContractVersion, &out); err != nil {
+		return out, err
+	}
+	if err := readWorkflowProjectionCandidatesTx(ctx, q, request, activeContractVersion, &out); err != nil {
+		return out, err
+	}
+	if err := readWorkflowProjectionConditionsTx(ctx, q, request, &out); err != nil {
+		return out, err
+	}
+	if err := readWorkflowProjectionNoticesTx(ctx, q, request, &out); err != nil {
+		return out, err
+	}
+	if err := readWorkflowProjectionWarningsTx(ctx, q, request.WorkID, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func readWorkflowProjectionProposalTx(ctx context.Context, q queryer, workID string, out *WorkflowReadProjection) error {
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
-	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
+	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
+			return newFailure(KindInvariantViolation, "workflow_read", "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
+	return nil
+}
 
+func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {
 	version := activeContractVersion
 	if request.ContractVersion != 0 {
 		version = request.ContractVersion
@@ -319,10 +344,10 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	contract, err := readWorkflowContractVersion(ctx, q, request.WorkID, version)
 	switch {
 	case err == sql.ErrNoRows && request.ContractVersion != 0:
-		return out, newFailure(KindUnknownScope, "workflow_read", "the work item has no such contract version", false, "choose a contract version the work item recorded")
+		return newFailure(KindUnknownScope, "workflow_read", "the work item has no such contract version", false, "choose a contract version the work item recorded")
 	case err == sql.ErrNoRows:
 	case err != nil:
-		return out, err
+		return err
 	case request.ContractVersion != 0:
 		out.ChangesProductTruth = contract.ChangesProductTruth != nil && *contract.ChangesProductTruth
 		out.ArchitectureBinding = contract.ArchitectureBinding
@@ -335,48 +360,54 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		if len(contract.SpecMandate) != 0 {
 			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, q, request.WorkID)
 			if homeErr != nil {
-				return out, homeErr
+				return homeErr
 			}
 			currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
 			if mandateErr != nil {
-				return out, mandateErr
+				return mandateErr
 			}
 			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, q, homeProjectID, homeLocatorID, request.WorkID, contract.Version, currentMandate)
 			if err != nil {
-				return out, err
+				return err
 			}
 		}
 		var workVersion int64
 		if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&workVersion); err != nil {
-			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow history version", true, "retry once the database is readable", err)
 		}
 		out.OperatorQuestion, out.WithheldOperatorQuestion, err = workflowOperatorQuestionTx(ctx, q, request.WorkID, out.CurrentStep, workVersion, out.Definition, contract)
 		if err != nil {
-			return out, err
+			return err
 		}
 	}
+	return nil
+}
 
+func readWorkflowProjectionCandidatesTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {
 	rows, err := q.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow candidates", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow candidates", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidate", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidate", true, "retry once the database is readable", err)
 		}
 		out.CandidateIDs = append(out.CandidateIDs, id)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidates", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidates", true, "retry once the database is readable", err)
 	}
 	rows.Close()
+	return nil
+}
 
-	rows, err = q.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
+func readWorkflowProjectionConditionsTx(ctx context.Context, q queryer, request WorkflowReadRequest, out *WorkflowReadProjection) error {
+	rows, err := q.QueryContext(ctx, `SELECT condition_id,await_type,await_ref,resolution_authority,condition_state,coalesce(expected_within_seconds,0),recorded_at FROM workflow_external_conditions WHERE work_id=? ORDER BY condition_id LIMIT ?`, request.WorkID, request.Limit)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow conditions", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow conditions", true, "retry once the database is readable", err)
 	}
 	health := []WorkflowReadCondition{}
 	for rows.Next() {
@@ -384,7 +415,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		var waitingSince string
 		if err := rows.Scan(&condition.ID, &condition.AwaitType, &condition.AwaitRef, &condition.ResolutionAuthority, &condition.State, &condition.ExpectedWithinSeconds, &waitingSince); err != nil {
 			rows.Close()
-			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow condition", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow condition", true, "retry once the database is readable", err)
 		}
 		out.Conditions = append(out.Conditions, condition)
 		if condition.State == "open" {
@@ -412,45 +443,51 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow conditions", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow conditions", true, "retry once the database is readable", err)
 	}
 	rows.Close()
 	out.AwaitHealth = health
 	ready, err := deriveWorkflowReady(ctx, q, request.WorkID)
 	if err != nil {
-		return out, err
+		return err
 	}
 	out.Ready = ready.Ready
 	out.BlockingConditions = append(out.BlockingConditions, ready.BlockingConditions...)
 	out.UnreadableConditions = append(out.UnreadableConditions, ready.UnknownConditions...)
+	return nil
+}
 
-	rows, err = q.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
+func readWorkflowProjectionNoticesTx(ctx context.Context, q queryer, request WorkflowReadRequest, out *WorkflowReadProjection) error {
+	rows, err := q.QueryContext(ctx, `SELECT notice_id,source_work_id,source_contract_version,entity_kind,entity_ref,target_work_id,edge_owner_work_id,edge_id,old_hash,new_hash,severity FROM workflow_impact_notices WHERE target_work_id=? OR source_work_id=? ORDER BY recorded_at,notice_id LIMIT ?`, request.WorkID, request.WorkID, request.Limit)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow impact notices", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow impact notices", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var notice WorkflowReadNotice
 		if err := rows.Scan(&notice.NoticeID, &notice.SourceWorkID, &notice.SourceContractVersion, &notice.EntityKind, &notice.EntityRef, &notice.TargetWorkID, &notice.EdgeOwnerWorkID, &notice.EdgeID, &notice.OldHash, &notice.NewHash, &notice.Severity); err != nil {
 			rows.Close()
-			return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notice", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notice", true, "retry once the database is readable", err)
 		}
 		out.ImpactNotices = append(out.ImpactNotices, notice)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notices", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow impact notices", true, "retry once the database is readable", err)
 	}
 	rows.Close()
+	return nil
+}
 
+func readWorkflowProjectionWarningsTx(ctx context.Context, q queryer, workID string, out *WorkflowReadProjection) error {
 	var warnings string
-	if err := q.QueryRowContext(ctx, `SELECT json_extract(completion_payload,'$.warnings') FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, request.WorkID).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
+	if err := q.QueryRowContext(ctx, `SELECT json_extract(completion_payload,'$.warnings') FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, workID).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
 		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
+			return newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 		}
 	}
-	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, q, request.WorkID)
+	persisted, warningErr := workflowRecordedStalenessWarnings(ctx, q, workID)
 	if warningErr != nil {
-		return out, warningErr
+		return warningErr
 	}
 	for _, warning := range persisted {
 		found := false
@@ -464,7 +501,7 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 			out.CompletionWarnings = append(out.CompletionWarnings, warning)
 		}
 	}
-	return out, nil
+	return nil
 }
 
 func readWorkflowBacklogAlignment(ctx context.Context, q queryer, workID string) (*WorkflowReadBacklogAlignment, error) {

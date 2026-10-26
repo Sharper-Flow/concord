@@ -1,15 +1,15 @@
 # Concord Design Constraints
 
 > **Status:** Aligned v3 under CD-0006 and CD-0222. Companion to [`priorities.md`](./priorities.md).
-> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. These constraints are derived from the ranked priorities and operating envelope in [`priorities.md`](./priorities.md); if a companion document or future decision contradicts this file, `priorities.md` is the authority.
+> **Purpose:** Capture the non-functional requirements, hard constraints, and design directives that shape *how* Concord is built. [`goals.md`](./goals.md) owns the unranked goals and conflict rules; [`priorities.md`](./priorities.md) owns the operating envelope and standing law.
 
 ---
 
 ## How to read this
 
 These are **quality attributes and constraints**, not features. They reflect the
-priorities in `priorities.md`. The architecture questions recorded here are resolved
-by the cited accepted decisions; explicitly deferred later-phase Product questions
+goals and standing law in the source documents above. The cited accepted decisions
+resolve the architecture questions recorded here; deferred later-phase Product questions
 remain in `clarifications.md`.
 
 ---
@@ -26,8 +26,6 @@ wait, commit duration, and escaped busy failure are distinct quantities, measure
 and reported separately against a named population per CD-0045.
 
 **Direction.** Product-scoped partitioning; single-writer-per-entity writes to current rows, with no event log or replay ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Reads are always lock-free. Storage is **resolved** — SQLite sole authority (CD-0002, 2026-08-05); see [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) §2b for the concurrency model (library-in-process — no daemon).
-
-This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 5 (Planning and coordination).
 
 ---
 ## 2. Structural Product-law impact, architecture overlap, and freshness
@@ -47,35 +45,30 @@ inside every consequential mutation. Version stamps supply deterministic
 fallback. Polling, timers, automatic downstream rewrites, and heuristic
 authority are forbidden.
 
-This directly enforces Priority 1 and supports Priority 3 (Quality governance),
-Priority 4 (Visibility and continuity), and Priority 5 (Planning and coordination).
-
 ---
 
-## 3. Versioned workflow updates and full coordination
+## 3. Workflow evolution and full coordination
 
-**Requirement.** Updating a workflow type, gate, or schema must never break in-flight work in another Product, and must not require a global migration of active work. Idle work can pick up the new definition; active work stays pinned to the version it started with.
+**Requirement.** Workflow and schema changes must be safe for in-flight work, per
+[`priorities.md` — Data safety](./priorities.md#data-safety-constraint).
 
-**Implication.** Workflow evolution is scoped to a Product and to a boundary between idle and in-flight work. New workflow types can be introduced without converting existing work.
+**Implication.** Current definitions and the cutover follow
+[CD-0242 D13–D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot),
+not retained historical definitions.
 
-**Direction.** CD-0006 selects a full Concord coordination engine, code-defined
-versioned built-ins, and one generic one-off type. Active runs stay pinned.
-Composition uses forward-linked successors with independent authority/recovery; no
-nested child execution or parent waiting.
-
-This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 6 (Workflow versatility).
+**Direction.** [`workflows.md`](./workflows.md) owns the current family and
+composition model. [CD-0218 D1](./decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+owns the live family boundary; CD-0242 D14 owns generated definitions.
 
 ---
 
 ## 4. Bounded writer admission, no history repair
 
-**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash via the CD-0050 checkpoint barrier; ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+**Requirement.** Concord-owned writes queue behind one writer and are admitted within the accepted bound, never surfacing an escaped `SQLITE_BUSY`, a lost effect, an unexpected duplicate, or an invariant violation. Reads are lock-free. Acknowledged consequential operations are durable across power loss and OS crash under [CD-0050 D2](./decisions/CD-0050-durable-acknowledgement.md#d2-acknowledged-consequential-operations-are-durable-ordinary-writes-are-durable-through-the-last-boundary), using the durable transactions defined by [CD-0207](./decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md); ordinary writes are durable through the last consequential boundary. The store keeps current state and finite snapshots, not history, so there is no history to repair ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 **Implication.** This is a constraint on **Concord's own state model**, not a mandate to rewrite any existing system. It is the storage-model constraint.
 
 **Direction.** **Resolved by [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md), PM2, and PM3 (2026-08-05):** one global local SQLite authority writing current rows in one transaction, `synchronous=NORMAL`, WAL, one writer at a time; no event log, fold, upcaster, or replay exists ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). State authority is SQLite sole authority per CD-0002 (invariants I1–I6).
-
-This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -86,8 +79,6 @@ This supports Priority 2 (Data governance, reliability, and safe evolution).
 **Implication.** The read-path is a first-class design surface, implemented in Go as part of the Concord core ([`core-architecture.md`](./core-architecture.md) §1), with a latency target and bounded-read requirement.
 
 **Direction.** Target sub-100ms for typical Product views; per-read latency budgets; on-disk projections as the primary read input. The read-path language is Go (see §7 and [`core-architecture.md`](./core-architecture.md)).
-
-This supports Priority 4 (Visibility and continuity).
 
 ---
 
@@ -101,19 +92,15 @@ CD-0024** and `concord.ts` adapter. Grid/table views are secondary projections.
 
 **Direction.** The entry route is work-oriented: a session enters named work through `concord_work_start`. Optional web/TUI grid views remain secondary, with no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
 
-This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4 (Visibility and continuity).
-
 ---
 
 ## 7. Go core; thin adapter accepted by TS6
 
 See [`core-architecture.md`](./core-architecture.md) §1 for the current language
 ownership baseline (also R6 in [`clarifications.md`](./clarifications.md)). Go owns
-the core. Accepted TS6 permits one global TypeScript custom-tool module as a thin
-OpenCode adapter; it contains no plugin hooks or domain logic. CD-0003's short-lived
+the core. The thin plugin entry and shared `concord.ts` transport follow that
+language ownership boundary; domain logic stays in Go. CD-0003's short-lived
 CLI remains the internal/domain boundary, not the model-visible surface.
-
-This supports Priority 2 and Priority 4 without compromising the operating envelope.
 
 ---
 
@@ -121,15 +108,13 @@ This supports Priority 2 and Priority 4 without compromising the operating envel
 
 **Requirement.** Concord must be **capable of supporting non-OpenCode clients**, but the primary path is optimized for OpenCode on the local machine.
 
-**Implication.** The canonical agent interaction model is CD-0005's static surface,
-currently nine tools under CD-0024. TS6 selects one custom-tool module over plugin/MCP; future clients require
-TS8/TS9 evidence. No IDE-specific integration is built.
+**Implication.** The canonical agent interaction model is CD-0005's generated
+current surface. Adapter ownership follows [`core-architecture.md` §1](./core-architecture.md#1-language-ownership);
+future clients require TS8/TS9 evidence. No IDE-specific integration is built.
 
 **Direction.** Use CD-0005 and [`capability-placement.md`](./capability-placement.md):
 short-lived Go core invocation behind the generated `concord.ts` module. Do not map
 storage tables or CLI commands 1:1 to tools.
-
-This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4.
 
 ---
 
@@ -144,22 +129,17 @@ of file persistence. A Domain's current law, changes, evidence, decisions, and
 runbooks are co-located. See [`self-documentation.md`](./self-documentation.md)
 and [`product-data-model.md`](./product-data-model.md).
 
-This directly serves Priority 1 (Product law and architectural concordance) and
-Priority 4 (Visibility and continuity).
-
 ---
 
 ## 10. Quality governance by evidence, not by gate count
 
-**Requirement.** Concord's quality governance is defined by the attributes in [`priorities.md`](./priorities.md) §3: intent fidelity, end-to-end traceability, evidence-backed completion, independent challenge, no silent drift, required-obligation blocking, human authority at consequence boundaries, durable proof, and proportional rigor.
+**Requirement.** Concord's quality governance follows [`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e).
 
-**Implication.** Quality is **not** achieved by mandating Advance's seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the quality attributes above.
+**Implication.** Quality is **not** achieved by mandating Advance's seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the linked quality attributes.
 
 **Direction.** Every workflow type declares its own artifacts, steps, and completion criteria. Independent review is required where the risk or consequence warrants it.
 
 Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified at completion, and a delivered end-state weaker than the approved one fails. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
-
-This supports Priority 3 (Quality governance) and Priority 6 (Workflow versatility).
 
 ---
 
@@ -179,16 +159,11 @@ or external planning membership. See
 [`product-data-model.md`](./product-data-model.md) and
 [`capability-placement.md`](./capability-placement.md).
 
-This supports Priority 1 (Product law and architectural concordance), Priority 2
-(Data governance), and Priority 5 (Planning and coordination).
-
 ---
 
 ## 12. Ownership-aligned placement: respect native authority
 
 See [`capability-placement.md`](./capability-placement.md) for the canonical direction.
-
-This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 3 (Quality governance).
 
 ---
 
@@ -204,10 +179,8 @@ re-resolves on every call. Spawned workers inherit the resolved context structur
 A project-local refusal can still be correct fail-closed behavior: this constraint
 targets second-class execution paths, not every scope restriction. The predecessor's
 explicit path-confirmation plumbing is the recorded anti-pattern reference — see
-[`feature-inventory.md`](./feature-inventory.md) §1.2 and the public lessons in
+the public lessons in
 [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
-
-This supports Priority 5 (Planning and coordination), Priority 4 (Visibility and continuity), and Priority 3 (Quality governance — durable proof and no silent drift).
 
 ---
 
@@ -221,8 +194,6 @@ This supports Priority 5 (Planning and coordination), Priority 4 (Visibility and
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 4 (Visibility and continuity).
-
 ---
 
 ## 15. Atomic terminal transition
@@ -234,8 +205,6 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 **Direction.** Model terminality as a single transition over one record rather than as coordinated updates to several fields. Prefer designs where the invalid combination cannot be expressed — correctness here should be structural, not enforced by convention or by the caller remembering to update every field.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
-
-This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -249,8 +218,6 @@ This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 3 (Quality governance — durable proof and no silent drift) and Priority 2 (Data governance, reliability, and safe evolution).
-
 ---
 
 ## 17. Reclamation keys off ground truth, not derived state
@@ -262,8 +229,6 @@ This supports Priority 3 (Quality governance — durable proof and no silent dri
 **Direction.** Cleanup paths verify the resource's own preconditions directly. Where a derived status is consulted as a convenience, disagreement between it and ground truth is surfaced as a reconcilable inconsistency rather than treated as a veto.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
-
-This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 ---
 
@@ -277,8 +242,6 @@ This supports Priority 2 (Data governance, reliability, and safe evolution).
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 4 (Visibility and continuity) and the operating envelope.
-
 ---
 
 ## 19. Non-destructive recovery is a design requirement
@@ -291,8 +254,6 @@ This supports Priority 4 (Visibility and continuity) and the operating envelope.
 
 Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
-This supports Priority 2 (Data governance, reliability, and safe evolution) and Priority 3 (Quality governance).
-
 ---
 
 ## Architecture decision history
@@ -300,16 +261,16 @@ This supports Priority 2 (Data governance, reliability, and safe evolution) and 
 The cited decisions govern implementation conformance.
 
 1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority.
-2. **Workflow evolution semantics** (§3). **Resolved by CD-0006:** full coordination engine, code-defined versioned built-ins, one generic type, and forward-linked successors with independent authority/recovery.
+2. **Workflow evolution semantics** (§3). [`workflows.md`](./workflows.md) owns the current family and composition model under CD-0218 and CD-0242 D13–D14.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
-5. **Recovery-path taxonomy** (§19). **Resolved by PM10 and CD-0008 D3/D4/D6:**
-   PM10 defines verified backup/restore and operator escalation; CD-0008 adds dependency-aware unreadable
-   isolation and durable-operation checkpoints/attempt fencing. Recovery
-   reconciles current rows and restores finite verified snapshots; no
-   rebuild-from-log ladder, append-only quarantine, or upcaster recovery exists
-   ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The storage slice must prove the enumerated
-   fault cases rather than choose a new recovery model.
+5. **Recovery-path taxonomy** (§19). [CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
+   owns current-row reconciliation and finite verified snapshots.
+   [D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)
+   owns launch authority and uncertain-effect reconciliation;
+   [D11–D12](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
+   own resumption and admitted recovery actions. PM10 owns backup/restore, and
+   CD-0008 D3 owns dependency-aware unreadable isolation.
 6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Evidence resolution; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2.
 7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Write-path truthfulness; accepted mechanism: [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3.
 8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md). Four records refine it:
@@ -326,27 +287,27 @@ The cited decisions govern implementation conformance.
 
 ## Relationship to other docs
 
-| Constraint | Touched priority | Companion doc |
-|---|---|---|
-| §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
-| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
-| §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
-| §4 bounded writer admission / no history repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
-| §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |
-| §6 lightweight interface | Operating envelope | [`priorities.md`](./priorities.md) |
-| §7 language choice | 2, 4 | [`core-architecture.md`](./core-architecture.md) |
-| §8 client portability | Operating envelope | [`priorities.md`](./priorities.md) |
-| §9 self-documentation | 1, 4 | [`self-documentation.md`](./self-documentation.md) |
-| §10 quality governance | 3, 6 | [`workflows.md`](./workflows.md) |
-| §11 declarative ownership | 1, 2, 5 | [`product-data-model.md`](./product-data-model.md) |
-| §12 ownership-aligned placement | 2, 3 | [`capability-placement.md`](./capability-placement.md) |
-| §13 ambient product context | 3, 4, 5 | [`product-data-model.md`](./product-data-model.md) |
-| §14 single derivation | 2, 4 | [`advance-postmortem.md`](./advance-postmortem.md) §C1 |
-| §15 atomic terminal transition | 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C2 |
-| §16 partial completion honesty | 2, 3 | [`advance-postmortem.md`](./advance-postmortem.md) §C3 |
-| §17 reclamation ground truth | 2 | [`advance-postmortem.md`](./advance-postmortem.md) §C4 |
-| §18 operations scale with data | 4, Operating envelope | [`advance-postmortem.md`](./advance-postmortem.md) §C5 |
-| §19 non-destructive recovery | 2, 3 | [`advance-postmortem.md`](./advance-postmortem.md) §C6 |
+| Constraint | Companion doc |
+|---|---|
+| §1 concurrency | [`product-data-model.md`](./product-data-model.md) |
+| §2 law/architecture impact | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
+| §3 workflow evolution | [`workflows.md`](./workflows.md) |
+| §4 bounded writer admission / no history repair | [`clarifications.md`](./clarifications.md) C2 |
+| §5 fast read-path | [`rollout-plan.md`](./rollout-plan.md) |
+| §6 lightweight interface | [`priorities.md`](./priorities.md) |
+| §7 language choice | [`core-architecture.md`](./core-architecture.md) |
+| §8 client portability | [`priorities.md`](./priorities.md) |
+| §9 self-documentation | [`self-documentation.md`](./self-documentation.md) |
+| §10 quality governance | [`workflows.md`](./workflows.md) |
+| §11 declarative ownership | [`product-data-model.md`](./product-data-model.md) |
+| §12 ownership-aligned placement | [`capability-placement.md`](./capability-placement.md) |
+| §13 ambient product context | [`product-data-model.md`](./product-data-model.md) |
+| §14 single derivation | [`advance-postmortem.md`](./advance-postmortem.md) §C1 |
+| §15 atomic terminal transition | [`advance-postmortem.md`](./advance-postmortem.md) §C2 |
+| §16 partial completion honesty | [`advance-postmortem.md`](./advance-postmortem.md) §C3 |
+| §17 reclamation ground truth | [`advance-postmortem.md`](./advance-postmortem.md) §C4 |
+| §18 operations scale with data | [`advance-postmortem.md`](./advance-postmortem.md) §C5 |
+| §19 non-destructive recovery | [`advance-postmortem.md`](./advance-postmortem.md) §C6 |
 
 ---
 

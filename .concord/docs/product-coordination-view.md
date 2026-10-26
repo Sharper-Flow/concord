@@ -18,12 +18,19 @@ Domain/overlap layer is outstanding follow-up work.
 ## Context
 
 Selecting a Product row must open a coordination view, and before C17 no
-accepted document said what it renders. The binding inputs are Priority 5's
-visibility requirement and the canonical PM1 reads. This record accepts the coordination view: two
+accepted document said what it renders. The binding inputs are the standing
+visibility and planning obligations in [`priorities.md`](./priorities.md#visibility-and-continuity)
+and the canonical PM1 reads. This record accepts the coordination view: two
 bounded modes over canonical Product-scoped reads, structural grouping only,
 stored-priority ranking, and visible incomplete coverage. CD-0222 amends the
 shape: Product detail opens through Product to Domain first, and these two
 projections remain subordinate coordination views.
+
+[CD-0219 D3](./decisions/CD-0219-the-terminal-launcher-tui-is-retired.md#d3-obligations-whose-subject-was-the-tui-are-vacated)
+vacates launcher-rendering obligations, not the underlying query contracts.
+[CD-0224](./decisions/CD-0224-ten-planning-and-browsing-operations-are-retired-from-the-agent-surface.md)
+preserves the PM1.Q4 and PM1.Q5 readiness gates.
+
 ## Contract
 
 The binding contract is sections 2, 3, and 5: the two accepted modes — the
@@ -34,7 +41,8 @@ read-path bounds, acceptance tests, sequencing, risks, and falsifiers, and
 carry no obligation.
 ## 1. The gap
 
-Priority 5 in [`priorities.md`](./priorities.md) requires that dependencies and
+The standing [Planning and coordination law](./priorities.md#planning-and-coordination)
+requires that dependencies and
 sequences are visible before they become blockers, and that the operator can see what
 is ready, what is blocked, and what is next.
 
@@ -129,7 +137,7 @@ unstable across runs.
 
 The implementation must satisfy at minimum:
 
-- A multi-level parent chain renders as one component tree with a single root.
+- A multi-level parent chain renders as one relation tree with a single root.
 - A relation cycle renders `invariant_violation` and is neither hidden nor silently
   broken.
 - Superseded work resolves to its canonical successor exactly once.
@@ -140,9 +148,6 @@ The implementation must satisfy at minimum:
 - A higher-priority blocked item is excluded from ready ranking and the next unblocked
   item wins deterministically.
 - Two renders over unchanged state produce identical ordering and identical grouping.
-- A narrow terminal collapses tree indentation without losing meaning and without
-  horizontal scroll.
-- No-color and screen-reader rendering preserves reliance and blocked meaning.
 
 Operator test: from the coordination view, name what is blocked, name what blocks it,
 and name the next item to start, without opening any work item. Failure would reopen
@@ -183,26 +188,6 @@ This contract must be revised or superseded when:
 
 ## Acceptance criteria
 
-- Given a relation cycle in the returned edge set
-  When mode 1 renders
-  Then it renders `invariant_violation` visibly, never hidden and never
-  silently broken.
-
-- Given a supersession chain
-  When mode 1 resolves it
-  Then the canonical successor resolves exactly once with no duplicate
-  authority.
-
-- Given a traversal that would cross the depth cap
-  When mode 1 renders
-  Then the boundary node is marked explicitly as truncated, never silently
-  cut.
-
-- Given structural grouping over declared edges
-  When two renders run over unchanged state
-  Then ordering and grouping are identical, with no thematic or inferred
-  clustering.
-
 - Given a higher-priority blocked item and the next unblocked item
   When mode 2 ranks
   Then the blocked item is excluded from ready ranking and the winner is
@@ -210,32 +195,7 @@ This contract must be revised or superseded when:
 
 ## Verification
 
-No corpus scenario exercises the coordination view, so criteria carry typed
-exemptions in the record. `python3 scripts/check-doc-contract.py` validates
-those recorded exemptions, and `python3 scripts/check-law-coverage.py` proves
-the recorded vacated states.
-
-- Criterion 1 is vacated with the launcher view under CD-0219: the
-  relation-tree guarantee's proving surface retired with the launcher TUI,
-  and the view clause it served has no surviving reader.
-  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
-  state.
-- Criterion 2 is vacated with the launcher view under CD-0219: the
-  relation-tree guarantee's proving surface retired with the launcher TUI,
-  and the view clause it served has no surviving reader.
-  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
-  state.
-- Criterion 3 is vacated with the launcher view under CD-0219: the
-  relation-tree guarantee's proving surface retired with the launcher TUI,
-  and the view clause it served has no surviving reader.
-  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
-  state.
-- Criterion 4 is vacated with the launcher view under CD-0219: the
-  relation-tree guarantee's proving surface retired with the launcher TUI,
-  and the view clause it served has no surviving reader.
-  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
-  state.
-- Criterion 5 is proved by the bound `Q5-ready-ranking` scenario of
+- Criterion 1 is proved by the bound `Q5-ready-ranking` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
   `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).
   Section 10 records the falsifiers for each guarantee.

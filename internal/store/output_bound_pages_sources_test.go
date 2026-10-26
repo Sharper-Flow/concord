@@ -1213,13 +1213,13 @@ func init() {
 	registerOutputBound("/$defs/resource_product_link/properties/environments/maxItems", goInlineBound("internal/store/managed_resources.go", "validateResourceEnvironments", "len(values)", boundItems))
 	registerOutputBound("/$defs/resource_product_link/properties/purpose/maxLength", goInlineBound("internal/store/managed_resources.go", "foldManagedResourceConsumerAdded", "len(p.Purpose)", boundBytes))
 
-	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "mutationResultChangedRefs"))
+	registerOutputBound("/$defs/session_vacate_result/properties/changed_refs/maxItems", pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "applySessionVacateTx", "mutationResultChangedRefs"))
 	registerOutputBound("/$defs/session_vacate_result/properties/next_valid_intents/maxItems", sumBound(
 		schemaBound("contracts/workflow-definition.schema.json", "/$defs/step/properties/actions/maxItems"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinStepIntentsTx", "pin.NextValidIntents"),
 		pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 	))
-	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"))
+	registerOutputBound("/$defs/session_vacate_result/properties/work_pins/maxItems", pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"))
 
 	// CD-0242 D2 retires the event trace and frozen conflict payload. Current
 	// transition refs and proof observations keep their producer's actual bounds.
@@ -1257,9 +1257,9 @@ func init() {
 	registerOutputBound("/$defs/work_relate_client_policy_grant_request_result/properties/added_project_scope/maxItems", goCallBound("internal/agent/authority.go", "unionPolicyExpansion", "unionPolicyJSON", "project scope", 4, boundItems))
 
 	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/affected_work_ids/maxItems", pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"))
-	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"))
+	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/changed_refs/maxItems", pkLiteralSliceItemsBound("internal/agent/mutations.go", "recordLinkTx"))
 	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/event_ids/maxItems", pkSubsetChainItemsBound(
-		pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"),
+		pkCompositeFieldItemsBound("internal/agent/mutations.go", "recordLinkTx"),
 		pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"},
 	))
 	registerOutputBound("/$defs/work_relate_product_project_add_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
@@ -1827,10 +1827,10 @@ func pkPlanEffectLiteral(fn *ast.FuncDecl) (*ast.FuncLit, error) {
 
 // pkEffectReturnsEmptySliceItemsBound derives the changed-list capacity of
 // one plan route from its actual effect returns: inside the plan.effect
-// closure, every return statement carrying the mutationEffect arity returns
+// closure (or its exact, sole delegated method), every return statement carrying the mutationEffect arity returns
 // an empty or nil slice at the changed ordinal. A populated literal, a
 // variable, or an append fails closed; the produced capacity is zero items.
-func pkEffectReturnsEmptySliceItemsBound(file, function string) outputBoundSource {
+func pkEffectReturnsEmptySliceItemsBound(file, function string, delegatedMethod ...string) outputBoundSource {
 	const resultOrdinal = 2
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		goS, err := rt.loadGo(file)
@@ -1844,6 +1844,27 @@ func pkEffectReturnsEmptySliceItemsBound(file, function string) outputBoundSourc
 		lit, err := pkPlanEffectLiteral(fns[0])
 		if err != nil {
 			return evaluatedBound{}, fmt.Errorf("effect returns %s:%s: %w", file, function, err)
+		}
+		if len(delegatedMethod) > 1 {
+			return evaluatedBound{}, fmt.Errorf("effect returns: at most one exact delegated method is allowed")
+		}
+		if len(delegatedMethod) == 1 {
+			if len(lit.Body.List) != 1 {
+				return evaluatedBound{}, fmt.Errorf("effect returns: %s must contain only its delegated return", function)
+			}
+			ret, ok := lit.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				return evaluatedBound{}, fmt.Errorf("effect returns: %s must return its exact delegated call", function)
+			}
+			call, ok := ret.Results[0].(*ast.CallExpr)
+			if !ok || ledgerExprText(call.Fun) != "r."+delegatedMethod[0] {
+				return evaluatedBound{}, fmt.Errorf("effect returns: %s must return r.%s", function, delegatedMethod[0])
+			}
+			owners := ledgerFuncDeclsNamed(goS.file, delegatedMethod[0])
+			if len(owners) != 1 || owners[0].Body == nil || owners[0].Recv == nil || len(owners[0].Recv.List) != 1 || ledgerExprText(owners[0].Recv.List[0].Type) != "runtime" {
+				return evaluatedBound{}, fmt.Errorf("effect returns: runtime.%s is absent or ambiguous", delegatedMethod[0])
+			}
+			lit = &ast.FuncLit{Type: owners[0].Type, Body: owners[0].Body}
 		}
 		matches, violations := 0, 0
 		arity := 0
@@ -2545,6 +2566,25 @@ func TestPkDerivations(t *testing.T) {
 	// A changed variable assigned from a call is not construction-fixed.
 	_, err = evaluate("pk_ret4.go", effectFixture("changed := build(); return 0, nil, changed, nil"), pkEffectReturnsEmptySliceItemsBound("pk_ret4.go", "site"))
 	wantFailure("effect call-derived mutation", err, "actual returns produce elements")
+	delegatedFixture := func(body string) string {
+		return effectFixture("return r.applySessionVacateTx()") + "type runtime struct{}\nfunc (r runtime) applySessionVacateTx() (int, []string, []string, error) {\n" + body + "\n}\n"
+	}
+	delegatedSource := pkEffectReturnsEmptySliceItemsBound("pk_delegated.go", "site", "applySessionVacateTx")
+	delegated := delegatedFixture("if true { return 0, nil, nil, nil }; return 1, nil, []string{}, nil")
+	er, err = evaluate("pk_delegated.go", delegated, delegatedSource)
+	firstValue("delegated effect empty returns", er, err, 0)
+	_, err = evaluate("pk_delegated.go", delegatedFixture("return 0, nil, []string{\"x\"}, nil"), delegatedSource)
+	wantFailure("delegated effect populated mutation", err, "actual returns produce elements")
+	_, err = evaluate("pk_delegated.go", delegatedFixture("changed := build(); return 0, nil, changed, nil"), delegatedSource)
+	wantFailure("delegated effect call-derived mutation", err, "actual returns produce elements")
+	_, err = evaluate("pk_delegated.go", delegatedFixture("return 0, nil"), delegatedSource)
+	wantFailure("delegated effect arity mutation", err, "actual returns produce elements")
+	_, err = evaluate("pk_delegated.go", strings.Replace(delegated, "return r.applySessionVacateTx()", "return r.other()", 1), delegatedSource)
+	wantFailure("delegated effect exact call", err, "must return r.applySessionVacateTx")
+	_, err = evaluate("pk_delegated.go", strings.Replace(delegated, "(r runtime) applySessionVacateTx", "(r other) applySessionVacateTx", 1), delegatedSource)
+	wantFailure("delegated effect exact owner", err, "absent or ambiguous")
+	_, err = evaluate("pk_delegated.go", strings.Replace(delegated, "return r.applySessionVacateTx()", "if true { return 0, nil, []string{\"x\"}, nil }; return r.applySessionVacateTx()", 1), delegatedSource)
+	wantFailure("delegated effect extra return", err, "must contain only its delegated return")
 	// The aggregate over construction-fixed plan.effect routes: the widest
 	// literal changed list bounds every enriched route's pins.
 	agg, err := evaluate("pk_agg.go", preamble+"type effect func() (int, []string, []string, error)\n\ntype plan struct{ effect effect }\n\nfunc siteA(p *plan) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := []string{{\"a\"}}\n\t\treturn 0, nil, changed, nil\n\t}\n\treturn\n}\n\nfunc siteB(p *plan) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\tchanged := []string{{\"a\"}, {\"b\"}}\n\t\treturn 0, nil, changed, nil\n\t}\n\treturn\n}\n\nfunc siteC(p *plan) {\n\tp.effect = func() (int, []string, []string, error) {\n\t\treturn 0, nil, nil, nil\n\t}\n\treturn\n}\n", pkPlanEffectWorkPinsBound("pk_agg.go"))
@@ -2685,7 +2725,7 @@ func TestPkDerivations(t *testing.T) {
 		"stop collect":  pkCollectStopBound("internal/store/membership.go", "membershipImpact", "len(impact.AffectedWorkIDs)"),
 		"intent sites":  pkAppendSitesItemsBound("internal/store/workpin.go", "workPinRecoveryIntentsTx", "pin.NextValidIntents"),
 		"pin subset":    pkSubsetChainItemsBound(pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
-		"vacate effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate"),
+		"vacate effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planSessionVacate", "applySessionVacateTx"),
 		"record effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffRecord"), "pin aggregate": pkSubsetChainItemsBound(pkPlanEffectWorkPinsBound("internal/agent/mutations.go"), pkSubsetLink{file: "internal/agent/mutations.go", function: "workItemRefs", source: "changed", target: "refs"}, pkSubsetLink{file: "internal/agent/mutations.go", function: "enrichMutationPayloadTx", source: "refs", target: "pins"}),
 		"consume effect": pkEffectReturnsEmptySliceItemsBound("internal/agent/mutations.go", "planProjectHandoffConsume"),
 		"retained refs":  pkAppendSitesItemsBound("internal/store/worktrees.go", "planStoredRefDeletion", "retained"),
@@ -2694,14 +2734,14 @@ func TestPkDerivations(t *testing.T) {
 		"body guard":     goInlineBound("internal/store/work_messages.go", "foldMessageSent", "len(p.Body)", boundBytes),
 		"domain name":    goInlineBound("internal/store/knowledge_manifest.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters),
 		"manifest id":    goInlineBound("internal/store/knowledge_manifest.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
-		"event subset":   pkSubsetChainItemsBound(pkCompositeFieldItemsBound("internal/agent/mutations.go", "mutateProductProjectAdd"), pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"}),
+		"event subset":   pkSubsetChainItemsBound(pkCompositeFieldItemsBound("internal/agent/mutations.go", "recordLinkTx"), pkSubsetLink{file: "internal/store/membership.go", function: "membershipImpact", source: "operation.Events", target: "impact.EventIDs"}),
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
 		"reasons":        pkFieldTextBound("internal/store/worktrees.go", "planStoredRefDeletion", "WorktreeRetainedRef"),
 		"delivery":       pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"),
 		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
 		"retire struct":  pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"),
-		"empty refs":     pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "planSessionVacate", "mutationResultChangedRefs"),
+		"empty refs":     pkCallEmptyLiteralItemsBound("internal/agent/mutations.go", "applySessionVacateTx", "mutationResultChangedRefs"),
 		"claim changed":  pkLiteralSliceItemsBound("internal/agent/mutations.go", "planWorktreeClaim"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"q10 empty":      pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q10", "candidates"),

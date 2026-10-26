@@ -606,7 +606,6 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if in.ProjectID != "" && in.ProjectID != resolved.ProjectID {
 		return Authority{}, authorityRefusal("project outside resolved scope")
 	}
-	projects := []string{resolved.ProjectID}
 	// Project authority follows current Product membership (CD-0152 D1). The
 	// explicit policy is the authority source for Products, so every Product
 	// it authorizes contributes its current Projects: the authority spans
@@ -614,16 +613,27 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	// neither limits it nor selects a narrower set. A Project a Product no
 	// longer owns drops out on the next invocation.
 	authorizedProducts := normalizeStrings(policyProducts)
-	seenProjects := map[string]bool{resolved.ProjectID: true}
-	for _, product := range authorizedProducts {
+	projects, err := s.authorizedProductProjects(ctx, tx, resolved.ProjectID, authorizedProducts)
+	if err != nil {
+		return Authority{}, err
+	}
+	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
+	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+}
+
+func (s *Service) authorizedProductProjects(ctx context.Context, tx *store.Transaction, projectID string, products []string) ([]string, error) {
+	projects := []string{projectID}
+	seenProjects := map[string]bool{projectID: true}
+	for _, product := range products {
 		var memberships []store.ProjectMembership
+		var err error
 		if tx == nil {
 			memberships, err = s.Store.ProjectsForProduct(ctx, product)
 		} else {
 			memberships, err = store.ProjectsForProductTx(ctx, tx, product)
 		}
 		if err != nil {
-			return Authority{}, err
+			return nil, err
 		}
 		for _, membership := range memberships {
 			if !seenProjects[membership.ID] {
@@ -632,8 +642,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 			}
 		}
 	}
-	snapshot := map[string]any{"project_id": resolved.ProjectID, "product_ids": candidateProducts, "scope_version": scopeVersion}
-	return Authority{PrincipalRef: client.PrincipalRef, ClientRef: client.ClientRef, SessionRef: in.SessionRef, AgentRef: in.AgentRef, Directory: in.Directory, Worktree: in.Worktree, ManifestDigest: ManifestDigest, Capabilities: capabilityValues(normalizeStrings(policyCaps)), ProductScope: authorizedProducts, ProjectScope: normalizeStrings(projects), ScopeVersion: scopeVersion, CandidateProducts: candidateProducts, ScopeSnapshot: snapshot, PolicyProductScope: normalizeStrings(policyProducts), PolicyProjectScope: normalizeStrings(policyProjects), MainWorktree: resolved.MainWorktree}, nil
+	return projects, nil
 }
 
 // authorityRefusal marks the authorization boundary as a typed refusal.
@@ -1168,86 +1177,88 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "held_attempt_holder": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
 	for key, value := range scope {
-		if !allowed[key] {
+		if !validChallengeScopeBinding(key, value) {
 			return false
 		}
-		switch key {
-		case "product_id", "scope_version", "project_id", "client_ref", "policy_version":
-			if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
-				return false
-			}
-		case "role":
-			if text, ok := value.(string); !ok || (text != "primary" && text != "secondary") {
-				return false
-			}
-		case "failed_attempt_id", "held_attempt_holder", "product_ids", "project_ids", "work_ids", "capabilities", "product_scope", "project_scope", "agent_scope":
-			if key == "failed_attempt_id" || key == "held_attempt_holder" {
-				if text, ok := value.(string); !ok || !bounded(text, 1, 128) {
-					return false
-				}
-				continue
-			}
-			bound := 100
-			if key == "capabilities" {
-				bound = 32
-			}
-			switch ids := value.(type) {
-			case []any:
-				if len(ids) > bound {
-					return false
-				}
-				for _, raw := range ids {
-					text, ok := raw.(string)
-					if !ok || !bounded(text, 1, 128) {
-						return false
-					}
-				}
-			case []string:
-				if len(ids) > bound {
-					return false
-				}
-				for _, text := range ids {
-					if !bounded(text, 1, 128) {
-						return false
-					}
-				}
-			default:
-				return false
-			}
-		case "release_tag":
-			if text, ok := value.(string); !ok || !outsideRepairReleaseTagBound(text) {
-				return false
-			}
-		case "pull_requests":
-			// The outside-repair reconcile challenge binds the exact selected
-			// pull-request set: bounded decimal strings the plan derived, so
-			// one approval authorizes that set and never another result.
-			switch selectors := value.(type) {
-			case []any:
-				if len(selectors) == 0 || len(selectors) > 32 {
-					return false
-				}
-				for _, raw := range selectors {
-					text, ok := raw.(string)
-					if !ok || !outsideRepairPullRequestSelectorBound(text) {
-						return false
-					}
-				}
-			case []string:
-				if len(selectors) == 0 || len(selectors) > 32 {
-					return false
-				}
-				for _, text := range selectors {
-					if !outsideRepairPullRequestSelectorBound(text) {
-						return false
-					}
-				}
-			default:
+	}
+	return true
+}
+
+func validChallengeScopeBinding(key string, value any) bool {
+	switch key {
+	case "product_id", "scope_version", "project_id", "client_ref", "policy_version", "failed_attempt_id", "held_attempt_holder":
+		text, ok := value.(string)
+		return ok && bounded(text, 1, 128)
+	case "role":
+		text, ok := value.(string)
+		return ok && (text == "primary" || text == "secondary")
+	case "product_ids", "project_ids", "work_ids", "product_scope", "project_scope", "agent_scope":
+		return validChallengeScopeIDs(value, 100)
+	case "capabilities":
+		return validChallengeScopeIDs(value, 32)
+	case "release_tag":
+		text, ok := value.(string)
+		return ok && outsideRepairReleaseTagBound(text)
+	case "pull_requests":
+		return validChallengePullRequests(value)
+	default:
+		return false
+	}
+}
+
+func validChallengeScopeIDs(value any, bound int) bool {
+	switch ids := value.(type) {
+	case []any:
+		if len(ids) > bound {
+			return false
+		}
+		for _, raw := range ids {
+			text, ok := raw.(string)
+			if !ok || !bounded(text, 1, 128) {
 				return false
 			}
 		}
+	case []string:
+		if len(ids) > bound {
+			return false
+		}
+		for _, text := range ids {
+			if !bounded(text, 1, 128) {
+				return false
+			}
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// The reconcile challenge binds the selected pull-request set as bounded
+// decimal strings, so one approval authorizes that set and no other result.
+func validChallengePullRequests(value any) bool {
+	switch selectors := value.(type) {
+	case []any:
+		if len(selectors) == 0 || len(selectors) > 32 {
+			return false
+		}
+		for _, raw := range selectors {
+			text, ok := raw.(string)
+			if !ok || !outsideRepairPullRequestSelectorBound(text) {
+				return false
+			}
+		}
+	case []string:
+		if len(selectors) == 0 || len(selectors) > 32 {
+			return false
+		}
+		for _, text := range selectors {
+			if !outsideRepairPullRequestSelectorBound(text) {
+				return false
+			}
+		}
+	default:
+		return false
 	}
 	return true
 }

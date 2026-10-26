@@ -60,9 +60,9 @@ by Concord. No Q-number implies a separate tool.
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, required approval, execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, approval, status, and evidence. Missing approval blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 | **AJ9** | **Read the managed-resource inventory.** Learn which external systems the Product owns or consumes, who owns each, who else consumes it, and where the vendor's documentation lives. | One bounded read returns each canonical resource once with its singular owner, bounded consumers, and a documentation locator; the read inlines no vendor content and appends nothing to the authoritative log. |
 
-These eight jobs are intentionally broader than storage queries and narrower than
+These nine jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
-Concord's Product model, workflow plurality, first-usable floor, and PM1 contract.
+Concord's Product model, live workflows, first-usable floor, and PM1 contract.
 They do not prescribe one tool per row.
 
 ## 3. Shared success oracles
@@ -135,9 +135,9 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
   knowledge and architecture-bound Product law (`priorities.md` §§1, 3–6).
-- Workflow plurality includes implementation, research, static analysis, and ops;
-  completion is a contract outcome rather than a process-liveness flag
-  (`workflows.md` §§2–4).
+- The live families are implementation, break-fix, and research; completion is a
+  contract outcome rather than a process-liveness flag (`workflows.md` §§2–4;
+  CD-0218 D1).
 - The Advance postmortem supplies adversarial cases: split authority, partial
   terminality, dishonest top-level success, bookkeeping-blocked reclamation,
   silently clamped budgets, and destructive recovery (`advance-postmortem.md`).

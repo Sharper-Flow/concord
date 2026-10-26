@@ -1,6 +1,6 @@
 # Concord Market Landscape
 
-> **Status:** Research synthesis v1 plus 2026-08-06 mechanism-hardening addendum.
+> **Status:** Research synthesis, 2026-07-25.
 > Companion to [`README.md`](./README.md) and
 > the others.
 > **Purpose:** What else is trying to do what Concord aims at, plus adjacent
@@ -8,16 +8,9 @@
 > **Method:** Three parallel sourced research passes (2026-07-25) — competitor
 > landscape, Clay go-to-market (GTM), PostHog. Every material claim carries a source; items the
 > researchers could not verify from vendor sources are flagged.
-> **Mechanism addendum:** [`research/R4-competitive-mechanism-hardening.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R4-competitive-mechanism-hardening.md)
-> compares current agent/durable-execution mechanisms without adopting competitor
-> Product shapes and owns SQLite confirmation, the falsifier-only alternative-engine
-> trigger, and the worktree follow-up.
 
 ## Executive summary
 
-- **No reviewed competitor combines** git-native state + append-only/no-repair
-  storage + a typed spec-driven lifecycle + agent-first authority + product-
-  scoped cross-system membership. That combination is Concord's defensible core.
 - The market splits into **agent execution harnesses** (Devin, Cursor, Copilot,
   OpenHands, Factory) and **incumbent agentic SDLC layers** (Atlassian Rovo Dev).
   Concord's lane is the **durable, agent-neutral product control plane** that
@@ -64,9 +57,7 @@ rather than competing at the base agent-harness layer.
 2. **Product-scoped, cross-system state** — bind repos + infra + SaaS + specs +
    ops to one product identity. Competitors are workspace/repo/vendor-suite/
    execution-tool bounded.
-3. **Git-native + append-only correctness** — no reviewed competitor source
-   verifies this combination.
-4. **Solo dev + agents** — market leaders optimize for teams/seats/enterprise/
+3. **Solo dev + agents** — market leaders optimize for teams/seats/enterprise/
    IDE; Concord optimizes for one human directing many specialized agents.
 
 ### 1.3 Market gaps Concord can uniquely fill
@@ -160,12 +151,6 @@ skills; [PostHog's top-level `services/`](https://github.com/PostHog/posthog/tre
 - **Competing at the base agent-harness layer** (Devin/Cursor/Copilot) —
   integrate, don't rebuild.
 
-### The sharp positioning
-Concord is **not** another coding-agent shell, another human-team PM tool, or
-another GTM/analytics platform. It is the **durable, agent-neutral product control
-plane** — git-native, append-only, spec-driven — that scopes, records, and audits
-work across many specialized agents and external systems. That lane is empty.
-
 ---
 
 ## 5. Relationship to other docs
@@ -173,7 +158,6 @@ work across many specialized agents and external systems. That lane is empty.
 | Doc | Link |
 |---|---|
 | [`priorities.md`](./priorities.md) Purpose, operating envelope, and first-usable floor | Positioning reinforced here. |
-| `feature-inventory.md` | Capabilities the market validates (workflow plurality, product-scoping, admin panel). |
 | `capability-placement.md` | PostHog's extension tiers inform the plugin contract (C10). |
 | `clarifications.md` C5 | Multi-client: confirmed no concrete second client in market today. |
 

@@ -113,7 +113,7 @@ func init() {
 	registerOutputBound(packetCandidate+"commit/maxLength", sha)
 	registerOutputBound(packetCandidate+"tree/maxLength", sha)
 	registerOutputBound(packetDependencies+"criteria/maxItems",
-		goInlineBound("internal/store/workflow.go", "foldWorkflowContractApproved", "len(p.OutcomePredicates)", boundItems))
+		goInlineBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "len(p.OutcomePredicates)", boundItems))
 	registerOutputBound(packetDependencies+"criteria/items/properties/predicate_id/maxLength",
 		inputBound("/$defs/id/maxLength")) // every approved outcome predicate's predicate_id uses id
 	for _, member := range []string{"criteria/items/properties/content_digest", "architecture_digest"} {

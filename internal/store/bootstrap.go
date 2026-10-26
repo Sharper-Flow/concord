@@ -1055,7 +1055,14 @@ func validateBootstrapRequest(req BootstrapRequest) error {
 	if req.Priority < -100 || req.Priority > 100 || len(req.Tags) > 32 || len(req.GoverningRequirements) > 32 {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "priority or list field exceeds its bound", false, "use the declared field bounds")
 	}
-	for _, values := range [][]string{req.Tags, req.GoverningRequirements} {
+	if err := validateBootstrapRequirementLists(req.Tags, req.GoverningRequirements); err != nil {
+		return err
+	}
+	return validateBootstrapWorkflowRequest(req)
+}
+
+func validateBootstrapRequirementLists(tags, requirements []string) error {
+	for _, values := range [][]string{tags, requirements} {
 		seen := map[string]bool{}
 		for _, tag := range values {
 			if !bootstrapIDPattern.MatchString(tag) || seen[tag] {
@@ -1064,6 +1071,10 @@ func validateBootstrapRequest(req BootstrapRequest) error {
 			seen[tag] = true
 		}
 	}
+	return nil
+}
+
+func validateBootstrapWorkflowRequest(req BootstrapRequest) error {
 	if req.WorkflowTypeRef != "" && !bootstrapIDPattern.MatchString(req.WorkflowTypeRef) {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "workflow_type_ref is not a valid identifier", false, "supply a bounded workflow reference")
 	}
@@ -1160,20 +1171,56 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)
 	}
 	defer tx.finish(&retErr)
+	journal, err := prepareBootstrapJournalTx(ctx, tx.Tx, req, operationID, workID, digest, location, probe, s.Clock)
+	if err != nil {
+		return out, err
+	}
+	if journal.completed != nil {
+		return *journal.completed, tx.Commit()
+	}
+	if journal.needsWork {
+		if existing {
+			replay, handled, existingErr := replayExistingBootstrapTx(ctx, tx.Tx, req, workID)
+			if existingErr != nil {
+				return out, existingErr
+			}
+			if handled {
+				return replay, tx.Commit()
+			}
+		}
+		if err := prepareBootstrapWorkTx(ctx, tx.Tx, req, operationID, workID, digest, existing, journalRequest, sizePlan, journal, s.Clock); err != nil {
+			return out, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot commit bootstrap journal", true, "retry the same idempotency key", err)
+	}
+	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: journal.replayed, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID}, State: journal.state, Location: journal.location}, nil
+}
+
+type bootstrapJournalPreparation struct {
+	location        WorktreeLocation
+	state           string
+	replayed        bool
+	restarted       bool
+	missing         bool
+	needsWork       bool
+	expectedVersion int64
+	completed       *bootstrapPrepared
+}
+
+func prepareBootstrapJournalTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, digest string, location WorktreeLocation, probe bootstrapJournalProbe, clock func() time.Time) (bootstrapJournalPreparation, error) {
+	out := bootstrapJournalPreparation{location: location}
 	var storedDigest, state string
-	replayed := false
-	restarted := false
-	var journalMissing bool
-	expectedVersion := int64(0)
-	err = tx.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&storedDigest, &state)
+	err := tx.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&storedDigest, &state)
 	switch {
 	case probe.journalErr == sql.ErrNoRows && err != nil && err != sql.ErrNoRows,
 		probe.journalErr == nil && (err != nil || storedDigest != probe.digest || state != probe.state):
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "bootstrap journal changed under the prepare probe", true, "retry the same idempotency key", err)
 	}
-	journalMissing = err == sql.ErrNoRows
+	out.missing = err == sql.ErrNoRows
 	if err == nil {
-		replayed = true
+		out.replayed = true
 		if storedDigest != digest {
 			return out, newFailure(KindInvalidOperation, "work_bootstrap", "idempotency key is bound to different input", false, "use the original request or a new idempotency key")
 		}
@@ -1184,101 +1231,111 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		if location != probe.location || claimState != probe.claimState {
 			return out, wrapFailure(KindUnavailable, "work_bootstrap", "bootstrap claim changed under the prepare probe", true, "retry the same idempotency key", nil)
 		}
+		out.location = location
+		out.state = state
 		if state == "completed" {
-			switch claimState {
-			case worktreeStatePending, worktreeStateVerified:
-				replay, err := replayCompletedBootstrapTx(ctx, tx.Tx, req, operationID, workID, state, location)
-				if err != nil {
-					return out, err
-				}
-				return replay, tx.Commit()
-			case worktreeStateReclaimed:
-				location, expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx.Tx, operationID, workID, location, probe.branchSHA, probe.branchExists, s.Clock)
-				if err != nil {
-					return out, err
-				}
-				state = "pending"
-				restarted = true
-				err = sql.ErrNoRows
-			default:
-				return out, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal has an invalid claim state", false, "contact_operator")
-			}
+			return prepareCompletedBootstrapJournalTx(ctx, tx, req, operationID, workID, claimState, probe, out, clock)
 		}
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read bootstrap journal", true, "retry once the database is readable", err)
 	}
 
+	out.state = state
 	if err == sql.ErrNoRows {
-		state = "pending"
-		if existing {
-			replay, handled, existingErr := replayExistingBootstrapTx(ctx, tx.Tx, req, workID)
-			if existingErr != nil {
-				return out, existingErr
-			}
-			if handled {
-				return replay, tx.Commit()
-			}
-		}
-		if existing && !restarted {
-			var priorOperation bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?)`, workID).Scan(&priorOperation); err != nil {
-				return out, err
-			}
-			if priorOperation {
-				return out, newFailure(KindProjectionConflict, "work_bootstrap", "existing work item has a bootstrap operation for another Project or Product", false, "resume with the original Project and Product")
-			}
-		}
-		if err := validateBootstrapScopeTx(ctx, tx.Tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
+		out.state = "pending"
+		out.needsWork = true
+	}
+	return out, nil
+}
+
+func prepareCompletedBootstrapJournalTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, claimState string, probe bootstrapJournalProbe, out bootstrapJournalPreparation, clock func() time.Time) (bootstrapJournalPreparation, error) {
+	switch claimState {
+	case worktreeStatePending, worktreeStateVerified:
+		replay, err := replayCompletedBootstrapTx(ctx, tx, req, operationID, workID, out.state, out.location)
+		if err != nil {
 			return out, err
 		}
-		var exists bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, workID).Scan(&exists); err != nil {
+		out.completed = &replay
+	case worktreeStateReclaimed:
+		var err error
+		out.location, out.expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx, operationID, workID, out.location, probe.branchSHA, probe.branchExists, clock)
+		if err != nil {
 			return out, err
 		}
-		if existing {
-			if !exists {
-				return out, newFailure(KindUnknownScope, "work_bootstrap", "existing work item does not exist", false, "check the work identity before starting")
-			}
-			var lifecycle string
-			if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-				return out, err
-			}
-			if isTerminalLifecycle(lifecycle) {
-				return out, newFailure(KindInvalidOperation, "work_bootstrap", "cannot bootstrap terminal work item "+workID+" ("+lifecycle+")", false, "start live work or capture new work instead")
-			}
-			var member bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, req.ProjectID).Scan(&member); err != nil {
-				return out, err
-			}
-			if !member {
-				return out, newFailure(KindUnknownScope, "work_bootstrap", "work item does not hold Project "+req.ProjectID, false, "start from a Project the work item belongs to")
-			}
-			if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&expectedVersion); err != nil {
-				return out, err
-			}
-		} else if exists && !restarted {
-			return out, newFailure(KindProjectionConflict, "work_bootstrap", "derived work ID already exists without its journal", false, "use a new idempotency key")
+		out.state = "pending"
+		out.restarted = true
+		out.needsWork = true
+	default:
+		return out, newFailure(KindInvariantViolation, "work_bootstrap", "completed bootstrap journal has an invalid claim state", false, "contact_operator")
+	}
+	return out, nil
+}
+
+func prepareBootstrapWorkTx(ctx context.Context, tx *sql.Tx, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, sizePlan *WorkSizePlan, journal bootstrapJournalPreparation, clock func() time.Time) error {
+	if existing && !journal.restarted {
+		var priorOperation bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM bootstrap_operations WHERE work_id=?)`, workID).Scan(&priorOperation); err != nil {
+			return err
 		}
-		now := s.now()
-		if !existing && !restarted {
-			if err := createBootstrapWorkTx(ctx, &Transaction{tx: tx.Tx, clock: s.Clock}, req, operationID, workID, sizePlan, now); err != nil {
-				return out, err
-			}
-			expectedVersion = 4
-		}
-		if journalMissing {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
-				return out, err
-			}
-			if err := pinBootstrapClaimTx(ctx, tx.Tx, operationID, workID, req.ProjectID, location, now); err != nil {
-				return out, err
-			}
+		if priorOperation {
+			return newFailure(KindProjectionConflict, "work_bootstrap", "existing work item has a bootstrap operation for another Project or Product", false, "resume with the original Project and Product")
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot commit bootstrap journal", true, "retry the same idempotency key", err)
+	if err := validateBootstrapScopeTx(ctx, tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
+		return err
 	}
-	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: replayed, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID}, State: state, Location: location}, nil
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, workID).Scan(&exists); err != nil {
+		return err
+	}
+	if existing {
+		if !exists {
+			return newFailure(KindUnknownScope, "work_bootstrap", "existing work item does not exist", false, "check the work identity before starting")
+		}
+		var err error
+		journal.expectedVersion, err = existingBootstrapWorkVersionTx(ctx, tx, workID, req.ProjectID)
+		if err != nil {
+			return err
+		}
+	} else if exists && !journal.restarted {
+		return newFailure(KindProjectionConflict, "work_bootstrap", "derived work ID already exists without its journal", false, "use a new idempotency key")
+	}
+	now := nowFromClock(clock)
+	if !existing && !journal.restarted {
+		if err := createBootstrapWorkTx(ctx, &Transaction{tx: tx, clock: clock}, req, operationID, workID, sizePlan, now); err != nil {
+			return err
+		}
+		journal.expectedVersion = 4
+	}
+	if journal.missing {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, journal.location.Repo, journal.expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, journal.location, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func existingBootstrapWorkVersionTx(ctx context.Context, tx *sql.Tx, workID, projectID string) (int64, error) {
+	var lifecycle string
+	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		return 0, err
+	}
+	if isTerminalLifecycle(lifecycle) {
+		return 0, newFailure(KindInvalidOperation, "work_bootstrap", "cannot bootstrap terminal work item "+workID+" ("+lifecycle+")", false, "start live work or capture new work instead")
+	}
+	var member bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
+		return 0, err
+	}
+	if !member {
+		return 0, newFailure(KindUnknownScope, "work_bootstrap", "work item does not hold Project "+projectID, false, "start from a Project the work item belongs to")
+	}
+	var version int64
+	err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version)
+	return version, err
 }
 
 // createBootstrapWorkTx records a first bootstrap's work item, its primary

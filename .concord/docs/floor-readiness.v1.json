@@ -8,7 +8,7 @@
   {
    "id": "fc1",
    "ordinal": 1,
-   "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context."
+   "title": "The operator can see, plan, and act across the full Product scope through Product → Domain context."
   },
   {
    "id": "fc2",
@@ -18,7 +18,7 @@
   {
    "id": "fc3",
    "ordinal": 3,
-   "title": "Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence."
+   "title": "Every supported workflow family (implementation, break-fix, research) has a defined workflow type and completion evidence."
   },
   {
    "id": "fc4",
@@ -28,7 +28,7 @@
   {
    "id": "fc5",
    "ordinal": 5,
-   "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution)."
+   "title": "Concord-owned data and workflow boundaries preserve data safety (bounded writer admission, no hand-repair, safe evolution)."
   },
   {
    "id": "fc6",
@@ -256,10 +256,14 @@
   {
    "id": "fc3-workflow-types",
    "condition": "fc3",
-   "title": "Purpose-built workflow types exist for every supported work kind",
-   "requirement": "A code-defined, versioned, digest-pinned registry supplies a workflow definition for each supported work kind plus one generic one-off type, and unknown references fail closed.",
+   "title": "Workflow definitions cover the three live execution families",
+   "requirement": "Definitions derive from one canonical source under CD-0242 D14 for implementation, break-fix, and research; retired and unknown references fail closed under CD-0218 D1.",
    "state": "satisfied",
    "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes"
+    },
     {
      "kind": "go_test",
      "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
@@ -341,7 +345,7 @@
    "id": "fc3-product-truth-classification",
    "condition": "fc3",
    "title": "Every workflow type declares whether it changes Product truth",
-   "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
+   "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing work cannot write Product law or architecture.",
    "state": "satisfied",
    "evidence": [
     {
@@ -494,7 +498,7 @@
    "id": "fc5-in-flight-schema-evolution",
    "condition": "fc5",
    "title": "Schema and workflow changes are safe for in-flight work",
-   "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
+   "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, preserving current rows and finite verified snapshots under CD-0242 D2/D14.",
    "state": "satisfied",
    "evidence": [
     {
@@ -511,7 +515,7 @@
    "id": "fc5-domain-migration",
    "condition": "fc5",
    "title": "Domain and law-home projections preserve one authority and rebuild",
-   "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate and rebuild from the accepted Git/event authorities without introducing a second Domain or law authority.",
+   "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate against the accepted Git knowledge authority and SQLite current-state authority without introducing a second Domain or law authority; derived knowledge indexes rebuild from Git (CD-0242 D1/D2).",
    "state": "satisfied",
    "evidence": [
     {
@@ -542,13 +546,8 @@
    "condition": "fc6",
    "title": "Concord covers that territory without loss",
    "requirement": "Every enumerated predecessor capability in .concord/docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "validator",
-     "value": "scripts/check-predecessor-coverage.py"
-    }
-   ]
+   "state": "outstanding",
+   "issue": "CON-1347"
   },
   {
    "id": "fc6-consumed-surface-stability",

@@ -1,7 +1,6 @@
 # Concord Self-Documentation
 
 > **Status:** Aligned v4 with CD-0006/CD-0222. Companion to [`README.md`](./README.md),
-> [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`product-data-model.md`](./product-data-model.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
@@ -43,9 +42,7 @@ follows them without restating the ranked list.
   not hidden. A legislator can't govern what they can't read.
 
 ### 1.2 Durable workflow documents, visible
-- Every purpose-built workflow type declares the durable documents/knowledge it
-  produces. The generic one-off type uses a bounded generic record; it does not
-  inherit the implementation workflow's full document set.
+- Every workflow type declares the durable documents/knowledge it produces.
 - These must be **visible** — a user can open Concord and trace any change's full
   document trail, end to end.
 - Not opaque files; **navigable, linked, queryable**.
@@ -125,15 +122,12 @@ in Linear through the Linear MCP server under CD-0213 and never clears that stat
 
 ## 3. Open questions
 
-1. **Doc-store format** — content-addressed files? a doc DB? (Storage authority
-   is settled: current rows and finite snapshots, no event log — CD-0242 D2;
-   couples to `design-constraints.md` §4.)
-2. **Browse UX** — tool-based queries? optional admin panel? both?
-3. **Versioning granularity** — per-document versions, or per-change snapshots?
-4. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
-5. **Staleness signal source** — computed
-   on read from base-branch / dependency timestamps, or derived from another
-   current-state signal?
+1. **Browse UX** — tool-based queries? optional admin panel? both?
+2. **Memory-bounding strategy** — lazy loading, cursor pagination, streaming?
+
+[CD-0242 D1–D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)
+owns Git knowledge and current-state storage; [D7](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)
+owns digest-bound invalidation.
 
 ---
 
@@ -141,7 +135,6 @@ in Linear through the Linear MCP server under CD-0213 and never clears that stat
 
 | Doc | Link |
 |---|---|
-| `feature-inventory.md` §3.12 | The capability entry. |
 | `specs-as-laws.md` | The laws being browsed. |
 | `product-data-model.md` §6 | Law/artifacts scoped to a Product/Domain (locality). |
 | `workflows.md` §2.2–§2.5 | Factored lifecycle, minimal active-work visibility, staleness rules. |

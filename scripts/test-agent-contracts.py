@@ -986,7 +986,11 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
 class ShippedSkillTests(unittest.TestCase):
     NAME = "concord-domain-shape-stewardship"
     COMMANDS = {"product-knowledge-home-designate", "domain-shape-check"}
-    OPERATIONS = {"concord_domain.shape", "concord_domain.footprint"}
+    OPERATIONS = {
+        "concord_domain.shape", "concord_domain.footprint", "concord_domain.list",
+        "concord_product_view.resolve", "concord_product_view.resources",
+        "concord_knowledge.search", "concord_knowledge.resolve_note",
+    }
 
     def content(self):
         return (ROOT / "skills" / self.NAME / "SKILL.md").read_text(encoding="utf-8")
@@ -1100,6 +1104,12 @@ class ShippedSkillTests(unittest.TestCase):
                 self.assertIn("`concord domain-shape-check`", sections[heading])
                 self.assertIn("`concord_domain.", sections[heading])
 
+    def test_shared_investigation_names_its_product_and_knowledge_reads(self):
+        shared = self.content().split("## Shared investigation\n", 1)[1].split("### Shape and verification\n", 1)[0]
+        for read in ("`concord_product_view.resolve`", "`concord_domain.list`", "`concord_knowledge.resolve_note`"):
+            with self.subTest(read=read):
+                self.assertIn(read, shared)
+
     def test_admitted_inventory_is_exact_and_rejects_missing_extra_or_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             skills = Path(temporary)
@@ -1113,6 +1123,10 @@ class ShippedSkillTests(unittest.TestCase):
             extra.write_text("Not admitted")
             self.assertTrue(any("unadmitted.md" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
             extra.unlink()
+            extra_directory = entry / "unadmitted"
+            extra_directory.mkdir()
+            self.assertTrue(any("unadmitted directory" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
+            extra_directory.rmdir()
             content.unlink()
             self.assertTrue(any("missing" in f for f in lane_checker.shipped_skill_inventory_findings(skills)))
             content.symlink_to(skills / "README.md")

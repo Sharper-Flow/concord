@@ -688,8 +688,6 @@ def _check_cd0043_lane_methodology() -> list[str]:
     commands = set(re.findall(r'Canonical: "([a-z][a-z-]+)"', (ROOT / "cmd/concord/main.go").read_text(encoding="utf-8")))
     for name in sorted(ADMITTED_SKILLS):
         path = skills_dir / name / "SKILL.md"
-        if not path.is_file() or path.is_symlink():
-            continue  # The inventory check owns missing or redirected files.
         try:
             content = path.read_text(encoding="utf-8")
             content_findings = shipped_skill_content_findings(content, skill_name=name, commands=commands, operations=operations)

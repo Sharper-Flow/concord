@@ -33,8 +33,10 @@ as an empty result, or replace the source with unreviewed local guidance.
 
 1. Establish the selected Product, its designated knowledge home, registered
    source Projects, current Domain registry, resources, repository subject, and
-   approved change scope. Preserve valid authored identities; a display key is
-   not permission to change a Product or source association.
+   approved change scope. Read them with `concord_product_view.resolve`,
+   `concord_product_view.resources`, and `concord_domain.list`. Preserve valid
+   authored identities; a display key is not permission to change a Product or
+   source association.
 2. Inspect existing knowledge, implementation entry points, tests, operating
    configuration, and available operational evidence before proposing structure.
    Follow state writers, readers, transactions, dependencies, and failure/rebuild
@@ -45,6 +47,8 @@ as an empty result, or replace the source with unreviewed local guidance.
    obligations inside mixed documents; neither a title nor a directory decides
    applicability. Keep reusable Concord requirements, Concord-development-only
    guidance, and the adopting Product's own requirements distinct.
+   Establish a record's accepted status with `concord_knowledge.search` or
+   `concord_knowledge.resolve_note`; a document's wording does not establish it.
 4. Reconcile with canonical owners instead of copying obligations. Preserve
    accepted law, valid identities, and rationale that still explains a constraint.
    Code does not approve law. A fact with `standing: observed` grants no authority;

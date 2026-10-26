@@ -1,17 +1,22 @@
 # Skills
 
-Concord ships no skill, and this directory stays reserved.
+[CD-0245](../.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md)
+D1 admits a skill when it operates a structure that accepted Concord law defines,
+and Concord's checks verify the result. The first such skill is Domain-shape
+stewardship: migration, code-root reorganisation, fact refinement, and gap audit.
 
-[CD-0043](../.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md) D3 closed the
-question this directory used to hold open. Lane methodology — review dimensions,
-verification rubrics, the inspection method for a rendered surface — is host-owned.
-It reaches a worker only through the enumerated `CONCORD_HOST_INSTRUCTIONS` surface,
-bound by content hash into the CD-0034 dispatch provenance manifest. It is never
-durable coordination state, so it is never a Concord skill.
+A shipped skill lives here, installs under the versioned data root through the
+[CD-0063 D2 route](../.concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md#d2-the-installation-is-central-a-project-holds-pointers),
+and changes only with a release. No separate skill-versioning regime exists.
+It calls only Concord operations and the commands the Product declares in
+`.concord/tooling.v1.json`, and names no machine, private repository, or host tool.
 
-The directory remains packaged into releases so a later accepted decision can
-populate it without changing release shape. Its emptiness is a decided state, not an
-unfinished one.
+Lane methodology stays host-owned under
+[CD-0043 D1 and D2](../.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md).
+A skill that tells a worker how to review, verify, or implement inside its lane
+is not admitted. Methodology reaches a worker through the enumerated host
+instruction surface, bound by content hash into dispatch provenance.
 
-Reopening requires a decision that names the consumer, the versioning regime, and
-why the provenance-recorded host surface is insufficient.
+Admission does not establish implementation or conformance. A shipped skill
+never substitutes for a check and holds no independent evidence, approval, or
+law authority.

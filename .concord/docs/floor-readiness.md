@@ -24,19 +24,17 @@ CI validates the manifest, and the alpha rung of
 to stay met. Concord's current direction is in [`goals.md`](./goals.md) and
 [`priorities.md`](./priorities.md). The manifest copies the six condition titles below.
 
-1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
+1. The operator can see, plan, and act across the full Product scope through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable, not that a result set spans Products. The host starts operator sessions, and agents enter managed work through `concord_work_start` under [CD-0219 D4](./decisions/CD-0219-the-terminal-launcher-tui-is-retired.md#d4-kept-clauses-keep-their-surviving-owners). Planning stays in Linear through the Linear MCP server under [CD-0213 D1](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority); managed work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
-3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
+3. Every supported workflow family (implementation, break-fix, research) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
-5. Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution).
+5. Concord-owned data and workflow boundaries preserve data safety (bounded writer admission, no hand-repair, safe evolution).
 6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
 ## Why it is a manifest
 
 The floor is the gate for a replacement-readiness claim. A checklist that asserts its own
-authority drifts silently, which is the failure
-[`feature-inventory.md`](./feature-inventory.md) avoids by declaring itself
-non-authorizing.
+authority drifts silently.
 
 Authority here comes from mechanical checking rather than assertion. The
 validator rejects a satisfied item whose evidence does not resolve to an
@@ -77,11 +75,10 @@ manifest alone constitutes a replacement-readiness claim: a claim requires every
 condition satisfied, and satisfaction is judged against each condition's
 source section, not against the manifest.
 
-It does not replace [`feature-inventory.md`](./feature-inventory.md). That
-document remains a non-authorizing capability-evidence map organized by
-lineage. This manifest is the authorizing readiness record and cites evidence
-rather than surveying capability.
+This manifest is the authorizing readiness record and cites evidence rather than
+surveying capability.
 
 It does not change the development-authority model in
-[`managed-development-authority.md`](./managed-development-authority.md); public issues and
-pull requests continue to own planned work and merge evidence.
+[`managed-development-authority.md`](./managed-development-authority.md): Linear
+through the Linear MCP server owns planning, and pull requests with required
+checks own review and merge evidence.

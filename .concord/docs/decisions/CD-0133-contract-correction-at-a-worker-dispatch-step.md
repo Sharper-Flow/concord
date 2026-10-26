@@ -4,7 +4,7 @@
 - **Date:** 2026-09-10
 - **Scope:** Operator-approved contract correction before dispatch, after recorded failure, and after disposed refinement review evidence
 - **Approval:** The operator approved the bounded correction route and its refinement review-evidence extension on 2026-10-06.
-- **Related:** CD-0013, CD-0059, CD-0130
+- **Related:** CD-0013, CD-0059
 - **Refines:** CD-0128
 - **Preserves:** Worker attempt identity and operator authority.
 

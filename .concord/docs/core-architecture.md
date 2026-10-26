@@ -5,7 +5,7 @@
 > **Purpose:** Record the Go-core language direction and the consolidated resilience invariant set that any core topology must satisfy. State authority is settled elsewhere (see §0).
 > This is the single place a reader looks to understand how the runtime is layered.
 
-> **Authority:** [`priorities.md`](./priorities.md) is canonical for ranked priorities and the operating envelope; this document is a companion that records an architecture direction within those constraints.
+> **Authority:** [`goals.md`](./goals.md) owns the unranked goals and conflict rules; [`priorities.md`](./priorities.md) owns the operating envelope and standing law. This document records an architecture direction within those constraints.
 
 ---
 
@@ -61,8 +61,9 @@ catalog. Go-core is greenfield Concord code.
   orchestration, evidence policies.
 - Read-model projections: bounded Product-scoped reads, staleness computation,
   typed degradation.
-- Typed recovery and degradation: reconcile → repair → rebuild → destroy ladder;
-  `Stale` / `Degraded` / `Unreconciled` / `Partial` verdicts.
+- Typed recovery and degradation: reconcile current rows, restore verified
+  snapshots, and reconcile Git, worktrees, artifacts, and external effects
+  ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Validation, authorization, and approval enforcement at the domain boundary.
 - Remote-procedure-call (RPC) contract definition and all non-OpenCode business logic.
 
@@ -122,11 +123,11 @@ is stated once; companion documents reference this section rather than restating
 | 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
 | 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-attempts-carry-their-own-authority-not-a-budget)). |
-| 8 | **Bounded writer admission** | Priority 2 | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
-| 9 | **Bounded authoritative reads** | Priority 4 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
-| 10 | **Typed degradation** | Priority 4 | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
-| 11 | **Single-source definitions** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
-| 12 | **Architecture-bound Product truth** | Priority 1 | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
+| 8 | **Bounded writer admission** | [Data safety](./priorities.md#data-safety-constraint) | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
+| 9 | **Bounded authoritative reads** | [Visibility and continuity](./priorities.md#visibility-and-continuity) | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
+| 10 | **Typed degradation** | [Visibility and continuity](./priorities.md#visibility-and-continuity) | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
+| 11 | **Single-source definitions** | [Data safety](./priorities.md#data-safety-constraint), [Composable workflows](./priorities.md#composable-workflows-goal-c) | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
+| 12 | **Architecture-bound Product truth** | [Product law and Domain architecture](./priorities.md#product-law-and-domain-architecture-goal-a) | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
 A Go core topology must satisfy all twelve invariants. The first eleven derive
 from the public predecessor postmortem's failure classes. Architecture-bound
@@ -147,8 +148,8 @@ This table records accepted architecture decisions:
 | **Migrations / schema evolution** | **Resolved by [CD-0242](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md):** schema and workflow-definition changes migrate current rows and keep finite verified snapshots; no upcasters, deterministic replay, or retained released-definition versions exist ([CD-0242 D2](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history), [CD-0242 D14](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). | [`decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md`](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) (D2, D14); CD-0002 §7. |
 | **Product architecture and concurrent-law coordination** | **Resolved by CD-0222:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
-All rows in this table are defined explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
-implication from Go, storage, or CLI choice.
+All rows in this table are defined explicitly by the product-memory contracts and
+CD-0005/CD-0008/CD-0222—not by implication from Go, storage, or CLI choice.
 
 ---
 
@@ -163,7 +164,7 @@ details; this table does not duplicate them.
 | CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
 | Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
 | Adapter transport and native workers | `adapter/opencode/concord.ts`, `adapter/opencode/dispatch.ts`, `adapter/opencode/packet.ts` | `dispatch.test.ts`, `lane_dispatch.test.ts`, report-protocol tests |
-| SQLite and event authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | One pooled connection; `txscope_test.go`, `tx_subprocess_guard_test.go` |
+| SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | One pooled connection; `txscope_test.go`, `tx_subprocess_guard_test.go` |
 | Work context and evidence | `internal/store/work_context.go`, `internal/store/worker_packet_binding.go`, `internal/store/worker_context_findings.go` | Declared sources, frontier, exact subject and attempt; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and shared-write checks |
 | Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
@@ -176,15 +177,14 @@ details; this table does not duplicate them.
 
 | Doc | Link | Relationship |
 |---|---|---|
-| [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
+| [`priorities.md`](./priorities.md) | Canonical authority | Operating envelope and standing law under the unranked goals and conflict rules in [`goals.md`](./goals.md). |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
+| [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | The product-memory contracts shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
 | [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), composed from shared parts at the size the decision model sets (§7). |
-| [`feature-inventory.md`](./feature-inventory.md) | Capability inventory | Compilation decision updated to reference this document. |
 
 ---
 

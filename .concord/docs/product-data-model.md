@@ -1,7 +1,6 @@
 # Concord Product Data Model
 
 > **Status:** Aligned v4 under CD-0222. Companion to [`README.md`](./README.md),
-> [`feature-inventory.md`](./feature-inventory.md),
 > [`design-constraints.md`](./design-constraints.md),
 > [`self-documentation.md`](./self-documentation.md),
 > [`workflows.md`](./workflows.md).
@@ -41,7 +40,7 @@ follows them without restating the ranked list.
   members.
 - It does **not** build bridges/connectors/integrations to them. No Supabase
   client, no Azure SDK calls from the ownership model.
-- **Live status** (inventory §3.9) is a *separate, opt-in* signal layer — and
+- **Live status** is a *separate, opt-in* signal layer — and
   even there, signals are opaque pulled-in facts, not authoritative ownership.
 - **Why:** keeps the model simple, stable, and free of external-system coupling.
   A Product's ownership census is true regardless of whether any external system
@@ -136,7 +135,7 @@ Product {
   stage: { maturity, audience_commitment }, // §8 — default for owned members
   projects: [
     { project_id, role, knowledge_locator_id?,
-      locators: [{ id, kind: repo, path?, remote?, adv_project_id? }] }
+      locators: [{ id, kind: repo, path?, remote? }] }
   ],                                    // accepted PM5 membership
   knowledge_home?: { project_id, locator_id }, // accepted PM6 placement
   resource_links: [
@@ -186,8 +185,10 @@ a flat list of changes or workflows.
   signals.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
-- Linear Projects and Initiatives may group planning work across Domains, but
-  Concord has no grouping projection. Linear grouping supplies no architecture truth.
+- Product-scoped Initiative planning context lives only in Linear under
+  [CD-0213 D1/D4](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority).
+  Concord stores no Initiative or grouping projection; planning context supplies
+  no architecture authority.
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not in the default view.
 
@@ -217,9 +218,10 @@ This is a property of the read surfaces, not an optional filter.
 > below are decided; the mapping from stage to concrete evidence requirements is
 > not (§12).
 
-[`priorities.md`](./priorities.md) §3 names **proportional rigor** — "the depth
-of process matches the risk of the work" — as a quality attribute. Nothing in the
-model declared that risk. Lifecycle stage is the declaration.
+[`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e) names
+**proportional rigor** as a quality attribute. Declared lifecycle stage is one
+input to the decision model, alongside the change inputs in
+[`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery).
 
 ### 8.1 Two axes, deliberately separate
 
@@ -259,12 +261,11 @@ describes what the operator has committed to keeping true.
 
 ### 8.4 What stage governs
 
-Stage governs the **evidence bar**: what depth of testing is expected, what proof
-of testing is required before work is called done, and how strictly review and
-gates apply.
-
-Stage does **not** change the workflow shape. A prototype does not skip gates; it
-satisfies them with proportionate evidence.
+Stage is one input to the decision model's minimum steps, proof, and testing,
+not a fixed workflow shape. See
+[`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery) and
+[`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e).
+Mandatory stages and operator approvals cannot be waived (CD-0242 D4).
 
 **No stage is an evidence exemption.** The lowest maturity still requires proof
 that the work does what it claims. What changes is the weight of that proof — a
@@ -357,12 +358,8 @@ question is:
 
 | Doc | Link |
 |---|---|
-| `feature-inventory.md` §3.1 | The Product entity feature — this doc details its data model. |
-| `feature-inventory.md` §3.3 | Signal ingestion is the *live* layer; ownership is the *declarative* layer. Distinct. |
-| `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
-| `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
 | [CD-0222](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
-| `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
+| [`priorities.md` — Quality (goal E)](./priorities.md#quality-goal-e) | Proportional rigor is the quality attribute that §8 supplies an input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |

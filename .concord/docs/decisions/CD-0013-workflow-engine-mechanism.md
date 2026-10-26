@@ -5,7 +5,7 @@
 **Date:** 2026-08-08
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
-**Reviewer:** Independent review per [`architecture-spike.md`](../architecture-spike.md) §5; five rounds, approved.
+**Reviewer:** Independent review; five rounds, approved.
 **Scope:** Workflow engine authority, definition registry, instance lifecycle, progression,
 evidence binding, outcome verification, impact propagation, and the durable shapes a
 workflow engine must add to the existing storage spine.
@@ -25,10 +25,6 @@ strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
 outcome-contract acceptance criterion 3 (vacuity is judged at review).
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D7, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
-**Historical surface note:** CD-0042 supersedes the pre-go-live agent-surface
-version, negotiation, migration, and deprecation requirements described in D11.
-Those passages remain historical evidence for the workflow-engine amendment, not
-current compatibility policy.
 
 ## Context
 
@@ -40,7 +36,7 @@ and a strengthening-only delivery comparison; Review reports one disposition and
 
 The accepted law already defines:
 
-- seven required workflow families with documented shapes and completion verbs;
+- three live workflow families with documented shapes and completion verbs;
 - composition as forward-linked successors with no nested child execution;
 - one durable transaction per logical step;
 - attempt-epoch fencing for cross-authority and external-effect steps;
@@ -59,10 +55,9 @@ The accepted law does **not** yet:
 - name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`) and how
   they surface as impact notices.
 
-CD-0007 §D6 fixes the required workflow catalog at implementation, break-fix/RCA,
-research/investigation, architecture spike, ops runbook, static-analysis family, and
-generic one-off, plus the equivalence of database/configuration/infrastructure work
-to implementation or ops.
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+fixes the live workflow catalog at implementation, break-fix/RCA, and
+research/investigation.
 
 This decision resolves the design choices still named as deferred by CD-0012 and adds
 the implementation contract the engine needs.
@@ -109,21 +104,14 @@ check:
   expected_result: <closed value>
 ```
 
-`outcome` resolves research to `no_change` and architecture spikes to
-`accepted_decision` or `insufficient_evidence`. The generic one-off family permits
-both `outcome` and `check`. Implementation, break-fix, ops runbook, and static
-analysis use only `exists`, `absent`, and `check`.
+Research uses `outcome` with `no_change`, `resolved`, or `report_recorded`.
+Implementation and break-fix use only `exists`, `absent`, and `check`
+([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)).
 
 An `outcome` token is never self-satisfying. The contract's `required_evidence` must
 name the artifact that makes the token true, and completion refuses until that
-evidence is bound. For an architecture spike this is mandatory and specific: both
-`accepted_decision` and `insufficient_evidence` require a bound, reviewer-validated,
-operator-accepted decision record carrying every field required by
-[`architecture-spike.md`](../architecture-spike.md) §3 — framed questions, options
-considered, decision, rationale, consequences, inputs, proof of concept (POC) findings where one was
-built, and supersession position. `insufficient_evidence` additionally requires the
-recorded unknowns and what would be required to decide. An unaccepted record does
-not satisfy the predicate and does not unblock dependent Epic entries.
+evidence is bound. Research reports do not enact binding Product law; decision
+records follow [CD-0175](CD-0175-decision-record-outline.md).
 
 Predicates are not nested. Strength comparison is mechanical for `exists`/`absent`
 (set-theoretic inclusion), trivial for `outcome` (membership in allowed set), and
@@ -150,13 +138,15 @@ Actor identity stays the existing authenticated tuple.
 - Approvals use the existing `ApprovalCheck{OperationDigest, Scope, Versions,
   Consequence}` chain with `Consequence=workflow_action` already reserved in the
   schema.
-- External conditions use current condition rows (D2). No
-  resolver exists in the runtime today; the engine must add one bound to the closed
-  `await_type` set — `pr_merge`, `ci_result`, `timer`, `human_approval`,
-  `remote_work_state` — where resolution is an attributable record carrying the
-  owning authority's evidence. Evaluation happens on explicit request and at
-  consequential boundaries only. No wait authority is created outside that
-  resolver.
+- External conditions use current condition rows (D2). No retained family
+  declares a condition action, and the engine has no resolver or wait authority
+  ([CD-0234 D1–D2](CD-0234-the-engine-has-no-external-condition-resolver.md)).
+  An open condition refuses consequential actions before any write and stays
+  readable. A later accepted decision adding a condition action must also add a
+  resolver bound to the closed `await_type` set — `pr_merge`, `ci_result`,
+  `timer`, `human_approval`, `remote_work_state`. It evaluates only on explicit
+  request and at consequential boundaries, and resolves only with the owning
+  authority's evidence.
 - `durable_operations` and the attempt-epoch fence remain the only step-claim
   authority; the store records each step result as a current row, not duplicated state.
 
@@ -196,10 +186,8 @@ revision through contract supersession reuses the same machinery and records a
 
 ### D8. Composition is forward-link only
 
-Forward-linked successors use the closed `forward_link` relation kind; the relation is a current row written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No parent waiting, no nested child execution. A
-spike never nests under another spike. An implementation change does not nest
-under a research workflow. The generic one-off type may forward-link to any other
-family.
+Forward-linked successors use the closed `forward_link` relation kind; the relation is a current row written in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No parent waiting, no nested child execution. An
+implementation change does not nest under a research workflow.
 
 ### D9. Spec mandate extends, not replaces, CD-0006 D10
 
@@ -234,17 +222,14 @@ error kinds wherever one already fits — `missing_evidence`, `unauthorized`,
 `stale_requires_review`, `version_conflict` — each paired with the recovery action
 the envelope schema already requires for it.
 
-CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error, and the
-closed error enum in `contracts/agent-tool-envelope.schema.json` does not contain one
-today. This decision therefore amends the envelope contract to add exactly one error
-kind, `outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
+CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error. The
+closed error enum in `contracts/agent-tool-envelope.schema.json` carries
+`outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
 delivery that answers a criterion the active contract does not approve. A weaker or
 incomparable delivery has no criterion proof and is refused as missing evidence
-(CD-0235 D2). That amendment is a MAJOR
-tool-surface change under TS8; D11 records the process it must follow. No other error
-kind is added and no existing kind changes meaning.
+(CD-0235 D2). D11 and TS8 govern changes to the current generated surface.
 
-### D11. Public surface for workflow actions stays reserved
+### D11. Workflow actions use the current generated agent surface
 
 Definitions declaring `approval_policy=consequence_v1` use the following consent contract. Definitions generate from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
@@ -288,7 +273,7 @@ consent policy.
 
 The shared admission derivation owns class-dependent questions and next actions. Every removed consent gate retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
 
-At the negotiated operation surface, removal, cancellation, repair,
+At the current operation surface, removal, cancellation, repair,
 reconciliation, research-pack retirement, overlap resolution, membership
 changes, delivery correction, and note publication require operator consent
 only when a CD-0243 D2 class applies. Governing-requirement scope cuts remain
@@ -306,38 +291,28 @@ supply authority. The six-class inventory and runtime alignment remain
 implementation obligations under CD-0243 D6; an unaligned gate is not a bypass
 route.
 
-New live-family definition versions declare this policy and require explicit classification. Retired families remain historical and gain no new authoring route. Changed closed contracts follow the major surface and migration rules; definitions generate from one canonical source ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Live-family definitions declare this policy and require explicit classification. Retired families gain no new authoring route. Definitions generate from one canonical source with no released definition version retained for history ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-`concord_work_transition.workflow_action` already exists in the agent manifest,
-capability map, consequence class, and envelope schema. Until this engine ships,
-`WorkflowActionAvailable()` returns `false` and the operation is refused
-structurally (CD-0005 D8 evolution rule). When the engine ships:
+[CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)
+owns the current agent-tool contract identity, its digest binding, and
+fail-closed mismatch.
+
+`concord_work_transition.workflow_action` is declared in the current manifest,
+capability map, consequence class, and strict envelope schema:
 
 - `WorkflowActionAvailable()` returns `true` only when the selected definition's
   digest matches a registered entry.
-- The dispatcher validates the action payload against the definition's
-  `available_actions`, the running actor tuple, and the current step.
+- The dispatcher validates the action payload against its strict schema, the
+  definition's `available_actions`, the running actor tuple, and the current
+  step. Unknown fields and unsupported discriminants fail closed.
 
 `workflow_action` remains the only surface for advancing a workflow. Free-form
 advancement is not accepted.
 
-Adding the `outcome_mismatch` error discriminant required by D10 is the shipped **MAJOR**
-surface change under TS8's evolution rules, because it extends a closed error enum
-that clients match exhaustively. The shipping change carries every TS8 MAJOR
-requirement, without substitution:
-
-1. named failing/passing TS1 scenario or TS9 removal evidence;
-2. canonical manifest, schema, and docs updated in one change, with a new digest;
-3. migration guidance and replacement mapping for the prior surface version;
-4. old/new adapter↔core compatibility tests across the supported version matrix;
-5. durable-operation and in-flight-work continuity across the version change,
-   bound to current state (CD-0242 D2); and
-6. explicit operator acceptance.
-
-Regenerated Go and TypeScript artifacts, updated envelope fixtures, signed version
-negotiation against the new supported range, and the bounded deprecation window
-follow from those requirements. No alias, shim, or silent dual-acceptance is
-introduced.
+[`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) (TS8)
+§2 owns the change rule and required evidence for changes to closed
+discriminants, including `outcome_mismatch`, governed before go-live by
+[CD-0042 D3–D4](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted).
 
 ### D12. Staleness is structurally evaluated at consequential boundaries
 
@@ -347,7 +322,7 @@ A record is stale exactly when a revision, candidate, or input digest it depende
 
 Recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### D14. The seven families each bind to a concrete predicate form
+### D14. The live families each bind to a concrete predicate form
 
 The families' predicate contract is generated from the one canonical source; adding a family or a default predicate form requires an accepted decision ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
@@ -382,7 +357,6 @@ The implementation acceptance suite must exercise:
 15. The lowest maturity × audience band still requires an approved contract; only
     proof depth differs.
 16. Research `no_change` satisfies the required end-state.
-17. Architecture spike `insufficient_evidence` satisfies the required end-state.
 18. Completion where all postconditions pass but the premise is unconfirmed does
     not reach an accepted terminal state.
 19. Contract + verdict + evidence + terminal metadata commit in one transaction.
@@ -401,9 +375,12 @@ The implementation acceptance suite must exercise:
 
 ### External conditions
 
-26. Each closed `await_type` evaluates through the resolver this decision requires
-    the engine to add, on explicit request and at consequential boundaries only,
-    and resolves only with its owning authority's evidence.
+26. No retained family declares a condition action and no resolver exists. An
+    open condition refuses consequential actions before any write and stays
+    readable. A condition action requires an accepted decision adding a resolver
+    bound to the closed `await_type` set, evaluating only on explicit request and
+    at consequential boundaries, with owning-authority resolution evidence
+    (CD-0234 D1–D2).
 27. Conditions participate in ordinary `blocks` relations and inherit CD-0008 D3
     unreadable-record semantics.
 28. No polling, no timer daemon, no automatic downstream rewrite.
@@ -424,9 +401,7 @@ The implementation acceptance suite must exercise:
 
 32. A workflow creates a forward-linked successor and finishes; both retain
     independent authority and recovery.
-33. A spike does not nest under another spike; a change does not nest under
-    research.
-34. A generic one-off forwards to any other family without copying semantics.
+33. An implementation change does not nest under research.
 
 ### Reconstruction
 
@@ -482,7 +457,7 @@ This decision produces:
 - `contracts/workflow-outcome.schema.json` — closed outcome payload schema;
 - `.concord/scenarios/workflow-engine.v1.json` — the conformance scenario carriers listed
   above;
-- typed Go built-ins for each of the seven families;
+- typed Go built-ins for each live family;
 - generated manifest extensions for `workflow_action`.
 
 ## Consequences
@@ -497,7 +472,7 @@ This decision produces:
   concrete; the remaining open items (cross-item outcome attribution, downstream
   notice class for end-state revisions) become behavior of the impact-propagation
   machinery.
-- The seven required families become first-class workflow definitions generated
+- The three live families become first-class workflow definitions generated
   from Go, exposed through the reserved `workflow_action` operation, and backed by
   the existing `durable_operations` claim/complete fence.
 - Recovery uses verified snapshots with tested restore; workflow state lives only as current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
@@ -568,8 +543,7 @@ stays fail-closed until the latest approved predicates are healthy.
 | `.concord/docs/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and recovery. |
 | `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, Main-recorded review verdicts, and strengthening-only comparison. |
 | `.concord/docs/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
-| `.concord/docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |
-| `.concord/docs/architecture-spike.md` | Anchors the architecture-spike family to `outcome` predicate and the decision record schema. |
+| `.concord/docs/workflows.md` | Resolves the live-family shape with a single machine contract. |
 | `.concord/docs/priorities.md` | New decision-tracker row; no priority reordering. |
 | `.concord/docs/rollout-plan.md` | New entry condition: workflow engine shipped before any non-trivial advancement through `workflow_action`. |
 | `.concord/docs/README.md` | Companion-table row; status prose adjusted. |

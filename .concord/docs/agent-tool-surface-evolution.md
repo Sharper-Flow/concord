@@ -20,7 +20,7 @@ Other admission, safety, evidence, and historical-pin requirements remain requir
 No replay evidence exists; surface-change evidence is bound to its subject
 ([CD-0242](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 and D8).
 
-CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed closed decision-domain and consequence-summary contracts follow a major surface cutover, with regenerated projections, fail-closed old-client negotiation, historical decoders, and evidence bound to its subject ([CD-0242 D8](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject)). Released workflow definition content and active pins do not change implicitly.
+CD-0013 D11 determines which overlap answers require consent; all retain exact work/version and judged-content authority. Changed contracts and projections derive from one canonical source under [CD-0242 D14](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source), with no workflow-definition version retained for history. Sections 1–3 govern current manifest identity and fail-closed digest matching; [CD-0242 D8](decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d8-evidence-is-captured-by-its-producer-and-bound-to-its-subject) owns subject-bound evidence.
 
 
 The binding contract is sections 1 through 3: the canonical manifest as the

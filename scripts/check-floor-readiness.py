@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from coverage_state import valid_issue_pointer  # noqa: E402
 from evidence_anchors import check_anchor  # noqa: E402
 
 MANIFEST = ROOT / ".concord/docs/floor-readiness.v1.json"
@@ -430,8 +431,8 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str], *
         if state == "outstanding":
             if reason is not None:
                 findings.append(f"{prefix}: outstanding item must not carry reason")
-            if not isinstance(issue, int) or isinstance(issue, bool) or not 1 <= issue <= 1000000:
-                findings.append(f"{prefix}: outstanding item requires a tracking issue number")
+            if not valid_issue_pointer(issue) or (isinstance(issue, int) and issue > 1000000):
+                findings.append(f"{prefix}: outstanding item requires a tracking issue number or Linear issue identifier")
             continue
 
         if issue is not None:

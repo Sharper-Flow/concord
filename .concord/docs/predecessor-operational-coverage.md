@@ -66,18 +66,6 @@ capability delivered through a smaller or differently-shaped Concord mechanism i
 covered. A capability whose code exists but has no reachable operator or agent
 surface is **not covered** — unreachable code produces no outcome.
 
-### Relationship to `feature-inventory.md`
-
-[`feature-inventory.md`](./feature-inventory.md) is a **non-authorizing capability
-lineage map**, organized around predecessor tool names and bucketed
-Transfer / Refactor / New. It answers "where did this capability come from."
-
-This document is **authorizing for coverage** and organized by territory. It
-answers "can Concord produce this outcome today." The two do not overlap in
-authority: the inventory never records readiness, and this document never records
-lineage. Where they disagree about whether something exists, this document's
-evidence paths win, because they are checked.
-
 ---
 
 ## 1. Product-scoped planning
@@ -143,9 +131,9 @@ The spec-driven lifecycle from confirmed intent to released, evidenced change.
 | Isolate each unit of work in its own git worktree | Covered | `internal/store/worktrees.go` owns worktree creation as one durable cross-authority operation (atomic claim, probe-before-create, verify, append verified locator, reconcile on interruption) and reclamation from git facts; a second active worktree for the same set is refused. Reachable as `concord_work_transition.worktree_claim` / `.worktree_reclaim`, with the locator inputs (branch, base SHA, path) derived by the `concord worktree-locate` read verb — the named owner of the locator policy (issue #316) — so a caller reaches the claim with authority-derived intent instead of per-session conventions; `cmd/concord/worktree_locate_test.go` proves the located intent is accepted on the first attempt. Refusing mutating grants bound to the main checkout stands beside it in `internal/agent/authority.go`. |
 | Refuse raw file writes (edit, write, delete) to the trunk checkout through host tooling | Excluded | CD-0072: the predecessor enforced this half in an editor-host hook that intercepted write, edit, and destructive shell calls before execution, and no Concord surface can hold that control — `capability-placement.md` §1 does not list an interception point inside another tool's write path among Concord's surfaces, and a host script cannot intercept a call another tool makes. The operator accepted losing the enforcement on 2026-08-21 rather than shipping an editor plugin. Grant-level main-checkout refusal, the one-active-worktree-per-Project refusal, and git-fact reclamation remain in force and are not equivalent to the predecessor's combined guarantee. |
 | Sub-divide a change into an ordered task graph with per-task evidence policy | Excluded | CD-0013 makes the workflow step the unit of execution authority, with evidence obligations declared per workflow definition. A second sub-unit with its own evidence model would duplicate that authority. |
-| Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Concord coordinates such work through the `static_analysis` workflow type and records its verdict; it does not implement scanners. |
+| Run quality scanners over a change — code smell, architectural inconsistency, competitive comparison, optimization survey | Excluded | [`capability-placement.md`](./capability-placement.md) §3: analysis tooling is an external native authority. Tracked analysis uses a retained workflow family and records the external run's scope, report, and evidence (`workflows.md` §5); Concord does not implement scanners. |
 | Obtain an acceptance verdict from an authority the implementing agent cannot read or influence | Covered | CD-0013 D5 and CD-0017 D4 hold the influence half; CD-0023 read-scopes the recorded verdict so every session except the recorded executing actor audits it (`internal/agent/verdict_scope_test.go`). |
-| Track a small, well-understood durable change without the full spec-driven lifecycle | Covered | `generic_one_off` workflow definition (`define` → `execute` → `verify` → `complete`), `internal/store/workflow_registry.go` |
+| Track a small, well-understood durable change without the full spec-driven lifecycle | Not covered | CD-0229 D5 and CD-0242 D4 require a size-selected small composition, but `internal/store/workflow_composition.go` registers one full implementation composition. The small-work and resize-continuity proofs remain outstanding. Retiring `generic_one_off` under CD-0218 D1 does not satisfy those obligations. |
 | Obtain a review verdict on rendered visual or frontend output | Covered | `record_verdict` and the `EvidenceReview` requirement carry a review verdict regardless of which surface the reviewer inspected, `internal/store/workflow_registry.go`; the refusal of a verdict recorded by the executing Implement actor is enforced in `internal/store/workflow_completion.go` ([CD-0242 D5](./decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). Which surface a reviewer examines is lane methodology, host-owned under [CD-0043](./decisions/CD-0043-host-owned-lane-methodology.md) D1–D2: it reaches a dispatch only through the enumerated `CONCORD_HOST_INSTRUCTIONS` provenance surface and is never durable coordination state. Concord owes no skill here — the same coordination/analysis split this section applies to quality scanners. |
 
 ## 4. Research and investigation
@@ -155,7 +143,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Track an independent investigation as first-class work with its own completion evidence | Covered | `research` workflow definition, `internal/store/workflow_registry.go` |
-| Explore a bounded architectural question, record options, and reach a recorded decision | Covered | `architecture_spike` workflow definition, `internal/store/workflow_registry.go` |
+| Explore a bounded architectural question, record options, and reach a recorded decision | Covered | Research records findings; implementation's `record_design` records questions, choices, rationale, and rejected options (`internal/store/workflow_design.go`), with the Review prerequisite tested in `internal/store/workflow_architecture_review_gate_test.go` (CD-0242 D4–D5). Research alone enacts no law and this claim does not discharge CD-0215 D2's separate-decision obligation or claim a research-to-implementation successor route. |
 | Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0216) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0216). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `supersede_contract` in `internal/store/workflow_event_constructors.go` |
@@ -215,14 +203,15 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 50 |
-| Not covered | 1 |
+| Covered | 49 |
+| Not covered | 2 |
 | Excluded with reason | 24 |
 
 **Total enumerated outcomes: 75.**
 
-One enumerated outcome is not covered: no current control dispatches the Research
-lane in an end-to-end workflow. Every other outcome is covered with evidence or
+Two enumerated outcomes are not covered: no current control dispatches the Research
+lane in an end-to-end workflow, and the size-selected small implementation route
+remains unproved. Every other outcome is covered with evidence or
 excluded with an accepted reason. CD-0213 excludes Concord Initiative authoring and
 membership from runtime coverage; Linear MCP owns those planning outcomes.
 
@@ -242,9 +231,8 @@ authority. The reliance is therefore zero, and the stability question resolves
 without needing a stability assessment.
 
 Predecessor *documents* remain design evidence — see
-[`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) and
-[`feature-inventory.md`](./feature-inventory.md) — but a document read during
-design is not a consumed runtime surface.
+[`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) — but a
+document read during design is not a consumed runtime surface.
 
 If Concord later consumes a predecessor surface at runtime, this section must be
 replaced with a real per-surface stability assessment before any condition-6 claim.

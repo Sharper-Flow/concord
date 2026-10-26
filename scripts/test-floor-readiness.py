@@ -175,6 +175,33 @@ def test_outstanding_item_requires_issue() -> None:
     assert_rejected(value, "requires a tracking issue number")
 
 
+def test_outstanding_item_accepts_linear_issue_identifiers() -> None:
+    for issue in ("CON-1347", "ENG2-5", "A-1"):
+        value = fixture()
+        value["items"][1]["issue"] = issue
+        found = findings_for(value)
+        assert found == [], (issue, found)
+
+
+def test_outstanding_item_accepts_bounded_legacy_issue_numbers() -> None:
+    for issue in (1, 74, 1000000):
+        value = fixture()
+        value["items"][1]["issue"] = issue
+        found = findings_for(value)
+        assert found == [], (issue, found)
+
+
+def test_outstanding_item_rejects_invalid_issue_pointers() -> None:
+    for issue in (
+        0, -1, 1000001, False, 1.0, None, [], {},
+        "", "74", "con-1347", "2ENG-5", "CON-0", "CON-01", "CON--1",
+        "CON-1.0", "CON_1", " CON-1347", "CON-1347 ", "CON-1347\n",
+    ):
+        value = fixture()
+        value["items"][1]["issue"] = issue
+        assert_rejected(value, "requires a tracking issue number")
+
+
 def test_outstanding_item_rejects_evidence() -> None:
     value = fixture()
     value["items"][1]["evidence"] = [dict(RESOLVED_ANCHOR)]
@@ -294,6 +321,18 @@ def test_repository_schema_matches_validator_constants() -> None:
     assert set(schema["properties"]["items"]["items"]["required"]) == checker.REQUIRED_ITEM
     assert tuple(schema["properties"]["items"]["items"]["properties"]["state"]["enum"]) == checker.STATES
     assert schema["properties"]["schema_version"]["const"] == checker.SCHEMA_VERSION
+
+
+def test_repository_schema_issue_pointer_union() -> None:
+    schema = json.loads(checker.SCHEMA.read_text(encoding="utf-8"))
+    issue = dict(schema["properties"]["items"]["items"]["properties"]["issue"])
+    issue.pop("description")
+    assert issue == {
+        "oneOf": [
+            {"type": "integer", "minimum": 1, "maximum": 1000000},
+            {"type": "string", "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$"},
+        ]
+    }, issue
 
 
 def test_repository_manifest_passes_validation() -> None:

@@ -30,10 +30,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0130"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0128"
     }
   ],
@@ -45,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1ae1e7b64f226a8d0a09aeb391ce21c561d48bd884a4608f4d7181d88c39d3c8",
+  "sha256": "sha256:ac43c51a75e796089e8f5383ca00fc6497eca6ea86ff1d6d20bc850729e4e49c",
   "status": "accepted",
   "summary": "Admits operator-approved contract correction before dispatch, after recorded failure, or after refinement review evidence acceptance when every current authorization has a terminal disposition. Exact approval, atomic design replacement, no definition change, worker fences, audit history, and overlap checks remain required.",
   "tags": [

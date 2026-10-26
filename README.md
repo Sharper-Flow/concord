@@ -83,8 +83,9 @@ Inspect the [authorization checks](internal/agent/authority.go),
 
 ### Explicit durability boundaries
 
-SQLite holds transactional execution state and durable event history. The store
-uses `synchronous=FULL` for designated durable transactions, then restores
+SQLite holds current execution state and unresolved-effect receipts, not durable
+event history. The store uses `synchronous=FULL` for designated durable
+transactions, then restores
 `synchronous=NORMAL` for ordinary writes. A pinned reader does not prevent the
 durable commit. The distinction makes the durability cost explicit rather than
 claiming that every write has the same crash guarantee.
@@ -111,7 +112,7 @@ transaction phase during install, upgrade, and uninstall. The
 flowchart LR
     Host["OpenCode · operator and agents"] --> Adapter["TypeScript adapter"]
     Adapter -->|typed operations| Core["Go core · authorization and workflow"]
-    Core --> Store[("SQLite · state, events, evidence")]
+    Core --> Store[("SQLite · current state, effects, evidence")]
 ```
 
 - **One core owns the rules.** Go owns domain logic and workflow admission. The
@@ -219,10 +220,6 @@ shows admission and explicit selection without running tests or discovery.
 The next development directions extend the same authority and evidence model.
 These are not shipped features or release-date commitments:
 
-- **Bounded implementation jobs.** Give each job an explicit production-size
-  limit and require oversized work to split instead of raising the limit.
-- **Review of suggested fixes.** Carry proposed patches with review findings.
-  A separate reviewer checks the corrections. Each install chooses reviewer models.
 - **Release compatibility.** Expand release gates to exercise snapshot restoration
   across earlier released binaries and candidate releases.
 

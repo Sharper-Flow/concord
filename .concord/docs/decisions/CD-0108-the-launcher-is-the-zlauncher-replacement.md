@@ -55,7 +55,7 @@ surface.
 - No acceptance gate transfers to the host start or to managed
   entry.
 - Documents that restate the R1 split (`design-constraints.md` §6,
-  `workflows.md` §0, `feature-inventory.md` §3.10,
+  `workflows.md` §0,
   `self-documentation.md` §1.1) follow this record's host-owned session boundary.
 
 ## Rejected alternatives

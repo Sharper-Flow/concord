@@ -193,7 +193,6 @@ not claim those runtime outcomes are complete.
 
 | Doc | Link |
 |---|---|
-| `feature-inventory.md` §2.8 | The capability entry. |
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws; law-change authority follows CD-0230 D4. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and digest-based staleness on law supersession (CD-0242 D7). |

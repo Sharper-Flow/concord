@@ -126,7 +126,7 @@ tool does not move the boundary for the other.
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the interface decision (R1). |
 | [`clarifications.md`](./clarifications.md) R7 | The knowledge ladder is observation, lesson, decision. |
-| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The host owns operator session start and resume. |
+| [`workflows.md` §0](./workflows.md#0-audience-and-primary-surface-resolved) | The host owns operator session start and resume; Concord supplies managed context and verified worktree placement. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 

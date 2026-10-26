@@ -2945,8 +2945,8 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         # to carry it.
         real_glob = Path.glob
 
-        def hiding_glob(self, pattern):
-            return iter(()) if pattern == "*.test.ts" else real_glob(self, pattern)
+        def hiding_glob(self, pattern, **kwargs):
+            return iter(()) if pattern == "*.test.ts" else real_glob(self, pattern, **kwargs)
 
         with unittest.mock.patch.object(Path, "glob", hiding_glob):
             code, _, _, err = self._main(["--adapter-tests-external"])

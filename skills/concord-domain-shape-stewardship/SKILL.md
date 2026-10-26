@@ -16,11 +16,11 @@ These public references do not require a Concord source checkout. An adopting
 Product's similarly named local file is not a substitute for the linked source.
 Use the selected Product's own accepted law for its behavior and obligations.
 
-- [Domain shape and fact ownership](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/.concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md).
-- [Skill admission, release versioning, and portability](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
-- [Authority and planning boundaries](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/.concord/docs/managed-development-authority.md).
-- [Knowledge identity and publication](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/.concord/docs/concord-knowledge-index.md).
-- Schemas: [facts](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/contracts/domain-fact.v1.schema.json), [package roots](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/contracts/package-domains.v1.schema.json), [declared tooling](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/contracts/project-tooling.v1.schema.json), and [check protocol](https://github.com/Sharper-Flow/concord/tree/1041537e1a9639c1c8ef909891e0bdc4100bfc89/contracts/domain-shape-check.v1.schema.json).
+- [Domain shape and fact ownership](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/.concord/docs/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md).
+- [Skill admission, release versioning, and portability](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/.concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Authority and planning boundaries](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/.concord/docs/managed-development-authority.md).
+- [Knowledge identity and publication](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/.concord/docs/concord-knowledge-index.md).
+- Schemas: [facts](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/contracts/domain-fact.v1.schema.json), [package roots](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/contracts/package-domains.v1.schema.json), [declared tooling](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/contracts/project-tooling.v1.schema.json), and [check protocol](https://github.com/Sharper-Flow/concord/tree/6d9bcd19902a771b047bc54059d49516d70b98d8/contracts/domain-shape-check.v1.schema.json).
 
 Use `concord --help` and `concord domain-shape-check --help` for the installed
 release's command and JSON-stdin contracts.

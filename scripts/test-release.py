@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -175,6 +177,7 @@ class ReleaseTests(unittest.TestCase):
             [sys.executable, str(Path(__file__).with_name("release.py")), "--repo", str(repo)],
             text=True,
             capture_output=True,
+            timeout=30,
         )
 
     def clone(self, *, depth: int | None = None, no_tags: bool = False) -> Path:
@@ -356,10 +359,77 @@ class ReleaseTests(unittest.TestCase):
                     ),
                 )
 
+    def run_archive_verification(self, omitted: str | None = None) -> subprocess.CompletedProcess[str]:
+        document = parse_release_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        steps = document["jobs"]["build-and-publish"]["steps"]
+        matches = [
+            (index, step)
+            for index, step in enumerate(steps)
+            if step.get("name") == "Verify the archive carries every file the installer requires"
+        ]
+        self.assertEqual(len(matches), 1)
+        index, step = matches[0]
+        self.assertNotIn("if", step)
+        self.assertFalse(step.get("continue-on-error", False))
+        for name in ("Create annotated release tag", "Publish GitHub Release"):
+            self.assertLess(index, next(i for i, item in enumerate(steps) if item.get("name") == name))
+        command, separator, remainder = step["run"].partition(" <<'PY'\n")
+        self.assertTrue(separator, "archive verification Python heredoc is missing")
+        self.assertTrue(command.splitlines()[-1].startswith('python3 - "release/upload/'))
+        body, terminator, trailing = remainder.partition("\nPY\n")
+        self.assertTrue(terminator, "archive verification Python terminator is missing")
+        self.assertFalse(trailing.strip())
+
+        root = WORKFLOW_PATH.parents[2]
+        required = {"bin/concord"}
+        required |= {f"adapter/opencode/{name}" for name in install.ADAPTER_FILES}
+        required |= {f"instructions/{name}" for name in install.INSTRUCTION_FILES}
+        required |= {f"agents/{name}" for name in install.AGENT_FILES}
+        required |= {
+            path.relative_to(root).as_posix()
+            for path in (root / "skills").rglob("*")
+            if path.is_file()
+        }
+        if omitted is not None:
+            self.assertIn(omitted, required, "omission must remove a real fixture member")
+            required.remove(omitted)
+        archive = self.repo / "synthetic-release.tar.gz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            for name in sorted(required):
+                member = tarfile.TarInfo(name)
+                content = b"synthetic release file\n"
+                member.size = len(content)
+                bundle.addfile(member, io.BytesIO(content))
+        return subprocess.run(
+            [sys.executable, "-", str(archive)],
+            input=body,
+            cwd=root,
+            text=True,
+            capture_output=True,
+        )
+
+    def test_release_workflow_accepts_complete_archive(self) -> None:
+        result = self.run_archive_verification()
+        self.assertEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+        self.assertIn("carries every installer-required file", result.stdout)
+
+    def test_release_workflow_rejects_archive_missing_nested_stewardship_skill(self) -> None:
+        omitted = "skills/concord-domain-shape-stewardship/SKILL.md"
+        result = self.run_archive_verification(omitted)
+        self.assertNotEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+        self.assertIn(f"omits files the installer requires: {omitted}", result.stderr)
+
     def test_release_workflow_verifies_the_archive_against_installer_requirements(self) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertIn("install.ADAPTER_FILES", workflow)
-        self.assertIn("omits files the installer requires", workflow)
+        for omitted in (
+            "bin/concord",
+            f"adapter/opencode/{install.ADAPTER_FILES[0]}",
+            f"instructions/{install.INSTRUCTION_FILES[0]}",
+            f"agents/{install.AGENT_FILES[0]}",
+        ):
+            with self.subTest(omitted=omitted):
+                result = self.run_archive_verification(omitted)
+                self.assertNotEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+                self.assertIn(f"omits files the installer requires: {omitted}", result.stderr)
 
     def test_release_workflow_tag_step_tolerates_an_existing_tag_at_head(self) -> None:
         """A retried publish must not fail because the tag already exists."""

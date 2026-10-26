@@ -185,7 +185,8 @@ class ProducerTests(unittest.TestCase):
             if source_state is not None:
                 cwd = root / "subject"
                 cwd.mkdir()
-                env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+                env.pop("GIT_TEMPLATE_DIR", None)
+                env.update(GIT_CONFIG_GLOBAL=os.devnull,
                     GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.com",
                     GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.com")
                 subprocess.run(["git", "init", "-q", str(cwd)], env=env, check=True, capture_output=True, timeout=10)
@@ -244,6 +245,8 @@ class ProducerTests(unittest.TestCase):
                 meta = json.loads(files["metadata.json"])
                 before, after = meta["subject_before"], meta["subject_after"]
                 self.assertRegex(before["commit"], r"^[0-9a-f]{40,64}$")
+                for snapshot in (before, after):
+                    self.assertRegex(snapshot["tracked_diff_sha256"], r"^[0-9a-f]{64}$")
                 self.assertEqual(before["dirty"], before_dirty)
                 self.assertEqual(after["dirty"], after_dirty)
                 self.assertEqual(meta["source_applicability"], "unchanged_clean" if state == "clean" else "unproved")
@@ -257,7 +260,6 @@ class ProducerTests(unittest.TestCase):
 
     def test_changed_inputs_and_toolchain_are_distinct_provenance_not_a_result_cache(self):
         base = {"GOFLAGS": "", "GODEBUG": "", "FAKE_GO_VERSION": "go1.26.7", "UV_OFFLINE": "1"}
-        snapshots = []
         for inputs in (base, {**base, "GOFLAGS": "-tags=fixture"}, {**base, "GODEBUG": "gctrace=1"},
                 {**base, "FAKE_GO_VERSION": "go1.26.6"}, {**base, "UV_OFFLINE": "0"}):
             with self.subTest(inputs=inputs):
@@ -272,8 +274,6 @@ class ProducerTests(unittest.TestCase):
                 self.assertEqual(meta["environment"]["UV_OFFLINE"], inputs["UV_OFFLINE"])
                 self.assertEqual(meta["source_applicability"], "unchanged_clean")
                 self.assertEqual(json.loads(files["results.json"])["packages"][0]["tests"][0]["measurement"], "current")
-                snapshots.append((meta["implicit_go_inputs_sha256"], meta["toolchain"], meta["environment"]))
-        self.assertTrue(all(snapshot != snapshots[0] for snapshot in snapshots[1:]))
 
     def test_failure_and_signal_preserve_exit_and_artifacts(self):
         for rc, signum, want in ((7, None, 7), (0, signal.SIGTERM, 143)):

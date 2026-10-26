@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,6 +16,8 @@ func TestDomainDetailReadAdmitsManifestLawIDs(t *testing.T) {
 		{"129_characters", strings.Repeat("x", 129)},
 		{"256_unicode_characters", strings.Repeat("界", 256)},
 		{"internal_spaces", "law with spaces"},
+		{"comma", "a,b"},
+		{"comma_space", "law, with comma"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -37,5 +40,29 @@ func TestDomainDetailReadAdmitsManifestLawIDs(t *testing.T) {
 				t.Fatalf("domain detail schema rejected manifest-valid law ID: %v", err)
 			}
 		})
+	}
+}
+
+func TestDomainDetailGoverningLawIdentityAndOrder(t *testing.T) {
+	t.Parallel()
+	lawIDs := []string{"z-last", "law, with comma", "a,b", `law "quoted"`, `law\backslash`, "a", "b"}
+	s := seedDomainReadStoreWithLawIDs(t, lawIDs)
+	want := slices.Clone(lawIDs)
+	slices.Sort(want)
+	for _, domain := range []string{"sync", "product-root:concord"} {
+		detail, err := s.QueryDomainDetail(context.Background(), DomainDetailRequest{Product: "concord", Domain: domain})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(detail.Relations) != 1 || !slices.Equal(detail.Relations[0].GoverningLaws, want) {
+			t.Fatalf("%s governing laws = %#v, want %q", domain, detail.Relations, want)
+		}
+		raw, err := json.Marshal(NewDomainDetailPayload(detail))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("domain_detail_result", raw); err != nil {
+			t.Fatalf("%s domain detail schema rejected manifest-valid law IDs: %v", domain, err)
+		}
 	}
 }

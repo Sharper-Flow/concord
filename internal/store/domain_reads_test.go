@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -16,10 +17,14 @@ func seedDomainReadStore(t *testing.T) *Store {
 
 func seedDomainReadStoreWithLawID(t *testing.T, lawID string) *Store {
 	t.Helper()
+	return seedDomainReadStoreWithLawIDs(t, []string{lawID})
+}
+
+func seedDomainReadStoreWithLawIDs(t *testing.T, lawIDs []string) *Store {
+	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	lawContent := "domain law\n"
-	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0001.md", lawContent)
 	sum := sha256.Sum256([]byte(lawContent))
 	manifest := KnowledgeManifest{
 		SchemaVersion:  "1.2",
@@ -30,17 +35,20 @@ func seedDomainReadStoreWithLawID(t *testing.T, lawID string) *Store {
 			Domains: []KnowledgeDomain{
 				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 				{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord",
-					ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: []string{lawID}}}},
+					ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: lawIDs}}},
 				{DomainID: "legacy-sync", Name: "Legacy Sync", Purpose: "Retired scope", Status: "deprecated", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			},
 		},
-		Records: []KnowledgeRecord{
-			{ID: lawID, Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
-				Title: "Domain law", Summary: "A domain law", Tags: []string{},
-				Authority:    KnowledgeAuthority{Tier: "derived"},
-				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
-				HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])},
-		},
+	}
+	for i, lawID := range lawIDs {
+		path := fmt.Sprintf(".concord/docs/decisions/CD-%04d.md", i+1)
+		writeKnowledgeFile(t, repo, path, lawContent)
+		manifest.Records = append(manifest.Records, KnowledgeRecord{
+			ID: lawID, Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			Title: "Domain law", Summary: "A domain law", Tags: []string{},
+			Authority:    KnowledgeAuthority{Tier: "derived"},
+			Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
+			HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])})
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {

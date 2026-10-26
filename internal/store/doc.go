@@ -3,7 +3,8 @@
 //
 // Connection discipline (the invariant every reader of this package needs):
 //
-// The pool holds exactly one connection (SetMaxOpenConns(1) in store.go).
+// The pool allows at most one connection (sqlitedb.Open in
+// internal/sqlitedb/connection.go).
 // While any *sql.Tx is open, that transaction holds the pool's only
 // connection. A nested call through s.db — query, exec, or another BeginTx —
 // parks on the pool forever and never reaches SQLite. WAL and busy_timeout
@@ -14,7 +15,7 @@
 // pre-transaction snapshot and silently miss uncommitted writes.
 // txscope_test.go enforces this structurally.
 //
-// Transaction shape (store.go dataSourceName): the data source name sets
+// Transaction shape (sqlitedb.DSN): the data source name sets
 // _txlock=immediate, so every explicit BeginTx is BEGIN IMMEDIATE and
 // acquires the write lock before its first read. A read snapshot passes
 // sql.TxOptions{ReadOnly: true} to get a deferred BEGIN that holds no write
@@ -23,7 +24,8 @@
 //
 // Seams, each owned by its file and its adjacent tests:
 //
-//   - store.go, transaction.go: pool, pragmas, and the write transaction.
+//   - internal/sqlitedb: connection, pragma, revision and commit mechanics.
+//   - store.go, transaction.go: domain-facing open and transaction lifecycles.
 //   - events.go, operation.go, fold.go: effect receipts, registered current-row
 //     writers, and transaction-owned write scopes.
 //   - work_context.go, worker_packet_binding.go,

@@ -11,31 +11,19 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 	"github.com/sharper-flow/concord/internal/version"
-
-	// Registers the pure-Go "sqlite" driver.
-	_ "modernc.org/sqlite"
 )
 
 const (
-	driverName = "sqlite"
-
-	// The connection settings are fixed by the accepted state-authority
-	// decision. Write-ahead logging admits concurrent readers alongside a
-	// writer; NORMAL synchronous mode trades an fsync per commit for the
-	// recovery fold; the busy timeout absorbs contention between short-lived
-	// processes.
-	pragmaBusyTimeout = "5000"
-	pragmaJournalMode = "WAL"
-	pragmaSynchronous = "NORMAL"
-	pragmaForeignKeys = "ON"
+	driverName        = sqlitedb.DriverName
+	pragmaBusyTimeout = sqlitedb.BusyTimeout
 )
 
 // Store is an open handle to the local authority.
@@ -362,16 +350,11 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 			"check directory permissions", err)
 	}
 
-	db, err := sql.Open(driverName, dataSourceName(path))
+	db, err := sqlitedb.Open(dataSourceName(path))
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "open", "cannot open the database", true,
 			"check the database path and permissions", err)
 	}
-
-	// Writes serialize on one connection. This keeps write-write contention
-	// inside this process off SQLite entirely; cross-process contention is
-	// absorbed by the busy timeout.
-	db.SetMaxOpenConns(1)
 
 	s := &Store{db: db, path: path, Clock: func() time.Time { return time.Now().UTC() }}
 	if err := s.verifyPragmas(ctx); err != nil {
@@ -499,55 +482,18 @@ func InstallationKey(ctx context.Context, q queryer) ([]byte, error) {
 // The busy timeout is listed first so it is already in force if this connection
 // is the one that converts the journal to write-ahead logging.
 func dataSourceName(path string) string {
-	pragmas := []string{
-		"busy_timeout(" + pragmaBusyTimeout + ")",
-		"journal_mode(" + pragmaJournalMode + ")",
-		"synchronous(" + pragmaSynchronous + ")",
-		"foreign_keys(" + pragmaForeignKeys + ")",
-	}
-	// BEGIN IMMEDIATE acquires the write lock before migration reads begin. This
-	// avoids SQLite's read-to-write upgrade path, where SQLITE_BUSY can skip the
-	// busy handler and return immediately. This only affects explicit BeginTx
-	// calls; plain autocommit QueryContext reads do not issue BEGIN, and a
-	// read snapshot passes sql.TxOptions{ReadOnly: true} to get a deferred
-	// BEGIN that holds no write lock.
-	query := []string{"_txlock=immediate"}
-	for _, p := range pragmas {
-		query = append(query, "_pragma="+url.QueryEscape(p))
-	}
-	return SQLiteFileURI(path) + "?" + strings.Join(query, "&")
+	return sqlitedb.DSN(path)
 }
 
 // SQLiteFileURI returns a file: URI without connection options for a filesystem
 // path. It escapes SQLite's filename delimiters and leaves other bytes unchanged.
 func SQLiteFileURI(path string) string {
-	return "file:" + strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
+	return sqlitedb.FileURI(path)
 }
 
 // verifyPragmas reads the settings back from a live connection. A data source
 // name that is accepted but not applied is a silent failure mode, so the
 // settings are confirmed rather than assumed.
 func (s *Store) verifyPragmas(ctx context.Context) error {
-	for _, want := range []struct {
-		pragma string
-		expect string
-	}{
-		{"journal_mode", strings.ToLower(pragmaJournalMode)},
-		{"synchronous", "1"}, // NORMAL
-		{"busy_timeout", pragmaBusyTimeout},
-		{"foreign_keys", "1"}, // ON
-	} {
-		var got string
-		if err := s.db.QueryRowContext(ctx, "PRAGMA "+want.pragma).Scan(&got); err != nil {
-			return wrapFailure(KindUnavailable, "open",
-				fmt.Sprintf("cannot read PRAGMA %s", want.pragma), true,
-				"confirm the database file is a readable SQLite database", err)
-		}
-		if !strings.EqualFold(got, want.expect) {
-			return newFailure(KindUnavailable, "open",
-				fmt.Sprintf("PRAGMA %s is %q, want %q", want.pragma, got, want.expect), false,
-				"confirm the driver applies connection settings from the data source name")
-		}
-	}
-	return nil
+	return mechanismFailure(sqlitedb.VerifyPragmas(ctx, s.db))
 }

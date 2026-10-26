@@ -5,20 +5,20 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // beginTxSource is the minimal private transaction-begin surface. The pool
 // (*sql.DB) and one held connection (*sql.Conn) both satisfy it, so the read
 // owner can pin one snapshot on either without a second connection.
-type beginTxSource interface {
-	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
-}
+type beginTxSource = sqlitedb.BeginTxSource
 
 // beginReadTx always opens a deferred snapshot, even when the database's DSN
 // selects immediate write transactions. It also serves independent read-only
 // readiness handles, without borrowing the live store's connection.
 func beginReadTx(ctx context.Context, db beginTxSource) (*sql.Tx, error) {
-	return db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	return sqlitedb.BeginRead(ctx, db)
 }
 
 // beginOrdinaryTx uses the write owner without changing NORMAL commit or raw

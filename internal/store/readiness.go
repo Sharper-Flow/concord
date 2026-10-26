@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 	"github.com/sharper-flow/concord/internal/version"
 )
 
@@ -131,13 +132,11 @@ func PlanUpgradeReadiness(ctx context.Context, path string, options ...UpgradeOp
 // appear beside the store, which the plan accepts. Any failure to open or
 // reach the store fails closed.
 func openReadonlyStore(path string) (*sql.DB, error) {
-	dsn := SQLiteFileURI(path) + "?mode=ro&_pragma=busy_timeout(" + pragmaBusyTimeout + ")"
-	db, err := sql.Open(driverName, dsn)
+	db, err := sqlitedb.Open(sqlitedb.ReadOnlyReadinessDSN(path))
 	if err != nil {
 		return nil, wrapFailure(KindReadinessUnknown, "readiness",
 			"cannot open the store read-only", false, "confirm the database is readable", err)
 	}
-	db.SetMaxOpenConns(1)
 	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, wrapFailure(KindReadinessUnknown, "readiness",

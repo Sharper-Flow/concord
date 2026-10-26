@@ -294,6 +294,8 @@ jobs:
         run: python3 scripts/check-rigor-class.py
       - name: Validate approval consequence vocabulary
         run: python3 scripts/check-approval-consequence.py
+      - name: Test native Go result artifacts
+        run: python3 scripts/test-go-test-results.py
       - name: Test verification phase reporting
         run: python3 scripts/test-oc-test.py
 
@@ -403,7 +405,7 @@ jobs:
       - name: Compile all tests
         run: go test -run '^$' -timeout=15m ./...
       - name: Reject production event log references
-        run: go test -count=1 -timeout=300s -run '^(TestEventLogReferences|TestEventLogReferencePropertiesBite)$' ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/event-log" -- go test -count=1 -timeout=300s -run '^(TestEventLogReferences|TestEventLogReferencePropertiesBite)$' ./internal/store
       - name: Lint Go
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --output.text.colors=false ./...
       - name: Validate product reachability
@@ -412,6 +414,14 @@ jobs:
         run: python3 scripts/check-complexity.py
       - name: Test reachability, issue-state and complexity checkers
         run: python3 scripts/test-reachability.py && python3 scripts/test-update-issue-state.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
 
   # Full suite without the race detector, split across runners.
   # internal/store and cmd/concord each run as shard jobs that
@@ -493,7 +503,15 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
 
   verify-tests-store-1:
     name: verify-tests-store-1
@@ -556,7 +574,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 5)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -622,7 +648,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 5)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 5)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -688,7 +722,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 5)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 5)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -754,7 +796,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 4 5)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 4 5)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -820,7 +870,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 5 5)" ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 5 5)" ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -865,7 +923,15 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 1 2)" ./cmd/concord
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 1 2)" ./cmd/concord
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
 
   verify-tests-cli-2:
     name: verify-tests-cli-2
@@ -907,7 +973,15 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 2 2)" ./cmd/concord
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 2 2)" ./cmd/concord
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
 
   # Race detector on store tests that coordinate concurrent Go callers.
   # SQLite lock-wait tests coordinate through database locks and channels rather
@@ -962,9 +1036,17 @@ jobs:
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
         run: >-
-          go test -race -timeout=15m -run
+          python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -race -timeout=15m -run
           '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
           ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
@@ -1010,7 +1092,15 @@ jobs:
           OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
           UV_OFFLINE: "1"
           UV_PYTHON_DOWNLOADS: never
-        run: go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
+        run: python3 scripts/go-test-results.py --output-dir "$RUNNER_TEMP/go-test-results/tests" -- go test -count=1 -run '^TestTenProcessAcceptanceConformance$' -v ./internal/store
+      - name: Retain native Go results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: go-test-results-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          if-no-files-found: error
+          retention-days: 90
       - name: Restore write access to the uv fixture cache
         if: always()
         run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi

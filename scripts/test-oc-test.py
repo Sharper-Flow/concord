@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import resource
+import shlex
 import shutil
 import subprocess
 import sys
@@ -89,7 +90,15 @@ def workflow_step_run(workflow: str, step_name: str) -> str:
         if line.strip() and indent <= step_indent:
             break
         if indent == step_indent + 2 and line.lstrip().startswith("run:"):
-            return line.split("run:", 1)[1].strip()
+            command = line.split("run:", 1)[1].strip()
+            tokens = shlex.split(command)
+            # The native-results producer owns reporting, not the workload.
+            # Accept only its declared CLI, not arbitrary wrapper stripping.
+            if tokens[:3] == ["python3", "scripts/go-test-results.py", "--output-dir"]:
+                if len(tokens) < 7 or tokens[4:7] != ["--", "go", "test"]:
+                    raise AssertionError(f"unexpected results wrapper: {command}")
+                return command.split(" -- ", 1)[1]
+            return command
     raise AssertionError(f"step {step_name!r} has no run")
 
 

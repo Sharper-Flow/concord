@@ -9,7 +9,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2; until the cutover binds its runtime anchors, python3 scripts/check-knowledge-index.py proves this record's accepted registration of that law."
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2. The guarantee is proved by TestEventLogRetirementFreshStore and TestEventLogRetirementUpgradePreservesCurrentRows (internal/store)."
     },
     {
       "criterion": 2,
@@ -22,6 +22,8 @@
   ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
+    "internal/store/event_log_retirement_test.go",
+    "internal/store/event_log_retirement_upgrade_test.go",
     "internal/store/lifecycle_relations_test.go",
     "internal/store/store_test.go",
     "internal/store/schema_test.go"
@@ -37,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6fb044f073668d9fb41b5ec12c419cdb5f2269f881410a48506a55d3f32e70d9",
+  "sha256": "sha256:b5c8bdf636228679502652661329d55f0604bf8413e051120c59fcd210b20ffc",
   "status": "accepted",
   "summary": "Defines typed current-state ownership and the separate research aggregate, which only explicit eligible research_retire may delete.",
   "tags": [

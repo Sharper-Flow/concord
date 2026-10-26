@@ -235,9 +235,11 @@ The corpus scenarios are query-shaped and prove no schema-boundary claim, so
 every criterion carries a typed exemption naming its proof. `python3 scripts/check-doc-contract.py` validates
 those recorded exemptions.
 
-- Criterion 1 states CD-0242 D2 as law; until the cutover binds its runtime
-  anchors, `python3 scripts/check-knowledge-index.py` proves this record's
-  accepted registration of that law.
+- Criterion 1 states CD-0242 D2 as law. It is proved by
+  `TestEventLogRetirementFreshStore` and
+  `TestEventLogRetirementUpgradePreservesCurrentRows`
+  (`internal/store/event_log_retirement_test.go`,
+  `internal/store/event_log_retirement_upgrade_test.go`).
 - Criterion 2 is proved by `TestOpenEnforcesForeignKeysBehaviorally`
   (`internal/store/store_test.go`).
 - Criterion 3 is proved by `TestOpenAppliesSchemaManifest` and

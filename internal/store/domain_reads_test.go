@@ -22,6 +22,11 @@ func seedDomainReadStoreWithLawID(t *testing.T, lawID string) *Store {
 
 func seedDomainReadStoreWithLawIDs(t *testing.T, lawIDs []string) *Store {
 	t.Helper()
+	return seedDomainReadStoreWithRelation(t, lawIDs, KnowledgeArchitectureRelation{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: lawIDs})
+}
+
+func seedDomainReadStoreWithRelation(t *testing.T, lawIDs []string, relation KnowledgeArchitectureRelation) *Store {
+	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	lawContent := "domain law\n"
@@ -35,7 +40,7 @@ func seedDomainReadStoreWithLawIDs(t *testing.T, lawIDs []string) *Store {
 			Domains: []KnowledgeDomain{
 				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 				{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord",
-					ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: lawIDs}}},
+					ArchitectureRelations: []KnowledgeArchitectureRelation{relation}},
 				{DomainID: "legacy-sync", Name: "Legacy Sync", Purpose: "Retired scope", Status: "deprecated", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			},
 		},

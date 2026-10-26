@@ -66,3 +66,22 @@ func TestDomainDetailGoverningLawIdentityAndOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestDomainDetailReplacesRelationHasEmptyGoverningLaws(t *testing.T) {
+	t.Parallel()
+	s := seedDomainReadStoreWithRelation(t, []string{"CD-0001"}, KnowledgeArchitectureRelation{Kind: "replaces", TargetDomainID: "legacy-sync", State: "declared"})
+	detail, err := s.QueryDomainDetail(context.Background(), DomainDetailRequest{Product: "concord", Domain: "sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Relations) != 1 || detail.Relations[0].Kind != "replaces" || detail.Relations[0].GoverningLaws == nil || len(detail.Relations[0].GoverningLaws) != 0 {
+		t.Fatalf("replaces relation must have an empty law array: %#v", detail.Relations)
+	}
+	raw, err := json.Marshal(NewDomainDetailPayload(detail))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("domain_detail_result", raw); err != nil {
+		t.Fatalf("domain detail schema rejected law-free replaces relation: %v", err)
+	}
+}

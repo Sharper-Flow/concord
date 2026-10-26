@@ -33,13 +33,7 @@ func TestDomainDetailReadAdmitsManifestLawIDs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var value any
-			if err := json.Unmarshal(raw, &value); err != nil {
-				t.Fatal(err)
-			}
-			document := payloadschema.Document()
-			definition := document["$defs"].(map[string]any)["domain_detail_result"].(map[string]any)
-			if err := payloadschema.ValidateValue(value, definition, document, "$"); err != nil {
+			if err := payloadschema.Validate("domain_detail_result", raw); err != nil {
 				t.Fatalf("domain detail schema rejected manifest-valid law ID: %v", err)
 			}
 		})

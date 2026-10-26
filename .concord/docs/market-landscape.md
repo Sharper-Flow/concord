@@ -57,7 +57,7 @@ rather than competing at the base agent-harness layer.
 2. **Product-scoped, cross-system state** — bind repos + infra + SaaS + specs +
    ops to one product identity. Competitors are workspace/repo/vendor-suite/
    execution-tool bounded.
-4. **Solo dev + agents** — market leaders optimize for teams/seats/enterprise/
+3. **Solo dev + agents** — market leaders optimize for teams/seats/enterprise/
    IDE; Concord optimizes for one human directing many specialized agents.
 
 ### 1.3 Market gaps Concord can uniquely fill

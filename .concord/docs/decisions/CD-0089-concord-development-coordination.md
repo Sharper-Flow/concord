@@ -25,7 +25,7 @@ surface owns planning, review, merge, or predecessor evidence.
 
 ## Decision
 
-### D1. Concord owns its development workflow
+### D1. Concord's own development follows the measured switch point
 
 [`goals.md` — How Concord's own development runs during the rebuild](../goals.md#how-concords-own-development-runs-during-the-rebuild)
 owns the current development route and measured switch point. Until that switch

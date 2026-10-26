@@ -123,7 +123,7 @@ are in [`priorities.md`](./priorities.md).
 | [`canonical-git-note-placement.md`](./canonical-git-note-placement.md) | **Accepted PM6:** deterministic Product-home/primary-Project note placement, typed ambiguity, one content-addressed in-tree note, and git-first publish proof. |
 | [`compaction-retention-policy.md`](./compaction-retention-policy.md) | **Accepted compaction-retention-policy:** deferred terminal-work pruning over current rows and finite verified snapshots (CD-0242 D2; no event log or replay), canonical locator proof, live and historical query composition over Git-derived indexes, immutable pruned IDs, and explicit research retirement. |
 | [`workflows.md`](./workflows.md) | Workflow types. [`CD-0229`](./decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) owns their composition from shared parts and each work item's size. |
-| [`decisions/`](./decisions/) | Concord decision records (`CD-NNNN`) produced by architecture spikes. Binding until superseded. |
+| [`decisions/`](./decisions/) | Concord decision records (`CD-NNNN`). Binding until superseded. |
 | [`product-data-model.md`](./product-data-model.md) | Product ownership, canonical Domain architecture, lifecycle stage, shared resources, and bounded Domain/work relations. |
 | [`specs-as-laws.md`](./specs-as-laws.md) | Spec-law conflict surfacing and evolution. |
 | [`self-documentation.md`](./self-documentation.md) | Browsable specs and durable workflow docs. |

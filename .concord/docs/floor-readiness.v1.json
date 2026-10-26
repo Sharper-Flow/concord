@@ -262,6 +262,10 @@
    "evidence": [
     {
      "kind": "go_test",
+     "value": "internal/store.TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes"
+    },
+    {
+     "kind": "go_test",
      "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
     },
     {

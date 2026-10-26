@@ -11,7 +11,7 @@
   [issue #189 comment](https://github.com/Sharper-Flow/concord/issues/189#issuecomment-5365145398)
 - **Related:** CD-0002 §2b, CD-0011 §Decision item 3, CD-0036, CD-0044,
   CD-0046, [`design-constraints.md`](../design-constraints.md) §4,
-  [`priorities.md`](../priorities.md) Priority 2
+  [`priorities.md` — Data safety](../priorities.md#data-safety-constraint)
 - **Preserves:** `synchronous=NORMAL` for ordinary writes; the conformance
   harness, its pacing, threshold, and population authority; CD-0011's
   falsifier list and retention decision
@@ -57,7 +57,8 @@ The contract, stated as Product law:
 
 Consent classification is not durability classification. Removing a routine
 approval under CD-0013 D11 does not remove a durable acknowledgement boundary.
-Mutation and recovery paths must select durability from the effect and retained
+Workflow actions, terminal transitions, authority changes, and cross-authority
+claims retain their durable commits under CD-0207. Mutation and recovery paths must select durability from the effect and retained
 intent, not merely from the presence of an approval reference.
 
 ### D5. Schema migrations are excluded

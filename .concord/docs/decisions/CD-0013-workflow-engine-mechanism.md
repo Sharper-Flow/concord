@@ -293,12 +293,9 @@ route.
 
 Live-family definitions declare this policy and require explicit classification. Retired families gain no new authoring route. Definitions generate from one canonical source with no released definition version retained for history ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-The canonical generated manifest and its exact digest define the only current
-agent-tool contract ([CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)).
-The adapter, grant, invocation, session boot, and result envelope bind that
-digest. An unknown or mismatched digest fails before a domain effect. No
-semantic-surface, range, or envelope-version negotiation, fallback,
-down-conversion, alias, or version-dependent meaning is admitted.
+[CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)
+owns the current agent-tool contract identity, its digest binding, and
+fail-closed mismatch.
 
 `concord_work_transition.workflow_action` is declared in the current manifest,
 capability map, consequence class, and strict envelope schema:
@@ -312,27 +309,10 @@ capability map, consequence class, and strict envelope schema:
 `workflow_action` remains the only surface for advancing a workflow. Free-form
 advancement is not accepted.
 
-Schema and record format versions remain where required to decode current
-authoritative structures. Release versions identify builds and distribution;
-neither creates an agent-surface compatibility promise (CD-0042 D2).
-
 [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) (TS8)
-owns current agent-surface change evidence, governed before go-live by
+§2 owns the change rule and required evidence for changes to closed
+discriminants, including `outcome_mismatch`, governed before go-live by
 [CD-0042 D3–D4](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted).
-Changes to closed discriminants, including `outcome_mismatch`, require:
-
-1. a named deterministic PM1/TS1 scenario or executable reproduction showing
-   the problem and the passing outcome;
-2. the canonical manifest, generated Go and TypeScript contracts, schemas,
-   fixtures, and documentation updated together with the current digest;
-3. strict-schema, generated-drift, negative-input, authority, transaction, and
-   conformance evidence; and
-4. applicable operator acceptance under the consent policy above.
-
-The primary path changes directly, and the same change removes replaced
-development-only fields, branches, compatibility tables, migration hints,
-replay upcasters, aliases, tests, and prose (CD-0042 D3). Current authoritative
-data retains its required structural decoding and deterministic checks.
 
 ### D12. Staleness is structurally evaluated at consequential boundaries
 

@@ -317,7 +317,7 @@ re-litigate them silently.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?
-  (`capability-placement.md` §6)
+  (`capability-placement.md` §4)
 - **Lean:** advisory + recorded; structural only for hard rules (adapter never
   owns domain authorization/approval; native authority is not reimplemented).
 - **Direction (2026-07-25):** 🟡 unchanged.

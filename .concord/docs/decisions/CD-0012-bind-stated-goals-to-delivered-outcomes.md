@@ -295,7 +295,8 @@ about recorded findings, not about a change being made.
   intended mitigation is that D10 scales the *proof depth* and D11 scales the *verb*, so a
   lightweight type's end-state can be a single cheap assertion. This decision does not
   pretend the floor is free: a type that becomes materially heavier is a genuine regression
-  against Priority 5 and must surface rather than be absorbed.
+  against [composable workflows](../priorities.md#composable-workflows-goal-c) and must
+  surface rather than be absorbed.
 - **The loop names the second party.**
   Main dispatches Review as its own stage, Implement cannot accept its own result, and no distinct final evaluator beyond Review is required ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
  - A change to the agent-visible outcome contract carries generated-manifest,
@@ -403,8 +404,8 @@ This decision **does not** alter: the
 principle; CD-0006 D5's planning-owns-conflicts rule, which D6 option (b) invokes rather
 than amends; CD-0006 R1 forward-linking; CD-0006 R2 obligation bands; CD-0005 and TS2's
 nine-tool ceiling; CD-0002 or PM3 storage authority; TS8's version-classification rules,
-which D2 defers to rather than pre-empts; or Priority 2's governance by attributes rather
-than gate count.
+which D2 defers to rather than pre-empts; or [quality](../priorities.md#quality-goal-e)
+governance by attributes rather than gate count.
 
 This record was accepted by the operator on 2026-08-08 and binds downstream work until
 superseded. A downstream change that contradicts it surfaces a conflict requiring

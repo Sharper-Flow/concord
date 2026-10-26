@@ -193,6 +193,11 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 	if err != nil {
 		return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed knowledge shards", true, "restore the shard blobs and retry", err)
 	}
+	shards, err := readKnowledgeShardArchive(archive, layout)
+	return shards, true, err
+}
+
+func readKnowledgeShardArchive(archive []byte, layout knowledgeShardLayout) (knowledgeShards, error) {
 	shards := knowledgeShards{records: map[string][]byte{}, coverage: map[string][]byte{}, facts: map[string][]byte{}, recordPathPrefix: layout.recordPathPrefix}
 	reader := tar.NewReader(bytes.NewReader(archive))
 	for {
@@ -201,34 +206,34 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, runner GitRunner, re
 			break
 		}
 		if err != nil {
-			return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard archive is malformed", false, "repair the canonical git tree", err)
+			return knowledgeShards{}, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard archive is malformed", false, "repair the canonical git tree", err)
 		}
 		name := path.Clean(header.Name)
 		if name == strings.TrimSuffix(knowledgeFactTreeDir, "/") && header.Typeflag != tar.TypeDir {
-			return knowledgeShards{}, true, domainShapeProjectionFailure("facts must be a committed directory")
+			return knowledgeShards{}, domainShapeProjectionFailure("facts must be a committed directory")
 		}
 		isFact := layout.root == knowledgeShardRoot && strings.HasPrefix(name, knowledgeFactTreeDir)
 		if isFact && header.Typeflag != tar.TypeDir && (header.Typeflag != tar.TypeReg || !directShardChild(name, knowledgeFactTreeDir) || header.Size > DomainFactMaxBytes) {
-			return knowledgeShards{}, true, domainShapeProjectionFailure("fact shards must be bounded regular JSON files directly under " + knowledgeFactTreeDir)
+			return knowledgeShards{}, domainShapeProjectionFailure("fact shards must be bounded regular JSON files directly under " + knowledgeFactTreeDir)
 		}
 		if header.Typeflag != tar.TypeReg {
 			continue
 		}
 		if header.Size > maxKnowledgeRecord {
-			return knowledgeShards{}, true, newFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard exceeds the bounded size: "+name, false, "publish a bounded shard")
+			return knowledgeShards{}, newFailure(KindInvalidNoteProof, "read_knowledge_manifest", "knowledge shard exceeds the bounded size: "+name, false, "publish a bounded shard")
 		}
 		content, err := io.ReadAll(io.LimitReader(reader, maxKnowledgeRecord+1))
 		if err != nil {
-			return knowledgeShards{}, true, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read a knowledge shard from the archive", false, "repair the canonical git tree", err)
+			return knowledgeShards{}, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read a knowledge shard from the archive", false, "repair the canonical git tree", err)
 		}
 		if !shards.accept(name, content) {
 			continue
 		}
 		if len(shards.facts) > DomainShapeMaxItems {
-			return knowledgeShards{}, true, domainShapeProjectionFailure("fact shard count exceeds 512")
+			return knowledgeShards{}, domainShapeProjectionFailure("fact shard count exceeds 512")
 		}
 	}
-	return shards, true, nil
+	return shards, nil
 }
 
 // accept places one archive member into the shards by path. Members outside

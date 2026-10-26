@@ -120,30 +120,38 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 		}
 		declared = append(declared, ProjectDeclaredTool{ID: tool.ID, Invocation: tool.Invocation})
 	}
-	var shape *DomainShapeTooling
-	if document.DomainShape != nil {
-		shape = &DomainShapeTooling{}
-		if err := decodeStrictKnowledgeJSON(document.DomainShape, shape); err != nil {
-			return nil, err
-		}
-		if err := domainShapeJSON(document.DomainShape, shape); err != nil {
-			return nil, err
-		}
-		var fields map[string]json.RawMessage
-		_ = json.Unmarshal(document.DomainShape, &fields)
-		for _, key := range []string{"boundary_check", "data_object_extractor", "config_extractor", "reference_check"} {
-			if value, exists := fields[key]; exists {
-				var id string
-				if json.Unmarshal(value, &id) != nil || !projectToolID.MatchString(id) {
-					return nil, fmt.Errorf("domain_shape %s must name a tool id", key)
-				}
-			}
-		}
-		if err := validateDomainShapeTooling(shape, declared); err != nil {
-			return nil, err
-		}
+	shape, err := parseDomainShapeTooling(document.DomainShape, declared)
+	if err != nil {
+		return nil, err
 	}
 	return &ProjectToolingManifest{Project: document.Project, Declared: declared, DomainShape: shape}, nil
+}
+
+func parseDomainShapeTooling(raw json.RawMessage, declared []ProjectDeclaredTool) (*DomainShapeTooling, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	shape := &DomainShapeTooling{}
+	if err := decodeStrictKnowledgeJSON(raw, shape); err != nil {
+		return nil, err
+	}
+	if err := domainShapeJSON(raw, shape); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	for _, key := range []string{"boundary_check", "data_object_extractor", "config_extractor", "reference_check"} {
+		if value, exists := fields[key]; exists {
+			var id string
+			if json.Unmarshal(value, &id) != nil || !projectToolID.MatchString(id) {
+				return nil, fmt.Errorf("domain_shape %s must name a tool id", key)
+			}
+		}
+	}
+	if err := validateDomainShapeTooling(shape, declared); err != nil {
+		return nil, err
+	}
+	return shape, nil
 }
 
 func projectToolingPlainInvocation(value string) bool {

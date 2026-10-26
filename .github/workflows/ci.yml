@@ -448,9 +448,10 @@ jobs:
   # Shard margin rule: over the last 50 successful runs of this workflow, the
   # 90th percentile of the slowest internal/store shard's test step stays
   # under 540 s, 60% of the 15m alarm each shard runs under. Add a shard when
-  # that p90 passes 540 s or any one run passes 675 s (75%). Measure it with:
+  # that p90 passes 540 s or any one run passes 675 s (75%).
   # Whole Test shard steps include discovery/build before the producer starts;
   # command_wall_seconds alone does not measure this margin.
+  # Measure it with:
   #
   #   gh run list --workflow ci.yml --status success --limit 50 --json databaseId --jq '.[].databaseId' |
   #     xargs -I{} gh run view {} --json jobs --jq '[.jobs[] | select(.name | startswith("verify-tests-store-")) | .steps[] | select(.name | startswith("Test shard")) | (.completedAt | fromdate) - (.startedAt | fromdate)] | max' |

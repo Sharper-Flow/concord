@@ -231,6 +231,7 @@ jobs:
           # archive's contents, which is the property that actually broke.
           python3 - "release/upload/concord-$VERSION.tar.gz" <<'PY'
           import sys, tarfile
+          from pathlib import Path
           sys.path.insert(0, "scripts")
           import install
 
@@ -242,6 +243,7 @@ jobs:
           required |= {f"adapter/opencode/{name}" for name in install.ADAPTER_FILES}
           required |= {f"instructions/{name}" for name in install.INSTRUCTION_FILES}
           required |= {f"agents/{name}" for name in install.AGENT_FILES}
+          required |= {path.as_posix() for path in Path("skills").rglob("*") if path.is_file()}
           missing = sorted(required - present)
           if missing:
               raise SystemExit(

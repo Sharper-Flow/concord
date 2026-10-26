@@ -166,19 +166,22 @@ esac''',
         generated_agents: bool = False,
         agent_contents: dict[str, str] | None = None,
         release_content: bool = False,
+        skill_contents: dict[str, bytes] | None = None,
     ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
         (source / "bin").mkdir(parents=True)
         (source / "adapter" / "opencode").mkdir(parents=True)
         if release_content:
-            # Match release.yml's content inventory without introducing a skill
-            # or replacing the synthetic core and adapter used by this fixture.
+            # Match the delivered content inventory; the core and adapter remain
+            # synthetic so this fixture exercises the real installer in isolation.
             shutil.copytree(SCRIPT.parents[1] / "skills", source / "skills")
             shutil.copytree(SCRIPT.parents[1] / ".concord" / "instructions", source / "instructions")
         else:
             (source / "skills").mkdir()
             (source / "skills" / "concord-demo.md").write_text(f"skill:{marker or version}\n", encoding="utf-8")
+        for relative, content in (skill_contents or {}).items():
+            (source / "skills" / relative).write_bytes(content)
         # CD-0063 ships an always-on conduct corpus and the central agent
         # definitions. The fixture must include them so the install path under
         # test exercises the staging, sha256, and central placement logic.
@@ -2618,7 +2621,7 @@ esac''',
         self.assertEqual(instructions_root, (self.root / "data" / "concord" / "v1.1.0" / "instructions").resolve())
 
     def test_real_release_conduct_is_portable_to_another_product_on_install_and_upgrade(self) -> None:
-        """Check delivered files and pointers, not runtime Product-law isolation."""
+        """Check bytes and registered skill reachability, not live host discovery or Product-law isolation."""
         repository = SCRIPT.parents[1]
         expected_files = {
             f"{directory}/{path.relative_to(repository / origin)}": path.read_bytes()
@@ -2630,17 +2633,26 @@ esac''',
             for path in sorted((repository / origin).rglob("*"))
             if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
         }
+        skill_relative = "skills/concord-domain-shape-stewardship/SKILL.md"
         self.assertEqual(
             {name for name in expected_files if name.startswith("skills/")},
-            {"skills/README.md"},
-            "the admitted release inventory contains no executable skill",
+            {"skills/README.md", skill_relative},
+            "CD-0245 admits the stewardship skill, not arbitrary executable skills",
         )
         self.assertIn(b"\nCommit only durable content. ", expected_files["instructions/change.md"])
-        for version in ("v1.0.0", "v1.1.0"):
-            self.make_release(version, release_content=True)
+        expected_by_version = {
+            "v1.0.0": expected_files | {skill_relative: expected_files[skill_relative] + b"\nSynthetic prior release skill content.\n"},
+            "v1.1.0": expected_files,
+        }
+        for version, inventory in expected_by_version.items():
+            self.make_release(version, release_content=True, skill_contents={
+                skill_relative.removeprefix("skills/"): inventory[skill_relative],
+            })
 
         project = self.root / "synthetic-product"
         user_files = {
+            project / ".concord" / "docs" / "decisions" / "CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md": b"Synthetic Product lookalike is not the shipped canonical reference.\n",
+            project / ".opencode" / "skills" / "user-note" / "SKILL.md": b"---\nname: user-note\ndescription: User-owned local skill.\n---\nKeep these bytes.\r\n",
             project / ".concord" / "docs" / "managed-development-authority.md": b"Synthetic Product planning uses a different tracker.\n",
             project / ".concord" / "docs" / "decisions" / "CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md": b"Synthetic Product permits edits outside the assigned scope.\n",
             project / ".concord" / "instructions" / "change.md": b"Synthetic Product says to commit transient commentary.\n",
@@ -2663,6 +2675,7 @@ esac''',
         source_references = []
 
         for version in ("v1.0.0", "v1.1.0"):
+            expected_files = expected_by_version[version]
             installed = self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts))
             self.assertEqual(installed.returncode, 0, installed.stderr)
             version_root = stable.parent / version
@@ -2681,6 +2694,17 @@ esac''',
             self.assertIn(b"// Keep the intentional Product-local instruction.", project_config.read_bytes())
             global_data = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
             self.assertIn(str(stable / "skills"), global_data["skills"]["paths"])
+            registered = stable / "skills"
+            skill = registered / "concord-domain-shape-stewardship" / "SKILL.md"
+            self.assertEqual(skill.resolve(), version_root / skill_relative)
+            body = skill.read_text(encoding="utf-8")
+            self.assertTrue(body.startswith("---\nname: concord-domain-shape-stewardship\ndescription: "))
+            self.assertIn("\n---\n", body)
+            self.assertEqual(skill.read_bytes(), expected_files[skill_relative])
+            self.assertEqual(
+                sorted(path.parent.name for path in registered.glob("*/SKILL.md")),
+                ["concord-domain-shape-stewardship"],
+            )
             for path, content in user_files.items():
                 self.assertEqual(path.read_bytes(), content, str(path.relative_to(self.root)))
 

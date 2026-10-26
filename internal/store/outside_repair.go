@@ -322,7 +322,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 	if err := requireOutsideRepairExecutionStoppedTx(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
-	if scope == nil || scope.tx != tx || scope.depth == 0 {
+	if scope == nil || scope.tx != tx || !scope.guard.Active() {
 		return newFailure(KindInvalidOperation, "outside_repair", "reconciliation requires its owning write scope", false, "use the typed outside-repair reconciliation")
 	}
 	previous := scope.outsideRepairLifecycleEvent

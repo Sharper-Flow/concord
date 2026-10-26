@@ -9,6 +9,8 @@ import (
 	"io"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 // SubjectRef identifies a versioned projection without conflating equal IDs
@@ -581,21 +583,11 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 }
 
 func enterWrite(ctx context.Context, tx *sql.Tx) error {
-	// Direct current-row writers share this transaction's guard until
-	// leaveWrite. Store open refuses a committed guard before ordinary writes.
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO write_guard (active) VALUES (1)`); err != nil {
-		return wrapFailure(KindUnavailable, "fold", "cannot enable current-row write guard", true,
-			"retry once the database is writable", err)
-	}
-	return nil
+	return mechanismFailure(sqlitedb.EnterWrite(ctx, tx))
 }
 
 func leaveWrite(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard WHERE active = 1`); err != nil {
-		return wrapFailure(KindUnavailable, "fold", "cannot disable current-row write guard", true,
-			"retry once the database is writable", err)
-	}
-	return nil
+	return mechanismFailure(sqlitedb.LeaveWrite(ctx, tx))
 }
 
 func unknownEventKind(kind string) *Failure {

@@ -165,6 +165,10 @@ func TestTxScopeDurablePoolBites(t *testing.T) {
 	for _, source := range []string{
 		`package sqlitedb; import "database/sql"; func violates(tx *WriteTx, db *sql.DB) { _ = tx }`,
 		`package sqlitedb; import dbsql "database/sql"; func violates(q Queryer, db *dbsql.DB) { _ = q }`,
+		`package sqlitedb; import "database/sql"; func violates(g *WriteGuard, db *sql.DB) { _ = g }`,
+		`package sqlitedb; import "database/sql"; func (g WriteGuard) violates(db *sql.DB) { _ = g }`,
+		`package store; import ("database/sql"; "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"); func violates(g sqlitedb.WriteGuard, db *sql.DB) { _ = g }`,
+		`package store; import ("database/sql"; durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"); func violates(g *durable.WriteGuard, db *sql.DB) { _ = g }`,
 	} {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, "pool.go", source, 0)
@@ -526,7 +530,7 @@ func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
 	if ident, ok := expr.(*ast.Ident); ok && (ident.Name == "queryer" || ident.Name == "Queryer") {
 		return txScopeQueryer
 	}
-	if ident, ok := expr.(*ast.Ident); ok && ident.Name == "WriteTx" {
+	if ident, ok := expr.(*ast.Ident); ok && (ident.Name == "WriteTx" || ident.Name == "WriteGuard") {
 		return txScopeTx
 	}
 	if selector, ok := expr.(*ast.SelectorExpr); ok {
@@ -534,7 +538,7 @@ func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
 			switch selector.Sel.Name {
 			case "Queryer":
 				return txScopeQueryer
-			case "WriteTx":
+			case "WriteTx", "WriteGuard":
 				return txScopeTx
 			}
 		}
@@ -547,7 +551,7 @@ func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
 		switch ident.Name {
 		case "Store":
 			return txScopeStore
-		case "Transaction", "writeTx", "WriteTx":
+		case "Transaction", "writeTx", "WriteTx", "WriteGuard":
 			return txScopeTx
 		}
 	}
@@ -563,7 +567,7 @@ func txScopeTypeKind(expr ast.Expr, aliases map[string]string) string {
 					return txScopeStore
 				}
 			}
-			if aliases[selectorBase.Name] == "github.com/sharper-flow/concord/internal/store/internal/sqlitedb" && selector.Sel.Name == "WriteTx" {
+			if aliases[selectorBase.Name] == "github.com/sharper-flow/concord/internal/store/internal/sqlitedb" && (selector.Sel.Name == "WriteTx" || selector.Sel.Name == "WriteGuard") {
 				return txScopeTx
 			}
 		}

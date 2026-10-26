@@ -1,0 +1,50 @@
+{
+  "id": "sqlite-current-row-write-guard",
+  "invariant": {
+    "applies_to_domain_ids": [
+      "agent-surface",
+      "durable-authority",
+      "product-memory",
+      "work-coordination",
+      "workflow-engine"
+    ],
+    "enforced_by": [
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestFoldScopeNestingKeepsGuardUntilOuterClose"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestFoldScopeRollbackLeavesNoCommittedGuard"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestFoldGuardCollisionIsInvariantFailure"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestOpenRefusesCommittedFoldGuard"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store.TestFoldScopeNestsThroughTransactionSeam"
+      },
+      {
+        "check_id": "go-test-race",
+        "kind": "go_test",
+        "value": "internal/store/internal/sqlitedb.TestWriteGuardFlatAndScopedModes"
+      }
+    ],
+    "statement": "A scoped current-row writer inserts write_guard in its caller's transaction on first entry, retains it through nested scopes, and removes it on outer close. Flat writers share an existing guard until leave. Rollback removes uncommitted guard changes. A scoped guard collision or a committed guard at store open refuses ordinary use with verified-backup recovery guidance."
+  },
+  "kind": "invariant",
+  "owner_domain_id": "durable-authority",
+  "owning_root": "internal/store/internal/sqlitedb",
+  "schema_version": "1.0",
+  "standing": "observed"
+}

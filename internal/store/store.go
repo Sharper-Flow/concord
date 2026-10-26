@@ -369,7 +369,7 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 // membership invariants. A committed write_guard row means a write scope never
 // closed cleanly, so ordinary use stays refused until offline recovery runs.
 func (s *Store) finishOpen(ctx context.Context) error {
-	if err := refuseStrandedWriteGuard(ctx, s.db); err != nil {
+	if err := mechanismFailure(sqlitedb.RefuseStrandedWriteGuard(ctx, s.db)); err != nil {
 		return err
 	}
 	if err := s.checkBinaryCompatibility(ctx); err != nil {
@@ -383,23 +383,6 @@ func (s *Store) finishOpen(ctx context.Context) error {
 		return err
 	}
 	return validateMembershipInvariants(ctx, s.db)
-}
-
-// refuseStrandedWriteGuard refuses an open whose database carries a committed
-// write_guard row. The row is not retryable state: current rows may be
-// inconsistent, so the operator must restore a verified backup into a new path.
-func refuseStrandedWriteGuard(ctx context.Context, db *sql.DB) error {
-	var stranded int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM write_guard`).Scan(&stranded); err != nil {
-		return wrapFailure(KindUnavailable, "open", "cannot inspect the write guard", true,
-			"confirm the database is readable", err)
-	}
-	if stranded == 0 {
-		return nil
-	}
-	return newFailure(KindInvariantViolation, "open",
-		fmt.Sprintf("%d committed write_guard row(s) guard the current rows, and no write scope owns them", stranded), false,
-		"stop concord processes and run concord restore from a verified backup into a new path, then swap the restored database into place")
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.

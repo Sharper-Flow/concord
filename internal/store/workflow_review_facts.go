@@ -90,11 +90,7 @@ func observeWorkflowReviewReport(state *WorkflowReviewState, report *WorkerRevie
 	setWorkflowReviewFindings(state, findings)
 }
 
-func acceptWorkflowReviewResult(ctx context.Context, q queryer, workID string, state *WorkflowReviewState, auth workflowActionCompletedPayload, result WorkerCompletedPayload, reportRef, actor string) error {
-	candidate, err := workflowAcceptedResultCandidate(ctx, q, workID, auth, result)
-	if err != nil {
-		return err
-	}
+func acceptWorkflowReviewResult(state *WorkflowReviewState, auth workflowActionCompletedPayload, result WorkerCompletedPayload, candidate *WorkerReviewCandidate, reportRef, actor string) {
 	if candidate != nil {
 		state.Candidate = candidate
 	}
@@ -103,7 +99,6 @@ func acceptWorkflowReviewResult(ctx context.Context, q queryer, workID string, s
 		applyWorkflowAcceptedReview(state, WorkflowAcceptedReview{AttemptID: result.AttemptID, ReportRef: reportRef, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}, findings)
 		setWorkflowReviewFindings(state, findings)
 	}
-	return nil
 }
 
 // Called after terminal admission. A terminal never installs a candidate or an
@@ -150,9 +145,11 @@ func advanceWorkflowReviewAcceptanceTx(ctx context.Context, tx *sql.Tx, event Ev
 	if err != nil {
 		return err
 	}
-	if err := acceptWorkflowReviewResult(ctx, tx, event.SubjectID, &state, auth, result, reportRef, event.Actor); err != nil {
+	candidate, err := workflowAcceptedResultCandidate(ctx, tx, event.SubjectID, auth, result)
+	if err != nil {
 		return err
 	}
+	acceptWorkflowReviewResult(&state, auth, result, candidate, reportRef, event.Actor)
 	return writeWorkflowReviewFacts(ctx, tx, event.SubjectID, state)
 }
 
@@ -216,9 +213,12 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 			}
 			if action.ActionID == "accept_worker_result" {
 				if result, found := completions[action.WorkerAttemptID]; found {
-					if err := acceptWorkflowReviewResult(ctx, q, workID, &state, dispatches[result.AttemptID], result, reports[result.AttemptID], row.actor); err != nil {
+					auth := dispatches[result.AttemptID]
+					candidate, err := workflowResultCandidate(ctx, q, workID, auth, result)
+					if err != nil {
 						return err
 					}
+					acceptWorkflowReviewResult(&state, auth, result, candidate, reports[result.AttemptID], row.actor)
 				}
 			}
 		}

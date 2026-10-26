@@ -288,12 +288,20 @@ func workflowVerificationCandidate(ctx context.Context, q queryer, workID, accep
 // The fold and combined delivery admission must select the same candidate.
 // Reading a pending result here projects its acceptance without recording it.
 func workflowAcceptedResultCandidate(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload) (*WorkerReviewCandidate, error) {
+	if auth.WorkerCapabilityClass != "review" || result.Review == nil {
+		if base, err := workflowMemberResultBase(ctx, q, workID, auth); err != nil || base != nil {
+			return nil, err
+		}
+	}
+	return workflowResultCandidate(ctx, q, workID, auth, result)
+}
+
+// Candidate projection shared with migration 148, before member groups exist.
+// Live admission excludes member results through workflowAcceptedResultCandidate.
+func workflowResultCandidate(ctx context.Context, q queryer, workID string, auth workflowActionCompletedPayload, result WorkerCompletedPayload) (*WorkerReviewCandidate, error) {
 	if result.Review != nil && auth.WorkerCapabilityClass == "review" {
 		candidate := result.Review.OutputCandidate
 		return &candidate, nil
-	}
-	if base, err := workflowMemberResultBase(ctx, q, workID, auth); err != nil || base != nil {
-		return nil, err
 	}
 	if delivery := result.ObservedDelivery; delivery != nil && delivery.State == "clean" {
 		project := ""

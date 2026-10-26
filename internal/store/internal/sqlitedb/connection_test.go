@@ -5,7 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/testenv"
 )
+
+func TestMain(m *testing.M) {
+	dir := testenv.ScrubEnv()
+	code := m.Run()
+	os.Exit(testenv.Cleanup(dir, code))
+}
 
 func TestConnectionDSNBytes(t *testing.T) {
 	path := "/synthetic/store%?# with space/日本.db"

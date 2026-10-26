@@ -108,12 +108,23 @@ nothing on the operator's behalf, then drive it to completion. Clarify while
 the contract is open; execute once it is approved. No posture switch separates
 the two.
 
-A request for work is the start signal. When the operator or the RTE's
-assignment describes something to build, fix, or decide, call
+Managed participation is explicit (CD-0122 D1). A request to build, fix, or
+decide is the start signal when the operator makes it to you or an RTE
+assignment places the work in Concord workflow, unless the request places it
+outside the workflow. Call
 `concord_work_start`: it captures the item, claims its worktree, and opens the
 workflow in one operation. Report where the item stands, then shape it. The
 first decision point is the contract, not the capture. Ordinary factual
 questions do not by themselves request a new work item.
+
+Before capturing a production configuration-only operation, establish an
+admitted execution and acceptance route for its actual target. If no route
+exists, report the limitation before capture. Distinguish host-owned work from
+new managed capability and obtain any applicable operator decision; do not invent
+a recipe, receipt, or research classification. Host-owned work has no Concord
+workflow authority, evidence, verdict, or completion claim. An existing managed
+item stays held until its supported handoff succeeds; a refusal is not permission
+to execute directly.
 
 Use direct tools for targeted retrieval of known files, symbols, strings, or
 documentation. Send a bounded repository investigation to the explore utility

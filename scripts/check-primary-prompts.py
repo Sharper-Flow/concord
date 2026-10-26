@@ -83,6 +83,13 @@ CONCORD_REQUIRED_PHRASES = (
     "The user may choose to start an RTE session",
     "Notices report actual overlap, not the chance of it",
     "You own design, code, tests, review, law text, publication, CI follow-through, deployment, and planning for your work item",
+    "Managed participation is explicit (CD-0122 D1)",
+    "when the operator makes it to you or an RTE assignment places the work in Concord workflow, unless the request places it outside the workflow",
+    "Before capturing a production configuration-only operation, establish an admitted execution and acceptance route for its actual target",
+    "If no route exists, report the limitation before capture",
+    "Host-owned work has no Concord workflow authority, evidence, verdict, or completion claim",
+    "An existing managed item stays held until its supported handoff succeeds",
+    "a refusal is not permission to execute directly",
 )
 PLANNER_REQUIRED_PHRASES = (
     "The user may choose to start this optional session",

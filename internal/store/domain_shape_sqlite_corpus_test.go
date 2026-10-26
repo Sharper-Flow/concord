@@ -38,6 +38,7 @@ func TestCommittedSQLiteMechanismFacts(t *testing.T) {
 		"sqlite-single-connection":       DomainFactInvariant,
 		"sqlite-busy-timeout":            DomainFactConfigCoupling,
 		"sqlite-current-row-write-guard": DomainFactInvariant,
+		"sqlite-effect-receipt-order":    DomainFactInvariant,
 	} {
 		t.Run(id, func(t *testing.T) {
 			fact, err := ParseDomainFact(id+".json", read(t, knowledgeFactTreeDir+id+".json"), refs)

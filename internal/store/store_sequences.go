@@ -5,15 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"slices"
+
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
 func allocateStoreSequence(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
-	var seq int64
-	err := tx.QueryRowContext(ctx, `UPDATE store_sequences SET last=last+1 WHERE name=? RETURNING last`, name).Scan(&seq)
-	if err != nil {
-		return 0, wrapFailure(KindInvariantViolation, "append_event", "cannot advance the store sequence", false, "restore the store's sequence state", err)
-	}
-	return seq, nil
+	seq, err := sqlitedb.AllocateSequence(ctx, tx, name)
+	return seq, mechanismFailure(err)
 }
 
 func effectCreatesRelationPosition(event Event) (bool, error) {

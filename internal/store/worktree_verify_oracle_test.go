@@ -208,7 +208,7 @@ WHERE d.work_id=? AND d.attempt_id=? AND d.event_id=?`, f.work, "attempt-"+id, c
 		if diffs := receipt.identityDifferences(expected); len(diffs) != 0 {
 			t.Fatalf("authorization receipt %s differs in %v", expected.EventID, diffs)
 		}
-		if (expected.EventID == start.EventID && receipt.event.Seq != retainedStartSeq) || (expected.EventID == completion.EventID && receipt.event.Seq != retainedSeq) || (expected.EventID == event.EventID && receipt.event.Seq >= retainedStartSeq) {
+		if (expected.EventID == start.EventID && receipt.Seq != retainedStartSeq) || (expected.EventID == completion.EventID && receipt.Seq != retainedSeq) || (expected.EventID == event.EventID && receipt.Seq >= retainedStartSeq) {
 			t.Fatalf("authorization receipt %s has a mismatched effect sequence", expected.EventID)
 		}
 	}

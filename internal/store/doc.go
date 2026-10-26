@@ -24,10 +24,11 @@
 //
 // Seams, each owned by its file and its adjacent tests:
 //
-//   - internal/sqlitedb: connection, pragma, revision and commit mechanics.
+//   - internal/sqlitedb: connection, pragma, revision, commit, current-row guard,
+//     effect-receipt storage and sequence mechanics.
 //   - store.go, transaction.go: domain-facing open and transaction lifecycles.
-//   - events.go, operation.go, fold.go: effect receipts, registered current-row
-//     writers, and transaction-owned write scopes.
+//   - events.go, operation.go, fold.go: domain-facing effect identity, registered
+//     current-row writers, and transaction-owned write context.
 //   - work_context.go, worker_packet_binding.go,
 //     worker_context_findings.go: declared immutable readings, findings,
 //     dispatch packets, and typed bounds.

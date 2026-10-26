@@ -3,8 +3,8 @@
 //
 // Connection discipline (the invariant every reader of this package needs):
 //
-// The pool allows at most one connection (sqlitedb.Open in
-// internal/sqlitedb/connection.go).
+// The pool allows at most one connection: sqlitedb.Open calls
+// SetMaxOpenConns(1) in internal/sqlitedb/connection.go.
 // While any *sql.Tx is open, that transaction holds the pool's only
 // connection. A nested call through s.db — query, exec, or another BeginTx —
 // parks on the pool forever and never reaches SQLite. WAL and busy_timeout

@@ -10,7 +10,7 @@
   [issue #410 comment](https://github.com/Sharper-Flow/concord/issues/410#issuecomment-5387585623)
 - **Related:** CD-0034, CD-0043 (D1, D2, D3),
   [`../managed-development-authority.md`](../managed-development-authority.md)
-- **Preserves:** CD-0043 D1 and D2; the reserved `skills/` boundary under
+- **Preserves:** CD-0043 D1 and D2; the skill admission boundary under
   CD-0043 D3; the closed lane registry and its digest; `agent-lane-packet.v1`
   and `agent-lane-report.v1`
 
@@ -86,8 +86,10 @@ or every Concord-named file. An agent definition is inert until
 invoked by name, so central visibility carries none of the always-on leakage
 that governs instructions.
 
-`skills/` stays reserved and empty under CD-0043 D3. This decision changes where
-Concord's own definitions live, not whether Concord ships a skill.
+`skills/` admits skills that operate Concord-defined structure under
+[CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1.
+A shipped skill uses this installation route and is versioned by the release
+under CD-0245 D2. Lane methodology stays host-owned under CD-0043 D1 and D2.
 
 ### D3. The corpus is authored, never copied
 
@@ -198,7 +200,9 @@ private predecessor history and host tool coupling into a public release.
 - `.concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md` exists and is
   indexed exactly once as the record shard
   `.concord/docs/knowledge/records/CD-0063.json`, composed by `scripts/knowledge_index.py`.
-- `skills/` still contains only `README.md`.
+- `python3 scripts/check-law-coverage.py` checks the outstanding implementation
+  pointer for the skill admission, portability, and install conformance required
+  by CD-0245; it does not prove that conformance.
 - `contracts/agent-lanes.v1.json` keeps its version and
   `contracts/agent-lanes.digest` is unchanged.
 - A test installs, asserts the project pointer and the central agents directory,

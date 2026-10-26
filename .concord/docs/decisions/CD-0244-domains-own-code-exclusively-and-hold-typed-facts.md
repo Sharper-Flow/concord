@@ -4,7 +4,7 @@
 - **Date:** 2026-10-23
 - **Scope:** The Domain shape Concord sets up, checks, and queries in every Product: code ownership, allowed dependencies, typed Domain facts, and their retrieval
 - **Amends:** [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D2 and D12; [`concord-knowledge-index.md`](../concord-knowledge-index.md)
-- **Approval:** The operator approved this exact text, including the transitional mixed role, on 2026-10-23. Approval is recorded in [Concord (CON) issue 1317](https://linear.app/sharper-flow/issue/CON-1317).
+- **Approval:** The operator approved the original text, including the transitional mixed role, on 2026-10-23. The operator approved the Required conformance heading and publication-check section on 2026-10-26. Both approvals are recorded in [Concord (CON) issue 1317](https://linear.app/sharper-flow/issue/CON-1317).
 
 ## Context
 

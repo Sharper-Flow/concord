@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:ebcfbde1e57c1a543c5b0d76db3cf6088b01ff5d3dbd37dfa0bec4a76f75e2d8",
+  "sha256": "sha256:49029d28bcd20aba00edcf8c1ddd9c30f1df790c20b6170c8ecb58bcffa14804",
   "status": "published",
   "summary": "Describes the knowledge manifest, its shards, and the authoring flow that produces them.",
   "tags": [

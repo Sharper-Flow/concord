@@ -1,5 +1,122 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestD7ConsequentialBoundariesRefuseUnresolvedOverlap"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestD7ExecutionClaimBoundaryRefusesUnresolvedOverlap"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestExternalObservationBoundaryRefusesStaleLawRevision"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestStaleLawBoundaryLeavesRecoveryReachable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestCompactionPublishClaimRefusesStaleLawRevision"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestComponentInputsAreProhibitedOnTheAgentSurface"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-domain-registry.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestKnowledgeManifestV12RequiresLawHomeForApplicability"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNonLawRecordsCannotAuthorLawHomeFields"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionValidationEnforcesProductTruthMatrix"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBuiltinWorkflowProductTruthClassification"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapGuardsLifecycleExecutionEntry"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestValidateWorkContextDomainTxRefusals"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReadWorkContextOverflowRefusesReadNotRetention"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReadWorkContextAbsentForLegacyWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-check-domain-registry.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPackageMapChangeKeepsRegistryPin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainFootprintJoinsPackageMapLawEvidenceAndCoverage"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-check-package-domains.py"
+    }
+  ],
   "id": "CD-0222",
-  "issue": "CON-1319",
-  "state": "outstanding"
+  "state": "satisfied"
 }

@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:108a2cc6c23eccd7f4243e9fea24b509b159ea7d50620a38946bd74e4a81ddc7",
+  "sha256": "sha256:ff3567ffa2ba48f9c89c7dcf4c19b0ed3c86723cd35d2609c8b89c5b2f2ae902",
   "status": "accepted",
   "summary": "Domains exclusively own code at package or module grain, with composition, test-support, and transitional mixed roots. Four typed fact kinds distinguish law from observed behavior. Product-declared boundary checks and extractors, a strict ratchet, bounded one-call retrieval, and knowledge-home setup apply to every Product. Runtime implementation and real migration remain outstanding.",
   "tags": [

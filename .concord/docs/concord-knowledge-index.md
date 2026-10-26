@@ -97,14 +97,6 @@ shard with exactly one `owner_domain_id` and no body document. The four kinds
 are `invariant`, `data_object`, `state_authority`, and `config_coupling`.
 The Markdown-path requirement above applies to document records, not facts.
 
-Facts distinguish `law`, which names its `governing_law_ids`, from `observed`,
-which grants no authority. Decision and specification documents remain the home
-of reasoning and approval. Typed anchors retain CD-0047's resolution and
-required-check rules. Product-declared extractors compare supported facts with
-code; a fact without an extractor reports as unverified. The bounded Domain
-read serves path, Domain, or subject selectors and feeds footprint and
-work-context required reading without generated cards or session overviews.
-
 Schema `1.3` and its document readers do not yet implement these fact kinds.
 Their schema, validation, Product-declared checks, bounded retrieval, and setup
 remain outstanding in [Concord (CON) issue 1319](https://linear.app/sharper-flow/issue/CON-1319).

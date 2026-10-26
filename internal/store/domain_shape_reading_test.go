@@ -25,13 +25,21 @@ func shapeReading(t *testing.T, s *Store, product string, selector DomainShapeSe
 
 func TestDomainShapeReadingClosedSource(t *testing.T) {
 	valid := `{"kind":"domain_shape","source_id":"project-a","commit_oid":"` + strings.Repeat("a", 40) + `","content_hash":"sha256:` + strings.Repeat("b", 64) + `","selector":{"path":"src"}}`
-	var source WorkContextReadingSource
-	if err := json.Unmarshal([]byte(valid), &source); err != nil {
+	entry := func(source string) string {
+		return `{"domain_id":"fixture-law","reason":"bounded selected reading","source":` + source + `}`
+	}
+	var reading WorkContextReading
+	if err := json.Unmarshal([]byte(entry(valid)), &reading); err != nil {
 		t.Fatal(err)
 	}
-	reading := WorkContextReading{DomainID: "fixture-law", Reason: "bounded selected reading", Source: source}
 	if err := validateWorkContextReading(reading); err != nil {
 		t.Fatal(err)
+	}
+	// The closed union belongs to reading entries; oracle recipe sources share
+	// the source type and must keep decoding their retained producer facts.
+	var oracle NativeOracleResult
+	if err := json.Unmarshal([]byte(`{"recipe_source":{"kind":""}}`), &oracle); err != nil {
+		t.Fatalf("reading closure leaked into oracle recipe_source: %v", err)
 	}
 	for _, raw := range []string{
 		strings.Replace(valid, `"selector":{"path":"src"}`, `"selector":null`, 1),
@@ -47,11 +55,10 @@ func TestDomainShapeReadingClosedSource(t *testing.T) {
 		strings.Replace(valid, `"kind":"domain_shape"`, `"kind":"repository_file"`, 1),
 		strings.Replace(valid, `"kind":"domain_shape"`, `"kind":"knowledge"`, 1),
 	} {
-		var decoded WorkContextReadingSource
-		err := json.Unmarshal([]byte(raw), &decoded)
+		var decoded WorkContextReading
+		err := json.Unmarshal([]byte(entry(raw)), &decoded)
 		if err == nil {
-			reading.Source = decoded
-			err = validateWorkContextReading(reading)
+			err = validateWorkContextReading(decoded)
 		}
 		if err == nil {
 			t.Fatalf("open source admitted: %s", raw)

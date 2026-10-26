@@ -123,13 +123,13 @@ func TestDomainShapeReadingSourceSchema(t *testing.T) {
 		t.Fatalf("required reading union omitted Domain Shape: %v", err)
 	}
 	for _, key := range []string{"kind", "source_id", "commit_oid", "content_hash", "selector"} {
-		copy := map[string]any{}
+		incomplete := map[string]any{}
 		for k, v := range valid {
 			if k != key {
-				copy[k] = v
+				incomplete[k] = v
 			}
 		}
-		check(copy, false)
+		check(incomplete, false)
 	}
 	for _, selector := range []any{map[string]any{}, map[string]any{"path": "src", "domain_id": "root"}, map[string]any{"subject": "settings", "unknown": true}} {
 		valid["selector"] = selector

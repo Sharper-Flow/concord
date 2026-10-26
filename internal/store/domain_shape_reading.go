@@ -9,17 +9,36 @@ import (
 	"strings"
 )
 
-// UnmarshalJSON keeps the source union closed even on internal replay and
-// worker-read paths that do not pass through the public authoring schema.
-func (source *WorkContextReadingSource) UnmarshalJSON(raw []byte) error {
-	type wire WorkContextReadingSource
-	var decoded wire
+// UnmarshalJSON keeps a required reading's source union closed even on internal
+// replay and worker-read paths that do not pass through the public authoring
+// schema. The closure belongs to the reading entry: oracle recipe sources share
+// the source type and keep their own repository-file validation.
+func (reading *WorkContextReading) UnmarshalJSON(raw []byte) error {
+	var decoded struct {
+		DomainID             string          `json:"domain_id"`
+		Reason               string          `json:"reason"`
+		ProductWideRationale string          `json:"product_wide_rationale,omitempty"`
+		Source               json.RawMessage `json:"source"`
+	}
 	if err := decodeStrictKnowledgeJSON(raw, &decoded); err != nil {
 		return err
 	}
+	source, err := decodeClosedReadingSource(decoded.Source)
+	if err != nil {
+		return err
+	}
+	*reading = WorkContextReading{DomainID: decoded.DomainID, Reason: decoded.Reason, ProductWideRationale: decoded.ProductWideRationale, Source: source}
+	return nil
+}
+
+func decodeClosedReadingSource(raw []byte) (WorkContextReadingSource, error) {
+	var decoded WorkContextReadingSource
+	if err := decodeStrictKnowledgeJSON(raw, &decoded); err != nil {
+		return decoded, err
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return err
+		return decoded, err
 	}
 	allowed := []string{"kind"}
 	switch decoded.Kind {
@@ -31,23 +50,22 @@ func (source *WorkContextReadingSource) UnmarshalJSON(raw []byte) error {
 		allowed = append(allowed, "source_id", "commit_oid", "content_hash", "selector")
 		var selector map[string]json.RawMessage
 		if err := json.Unmarshal(fields["selector"], &selector); err != nil || len(selector) != 1 {
-			return fmt.Errorf("domain_shape requires exactly one selector field")
+			return decoded, fmt.Errorf("domain_shape requires exactly one selector field")
 		}
 		for field := range selector {
 			if field != "path" && field != "domain_id" && field != "subject" {
-				return fmt.Errorf("domain_shape selector forbids %s", field)
+				return decoded, fmt.Errorf("domain_shape selector forbids %s", field)
 			}
 		}
 	default:
-		return fmt.Errorf("unknown work-context reading source kind %q", decoded.Kind)
+		return decoded, fmt.Errorf("unknown work-context reading source kind %q", decoded.Kind)
 	}
 	for field := range fields {
 		if !slices.Contains(allowed, field) {
-			return fmt.Errorf("reading source kind %q forbids %s", decoded.Kind, field)
+			return decoded, fmt.Errorf("reading source kind %q forbids %s", decoded.Kind, field)
 		}
 	}
-	*source = WorkContextReadingSource(decoded)
-	return nil
+	return decoded, nil
 }
 
 func validateDomainShapeReadingSource(source WorkContextReadingSource) error {

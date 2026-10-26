@@ -86,7 +86,7 @@ func (s *Store) DesignateProductDomainShape(ctx context.Context, request Product
 	}
 	result.Setup, err = plan.Apply()
 	if err != nil {
-		return result, fmt.Errorf("Domain Shape setup failed; reported filesystem changes may remain: %w", err)
+		return result, fmt.Errorf("domain shape setup failed; reported filesystem changes may remain: %w", err)
 	}
 	event := Event{EventID: operatorEventID("product.knowledge_home_designated", request.ProductID), Kind: "product.knowledge_home_designated", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1}
 	err = s.Transact(ctx, func(transaction *Transaction) error {
@@ -139,7 +139,7 @@ func domainShapeOperatorSetupIdentity(repo, product, project string) (DomainShap
 	if err != nil {
 		return request, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	for _, name := range []string{knowledgeRegistryPath, projectToolingManifestPath} {
 		info, err := root.Lstat(name)
 		if os.IsNotExist(err) {
@@ -283,7 +283,7 @@ func (s *Store) RunProductDomainShapeChecks(ctx context.Context, product, checko
 	}
 	for _, evaluation := range result.Checks {
 		if evaluation.State == "outstanding" {
-			return result, fmt.Errorf("Domain Shape checks found outstanding violations")
+			return result, fmt.Errorf("domain shape checks found outstanding violations")
 		}
 	}
 	return result, nil

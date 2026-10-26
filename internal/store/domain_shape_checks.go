@@ -43,7 +43,7 @@ type DomainShapeEdge struct {
 	TargetDomainID string `json:"target_domain_id"`
 }
 
-// Imports name declared roots, never individual source files. The Product's
+// DomainShapeImport names declared roots, never individual source files. The Product's
 // checker owns source-language resolution and must report its complete inventory.
 type DomainShapeImport struct {
 	SourceRoot string `json:"source_root"`
@@ -90,7 +90,8 @@ type DomainShapeRepositoryResolution struct {
 	Resolved bool                       `json:"resolved"`
 }
 
-// RequiredCheckIDs is observed membership from the Product's check configuration,
+// DomainShapeEnforcementResolution records observed check membership and anchor resolution.
+// RequiredCheckIDs comes from the Product's check configuration,
 // not an echo of the requested check_id. Resolved independently reports whether
 // the anchor exists. Neither field claims the check executed successfully.
 type DomainShapeEnforcementResolution struct {
@@ -140,7 +141,7 @@ func (output DomainShapeCheckOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(fields)
 }
 
-// State uses the existing coverage vocabulary. Verification separately makes
+// DomainShapeFinding uses the existing coverage vocabulary. Verification separately makes
 // absence of an extractor/check visibly unverified, never a satisfied result.
 type DomainShapeFinding struct {
 	State   string `json:"state"`
@@ -611,7 +612,7 @@ func (runner ExecDomainShapeCommandRunner) Run(ctx context.Context, root string,
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // Explicit operator authority selects pinned Product argv; arguments stay separate and no shell is invoked.
 	cmd.Dir, cmd.Stdin = root, bytes.NewReader(input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

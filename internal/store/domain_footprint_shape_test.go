@@ -76,9 +76,9 @@ func footprintOversizedShapeFixture(t *testing.T, s *Store) (KnowledgeHome, stri
 			continue
 		}
 		for i := 0; i < 10; i++ {
-			copy := fact
-			copy.ID += strings.Repeat("x", i+1)
-			writeKnowledgeFile(t, home.RepoPath, knowledgeFactTreeDir+copy.ID+".json", string(marshalDomainFact(t, copy)))
+			duplicate := fact
+			duplicate.ID += strings.Repeat("x", i+1)
+			writeKnowledgeFile(t, home.RepoPath, knowledgeFactTreeDir+duplicate.ID+".json", string(marshalDomainFact(t, duplicate)))
 		}
 	}
 	commitKnowledgeRepo(t, home.RepoPath, "oversized footprint facts")

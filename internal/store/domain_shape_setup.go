@@ -71,7 +71,7 @@ func PrepareDomainShapeSetup(request DomainShapeSetupRequest) (*DomainShapeSetup
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	plan := &DomainShapeSetupPlan{request: request, observed: map[string]domainShapeSetupEntry{}, writes: map[string][]byte{}}
 	if err := plan.observeSetupHome(root); err != nil {
 		return nil, err
@@ -369,8 +369,8 @@ func validateSetupToolMetadata(root *os.Root, raw []byte) error {
 	if err := domainShapeJSON(raw, &tool); err != nil {
 		return domainShapeSetupError("tool metadata is malformed: " + err.Error())
 	}
-	text := func(value string, min, max int) bool {
-		return utf8.RuneCountInString(value) >= min && utf8.RuneCountInString(value) <= max && strings.TrimSpace(value) != ""
+	text := func(value string, minimum, maximum int) bool {
+		return utf8.RuneCountInString(value) >= minimum && utf8.RuneCountInString(value) <= maximum && strings.TrimSpace(value) != ""
 	}
 	if !text(tool.Purpose, 4, 256) || (tool.Tier != "fast" && tool.Tier != "standard" && tool.Tier != "slow") {
 		return domainShapeSetupError("tool metadata requires bounded purpose and fast, standard or slow tier")
@@ -462,7 +462,7 @@ func (p *DomainShapeSetupPlan) Apply() (DomainShapeSetupResult, error) {
 	if err != nil {
 		return result, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	for _, dir := range p.dirs {
 		if err := root.Mkdir(dir, 0755); err != nil {
 			return result, fmt.Errorf("setup stopped at %s; earlier reported paths may remain: %w", dir, err)

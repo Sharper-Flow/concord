@@ -60,7 +60,7 @@ def go_selection(args: list[str]) -> list[str]:
             pass
         elif token.startswith("-"):
             raise PlanError(f"unsupported targeted Go flag {flag}")
-        elif "..." in token or token.endswith(".go"):
+        elif "..." in token or token.endswith(".go") or token in {"all", "std", "cmd"}:
             raise PlanError("targeted Go checks need explicit packages, not wildcards or file lists")
         else:
             packages.append(token)
@@ -69,10 +69,13 @@ def go_selection(args: list[str]) -> list[str]:
         raise PlanError("targeted Go checks need explicit packages and nonempty -run")
     # A finite list of anchored top-level names avoids accidental substring or
     # match-all selection. Subtest regexes need an explicitly admitted broad run.
-    match = re.fullmatch(r"\^\(?((?:(?:Test|Example|Fuzz)[A-Za-z0-9_]*)(?:\|(?:Test|Example|Fuzz)[A-Za-z0-9_]*)*)\)?\$", pattern)
-    if not match or pattern.count("(") != pattern.count(")"):
-        raise PlanError("targeted -run must be anchored literal test names, e.g. '^TestName$'")
-    return match.group(1).split("|")
+    # Alternation binds looser than anchors, so more than one name needs the
+    # group: '^TestA|TestB$' matches any name starting TestA or ending TestB.
+    name = r"(?:Test|Example|Fuzz)[A-Za-z0-9_]*"
+    match = re.fullmatch(rf"\^(?:({name})|\(({name}(?:\|{name})*)\))\$", pattern)
+    if not match:
+        raise PlanError("targeted -run must be anchored literal test names, e.g. '^TestName$' or '^(TestA|TestB)$'")
+    return (match.group(1) or match.group(2)).split("|")
 
 
 def plan(tier: str, command: list[str]) -> dict:

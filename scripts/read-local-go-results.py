@@ -41,7 +41,7 @@ def read(directory: Path, expectations: list[str]) -> tuple[dict, int]:
     if metadata.get("interrupted_signal") or recorded.get("complete") is not True:
         results["complete"] = False
         results["outcome"] = "fail" if code else "incomplete"
-    if expectations and results["compile_only"]:
+    if expectations and results["outcome"] == "compile_only":
         results["outcome"] = "selection_unproved"
     summary = producer.bounded_summary(results)
     summary["provenance"] = metadata

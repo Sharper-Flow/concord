@@ -112,7 +112,10 @@ run_tier() {
   fi
   set +e
   if [[ ${#gate[@]} -gt 0 ]]; then
-    "${gate[@]}" "$@" &
+    # A non-interactive shell starts an asynchronous command with SIGINT and
+    # SIGQUIT ignored and stdin from /dev/null; restore both so the gate can
+    # trap INT and the workload keeps the caller's stdin.
+    ( trap - INT QUIT; exec "${gate[@]}" "$@" ) <&0 &
     local child=$!
     # Forward cancellation to the existing host owner; it terminates its own
     # workload subtree. Do not build another descendant walker here.

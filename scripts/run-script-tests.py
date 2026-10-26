@@ -13,14 +13,14 @@ with the real YAML parser (PyYAML), never from a curated copy:
   verify-tooling step named "Test release and installer tooling". Each of its
   segments must be exactly `python3 scripts/test-<name>.py`, or the battery
   is undecodable and this selector refuses to run (exit 2) rather than guess.
-- A changed `scripts/test-*.py` file runs itself.
+- A changed `scripts/test-*.py` file runs itself; a deleted or renamed-away
+  suite widens to the battery, which keeps any changed suite not yet wired in.
 - Any other changed file runs the suites that bind it: a suite whose AST
   imports the changed module, or whose AST carries a string constant naming
-  the changed file's basename or repository-relative path. Follow local sibling
-  Python imports and literal script references transitively, with cycle detection.
-  Binding is an
-  advisory candidate choice for partial preflight only; it is not an
-  exhaustive transitive test mapping.
+  the changed file's basename or repository-relative path. Local sibling Python
+  imports and literal script references are followed transitively, with cycle
+  detection; an unparsable helper widens to the battery. Binding is an advisory
+  candidate choice for partial preflight only, not an exhaustive test mapping.
 - A changed file with no bound suite falls back to the complete tooling
   battery. A changed battery-defining file (the CI workflow or the hook
   configuration) also runs the battery, because the selection mapping itself

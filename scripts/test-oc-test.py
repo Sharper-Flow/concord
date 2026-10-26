@@ -9,6 +9,7 @@ import re
 import resource
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -327,6 +328,9 @@ class TierRoutingTest(unittest.TestCase):
             ["go", "test", "-run", "", "./internal/store"],
             ["go", "test", "-run=.*", "./internal/store"],
             ["go", "test", "-run=TestOne", "./internal/store"],
+            ["go", "test", "-run=^TestOne|TestTwo$", "./internal/store"],
+            ["go", "test", "-run=^(TestOne$", "./internal/store"],
+            ["go", "test", "-run=^TestOne$", "all"],
             ["go", "test", "-run=^$", "./internal/store"],
             ["go", "test", "-run=^TestOne$", "-bench=.", "./internal/store"],
             ["go", "test", "-run=^TestOne$", "-args", "-run=.*"],
@@ -372,30 +376,40 @@ class TierRoutingTest(unittest.TestCase):
         self.assertIn("first\nlast diagnostic\n", result.stdout)
         self.assertIn("FAIL broad (exit 7)", result.stderr)
 
-    def test_cancellation_is_forwarded_to_host_gate(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "bin").mkdir()
-            shutil.copyfile(REPOSITORY / "bin/oc-test", root / "bin/oc-test")
-            gate = root / "bin/oc-test-gate"
-            gate.write_text('#!/bin/bash\ntrap \'printf "CANCELLED\\n"; exit 143\' TERM\nprintf "READY\\n"\nwhile :; do read -r -t 1 _ || true; done\n')
-            gate.chmod(0o700)
-            child = subprocess.Popen(["bash", str(root / "bin/oc-test"), "broad", "--", "probe"],
-                env=dict(os.environ, PATH=f"{root / 'bin'}:/usr/bin:/bin"),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                # These three flushed lines establish that admission reached the
-                # host fake before cancellation; no sleep or timing assertion.
-                lines = [child.stdout.readline() for _ in range(3)]
-                self.assertEqual(lines[-1], "READY\n")
-                child.terminate()
-                stdout, stderr = child.communicate(timeout=5)
-                self.assertEqual(child.returncode, 143, stderr)
-                self.assertIn("CANCELLED", stdout)
-            finally:
-                if child.poll() is None:
-                    child.terminate()
-                    child.communicate(timeout=5)
+    def test_cancellation_and_stdin_reach_host_gate(self):
+        # The host gate traps INT and TERM; a signal ignored on entry to it
+        # could not be trapped, so both must arrive with their default action.
+        for signum, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+            with self.subTest(signal=signum.name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "bin").mkdir()
+                shutil.copyfile(REPOSITORY / "bin/oc-test", root / "bin/oc-test")
+                gate = root / "bin/oc-test-gate"
+                gate.write_text(
+                    "#!/bin/bash\n"
+                    "trap 'printf \"CANCELLED INT\\n\"; exit 130' INT\n"
+                    "trap 'printf \"CANCELLED TERM\\n\"; exit 143' TERM\n"
+                    "IFS= read -r line\nprintf 'STDIN:%s\\n' \"$line\"\nprintf 'READY\\n'\n"
+                    "while :; do read -r -t 1 _ || true; done\n")
+                gate.chmod(0o700)
+                child = subprocess.Popen(["bash", str(root / "bin/oc-test"), "broad", "--", "probe"],
+                    env=dict(os.environ, PATH=f"{root / 'bin'}:/usr/bin:/bin"), start_new_session=True,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                try:
+                    child.stdin.write("caller input\n")
+                    child.stdin.flush()
+                    # These flushed lines establish that admission reached the
+                    # host fake before cancellation; no sleep or timing assertion.
+                    lines = [child.stdout.readline() for _ in range(4)]
+                    self.assertEqual(lines[-2:], ["STDIN:caller input\n", "READY\n"])
+                    child.send_signal(signum)
+                    stdout, stderr = child.communicate(timeout=5)
+                    self.assertEqual(child.returncode, code, stderr)
+                    self.assertIn(f"CANCELLED {signum.name[3:]}", stdout)
+                finally:
+                    if child.poll() is None:
+                        os.killpg(child.pid, signal.SIGKILL)
+                        child.communicate(timeout=5)
 
     def test_broad_preserves_failure_and_requires_gate(self):
         failed = self.run_wrapper("broad", "--", "probe", failure="probe")
@@ -574,6 +588,8 @@ class GoResultsConsumerTest(unittest.TestCase):
         self.assertEqual((result["outcome"], code), ("compile_only", 0))
         result, code = self.read_fixture(events=events, compile_only=True, expected=["TestOne"])
         self.assertEqual((result["outcome"], code), ("selection_unproved", 1))
+        result, code = self.read_fixture(events=events, compile_only=True, expected=["TestOne"], code=2)
+        self.assertEqual((result["outcome"], code), ("fail", 2))
 
     def test_process_failure_and_interruption_never_become_success(self):
         result, code = self.read_fixture(code=7)

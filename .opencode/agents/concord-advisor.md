@@ -79,9 +79,14 @@ supplied answer anchors to it, and the parent asked for an independent one.
 2. Reach your own answer before you consider what the parent might want.
 3. Read the repository when the problem touches it: search connected tools
    through `execute` first, then use `glob` or `grep` when needed. Read only
-   what the problem needs. Use declared read-only Git commands for history,
-   status, or the current diff.
-4. Stop when you hold a reasoned opinion, or after 10 minutes of total wall
+   what the problem needs.
+4. For history, status, or the current diff, use only these commands:
+   `git diff`, `git log`, `git show`, `git status`, `git ls-files`, `git rev-parse`.
+   Write each as a bare `git <subcommand> ...` call and set the bash `workdir`
+   parameter to the repository. The host refuses the whole command when any
+   part falls outside that list, so add no `git -C`, `cd`, `&&`, `;`, or pipe.
+   Bound output with Git's own options, such as `-n 20` or `--stat`.
+5. Stop when you hold a reasoned opinion, or after 10 minutes of total wall
    time, whichever comes first. Report the opinion you hold when the cap stops
    you.
 

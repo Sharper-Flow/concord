@@ -152,6 +152,21 @@ class SubagentMethodProjectionTests(unittest.TestCase):
                 for tool in ("question", "todowrite", "task"):
                     self.assertIn(f"\n  {tool}: false\n", "\n" + tools + "\n")
 
+    def test_git_guidance_names_exactly_the_allowed_commands_and_their_shape(self):
+        manifest, _ = generator.load_manifest()
+        for utility in manifest["utilities"]:
+            if not utility["allowed_commands"]:
+                continue
+            with self.subTest(utility=utility["id"]):
+                projection = generator.utility_projection(utility)
+                allowed = re.findall(r'^    "(git [^"]+)": allow$', projection, re.MULTILINE)
+                text = " ".join(projection.split("\n---\n", 1)[1].split())
+                named = re.findall(r"`(git [a-z-]+)`", text)
+                self.assertEqual(named, [command.removesuffix(" *") for command in allowed])
+                self.assertIn("bare `git <subcommand> ...` call", text)
+                self.assertIn("bash `workdir` parameter", text)
+                self.assertIn("add no `git -C`, `cd`, `&&`, `;`, or pipe", text)
+
     def test_explore_handoff_answers_first_and_preserves_the_requested_deliverable(self):
         manifest, _ = generator.load_manifest()
         utility = next(item for item in manifest["utilities"] if item["id"] == "explore")

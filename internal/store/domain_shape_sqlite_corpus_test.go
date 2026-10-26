@@ -35,8 +35,9 @@ func TestCommittedSQLiteMechanismFacts(t *testing.T) {
 		refs.RequiredCheckIDs[check] = true
 	}
 	for id, kind := range map[string]DomainFactKind{
-		"sqlite-single-connection": DomainFactInvariant,
-		"sqlite-busy-timeout":      DomainFactConfigCoupling,
+		"sqlite-single-connection":       DomainFactInvariant,
+		"sqlite-busy-timeout":            DomainFactConfigCoupling,
+		"sqlite-current-row-write-guard": DomainFactInvariant,
 	} {
 		t.Run(id, func(t *testing.T) {
 			fact, err := ParseDomainFact(id+".json", read(t, knowledgeFactTreeDir+id+".json"), refs)

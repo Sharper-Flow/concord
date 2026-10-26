@@ -78,6 +78,15 @@ func violates(tx *writeTx, r GitRunner) { r.Run(nil, "dir", "status") }`},
 func violates(q Queryer, r GitRunner) { r.Run(nil, "dir", "status") }`},
 		{"durable WriteTx reaches a subprocess", `package sqlitedb
 func violates(tx *WriteTx) { exec.Command("git", "status") }`},
+		{"durable WriteGuard receiver reaches a subprocess", `package sqlitedb
+func (g *WriteGuard) Enter() { exec.Command("git", "status") }`},
+		{"aliased durable WriteGuard reaches a subprocess through a helper", `package store
+import durable "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+func violates(g *durable.WriteGuard) { probe() }
+func probe() { exec.Command("git", "status") }`},
+		{"qualified durable WriteGuard closure removes a directory", `package store
+import "github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+func plan() { _ = func(g sqlitedb.WriteGuard) { os.RemoveAll("path") } }`},
 		{"durable write admission reaches a subprocess", `package sqlitedb
 func BeginWrite() { exec.Command("git", "status") }`},
 		{"durable read admission reaches bulk removal", `package sqlitedb
@@ -130,7 +139,7 @@ func commitHelper() error { exec.Command("git", "status"); return nil }`},
 	}{
 		{"unrelated qualified handles do not hold a transaction", `package store
 import sqlitedb "example.com/other"
-func probe(q sqlitedb.Queryer, w *sqlitedb.WriteTx) { exec.Command("git", "status") }`},
+func probe(q sqlitedb.Queryer, w *sqlitedb.WriteTx, g *sqlitedb.WriteGuard) { exec.Command("git", "status") }`},
 		{"plain function may run git", `package store
 func probe(r GitRunner) { r.Run(nil, "dir", "status") }`},
 		{"command run with no arguments is not a git runner call", `package store

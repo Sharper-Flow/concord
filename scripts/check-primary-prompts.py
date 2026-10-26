@@ -396,9 +396,19 @@ def check_primary_prompts(root: Path) -> list[str]:
         )
         if boundary not in intake_frontmatter
     )
-    intake_permission = intake_frontmatter.split("task:", 1)[0]
-    if '"*": deny' not in intake_permission:
-        findings.append("concord-0.md frontmatter does not deny bash by default")
+    try:
+        intake_bash = permission_rules(intake_frontmatter, "bash")
+        if not intake_bash or intake_bash[0] != ("*", "deny"):
+            findings.append("concord-0.md frontmatter does not deny bash by default")
+        findings.extend(
+            f"concord-0.md has an unapproved bash grant {pattern!r}; Linear MCP owns planning"
+            for pattern, action in intake_bash
+            if action != "deny" and (pattern, action) not in (
+                ("gh issue list *", "allow"), ("gh issue view *", "allow"),
+            )
+        )
+    except ValueError as error:
+        findings.append(f"concord-0.md {error}")
     # Registry routing: the registry descriptions state what and when, so the
     # portable examples route by need and never hard-code a generated agent id.
     # An id here would fork the registry's routing authority into prose.

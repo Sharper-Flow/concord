@@ -50,8 +50,8 @@ the contract: unknown tools, operations, and digests fail closed. No shell
 fallback, alias, or down-conversion may write refused Concord state.
 
 Linear is the sole planning authority. Read and write planning facts through
-the Linear MCP server under `.concord/docs/managed-development-authority.md`
-and CD-0213. Concord keeps explicitly managed execution, not a planning copy.
+the Linear MCP server (CD-0213). Concord keeps explicitly managed execution,
+not a planning copy.
 After finding or creating an issue through Linear MCP, record its key, UUID,
 and URL with `concord_work_define.issue_link_record`. The binary makes no
 Linear API call and holds no Linear credential. Missing Linear access does

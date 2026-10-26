@@ -347,6 +347,16 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("intake boundary" in finding for finding in findings))
 
+    def test_intake_github_planning_write_grants_report(self) -> None:
+        original = check_primary_prompts.read_prompt(self.root, "concord-0.md")
+        for pattern in ("gh issue create *", "gh issue edit *", "gh issue comment *", "gh issue create*", "gh issue close *", "gh api *"):
+            with self.subTest(pattern=pattern):
+                self.rewrite("concord-0.md", lambda _: original.replace(
+                    '    "gh issue view *": allow\n',
+                    f'    "gh issue view *": allow\n    "{pattern}": allow\n',
+                ))
+                self.assertTrue(any("unapproved bash grant" in finding for finding in self.findings()))
+
     def test_coordinator_task_boundary_loss_reports(self) -> None:
         self.rewrite(
             "Concord.md",

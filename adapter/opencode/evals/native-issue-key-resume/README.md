@@ -14,7 +14,7 @@ existing configuration. Build the CLI from the same candidate before running:
 ```sh
 go build -o "$ARTIFACTS/concord" ./cmd/concord
 bin/oc-test targeted -- python3 scripts/test-native-issue-key-resume.py
-bin/oc-test targeted -- python3 scripts/native-issue-key-resume.py \
+bin/oc-test broad -- python3 scripts/native-issue-key-resume.py \
   --host "$INSTALLED_OPENCODE" --cli "$ARTIFACTS/concord" \
   --host-deps "$PUBLIC_HOST_PACKAGES" --run-root "$ARTIFACTS/fresh-run" \
   --budget-seconds 210

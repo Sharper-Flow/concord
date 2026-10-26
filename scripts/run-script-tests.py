@@ -13,12 +13,14 @@ with the real YAML parser (PyYAML), never from a curated copy:
   verify-tooling step named "Test release and installer tooling". Each of its
   segments must be exactly `python3 scripts/test-<name>.py`, or the battery
   is undecodable and this selector refuses to run (exit 2) rather than guess.
-- A changed `scripts/test-*.py` file runs itself.
+- A changed `scripts/test-*.py` file runs itself; a deleted or renamed-away
+  suite widens to the battery, which keeps any changed suite not yet wired in.
 - Any other changed file runs the suites that bind it: a suite whose AST
   imports the changed module, or whose AST carries a string constant naming
-  the changed file's basename or repository-relative path. Binding is an
-  advisory candidate choice for partial preflight only; it is not an
-  exhaustive transitive test mapping.
+  the changed file's basename or repository-relative path. Local sibling Python
+  imports and literal script references are followed transitively, with cycle
+  detection; an unparsable helper widens to the battery. Binding is an advisory
+  candidate choice for partial preflight only, not an exhaustive test mapping.
 - A changed file with no bound suite falls back to the complete tooling
   battery. A changed battery-defining file (the CI workflow or the hook
   configuration) also runs the battery, because the selection mapping itself
@@ -164,16 +166,29 @@ def _string_constants(tree: ast.AST) -> set[str]:
     }
 
 
-def suite_binds(suite: Path, changed: str) -> bool:
-    """A suite binds a changed file when it imports it or names it by path."""
+def suite_binds(suite: Path, changed: str, visited: set[Path] | None = None) -> bool:
+    """Follow statically named sibling helpers as well as the suite itself."""
+    visited = set() if visited is None else visited
+    suite = suite.resolve()
+    if suite in visited:
+        return False
+    visited.add(suite)
     try:
         tree = ast.parse(suite.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError, ValueError):
+    except OSError:
         return False
-    if Path(changed).stem in _imported_modules(tree):
+    except (SyntaxError, ValueError) as error:
+        raise BatteryError(f"cannot inspect helper graph at {suite.name}: {error}") from error
+    imports = _imported_modules(tree)
+    if Path(changed).stem in imports:
         return True
     references = _string_constants(tree)
-    return Path(changed).name in references or changed in references
+    if Path(changed).name in references or changed in references:
+        return True
+    candidates = {suite.parent / (name + ".py") for name in imports if "." not in name}
+    candidates.update(suite.parent / Path(ref).name for ref in references if ref.endswith(".py"))
+    return any(helper.is_file() and helper.resolve().parent == suite.parent
+               and suite_binds(helper, changed, visited) for helper in sorted(candidates))
 
 
 def _normalized(files: list[str]) -> list[str]:
@@ -194,6 +209,7 @@ def _normalized(files: list[str]) -> list[str]:
 class Selection:
     commands: list[list[str]]
     used_battery_fallback: bool
+    reason: str = "Suites statically bind the changed files; dynamic/nonlocal dependencies remain unknown"
 
 
 def select(files: list[str], root: Path = ROOT) -> Selection:
@@ -201,9 +217,13 @@ def select(files: list[str], root: Path = ROOT) -> Selection:
     battery = tooling_battery(root)
     battery_commands = [["python3", suite] for suite in battery]
     changed_files = _normalized(files)
+    # A new/renamed suite may not be wired into the battery yet. Widening must
+    # not discard an explicit current suite selected by this same change.
+    battery_commands.extend(["python3", path] for path in changed_files
+                            if TEST_SUITE_RE.fullmatch(path) and (root / path).is_file() and path not in battery)
 
     if not changed_files or any(path in MAPPING_FILES for path in changed_files):
-        return Selection(battery_commands, True)
+        return Selection(battery_commands, True, "Empty input or changed CI/hook mapping requires the tooling battery")
 
     # CI-referenced suites first (in workflow order), then suites that exist
     # on disk but are not wired into CI yet.
@@ -213,11 +233,16 @@ def select(files: list[str], root: Path = ROOT) -> Selection:
     selected: set[str] = set()
     for changed in changed_files:
         if TEST_SUITE_RE.fullmatch(changed):
+            if not (root / changed).is_file():
+                return Selection(battery_commands, True, f"Deleted/renamed suite {changed} requires the tooling battery")
             selected.add(changed)
             continue
-        bound = {suite for suite in universe if suite_binds(root / suite, changed)}
+        try:
+            bound = {suite for suite in universe if suite_binds(root / suite, changed)}
+        except BatteryError as error:
+            return Selection(battery_commands, True, str(error))
         if not bound:
-            return Selection(battery_commands, True)
+            return Selection(battery_commands, True, f"No static suite mapping for {changed}; tooling battery required")
         selected.update(bound)
 
     commands = [["python3", suite] for suite in sorted(selected, key=lambda s: (order.get(s, len(order)), s))]
@@ -239,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         print("run-script-tests: refusing to select anything from an unreadable battery", file=sys.stderr)
         return 2
 
+    print(f"script-selection {'battery' if selection.used_battery_fallback else 'focused'}: {selection.reason}")
     for command in selection.commands:
         print(f"script-suite {' '.join(command)}")
     if args.dry_run:

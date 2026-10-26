@@ -165,24 +165,33 @@ esac''',
         agent_names: tuple[str, ...] | None = None,
         generated_agents: bool = False,
         agent_contents: dict[str, str] | None = None,
+        release_content: bool = False,
     ) -> None:
         prefix = f"concord-{version}"
         source = self.root / f"source-{version}"
         (source / "bin").mkdir(parents=True)
         (source / "adapter" / "opencode").mkdir(parents=True)
-        (source / "skills").mkdir()
-        (source / "skills" / "concord-demo.md").write_text(f"skill:{marker or version}\n", encoding="utf-8")
+        if release_content:
+            # Match release.yml's content inventory without introducing a skill
+            # or replacing the synthetic core and adapter used by this fixture.
+            shutil.copytree(SCRIPT.parents[1] / "skills", source / "skills")
+            shutil.copytree(SCRIPT.parents[1] / ".concord" / "instructions", source / "instructions")
+        else:
+            (source / "skills").mkdir()
+            (source / "skills" / "concord-demo.md").write_text(f"skill:{marker or version}\n", encoding="utf-8")
         # CD-0063 ships an always-on conduct corpus and the central agent
         # definitions. The fixture must include them so the install path under
         # test exercises the staging, sha256, and central placement logic.
-        (source / "instructions").mkdir()
-        for name in installer.INSTRUCTION_FILES:
-            (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
+        if not release_content:
+            (source / "instructions").mkdir()
+            for name in installer.INSTRUCTION_FILES:
+                (source / "instructions" / name).write_text(f"rule:{name}:{marker or version}\n", encoding="utf-8")
         (source / "agents").mkdir()
         for name in agent_names if agent_names is not None else installer.AGENT_FILES:
             content = f"agent:{name}:{marker or version}\n"
-            if generated_agents:
-                content = (SCRIPT.parents[1] / ".opencode" / "agents" / name).read_text(encoding="utf-8") + "\n" + content
+            if generated_agents or release_content:
+                generated = (SCRIPT.parents[1] / ".opencode" / "agents" / name).read_text(encoding="utf-8")
+                content = generated if release_content else generated + "\n" + content
             if agent_contents and name in agent_contents:
                 content = agent_contents[name]
             (source / "agents" / name).write_text(content, encoding="utf-8")
@@ -2607,6 +2616,112 @@ esac''',
         # symlink, so its resolved entries point at v1.1.0.
         instructions_root = (self.root / "data" / "concord" / "current" / "instructions").resolve()
         self.assertEqual(instructions_root, (self.root / "data" / "concord" / "v1.1.0" / "instructions").resolve())
+
+    def test_real_release_conduct_is_portable_to_another_product_on_install_and_upgrade(self) -> None:
+        """Check delivered files and pointers, not runtime Product-law isolation."""
+        repository = SCRIPT.parents[1]
+        expected_files = {
+            f"{directory}/{path.relative_to(repository / origin)}": path.read_bytes()
+            for directory, origin in (
+                ("instructions", ".concord/instructions"),
+                ("skills", "skills"),
+                ("agents", ".opencode/agents"),
+            )
+            for path in sorted((repository / origin).rglob("*"))
+            if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
+        }
+        self.assertEqual(
+            {name for name in expected_files if name.startswith("skills/")},
+            {"skills/README.md"},
+            "the admitted release inventory contains no executable skill",
+        )
+        self.assertIn(b"\nCommit only durable content. ", expected_files["instructions/change.md"])
+        for version in ("v1.0.0", "v1.1.0"):
+            self.make_release(version, release_content=True)
+
+        project = self.root / "synthetic-product"
+        user_files = {
+            project / ".concord" / "docs" / "managed-development-authority.md": b"Synthetic Product planning uses a different tracker.\n",
+            project / ".concord" / "docs" / "decisions" / "CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md": b"Synthetic Product permits edits outside the assigned scope.\n",
+            project / ".concord" / "instructions" / "change.md": b"Synthetic Product says to commit transient commentary.\n",
+            project / ".opencode" / "user-instructions.md": b"Intentional user instruction.\r\nKeep these bytes.\r\n",
+            self.config.parent / "agents" / "concord-0.md": b"---\nmode: primary\n---\nUser-owned primary.\n",
+        }
+        for path, content in user_files.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        project_config = project / ".opencode" / "opencode.jsonc"
+        original_project = (
+            '{\n  // Keep the intentional Product-local instruction.\n'
+            '  "theme": "dark",\n  "instructions": ["user-instructions.md"],\n}\n'
+        ).encode()
+        project_config.write_bytes(original_project)
+        stable = self.root / "data" / "concord" / "current"
+        conduct_entry = str(stable / "instructions" / "*.md")
+        linked_bytes = None
+        global_bytes = None
+        source_references = []
+
+        for version in ("v1.0.0", "v1.1.0"):
+            installed = self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts))
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            version_root = stable.parent / version
+            self.assertTrue(stable.is_symlink())
+            self.assertEqual(stable.resolve(), version_root)
+            if linked_bytes is None:
+                linked = self.run_installer("link", "--project", str(project))
+                self.assertEqual(linked.returncode, 0, linked.stderr)
+                linked_bytes = project_config.read_bytes()
+                global_bytes = self.config.read_bytes()
+            self.assertEqual(project_config.read_bytes(), linked_bytes, "upgrade rewrote the linked Product config")
+            self.assertEqual(self.config.read_bytes(), global_bytes, "upgrade rewrote the user config")
+            project_data = installer.jsonc_data(project_config.read_text(encoding="utf-8"))
+            self.assertEqual(project_data["instructions"], ["user-instructions.md", conduct_entry])
+            self.assertEqual(project_data["theme"], "dark")
+            self.assertIn(b"// Keep the intentional Product-local instruction.", project_config.read_bytes())
+            global_data = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
+            self.assertIn(str(stable / "skills"), global_data["skills"]["paths"])
+            for path, content in user_files.items():
+                self.assertEqual(path.read_bytes(), content, str(path.relative_to(self.root)))
+
+            manifest = json.loads((stable.parent / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["version"], version)
+            self.assertEqual(manifest["stable_root"], str(stable))
+            self.assertEqual(manifest["skill_path"], str(stable / "skills"))
+            self.assertEqual(
+                {name: digest for name, digest in manifest["version_files"].items()
+                 if name.startswith(("instructions/", "skills/", "agents/"))},
+                {name: hashlib.sha256(content).hexdigest() for name, content in expected_files.items()},
+            )
+            self.assertEqual(
+                {str(path.relative_to(version_root)) for directory in ("instructions", "skills", "agents")
+                 for path in (version_root / directory).rglob("*") if path.is_file()},
+                set(expected_files),
+            )
+            for relative, content in expected_files.items():
+                self.assertEqual((version_root / relative).read_bytes(), content, relative)
+                self.assertEqual((stable / relative).read_bytes(), content, relative)
+            self.assertEqual(set(manifest["agent_files"]), set(installer.AGENT_FILES))
+            for name in installer.AGENT_FILES:
+                central = self.config.parent / "agents" / name
+                content = expected_files[f"agents/{name}"]
+                self.assertEqual(central.read_bytes(), content, name)
+                self.assertEqual(manifest["agent_files"][name], hashlib.sha256(content).hexdigest())
+                prompt = central.read_text(encoding="utf-8")
+                source_references.extend(
+                    f"{version}/agents/{name}:{number}: {line.strip()}"
+                    for number, line in enumerate(prompt.splitlines(), 1)
+                    if any(reference in line for reference in (
+                        ".concord/docs/managed-development-authority.md",
+                        ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
+                        ".concord/instructions/change.md",
+                    ))
+                )
+                if name in ("concord-design.md", "concord-implement.md", "concord-review.md"):
+                    self.assertIn('conduct rule that opens "Commit only durable content."', " ".join(prompt.split()), name)
+
+        if source_references:
+            self.fail("installed profiles require Concord checkout paths:\n" + "\n".join(source_references))
 
     def test_link_is_idempotent(self) -> None:
         self.make_release("v1.0.0")

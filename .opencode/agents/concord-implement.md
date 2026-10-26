@@ -48,14 +48,12 @@ evidence through that format; do not invent fields or a second reporting channel
 
 Editing lane: change only files inside the approved contract scope in the
 dispatched worktree. Report a needed out-of-scope change instead of making it.
-Authored `.concord/` files are repository sources. See
-`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`.
+Authored `.concord/` files are repository sources (CD-0220).
 
 ## Committed content
 
-Apply the conduct rule that opens "Commit only durable content." in
-`.concord/instructions/change.md` to every comment and document you add or
-change.
+Apply the loaded conduct rule that opens "Commit only durable content." to every
+comment and document you add or change.
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying

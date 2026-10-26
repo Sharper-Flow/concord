@@ -151,17 +151,25 @@ goals.md §2 names. This record does not move that point.
 - `python3 scripts/check-doc-contract.py` and
   `python3 scripts/check-knowledge-closure.py` pass when the record is
   registered.
-- `go test ./internal/store` must prove that no step is defined in two parts,
-  that a new composition compiles without new step code, and that generated
-  definitions derive from the one canonical source (CD-0242 D14).
-- `go test ./internal/store` must prove that the decision model gives the same
-  size for the same inputs and model version, that the record keeps the size,
-  model version, and inputs, and that a size an agent proposes is refused.
-- The operator-override, rerun, and resize probes bind the CD-0242 D6 anchor:
-  no production-line cap, size measurement, or mandatory split exists, so no
-  resize successor supersedes an item for outgrowing a size. Until that change
-  lands, `python3 scripts/check-knowledge-index.py` is the executable anchor
-  for this record's law registration.
-- `go test ./internal/store` must prove that a `small` implementation item
-  cannot ship without its outcome contract, its footprint checks, and one
-  independent review, and that the define-start and merge-queue records exist.
+- `internal/store.TestWorkflowPartsDefineEachStepOnce`,
+  `internal/store.TestWorkflowCompositionCompilesWithoutNewStepCode`, and
+  `internal/store.TestLiveHeadsAreTheirCompiledCompositions` exercise D1-D3's
+  shared ownership and canonical compilation.
+- `internal/store.TestWorkSizeModelGivesTheSameSizeForTheSameInputsAndVersion`,
+  `internal/store.TestWorkSizeRecordKeepsSizeModelVersionAndInputs`, and
+  `internal/agent.TestCaptureSizeRefusalsLeaveNoWork` exercise D4's deterministic
+  model, stored inputs, and refusal of an agent-proposed size.
+- `internal/store.TestWorkSizeOverrideRefusesWithoutAConsumedApproval` and
+  `internal/agent.TestReviseIntentSizeRevisionsStayOnTheWork` exercise D6's
+  override approval and same-item size revisions. These tests do not prove
+  that a changed size adds required stages while preserving completed work.
+- `internal/store.TestAcceptedCriteriaPrecedeArchitecture` and
+  `internal/store.TestArchitectureReviewGuardsFirstAndContinuingDispatch`
+  exercise the architecture ordering and review admission owned by CD-0242
+  D4-D5. They do not prove a size-selected small implementation route.
+- `python3 scripts/check-law-coverage.py` keeps this record outstanding.
+  [Concord (CON) issue 1344](https://linear.app/sharper-flow/issue/CON-1344)
+  owns D5-D6's remaining required-stage progression proof;
+  [Concord (CON) issue 1306](https://linear.app/sharper-flow/issue/CON-1306)
+  owns D7's timing and adoption measurement. Neither a size record nor law
+  registration establishes those outcomes.

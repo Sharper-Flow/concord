@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-23T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0245",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0043"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0063"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5a984572b55055a0c8f395614a3caac2f0b983a074d38d39b6be6916e2c5c65b",
+  "status": "accepted",
+  "summary": "Concord may ship skills that operate structures defined by accepted law and verified by Concord checks, starting with Domain-shape stewardship. Skills reuse the versioned release and central installation route, name only Concord operations and Product-declared tooling, and hold no independent evidence, approval, or law authority. Lane methodology stays host-owned. Skill implementation and conformance remain outstanding.",
+  "tags": [
+    "skills",
+    "installer",
+    "domains"
+  ],
+  "title": "Concord ships the skill that operates its Domain shape"
+}

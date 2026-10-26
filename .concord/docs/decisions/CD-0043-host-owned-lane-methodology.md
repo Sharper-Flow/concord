@@ -72,12 +72,14 @@ Methodology deliberately placed in such a surface is therefore visible as
 present-but-unbound rather than silently absent — a weaker record, and a reason to
 prefer the enumerable path.
 
-### D3. `skills/` stays reserved
+### D3. `skills/` admits skills that operate Concord-defined structure
 
-Concord ships no skill. `skills/README.md` records this as a closed reason rather
-than an open deferral. The directory stays packaged so a future accepted decision can
-populate it without changing release shape, but its emptiness is now a decided state
-rather than an unfinished one.
+[CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1
+admits a skill when it operates a structure that accepted Concord law defines,
+and Concord's checks verify the result. The first such skill is Domain-shape
+stewardship. Lane methodology stays host-owned under D1 and reaches a worker
+through D2; a skill that tells a worker how to review, verify, or implement
+inside its lane is not admitted.
 
 ### D4. The coverage rows name the owner
 
@@ -122,7 +124,9 @@ requiring the split.
 - `.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md` exists with status
   `accepted` and is indexed exactly once as the record shard
   `.concord/docs/knowledge/records/CD-0043.json`, composed by `scripts/knowledge_index.py`.
-- `skills/` contains only `README.md`.
+- `python3 scripts/check-law-coverage.py` checks the outstanding implementation
+  pointer for the skill admission, portability, and install conformance required
+  by CD-0245; it does not prove that conformance.
 - `contracts/agent-lane-packet.schema.json` gains no property.
 - `contracts/agent-lanes.v1.json` keeps its current version, and
   `contracts/agent-lanes.digest` is unchanged.

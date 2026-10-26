@@ -172,6 +172,7 @@ class SelectionTest(unittest.TestCase):
 
     def test_changed_test_file_runs_itself(self) -> None:
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             selection = self.select(fixture, ["scripts/test-delta.py"])
             self.assertEqual(selection.commands, [["python3", "scripts/test-delta.py"]])
             self.assertFalse(selection.used_battery_fallback)
@@ -198,6 +199,59 @@ class SelectionTest(unittest.TestCase):
             fixture.script("test-named.py", '#!/usr/bin/env python3\nNAME = "check-named.py"\n')
             selection = self.select(fixture, ["scripts/check-named.py"])
             self.assertEqual(selection.commands, [["python3", "scripts/test-named.py"]])
+
+    def test_shared_helper_selects_direct_and_transitive_callers(self) -> None:
+        with SelectorRoot() as fixture:
+            fixture.script("shared.py")
+            fixture.script("caller.py", "import shared\n")
+            fixture.script("test-alpha.py", "import shared\n")
+            fixture.script("test-beta.py", "import caller\n")
+            selection = self.select(fixture, ["scripts/shared.py"])
+            self.assertEqual(selection.commands, [["python3", "scripts/test-alpha.py"],
+                                                  ["python3", "scripts/test-beta.py"]])
+            self.assertFalse(selection.used_battery_fallback)
+
+    def test_transitive_literal_input_and_cycles_do_not_drop_callers(self) -> None:
+        with SelectorRoot() as fixture:
+            fixture.script("shared.py", 'import caller\nINPUT = "contracts/synthetic.json"\n')
+            fixture.script("caller.py", "import shared\n")
+            fixture.script("test-alpha.py", 'HELPER = "caller.py"\n')
+            selection = self.select(fixture, ["contracts/synthetic.json"])
+            self.assertEqual(selection.commands, [["python3", "scripts/test-alpha.py"]])
+            self.assertFalse(selection.used_battery_fallback)
+
+    def test_unknown_inputs_and_deleted_suites_widen_visibly(self) -> None:
+        for files in (["scripts/test-deleted.py"], ["testdata/embedded.txt"],
+                      ["contracts/generated.schema.json"], ["scripts/config.json"],
+                      ["internal/example/example_test.go"],
+                      ["scripts/test-new.py", "adapter/opencode/changed.test.ts"]):
+            with self.subTest(files=files), SelectorRoot() as fixture:
+                fixture.script("test-new.py")
+                selection = self.select(fixture, files)
+                self.assertTrue(selection.used_battery_fallback)
+                self.assertGreaterEqual(len(selection.commands), 3)
+                self.assertTrue(selection.reason)
+                if "scripts/test-new.py" in files:
+                    self.assertIn(["python3", "scripts/test-new.py"], selection.commands)
+
+    def test_incomplete_helper_graph_widens_instead_of_missing_a_caller(self) -> None:
+        with SelectorRoot() as fixture:
+            fixture.script("shared.py")
+            fixture.script("caller.py", "not valid Python !!!\n")
+            fixture.script("test-alpha.py", "import shared\n")
+            fixture.script("test-beta.py", "import caller\n")
+            selection = self.select(fixture, ["scripts/shared.py"])
+            self.assertTrue(selection.used_battery_fallback)
+            self.assertIn("cannot inspect helper graph", selection.reason)
+
+    def test_new_and_renamed_suites_join_inventory_without_old_name_execution(self) -> None:
+        with SelectorRoot() as fixture:
+            fixture.script("test-new.py")
+            selection = self.select(fixture, ["scripts/test-new.py"])
+            self.assertEqual(selection.commands, [["python3", "scripts/test-new.py"]])
+            selection = self.select(fixture, ["scripts/test-old.py", "scripts/test-new.py"])
+            self.assertTrue(selection.used_battery_fallback)
+            self.assertNotIn(["python3", "scripts/test-old.py"], selection.commands)
 
     def test_unbound_changed_script_falls_back_to_the_battery(self) -> None:
         with SelectorRoot() as fixture:
@@ -233,11 +287,13 @@ class SelectionTest(unittest.TestCase):
 
     def test_files_are_normalized_before_selection(self) -> None:
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             selection = self.select(fixture, ["./scripts/test-delta.py", "scripts/test-delta.py", ""])
             self.assertEqual(selection.commands, [["python3", "scripts/test-delta.py"]])
 
     def test_selection_stays_ordered_and_deduplicated(self) -> None:
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             fixture.script("check-multi.py")
             fixture.script(
                 "test-alpha.py",
@@ -300,6 +356,7 @@ class RunnerExecutionTest(unittest.TestCase):
 
     def test_runner_executes_selected_suites_without_a_shell(self) -> None:
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             result = self.run_selector(fixture, ["scripts/test-delta.py"])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(len(result.calls), 1)
@@ -322,6 +379,7 @@ class RunnerExecutionTest(unittest.TestCase):
 
     def test_dry_run_prints_the_plan_without_executing(self) -> None:
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             result = self.run_selector(fixture, ["--dry-run", "scripts/test-delta.py"])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.calls, [])
@@ -331,6 +389,7 @@ class RunnerExecutionTest(unittest.TestCase):
         # The hook forwards `--` before {push_files}; a path that starts with
         # a dash must arrive as a file, never as a flag.
         with SelectorRoot() as fixture:
+            fixture.script("test-delta.py")
             result = self.run_selector(fixture, ["--dry-run", "--", "scripts/test-delta.py"])
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("python3 scripts/test-delta.py", result.stdout)

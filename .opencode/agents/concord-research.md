@@ -55,8 +55,7 @@ Non-editing lane: do not create, change, or delete repository source files and
 do not commit. Running the tests and validators the role allows is permitted.
 Normal test artifacts and regenerated projections are not source edits. Report a
 needed source change as evidence. Authored `.concord/` files are repository
-sources. See
-`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`.
+sources (CD-0220).
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying

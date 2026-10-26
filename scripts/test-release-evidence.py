@@ -184,6 +184,19 @@ class CIWorkflowDriftTests(unittest.TestCase):
             self.assertEqual(len(variables), 1, f"verify-tests must read {job_id}'s result once")
             self.assertIn(f'test "${variables[0]}" = success', gate_run)
 
+    def test_store_shards_preserve_preparation_poison_and_result_retention(self) -> None:
+        block = jobs(load_workflow(CI_WORKFLOW))
+        reference = None
+        for index in range(1, STORE_SHARDS + 1):
+            steps = [dict(step) for step in block[f"verify-tests-store-{index}"]["steps"]]
+            for step in steps:
+                if step.get("name", "").startswith("Test shard"):
+                    step["name"] = "Test store shard"
+                    step["run"] = re.sub(r"(go-test-shard\.py ./internal/store) \d+ \d+", r"\1 INDEX COUNT", step["run"])
+            if reference is None:
+                reference = steps
+            self.assertEqual(steps, reference, f"store shard {index} changed more than its selection")
+
     def test_ci_keeps_a_per_run_concurrency_group(self) -> None:
         document = load_workflow(CI_WORKFLOW)
         concurrency = document.get("concurrency")

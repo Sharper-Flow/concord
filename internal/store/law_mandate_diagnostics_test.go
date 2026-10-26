@@ -124,6 +124,9 @@ func TestSingleHomeMandateRefreshesProjection(t *testing.T) {
 			writeManifestFixture(t, repo, base, manifestFixture{ID: "later", Kind: "spec", Path: ".concord/docs/later.md", Status: "accepted", Date: "2026-10-01T00:00:00Z", Title: "Later", Summary: "Later law", Scopes: homeScope()})
 			commit := commitKnowledgeRepo(t, repo, "add later law")
 			if !designated {
+				if err := checkMandatedLawsAtHome(ctx, s, "p", "l", nil, nil, false); err != nil {
+					t.Fatalf("a refresh limitation must not block a law-free transition: %v", err)
+				}
 				var failure *Failure
 				if err := checkMandatedLawsAtHome(ctx, s, "p", "l", []string{"later"}, nil, false); !failureAs(err, &failure) || failure.Kind != KindKnowledgeAmbiguous || !strings.Contains(failure.RecoveryAction, "assign exactly one Product knowledge home") {
 					t.Fatalf("an unconfigured standalone home must expose its refresh limitation, not infer an absent law: %v", err)

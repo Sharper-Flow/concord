@@ -22,6 +22,9 @@ type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
 	revisions map[string]knowledgeSourceVerifiedRevision
+	// Single-home refresh errors belong to a nonempty mandate's boundary,
+	// not to law-free transitions that share the pre-transaction preparation.
+	refreshErr error
 }
 
 // knowledgeSourceVerifiedRevision keeps PM1 §3.3's two revisions apart. The
@@ -83,7 +86,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		}
 		for _, home := range homes {
 			if home.HomeLocatorID == homeLocatorID {
-				return ctx, s.EnsureKnowledgeIndexFresh(ctx, home)
+				return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, home)}), nil
 			}
 		}
 		return ctx, nil
@@ -93,7 +96,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, home
 		return ctx, nil
 	}
 	if len(sources) == 1 {
-		return ctx, s.EnsureKnowledgeIndexFresh(ctx, sources[0])
+		return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{refreshErr: s.EnsureKnowledgeIndexFresh(ctx, sources[0])}), nil
 	}
 	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
@@ -233,6 +236,9 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	}
 	if len(mandated) == 0 {
 		return nil
+	}
+	if proof := knowledgeSourceSetProofFrom(ctx); proof != nil && proof.refreshErr != nil {
+		return proof.refreshErr
 	}
 	// CD-0200: a mandated law resolves across the Product's registered
 	// source set, by bare ID (unique across the set) or by the qualified

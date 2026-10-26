@@ -33,12 +33,13 @@ class ShardTests(unittest.TestCase):
 
     def test_shards_are_disjoint_and_cover_every_name(self) -> None:
         names = go_test_shard.listed_names(LIST_OUTPUT)
-        for count in (1, 2, 3, 4):
-            with self.subTest(count=count):
-                shards = [go_test_shard.shard(names, index, count) for index in range(1, count + 1)]
-                dealt = [name for part in shards for name in part]
-                self.assertEqual(sorted(dealt), names)
-                self.assertEqual(len(dealt), len(set(dealt)))
+        for inventory in (names, sorted([*names, "TestNew"])):
+            for count in range(1, 7):
+                with self.subTest(count=count, inventory=inventory):
+                    shards = [go_test_shard.shard(inventory, index, count) for index in range(1, count + 1)]
+                    dealt = [name for part in shards for name in part]
+                    self.assertEqual(sorted(dealt), inventory)
+                    self.assertEqual(len(dealt), len(set(dealt)))
 
     def test_pattern_selects_exactly_its_names(self) -> None:
         names = go_test_shard.listed_names(LIST_OUTPUT)

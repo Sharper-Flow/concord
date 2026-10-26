@@ -379,6 +379,7 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		},
 		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
 		CandidateIDs:             []string{"work-2", "work-3"},
+		BacklogAlignment:         &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
 		Conditions:               []store.WorkflowReadCondition{},
 		UnresolvedConditions:     []string{},
 		OverdueAwaits:            []string{"cond-1"},

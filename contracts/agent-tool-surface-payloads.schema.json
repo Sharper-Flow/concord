@@ -2101,6 +2101,36 @@
         }
       }
     },
+    "workflow_backlog_alignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "searched",
+        "outcome",
+        "related_ids"
+      ],
+      "properties": {
+        "searched": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "related_found",
+            "none_found"
+          ]
+        },
+        "related_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
     "workflow_read": {
       "type": "object",
       "additionalProperties": false,
@@ -2326,6 +2356,10 @@
         },
         "delivery_assertion": {
           "$ref": "#/$defs/workflow_delivery_assertion"
+        },
+        "backlog_alignment": {
+          "$ref": "#/$defs/workflow_backlog_alignment",
+          "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
         }
       }
     },

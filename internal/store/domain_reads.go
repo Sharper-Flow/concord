@@ -389,10 +389,9 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 
 	relRows, err := q.QueryContext(ctx, `
 		SELECT r.kind,r.source_domain_id,r.target_domain_id,r.state,
-			(SELECT group_concat(l.law_id, ',') FROM domain_relation_governing_laws l
+			(SELECT json_group_array(l.law_id ORDER BY l.law_id) FROM domain_relation_governing_laws l
 			 WHERE l.home_project_id=r.home_project_id AND l.home_locator_id=r.home_locator_id AND l.product_id=r.product_id
-			   AND l.source_domain_id=r.source_domain_id AND l.kind=r.kind AND l.target_domain_id=r.target_domain_id
-			 ORDER BY l.law_id) AS laws
+			   AND l.source_domain_id=r.source_domain_id AND l.kind=r.kind AND l.target_domain_id=r.target_domain_id) AS laws
 		FROM domain_architecture_relations r
 		WHERE r.product_id=? AND (r.source_domain_id=? OR r.target_domain_id=?)
 		ORDER BY r.kind,r.source_domain_id,r.target_domain_id`, req.Product, req.Domain, req.Domain)
@@ -402,12 +401,12 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	defer relRows.Close()
 	for relRows.Next() {
 		var view DomainRelationView
-		var laws sql.NullString
+		var laws string
 		if err := relRows.Scan(&view.Kind, &view.SourceDomain, &view.TargetDomain, &view.State, &laws); err != nil {
 			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode Domain relations", true, "retry once the knowledge projection is readable", err)
 		}
-		if laws.Valid && laws.String != "" {
-			view.GoverningLaws = strings.Split(laws.String, ",")
+		if err := json.Unmarshal([]byte(laws), &view.GoverningLaws); err != nil {
+			return out, wrapFailure(KindUnavailable, "C22.DomainDetail", "cannot decode governing laws", true, "retry once the knowledge projection is readable", err)
 		}
 		out.Relations = append(out.Relations, view)
 	}

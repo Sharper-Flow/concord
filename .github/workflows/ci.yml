@@ -124,7 +124,7 @@ jobs:
   # The dispatch-route journey file sets most of the adapter suite's wall time,
   # so it runs alone in verify-adapter-dispatch. Every other file, including a
   # new one, runs here without a maintained allowlist. Each job uploads its
-  # per-file durations so the next imbalance can be named from CI.
+  # per-file durations and native results so imbalance and execution can be checked.
   verify-adapter-rest:
     name: verify-adapter-rest
     runs-on: ubuntu-latest
@@ -156,13 +156,21 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: bun test adapter/opencode/ --path-ignore-patterns='adapter/opencode/dispatch_route_end_to_end.test.ts' --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings
+        run: bun test adapter/opencode/ --path-ignore-patterns='adapter/opencode/dispatch_route_end_to_end.test.ts' --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings --reporter=junit --reporter-outfile="$RUNNER_TEMP/adapter-test-results.xml"
       - name: Retain adapter file durations
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: adapter-test-timings-rest
           path: ${{ runner.temp }}/adapter-test-timings.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Retain native adapter results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: adapter-test-results-rest
+          path: ${{ runner.temp }}/adapter-test-results.xml
           if-no-files-found: error
           retention-days: 90
 
@@ -197,13 +205,21 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings
+        run: bun test ./adapter/opencode/dispatch_route_end_to_end.test.ts --timings="$RUNNER_TEMP/adapter-test-timings.json" --update-timings --reporter=junit --reporter-outfile="$RUNNER_TEMP/adapter-test-results.xml"
       - name: Retain adapter file durations
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: adapter-test-timings-dispatch
           path: ${{ runner.temp }}/adapter-test-timings.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Retain native adapter results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: adapter-test-results-dispatch
+          path: ${{ runner.temp }}/adapter-test-results.xml
           if-no-files-found: error
           retention-days: 90
 

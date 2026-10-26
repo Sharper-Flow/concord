@@ -27183,6 +27183,36 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_backlog_alignment": {
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "enum": [
+            "related_found",
+            "none_found"
+          ],
+          "type": "string"
+        },
+        "related_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "searched": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "searched",
+        "outcome",
+        "related_ids"
+      ],
+      "type": "object"
+    },
     "workflow_completion_payload": {
       "additionalProperties": false,
       "properties": {
@@ -28267,6 +28297,10 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_read": {
       "additionalProperties": false,
       "properties": {
+        "backlog_alignment": {
+          "$ref": "#/$defs/workflow_backlog_alignment",
+          "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
+        },
         "blocking_conditions": {
           "items": {
             "$ref": "#/$defs/id"

@@ -209,6 +209,13 @@ type WorkflowReadParkedDelivery struct {
 	Unreconciled bool `json:"unreconciled"`
 }
 
+// WorkflowReadBacklogAlignment is the recorded search, not inferred relations.
+type WorkflowReadBacklogAlignment struct {
+	Searched   string   `json:"searched"`
+	Outcome    string   `json:"outcome"`
+	RelatedIDs []string `json:"related_ids"`
+}
+
 // WorkflowReadProjection is the bounded observation exposed through existing
 // read surfaces. All values are derived from event-folded projections and the
 // pinned definition; it is intentionally not an authority for mutation.
@@ -244,6 +251,8 @@ type WorkflowReadProjection struct {
 	// selection as effective_artifact: the correction's merge evidence when a
 	// correction exists, the asserted artifact otherwise.
 	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
+	// Absence means no search was recorded; none_found is an explicit result.
+	BacklogAlignment *WorkflowReadBacklogAlignment `json:"backlog_alignment,omitempty"`
 }
 
 // readWorkflowProjectionTx returns the bounded workflow observation from the
@@ -289,6 +298,9 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		return out, assertionErr
 	}
 	out.DeliveryAssertion = deliveryAssertion
+	if out.BacklogAlignment, err = readWorkflowBacklogAlignment(ctx, q, request.WorkID); err != nil {
+		return out, err
+	}
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
 	if err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, request.WorkID).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
@@ -453,6 +465,34 @@ func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowRe
 		}
 	}
 	return out, nil
+}
+
+func readWorkflowBacklogAlignment(ctx context.Context, q queryer, workID string) (*WorkflowReadBacklogAlignment, error) {
+	var alignment WorkflowReadBacklogAlignment
+	err := q.QueryRowContext(ctx, `SELECT searched,outcome FROM workflow_backlog_alignment WHERE work_id=? AND related_work_id IS NULL`, workID).Scan(&alignment.Searched, &alignment.Outcome)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow backlog alignment", true, "retry once the database is readable", err)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT related_work_id FROM workflow_backlog_alignment WHERE work_id=? AND related_work_id IS NOT NULL ORDER BY related_work_id`, workID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow backlog alignment matches", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	alignment.RelatedIDs = []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow backlog alignment match", true, "retry once the database is readable", err)
+		}
+		alignment.RelatedIDs = append(alignment.RelatedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow backlog alignment matches", true, "retry once the database is readable", err)
+	}
+	return &alignment, nil
 }
 
 // parkedDeliveryRead derives the CD-0166 parked-delivery observation for a

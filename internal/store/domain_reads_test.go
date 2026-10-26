@@ -11,6 +11,11 @@ import (
 
 func seedDomainReadStore(t *testing.T) *Store {
 	t.Helper()
+	return seedDomainReadStoreWithLawID(t, "CD-0001")
+}
+
+func seedDomainReadStoreWithLawID(t *testing.T, lawID string) *Store {
+	t.Helper()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	lawContent := "domain law\n"
@@ -25,12 +30,12 @@ func seedDomainReadStore(t *testing.T) *Store {
 			Domains: []KnowledgeDomain{
 				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 				{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord",
-					ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: []string{"CD-0001"}}}},
+					ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: []string{lawID}}}},
 				{DomainID: "legacy-sync", Name: "Legacy Sync", Purpose: "Retired scope", Status: "deprecated", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
 			},
 		},
 		Records: []KnowledgeRecord{
-			{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			{ID: lawID, Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: "Domain law", Summary: "A domain law", Tags: []string{},
 				Authority:    KnowledgeAuthority{Tier: "derived"},
 				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},

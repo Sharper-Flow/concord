@@ -51,7 +51,7 @@ func TestSnapshotStoreAdapters(t *testing.T) {
 			t.Fatalf("store adapter error = %#v", tc.err)
 		}
 	}
-	if err := contextErr(nil); err == nil || err.Error() != "nil context" {
+	if err := contextErr(nil); err == nil || err.Error() != "nil context" { //nolint:staticcheck // SA1012: exercise the rejected nil input, not a production call.
 		t.Fatalf("nil context adapter = %v", err)
 	}
 }

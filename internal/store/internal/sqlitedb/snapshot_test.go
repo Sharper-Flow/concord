@@ -295,7 +295,7 @@ func (c *snapshotObservedContext) Done() <-chan struct{} { c.doneCalls++; return
 func (c *snapshotObservedContext) Err() error            { c.errCalls++; return context.Canceled }
 
 func TestSnapshotContextErrConsultsDone(t *testing.T) {
-	if err := ContextErr(nil); err == nil || err.Error() != "nil context" {
+	if err := ContextErr(nil); err == nil || err.Error() != "nil context" { //nolint:staticcheck // SA1012: exercise the rejected nil input, not a production call.
 		t.Fatalf("nil context = %v", err)
 	}
 	ctx := &snapshotObservedContext{Context: t.Context(), done: make(chan struct{})}

@@ -37,7 +37,7 @@ secrets in anything you quote.
 - **Rule placement**: for a recurring mechanical mistake (a banned call, a file
   location, a fixed pattern), prefer an applicable existing check over more
   prose. Add a check only when the observed risk warrants its maintenance cost.
-  Keep judgement in review guidance rather than duplicating always-on text.
+  A judgement rule belongs in review guidance rather than in always-on text.
 - **No-op instructions**: steering text that changes no behavior, or repeats a
   rule its owner already states. Delete it.
 - **Information access**: a fact the agent needed was not reachable. Name the
@@ -48,7 +48,6 @@ secrets in anything you quote.
 
 Order candidates by severity. For each, give the observation and its evidence,
 the owner that should hold the correction, and the smallest change at that
-owner. Prefer deleting or relocating text to adding text, and repair an existing
-check before adding a rule or another check. Apply in-scope corrections through the
-normal change route. Record the rest once, as follow-up items in the Product's
-planning system.
+owner. Prefer deleting or relocating text to adding text. Apply in-scope
+corrections through the normal change route. Record the rest once, as follow-up
+items in the Product's planning system.

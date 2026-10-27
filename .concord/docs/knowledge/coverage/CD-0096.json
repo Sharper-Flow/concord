@@ -14,7 +14,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestDestroyRefusesNonTerminalWithoutApproval"
+      "value": "internal/store.TestDestroyNonTerminalWithoutApproval"
     },
     {
       "kind": "go_test",

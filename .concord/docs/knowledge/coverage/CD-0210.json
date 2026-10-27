@@ -50,7 +50,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestOutsideRepairHoldRequiresApprovalAndRecordsHold"
+      "value": "internal/agent.TestOutsideRepairSuppliedApprovalRecordsHold"
     },
     {
       "kind": "go_test",

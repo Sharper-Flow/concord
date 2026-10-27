@@ -134,6 +134,8 @@ func runNativeOracleStageOutput(ctx context.Context, dir string, argv, env []str
 		}
 		go func() {
 			_, err := io.Copy(w, r)
+			// Finalize closes held-open readers after the child exits; that
+			// stream cut must not replace its exit with context cancellation.
 			if err != nil && !errors.Is(err, os.ErrClosed) {
 				cancel()
 			}

@@ -152,6 +152,30 @@ func TestFinalReviewRefusesAmbiguousDeliveryAnchors(t *testing.T) {
 	}
 }
 
+// CD-0205 D1: a Review of a ready revision whose recorded preparation no
+// longer qualifies on the current candidate refuses before an attempt; the
+// final-Review fallback never admits a ready revision state-only.
+func TestReadyReviewRefusesStalePreparationBeforeAttempt(t *testing.T) {
+	workID := "ready-review-stale-preparation"
+	f := seedOracleRepairFixture(t, workID)
+	s := f.store
+	defer s.Close()
+	job := recordOracleJobRevision(t, s, workID, f.owner, "job:ready-review-stale", twoPathOracleFields(t, s, workID, nil))
+	advanceOracleFixtureSubject(t, f, workID, "2")
+	var review LaneDefinition
+	for _, lane := range BuiltinLaneDefinitions() {
+		if lane.CapabilityClass == "review" {
+			review = lane
+		}
+	}
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID, review.ID, review.Digest)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, job, review.ID)
+	if _, _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, review, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "stale for its bundle and candidate") {
+		t.Fatalf("Review admission of a ready revision with stale preparation = %v, want the preparation refusal", err)
+	}
+}
+
 // CD-0205 D1: Review execution consumes only its authorization's frozen
 // preparation; other lanes, and authorizations recorded without a mapping,
 // keep the recorded-reference rule.

@@ -1233,38 +1233,10 @@ func (n *nativeGoOracleRun) runStage(ctx context.Context, stage NativeOracleStag
 }
 
 func (n *nativeGoOracleRun) consumeStage(name string, exit int, stdout []byte) error {
-	var err error
 	result := n.result
 	switch name {
 	case "metadata":
-		n.packagePath, err = validateNativeGoMetadata(stdout, n.snapshot, n.plan)
-		if err != nil {
-			return err
-		}
-		if n.plan.Manifest.Kind == nativeGoPackageKind {
-			d := json.NewDecoder(bytes.NewReader(stdout))
-			for {
-				var pkg nativeGoPackage
-				if err := d.Decode(&pkg); err == io.EOF {
-					break
-				} else if err != nil {
-					return err
-				}
-				if pkg.ImportPath != n.packagePath {
-					continue
-				}
-				rooted, err := os.OpenRoot(n.snapshot)
-				if err != nil {
-					return err
-				}
-				n.packageInventory, n.packageTests, err = nativeGoPackageTestInventory(rooted, n.plan.Manifest.PackageCwd, pkg)
-				_ = rooted.Close()
-				if err != nil {
-					return err
-				}
-				break
-			}
-		}
+		return n.consumeMetadata(stdout)
 	case "compile":
 		stat, err := n.scratchRoot.Stat("oracle.test")
 		if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
@@ -1291,27 +1263,61 @@ func (n *nativeGoOracleRun) consumeStage(name string, exit int, stdout []byte) e
 	case "convert":
 		if n.programExit != 0 {
 			result.Qualification = "fail"
-		} else {
-			if n.eventGrade == nil {
-				return nativeUnavailable("missing incremental event grade")
-			}
-			if n.plan.Manifest.Kind == nativeGoPackageKind {
-				if err := validateNativeGoPackageFrames(n.testStdout, n.packageTests, n.eventGrade.skipped); err != nil {
-					return err
-				}
-				nativeGoPackageGrade(&n.packageInventory, n.eventGrade, n.converterDigest)
-				result.PackageInventory = &n.packageInventory
-				result.ObservedWitnessIDs = slices.Clone(result.SelectedWitnessIDs)
-			} else {
-				if err := validateNativeOracleWitnessFrames(n.testStdout, result.SelectedTestNames); err != nil {
-					return err
-				}
-				result.ObservedTestNames = slices.Clone(result.SelectedTestNames)
-			}
-			result.Qualification = "pass"
+			return nil
 		}
+		if n.eventGrade == nil {
+			return nativeUnavailable("missing incremental event grade")
+		}
+		if n.plan.Manifest.Kind == nativeGoPackageKind {
+			if err := validateNativeGoPackageFrames(n.testStdout, n.packageTests, n.eventGrade.skipped); err != nil {
+				return err
+			}
+			nativeGoPackageGrade(&n.packageInventory, n.eventGrade, n.converterDigest)
+			result.PackageInventory = &n.packageInventory
+			result.ObservedWitnessIDs = slices.Clone(result.SelectedWitnessIDs)
+		} else {
+			if err := validateNativeOracleWitnessFrames(n.testStdout, result.SelectedTestNames); err != nil {
+				return err
+			}
+			result.ObservedTestNames = slices.Clone(result.SelectedTestNames)
+		}
+		result.Qualification = "pass"
 	}
 	return nil
+}
+
+func (n *nativeGoOracleRun) consumeMetadata(stdout []byte) error {
+	var err error
+	n.packagePath, err = validateNativeGoMetadata(stdout, n.snapshot, n.plan)
+	if err != nil {
+		return err
+	}
+	if n.plan.Manifest.Kind != nativeGoPackageKind {
+		return nil
+	}
+	return n.consumePackageMetadata(stdout)
+}
+
+func (n *nativeGoOracleRun) consumePackageMetadata(stdout []byte) error {
+	d := json.NewDecoder(bytes.NewReader(stdout))
+	for {
+		var pkg nativeGoPackage
+		if err := d.Decode(&pkg); err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if pkg.ImportPath != n.packagePath {
+			continue
+		}
+		rooted, err := os.OpenRoot(n.snapshot)
+		if err != nil {
+			return err
+		}
+		n.packageInventory, n.packageTests, err = nativeGoPackageTestInventory(rooted, n.plan.Manifest.PackageCwd, pkg)
+		_ = rooted.Close()
+		return err
+	}
 }
 
 func (n *nativeGoOracleRun) finish() error {

@@ -895,7 +895,15 @@ func (j *candidateJourney) completeCorrectiveReview(t *testing.T, attemptID stri
 	}
 	output := j.commit(t, "reviewer@example.invalid", "corrective review pass")
 	if j.packageBundle.Control.ControlID != "" {
-		j.executePackage(t, attemptID, job, "corrective-"+observeID)
+		recorded, err := readWorkerJobRevisionTx(t.Context(), j.s.db, j.workID, job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if recorded.AcceptanceOracle != nil && slices.ContainsFunc(recorded.AcceptanceOracle.Controls, func(control OracleControl) bool {
+			return control.ControlID == j.packageBundle.Control.ControlID
+		}) {
+			j.executePackage(t, attemptID, job, "corrective-"+observeID)
+		}
 	}
 	run := j.observeRun(t, observeID)
 	if run.SubjectRef != "commit:"+output {

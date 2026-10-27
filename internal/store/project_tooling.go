@@ -100,67 +100,78 @@ func projectToolingDirectCommand(invocation string) (string, []string, bool) {
 	if len(args) < 3 || args[1] != "test" || (args[0] != "go" && args[0] != "bun") {
 		return "", nil, false
 	}
+	inputs, ok := projectToolingTestInputs(args[0], args[2:])
+	if !ok {
+		return "", nil, false
+	}
+	return args[0], inputs, len(inputs) > 0
+}
+
+func projectToolingTestInputs(kind string, args []string) ([]string, bool) {
 	var inputs []string
 	seenFlags := map[string]bool{}
-	for i := 2; i < len(args); i++ {
+	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if strings.HasPrefix(arg, "-") {
-			flag, value, hasValue := strings.Cut(arg, "=")
+			flag, _, _ := strings.Cut(arg, "=")
 			if seenFlags[flag] {
-				return "", nil, false
+				return nil, false
 			}
 			seenFlags[flag] = true
-			if args[0] == "go" {
-				switch flag {
-				case "-race", "-v", "-json":
-					if hasValue {
-						return "", nil, false
-					}
-				case "-count", "-timeout", "-p", "-parallel":
-					if !hasValue {
-						i++
-						if i >= len(args) {
-							return "", nil, false
-						}
-						value = args[i]
-					}
-					if flag == "-count" && value != "1" || flag == "-timeout" && !projectToolDuration.MatchString(value) || (flag == "-p" || flag == "-parallel") && !projectToolPositiveInteger.MatchString(value) {
-						return "", nil, false
-					}
-				default:
-					return "", nil, false
-				}
-			} else {
-				if flag != "--timeout" {
-					return "", nil, false
-				}
-				if !hasValue {
-					i++
-					if i >= len(args) {
-						return "", nil, false
-					}
-					value = args[i]
-				}
-				if !projectToolPositiveInteger.MatchString(value) {
-					return "", nil, false
-				}
+			consumed, ok := projectToolingTestFlag(kind, args[i:])
+			if !ok {
+				return nil, false
 			}
+			i += consumed - 1
 			continue
 		}
-		if args[0] == "go" {
-			base := strings.TrimSuffix(strings.TrimPrefix(arg, "./"), "/...")
-			if arg != "." && arg != "./..." && (!strings.HasPrefix(arg, "./") || validateWorkContextRepoPath(base) != nil || !projectToolPath.MatchString(base)) {
-				return "", nil, false
-			}
-		} else if !projectToolingPathValid(strings.TrimPrefix(arg, "./")) || !strings.HasSuffix(arg, ".test.ts") {
-			return "", nil, false
+		if !projectToolingTestInputValid(kind, arg) {
+			return nil, false
 		}
 		if slices.Contains(inputs, arg) {
-			return "", nil, false
+			return nil, false
 		}
 		inputs = append(inputs, arg)
 	}
-	return args[0], inputs, len(inputs) > 0
+	return inputs, true
+}
+
+func projectToolingTestFlag(kind string, args []string) (int, bool) {
+	flag, value, hasValue := strings.Cut(args[0], "=")
+	if kind == "go" {
+		switch flag {
+		case "-race", "-v", "-json":
+			return 1, !hasValue
+		case "-count", "-timeout", "-p", "-parallel":
+		default:
+			return 0, false
+		}
+	} else if flag != "--timeout" {
+		return 0, false
+	}
+	consumed := 1
+	if !hasValue {
+		if len(args) < 2 {
+			return 0, false
+		}
+		consumed, value = 2, args[1]
+	}
+	switch flag {
+	case "-count":
+		return consumed, value == "1"
+	case "-timeout":
+		return consumed, projectToolDuration.MatchString(value)
+	default:
+		return consumed, projectToolPositiveInteger.MatchString(value)
+	}
+}
+
+func projectToolingTestInputValid(kind, input string) bool {
+	if kind == "go" {
+		base := strings.TrimSuffix(strings.TrimPrefix(input, "./"), "/...")
+		return input == "." || input == "./..." || strings.HasPrefix(input, "./") && validateWorkContextRepoPath(base) == nil && projectToolPath.MatchString(base)
+	}
+	return projectToolingPathValid(strings.TrimPrefix(input, "./")) && strings.HasSuffix(input, ".test.ts")
 }
 
 // ProjectToolingCoverageLineage checks command-to-recipe input membership only.
@@ -171,41 +182,48 @@ func ProjectToolingCoverageLineage(invocation string, recipe NativeRecipeCase) b
 		return false
 	}
 	if kind == "go" {
-		if recipe.Kind != "go_top_level_v1" && recipe.Kind != "go_package_v1" {
-			return false
-		}
-		for _, input := range inputs {
-			if input == "./..." || input == "." && recipe.Cwd == "." || input == "./"+recipe.Cwd {
-				return true
-			}
-			if strings.HasSuffix(input, "/...") {
-				root := strings.TrimSuffix(strings.TrimPrefix(input, "./"), "/...")
-				if recipe.Cwd == root || strings.HasPrefix(recipe.Cwd, root+"/") {
-					return true
-				}
-			}
-		}
-		return false
+		return projectToolingGoInputsCover(inputs, recipe)
 	}
 	if recipe.Kind != "target_runner_v1" || recipe.runner != "check" {
 		return false
 	}
+	if kind == "python3" {
+		return projectToolingSelectedPython(recipe, inputs[0], nil)
+	}
 	for _, input := range inputs {
-		found := false
-		for _, check := range recipe.checks {
-			if kind == "python3" && slices.Equal(check.Argv, []string{"python3", projectToolingRelativePath(recipe.Cwd, input)}) {
-				found = slices.Contains(recipe.HarnessFiles, input)
-			}
-			if kind == "bun" {
-				files, _, ok := projectToolingAdapterCommand(recipe, check)
-				found = found || ok && slices.Contains(files, strings.TrimPrefix(input, "./"))
-			}
-		}
-		if !found {
+		if !projectToolingAdapterInputCovered(input, recipe) {
 			return false
 		}
 	}
 	return true
+}
+
+func projectToolingGoInputsCover(inputs []string, recipe NativeRecipeCase) bool {
+	if recipe.Kind != "go_top_level_v1" && recipe.Kind != "go_package_v1" {
+		return false
+	}
+	for _, input := range inputs {
+		if input == "./..." || input == "." && recipe.Cwd == "." || input == "./"+recipe.Cwd {
+			return true
+		}
+		if strings.HasSuffix(input, "/...") {
+			root := strings.TrimSuffix(strings.TrimPrefix(input, "./"), "/...")
+			if recipe.Cwd == root || strings.HasPrefix(recipe.Cwd, root+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func projectToolingAdapterInputCovered(input string, recipe NativeRecipeCase) bool {
+	for _, check := range recipe.checks {
+		files, _, ok := projectToolingAdapterCommand(recipe, check)
+		if ok && slices.Contains(files, strings.TrimPrefix(input, "./")) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateDomainShapeTooling(shape *DomainShapeTooling, tools []ProjectDeclaredTool) error {
@@ -284,36 +302,9 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 		if !projectToolingPlainInvocation(tool.Invocation) {
 			return nil, newFailure(KindInvalidPayload, "project_tooling", fmt.Sprintf("tooling manifest tool %q declares no argv", tool.ID), false, "declare a splittable invocation in "+projectToolingManifestPath)
 		}
-		var coverage []ProjectToolCoverage
-		if tool.Coverage != nil {
-			if string(tool.Coverage) == "null" {
-				return nil, fmt.Errorf("coverage must be an array")
-			}
-			if err := decodeStrictKnowledgeJSON(tool.Coverage, &coverage); err != nil {
-				return nil, err
-			}
-			if len(coverage) > 64 {
-				return nil, fmt.Errorf("coverage exceeds 64 entries")
-			}
-			local := map[FootprintCheck]bool{}
-			for _, entry := range coverage {
-				if !projectToolingAnchorValid(entry.Anchor) || !projectToolingPathValid(entry.RecipePath) || len(entry.CaseID) > 128 || !oracleCaseIDPattern.MatchString(entry.CaseID) {
-					return nil, fmt.Errorf("tool %q has invalid coverage anchor, recipe_path or case_id", tool.ID)
-				}
-				if local[entry.Anchor] {
-					return nil, fmt.Errorf("duplicate coverage anchor")
-				}
-				local[entry.Anchor] = true
-				if prior, exists := bindings[entry.Anchor]; exists && prior != entry {
-					return nil, fmt.Errorf("conflicting coverage binding")
-				}
-				bindings[entry.Anchor] = entry
-			}
-			if len(coverage) > 0 {
-				if _, _, ok := projectToolingDirectCommand(tool.Invocation); !ok {
-					return nil, fmt.Errorf("coverage requires a direct allowlisted command")
-				}
-			}
+		coverage, err := parseProjectToolCoverage(tool.Coverage, tool.ID, tool.Invocation, bindings)
+		if err != nil {
+			return nil, err
 		}
 		declared = append(declared, ProjectDeclaredTool{ID: tool.ID, Invocation: tool.Invocation, Coverage: coverage})
 	}
@@ -322,6 +313,42 @@ func ParseProjectToolingManifest(raw []byte) (*ProjectToolingManifest, error) {
 		return nil, err
 	}
 	return &ProjectToolingManifest{Project: document.Project, Declared: declared, DomainShape: shape}, nil
+}
+
+func parseProjectToolCoverage(raw json.RawMessage, toolID, invocation string, bindings map[FootprintCheck]ProjectToolCoverage) ([]ProjectToolCoverage, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("coverage must be an array")
+	}
+	var coverage []ProjectToolCoverage
+	if err := decodeStrictKnowledgeJSON(raw, &coverage); err != nil {
+		return nil, err
+	}
+	if len(coverage) > 64 {
+		return nil, fmt.Errorf("coverage exceeds 64 entries")
+	}
+	local := map[FootprintCheck]bool{}
+	for _, entry := range coverage {
+		if !projectToolingAnchorValid(entry.Anchor) || !projectToolingPathValid(entry.RecipePath) || len(entry.CaseID) > 128 || !oracleCaseIDPattern.MatchString(entry.CaseID) {
+			return nil, fmt.Errorf("tool %q has invalid coverage anchor, recipe_path or case_id", toolID)
+		}
+		if local[entry.Anchor] {
+			return nil, fmt.Errorf("duplicate coverage anchor")
+		}
+		local[entry.Anchor] = true
+		if prior, exists := bindings[entry.Anchor]; exists && prior != entry {
+			return nil, fmt.Errorf("conflicting coverage binding")
+		}
+		bindings[entry.Anchor] = entry
+	}
+	if len(coverage) > 0 {
+		if _, _, ok := projectToolingDirectCommand(invocation); !ok {
+			return nil, fmt.Errorf("coverage requires a direct allowlisted command")
+		}
+	}
+	return coverage, nil
 }
 
 func parseDomainShapeTooling(raw json.RawMessage, declared []ProjectDeclaredTool) (*DomainShapeTooling, error) {
@@ -510,24 +537,9 @@ func resolveProjectToolingAtCommit(ctx context.Context, runner GitRunner, repoRo
 	}
 	manifest.SourceCommit, manifest.SourceProjectID, manifest.ManifestDigest = commit, projectID, file.SHA256
 	seen := map[FootprintCheck]int{}
-	files := map[string]NativeOracleFile{}
-	contents := map[string][]byte{}
-	var scenarioSources []string
-	bytesRead := len(raw)
-	read := func(name string) ([]byte, error) {
-		if data, exists := contents[name]; exists {
-			return data, nil
-		}
-		input, data, err := nativeGitFile(ctx, runner, repoRoot, commit, name)
-		if err != nil {
-			return nil, err
-		}
-		bytesRead += len(data)
-		if bytesRead > nativeGoInputByteLimit || len(files) >= nativeGoInputFileLimit {
-			return nil, fmt.Errorf("resolved tooling inputs exceed 4096 files or 33554432 bytes")
-		}
-		files[name], contents[name] = input, data
-		return data, nil
+	resolution := projectToolingResolution{
+		ctx: ctx, runner: runner, repoRoot: repoRoot, projectID: projectID, commit: commit,
+		bytesRead: len(raw), files: map[string]NativeOracleFile{}, contents: map[string][]byte{},
 	}
 	for _, tool := range manifest.Declared {
 		for _, coverage := range tool.Coverage {
@@ -535,45 +547,82 @@ func resolveProjectToolingAtCommit(ctx context.Context, runner GitRunner, repoRo
 				if !ProjectToolingCoverageLineage(tool.Invocation, manifest.ResolvedCoverage[index].Recipe) {
 					return nil, fmt.Errorf("tool %s has no direct lineage to shared coverage recipe %s", tool.ID, coverage.RecipePath)
 				}
-				if err := projectToolingAnchorCase(coverage.Anchor, manifest.ResolvedCoverage[index].Recipe, read, scenarioSources, tool.Invocation); err != nil {
+				if err := projectToolingAnchorCase(coverage.Anchor, manifest.ResolvedCoverage[index].Recipe, resolution.read, resolution.scenarioSources, tool.Invocation); err != nil {
 					return nil, fmt.Errorf("shared coverage anchor does not match tool %s: %w", tool.ID, err)
 				}
 				continue
 			}
-			recipeFile, recipeRaw, err := nativeGitFile(ctx, runner, repoRoot, commit, coverage.RecipePath)
-			if err != nil {
-				return nil, fmt.Errorf("resolve coverage recipe %s: %w", coverage.RecipePath, err)
-			}
-			bytesRead += len(recipeRaw)
-			if bytesRead > 32*1024*1024 {
-				return nil, fmt.Errorf("resolved tooling inputs exceed 33554432 bytes")
-			}
-			recipe, err := ResolveNativeRecipeCase(recipeRaw, coverage.CaseID)
+			resolved, err := resolution.resolveCoverage(tool, coverage)
 			if err != nil {
 				return nil, err
-			}
-			if !ProjectToolingCoverageLineage(tool.Invocation, recipe) {
-				return nil, fmt.Errorf("tool %s has no direct lineage to coverage recipe %s", tool.ID, coverage.RecipePath)
-			}
-			resolved := ProjectResolvedCoverage{Anchor: coverage.Anchor, RecipeSource: WorkContextReadingSource{Kind: "repository_file", ProjectID: projectID, Path: coverage.RecipePath, CommitOID: commit}, RecipeDigest: recipeFile.SHA256, CaseID: coverage.CaseID, Recipe: recipe, RecipeRaw: slices.Clone(recipeRaw)}
-			for _, name := range slices.Concat(recipe.HarnessFiles, recipe.FixtureFiles) {
-				if _, err := read(name); err != nil {
-					return nil, fmt.Errorf("resolve coverage input %s: %w", name, err)
-				}
-				resolved.Files = append(resolved.Files, files[name])
-			}
-			if coverage.Anchor.Kind == "scenario" && scenarioSources == nil {
-				scenarioSources, err = projectToolingScenarioSources(ctx, runner, repoRoot, commit)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if err := projectToolingAnchorCase(coverage.Anchor, recipe, read, scenarioSources, tool.Invocation); err != nil {
-				return nil, fmt.Errorf("coverage anchor %s:%s does not match case %s: %w", coverage.Anchor.Kind, coverage.Anchor.Value, coverage.CaseID, err)
 			}
 			seen[coverage.Anchor] = len(manifest.ResolvedCoverage)
 			manifest.ResolvedCoverage = append(manifest.ResolvedCoverage, resolved)
 		}
 	}
 	return manifest, nil
+}
+
+type projectToolingResolution struct {
+	ctx             context.Context
+	runner          GitRunner
+	repoRoot        string
+	projectID       string
+	commit          string
+	bytesRead       int
+	files           map[string]NativeOracleFile
+	contents        map[string][]byte
+	scenarioSources []string
+}
+
+func (r *projectToolingResolution) read(name string) ([]byte, error) {
+	if data, exists := r.contents[name]; exists {
+		return data, nil
+	}
+	input, data, err := nativeGitFile(r.ctx, r.runner, r.repoRoot, r.commit, name)
+	if err != nil {
+		return nil, err
+	}
+	r.bytesRead += len(data)
+	if r.bytesRead > nativeGoInputByteLimit || len(r.files) >= nativeGoInputFileLimit {
+		return nil, fmt.Errorf("resolved tooling inputs exceed 4096 files or 33554432 bytes")
+	}
+	r.files[name], r.contents[name] = input, data
+	return data, nil
+}
+
+func (r *projectToolingResolution) resolveCoverage(tool ProjectDeclaredTool, coverage ProjectToolCoverage) (ProjectResolvedCoverage, error) {
+	var resolved ProjectResolvedCoverage
+	recipeFile, recipeRaw, err := nativeGitFile(r.ctx, r.runner, r.repoRoot, r.commit, coverage.RecipePath)
+	if err != nil {
+		return resolved, fmt.Errorf("resolve coverage recipe %s: %w", coverage.RecipePath, err)
+	}
+	r.bytesRead += len(recipeRaw)
+	if r.bytesRead > 32*1024*1024 {
+		return resolved, fmt.Errorf("resolved tooling inputs exceed 33554432 bytes")
+	}
+	recipe, err := ResolveNativeRecipeCase(recipeRaw, coverage.CaseID)
+	if err != nil {
+		return resolved, err
+	}
+	if !ProjectToolingCoverageLineage(tool.Invocation, recipe) {
+		return resolved, fmt.Errorf("tool %s has no direct lineage to coverage recipe %s", tool.ID, coverage.RecipePath)
+	}
+	resolved = ProjectResolvedCoverage{Anchor: coverage.Anchor, RecipeSource: WorkContextReadingSource{Kind: "repository_file", ProjectID: r.projectID, Path: coverage.RecipePath, CommitOID: r.commit}, RecipeDigest: recipeFile.SHA256, CaseID: coverage.CaseID, Recipe: recipe, RecipeRaw: slices.Clone(recipeRaw)}
+	for _, name := range slices.Concat(recipe.HarnessFiles, recipe.FixtureFiles) {
+		if _, err := r.read(name); err != nil {
+			return resolved, fmt.Errorf("resolve coverage input %s: %w", name, err)
+		}
+		resolved.Files = append(resolved.Files, r.files[name])
+	}
+	if coverage.Anchor.Kind == "scenario" && r.scenarioSources == nil {
+		r.scenarioSources, err = projectToolingScenarioSources(r.ctx, r.runner, r.repoRoot, r.commit)
+		if err != nil {
+			return resolved, err
+		}
+	}
+	if err := projectToolingAnchorCase(coverage.Anchor, recipe, r.read, r.scenarioSources, tool.Invocation); err != nil {
+		return resolved, fmt.Errorf("coverage anchor %s:%s does not match case %s: %w", coverage.Anchor.Kind, coverage.Anchor.Value, coverage.CaseID, err)
+	}
+	return resolved, nil
 }

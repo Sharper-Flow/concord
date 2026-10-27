@@ -70,13 +70,10 @@ function seedInvestigationArtifact(dbPath: string, workID: string): void {
   const db = new Database(dbPath)
   try {
     db.run("INSERT INTO write_guard(active) VALUES(1)")
-    const registryHash = "sha256:" + "e".repeat(64)
-    db.run("INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('e2e-locator',?,'canonical_path','/fixture','/fixture','2026-09-09T00:00:00Z','2026-09-09T00:00:00Z')", [PROJECT_ID])
-    db.run("INSERT OR IGNORE INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,'e2e-locator',?,'root','1.0',?,'test')", [PRODUCT_ID, PROJECT_ID, PRODUCT_ID, registryHash])
-    db.run("INSERT OR IGNORE INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,'e2e-locator',?,'root','Root','Fixture Domain','current',?,'test')", [PROJECT_ID, PRODUCT_ID, registryHash])
+    const registry = db.query("SELECT root_domain_id FROM domain_registries WHERE product_id = ?").get(PRODUCT_ID) as { root_domain_id: string }
     db.run("INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task','Investigation comparison','needed',0,1,'2026-09-09T00:00:00Z','2026-09-09T00:00:00Z')", [`${workID}-compared`])
     db.run("INSERT OR IGNORE INTO work_projects(work_id,project_id,role) VALUES(?,?,'secondary')", [`${workID}-compared`, PROJECT_ID])
-    const investigationRefs = JSON.stringify(["root", `${workID}-compared`])
+    const investigationRefs = JSON.stringify([registry.root_domain_id, `${workID}-compared`])
     db.run("INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES(?,?,?,?,?,'2026-09-09T00:00:00Z')", ["obs:" + workID.slice(-12) + "cmp0", workID, "investigation before question", investigationRefs, "[]"])
     db.run("DELETE FROM write_guard")
   } finally {
@@ -167,8 +164,8 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
   await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({
     schema_version: "1.2",
-    supported_kinds: [],
-    indexed_kinds: [],
+    supported_kinds: ["constitution", "decision", "spec"],
+    indexed_kinds: ["constitution", "decision", "spec"],
     knowledge_roots: [],
   }, null, 2))
   await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
@@ -177,6 +174,12 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
     root_domain_id: `product-root:${PRODUCT_ID}`,
     domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
   }, null, 2))
+  // The synthetic corpus has no laws, but both the marker and its real Go
+  // mechanism have indexed ownership. Code scope owes complete package proof.
+  await Bun.write(join(repo, ".concord/docs/knowledge", "package-domains.json"), JSON.stringify({
+    schema_version: "1.1",
+    packages: [".concord/docs", "oraclekit"].map((path) => ({ path, role: "domain", owner_domain_id: `product-root:${PRODUCT_ID}` })),
+  }))
   await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/synthetic-instructions"] }))
   await Bun.write(join(repo, "README.md"), "synthetic dispatch fixture\n")
   await mkdir(join(repo, "oraclekit"))
@@ -185,11 +188,18 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   await Bun.write(join(repo, "oraclekit/oracle.go"), "package oraclekit\n\nfunc RouteReady() bool { return true }\n")
   await Bun.write(join(repo, "oraclekit/oracle_test.go"), 'package oraclekit\n\nimport "testing"\n\nfunc TestRouteOraclePasses(t *testing.T) { if !RouteReady() { t.Fatal("route not ready") } }\n')
   await Bun.write(join(repo, "test-oracle/manifest.json"), JSON.stringify({
-    kind: "go_top_level_v1",
+    kind: "go_package_v1",
     package_cwd: "oraclekit",
-    test_files: ["oraclekit/oracle_test.go"],
-    fixture_files: [],
-    cases: { "case:route-e2e": ["TestRouteOraclePasses"] },
+    cases: { "case:route-e2e": ["go_package:./oraclekit"] },
+  }))
+  await Bun.write(join(repo, ".concord/tooling.v1.json"), JSON.stringify({
+    schema_version: "1.0", project: "route-e2e",
+    tools: [
+      { id: "head", purpose: "Observe the integrated candidate.", tier: "fast", invocation: "git rev-parse HEAD" },
+      { id: "package", purpose: "Verify the complete route package.", tier: "fast", invocation: "go test -count=1 ./oraclekit", coverage: [
+        { anchor: { kind: "go_package", value: "./oraclekit" }, recipe_path: "test-oracle/manifest.json", case_id: "case:route-e2e" },
+      ] },
+    ],
   }))
   await git(repo, "init", "--quiet", "--initial-branch=main")
   await git(repo, "config", "user.email", "test@example.invalid")
@@ -218,6 +228,25 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   })
   await runJSON(binary, dbPath, "project-locator-add", { project_id: PROJECT_ID, locator_id: "repo", kind: "canonical_path", value: repo, expected_version: 1 })
   await runJSON(binary, dbPath, "product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: PROJECT_ID, locator_id: "repo", expected_version: 2 })
+  await runJSON(binary, dbPath, "client-register", {
+    client_ref: CLIENT_REF,
+    key_id: "dispatch-e2e-key",
+    principal_ref: "operator-1",
+    public_key: fixturePublicKeyBase64(PRIVATE_SEED),
+    capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "research", "worker_evidence", "worker_dispatch"],
+    product_scope: [PRODUCT_ID],
+    project_scope: [PROJECT_ID],
+    agent_scope: ["concord-implement", "concord-review", "concord-verify"],
+  })
+  // Designation prepares the home; a normal Domain read indexes its committed
+  // ownership before capture asks the size model to derive the footprint.
+  configureConcordAdapter({ runner: realStoreRunner(binary, dbPath, [], repo) })
+  try {
+    const indexed = await invokeConcordOperation("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID } }, contextFor(repo), repo)
+    expect(indexed.outcome, JSON.stringify(indexed)).toBe("ok")
+  } finally {
+    configureConcordAdapter({ reset: true })
+  }
   const bootstrap = await runJSON(binary, dbPath, "work-bootstrap", {
     product_id: PRODUCT_ID,
     project_id: PROJECT_ID,
@@ -233,18 +262,12 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
     workflow_type_ref: "",
     external_ref: "CON-898",
     governing_requirements: [],
+    size_inputs: {
+      paths: [".concord/docs/dispatch-marker.txt", "oraclekit/oracle.go"],
+      security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: 1,
+    },
     ref: "HEAD",
   }, repo)
-  await runJSON(binary, dbPath, "client-register", {
-    client_ref: CLIENT_REF,
-    key_id: "dispatch-e2e-key",
-    principal_ref: "operator-1",
-    public_key: fixturePublicKeyBase64(PRIVATE_SEED),
-    capabilities: ["product_read", "work_define", "work_transition", "work_relate", "work_compact", "research", "worker_evidence", "worker_dispatch"],
-    product_scope: [PRODUCT_ID],
-    project_scope: [PROJECT_ID],
-    agent_scope: ["concord-implement", "concord-review", "concord-verify"],
-  })
   return { binary, repo, dbPath, configPath, workID: bootstrap.work_id as string, worktree: bootstrap.worktree.path as string, lane }
 }
 
@@ -341,7 +364,7 @@ async function driveWorkflowToContract(
     control_id: "control:route-e2e", owner_id: owner.owner_id,
     predicate_ids: owner.predicate_ids, case_ids: [oracleCase.case_id],
     recipe_source: { kind: "repository_file", project_id: PROJECT_ID, path: "test-oracle/manifest.json", commit_oid: subjectCommit },
-    argv: ["go", "test", "-count=1", "-run", "^(TestRouteOraclePasses)$", "."],
+    argv: ["go", "test", "-count=1", "."],
     cwd: "oraclekit", expected_result: "pass", required_evidence_role: "reported",
   }
   const verify = (idempotencyKey: string, input: Record<string, unknown>) => invoke("concord_work_transition", {

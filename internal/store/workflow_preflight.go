@@ -411,6 +411,9 @@ func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definiti
 	if !workflowFootprintActionRequired(definition, currentStep, request.ActionID, request.Payload) {
 		return nil
 	}
+	if request.ActionID == "complete" {
+		return preflightWorkflowCompletionProofTx(ctx, tx, definition, request)
+	}
 	accepting := ""
 	if request.ActionID == "accept_worker_result" {
 		fields, err := workflowActionObject(request.Payload)
@@ -419,55 +422,31 @@ func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definiti
 		}
 		accepting = workflowFieldStringDefault(fields, "attempt_id", "")
 	}
-	if request.ActionID == "complete" {
-		if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
-			return err
-		}
+	refineTooling := workflowRefineProofTooling(definition, currentStep, request.ActionID, request.ProjectTooling)
+	var delivery workflowDeliveryAdmission
+	var proof, integration []workflowVerificationRun
+	if request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(definition) {
 		actor, err := WorkflowActorRef(request.Actor)
 		if err != nil {
 			return err
 		}
-		if err := workflowCompletionCallerAuthority(ctx, tx, request.WorkID, actor); err != nil {
+		projected, err := loadWorkflowDeliveryAcceptance(ctx, tx, request.WorkID, definition, currentStep, admission, accepting, actor)
+		if err != nil {
 			return err
 		}
-		if err := workflowCompletionProofForDefinitionTx(ctx, tx, request.WorkID, definition); err != nil {
-			return err
+		if projected.Decision.Failure != nil {
+			return workflowPreflightFailure(workflowExecutionAdmissionFailure(projected.Decision, refineTooling))
 		}
-		if err := workflowCompletionFootprintProofTx(ctx, tx, request.WorkID, definition, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: request.ResolvedFootprint}); err != nil {
-			var failure *Failure
-			if failureAs(err, &failure) {
-				return workflowPreflightFailure(failure)
-			}
-			return err
-		}
-		return nil
+		delivery, proof, integration = projected.State.Delivery, projected.ProofRuns, projected.IntegrationRuns
 	} else {
-		refineTooling := workflowRefineProofTooling(definition, currentStep, request.ActionID, request.ProjectTooling)
-		var delivery workflowDeliveryAdmission
-		var proof, integration []workflowVerificationRun
-		if request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(definition) {
-			actor, err := WorkflowActorRef(request.Actor)
-			if err != nil {
-				return err
-			}
-			projected, err := loadWorkflowDeliveryAcceptance(ctx, tx, request.WorkID, definition, currentStep, admission, accepting, actor)
-			if err != nil {
-				return err
-			}
-			if projected.Decision.Failure != nil {
-				return workflowPreflightFailure(workflowExecutionAdmissionFailure(projected.Decision, refineTooling))
-			}
-			delivery, proof, integration = projected.State.Delivery, projected.ProofRuns, projected.IntegrationRuns
-		} else {
-			var err error
-			delivery, proof, integration, err = loadWorkflowDeliveryAdmission(ctx, tx, request.WorkID, definition, currentStep, accepting)
-			if err != nil {
-				return err
-			}
-		}
-		if err := workflowDeliveryToolingProofFailure(delivery, proof, integration, refineTooling); err != nil {
+		var err error
+		delivery, proof, integration, err = loadWorkflowDeliveryAdmission(ctx, tx, request.WorkID, definition, currentStep, accepting)
+		if err != nil {
 			return err
 		}
+	}
+	if err := workflowDeliveryToolingProofFailure(delivery, proof, integration, refineTooling); err != nil {
+		return err
 	}
 	candidate, runs, err := workflowFootprintProofRuns(ctx, tx, request.WorkID, accepting)
 	if err != nil {
@@ -479,6 +458,30 @@ func preflightWorkflowFootprintProofTx(ctx context.Context, tx *sql.Tx, definiti
 	}
 	if refusal != nil {
 		return workflowPreflightFailure(refusal)
+	}
+	return nil
+}
+
+func preflightWorkflowCompletionProofTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionPreflightRequest) error {
+	if err := validateWorkflowAcceptanceFreshness(ctx, tx, request.WorkID); err != nil {
+		return err
+	}
+	actor, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return err
+	}
+	if err := workflowCompletionCallerAuthority(ctx, tx, request.WorkID, actor); err != nil {
+		return err
+	}
+	if err := workflowCompletionProofForDefinitionTx(ctx, tx, request.WorkID, definition); err != nil {
+		return err
+	}
+	if err := workflowCompletionFootprintProofTx(ctx, tx, request.WorkID, definition, workflowCompletionInputs{tooling: request.ProjectTooling, footprint: request.ResolvedFootprint}); err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) {
+			return workflowPreflightFailure(failure)
+		}
+		return err
 	}
 	return nil
 }

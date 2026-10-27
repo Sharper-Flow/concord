@@ -185,21 +185,8 @@ func validateNativeGoPackageFrames(stdout []byte, names, skipped []string) error
 		if line == "PASS" {
 			trailers++
 		}
-		if name, ok := strings.CutPrefix(line, "=== RUN   "); ok {
-			if _, known := runs[name]; known {
-				runs[name]++
-			}
-		}
-		for _, prefix := range []string{"--- PASS: ", "--- SKIP: "} {
-			if suffix, ok := strings.CutPrefix(line, prefix); ok {
-				name, _, found := strings.Cut(suffix, " (")
-				if _, known := terminals[name]; known && found && strings.HasSuffix(suffix, "s)") {
-					if (prefix == "--- SKIP: ") != slices.Contains(skipped, name) {
-						return nativeUnavailable("framed package outcome differs from converter")
-					}
-					terminals[name]++
-				}
-			}
+		if err := consumeNativeGoPackageFrame(line, runs, terminals, skipped); err != nil {
+			return err
 		}
 	}
 	if trailers != 1 {
@@ -209,6 +196,30 @@ func validateNativeGoPackageFrames(stdout []byte, names, skipped []string) error
 		if runs[name] != 1 || terminals[name] != 1 {
 			return nativeUnavailable("raw package stdout lacks unique inventory events: " + name)
 		}
+	}
+	return nil
+}
+
+func consumeNativeGoPackageFrame(line string, runs, terminals map[string]int, skipped []string) error {
+	if name, ok := strings.CutPrefix(line, "=== RUN   "); ok {
+		if _, known := runs[name]; known {
+			runs[name]++
+		}
+		return nil
+	}
+	for _, prefix := range []string{"--- PASS: ", "--- SKIP: "} {
+		suffix, ok := strings.CutPrefix(line, prefix)
+		if !ok {
+			continue
+		}
+		name, _, found := strings.Cut(suffix, " (")
+		if _, known := terminals[name]; !known || !found || !strings.HasSuffix(suffix, "s)") {
+			continue
+		}
+		if (prefix == "--- SKIP: ") != slices.Contains(skipped, name) {
+			return nativeUnavailable("framed package outcome differs from converter")
+		}
+		terminals[name]++
 	}
 	return nil
 }

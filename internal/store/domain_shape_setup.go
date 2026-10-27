@@ -357,14 +357,15 @@ func (p *DomainShapeSetupPlan) prepareTooling(root *os.Root, data []byte) error 
 // authored metadata so it cannot preserve a malformed schema 1.0 tool as valid.
 func validateSetupToolMetadata(root *os.Root, raw []byte) error {
 	var tool struct {
-		ID             string `json:"id"`
-		Purpose        string `json:"purpose"`
-		Invocation     string `json:"invocation"`
-		Tier           string `json:"tier"`
-		CostHint       string `json:"cost_hint,omitempty"`
-		ConfigPath     string `json:"config_path,omitempty"`
-		AutomationPath string `json:"automation_path,omitempty"`
-		Notes          string `json:"notes,omitempty"`
+		ID             string                `json:"id"`
+		Purpose        string                `json:"purpose"`
+		Invocation     string                `json:"invocation"`
+		Tier           string                `json:"tier"`
+		CostHint       string                `json:"cost_hint,omitempty"`
+		ConfigPath     string                `json:"config_path,omitempty"`
+		AutomationPath string                `json:"automation_path,omitempty"`
+		Notes          string                `json:"notes,omitempty"`
+		Coverage       []ProjectToolCoverage `json:"coverage,omitempty"`
 	}
 	if err := domainShapeJSON(raw, &tool); err != nil {
 		return domainShapeSetupError("tool metadata is malformed: " + err.Error())

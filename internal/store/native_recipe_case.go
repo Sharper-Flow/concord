@@ -123,14 +123,8 @@ func validateNativeGoManifest(m nativeGoOracleManifest) error {
 	default:
 		return nativeUnavailable("unsupported recipe family")
 	}
-	seen := map[string]bool{}
-	for i, files := range [][]string{m.TestFiles, m.FixtureFiles} {
-		for _, name := range files {
-			if seen[name] || validateWorkContextRepoPath(name) != nil || (i == 0 && (!nativeTargetContainedName(m.PackageCwd, name) || !strings.HasSuffix(name, "_test.go"))) || (i == 1 && !nativeFixtureDataPath(name)) {
-				return nativeUnavailable("manifest paths must be unique contained test or data files, never production/module replacements")
-			}
-			seen[name] = true
-		}
+	if err := validateNativeGoManifestFiles(m); err != nil {
+		return err
 	}
 	for id := range m.Cases {
 		if !oracleCaseIDPattern.MatchString(id) {
@@ -138,6 +132,19 @@ func validateNativeGoManifest(m nativeGoOracleManifest) error {
 		}
 		if _, err := nativeOracleCaseTests(m, OracleControl{CaseIDs: []string{id}}); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateNativeGoManifestFiles(m nativeGoOracleManifest) error {
+	seen := map[string]bool{}
+	for i, files := range [][]string{m.TestFiles, m.FixtureFiles} {
+		for _, name := range files {
+			if seen[name] || validateWorkContextRepoPath(name) != nil || (i == 0 && (!nativeTargetContainedName(m.PackageCwd, name) || !strings.HasSuffix(name, "_test.go"))) || (i == 1 && !nativeFixtureDataPath(name)) {
+				return nativeUnavailable("manifest paths must be unique contained test or data files, never production/module replacements")
+			}
+			seen[name] = true
 		}
 	}
 	return nil

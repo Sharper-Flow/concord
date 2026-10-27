@@ -212,6 +212,40 @@ func TestProjectToolingScenarioCaseIdentity(t *testing.T) {
 			}
 		})
 	}
+	for _, mutation := range []string{"exact", "no-owner", "two-owners", "missing-import", "missing-assertion", "prefixed-input"} {
+		t.Run("adapter/"+mutation, func(t *testing.T) {
+			corpus := ".concord/scenarios/demo.json"
+			file, other := "adapter/opencode/demo.test.ts", "adapter/opencode/other.test.ts"
+			recipe := NativeRecipeCase{Kind: nativeTargetKind, Cwd: "adapter/opencode", runner: "check", materializer: "bun", HarnessFiles: []string{"adapter/opencode/acceptance.py", file, other}, FixtureFiles: []string{corpus}, checks: []nativeTargetCheck{{Witness: "selected", Argv: []string{"python3", "acceptance.py", "demo.test.ts", "other.test.ts", "--expect", "required-id"}}}}
+			owner := []byte(`import corpus from "../../.concord/scenarios/demo.json"; test("required-id", () => assertScenario("required-id", corpus));`)
+			files := map[string][]byte{corpus: []byte(`{"scenarios":[{"cases":[{"id":"required-id"}]}]}`), file: owner, other: []byte("not an owner")}
+			invocation := "bun test " + file + " " + other
+			switch mutation {
+			case "no-owner":
+				files[file] = nil
+			case "two-owners":
+				files[other] = owner
+			case "missing-import":
+				files[file] = []byte(strings.ReplaceAll(string(owner), "../../.concord/scenarios/demo.json", "../../.concord/scenarios/other.json"))
+			case "missing-assertion":
+				files[file] = []byte(strings.ReplaceAll(string(owner), "assertScenario", "otherAssertion"))
+			case "prefixed-input":
+				invocation = "bun test ./" + file + " " + other
+			}
+			var reads []string
+			read := func(name string) ([]byte, error) {
+				reads = append(reads, name)
+				return files[name], nil
+			}
+			err := projectToolingAnchorCase(FootprintCheck{Kind: "scenario", Value: "required-id"}, recipe, read, []string{corpus}, invocation)
+			if (err == nil) != (mutation == "exact") {
+				t.Fatalf("adapter scenario %s: %v", mutation, err)
+			}
+			if !slices.Equal(reads, []string{corpus, file, other}) {
+				t.Fatalf("scenario source traversal changed: %v", reads)
+			}
+		})
+	}
 }
 
 func TestProjectToolingSelectedTargetCheckOwner(t *testing.T) {
@@ -317,6 +351,18 @@ func TestProjectToolingCoverageLineage(t *testing.T) {
 			t.Fatalf("unrelated target lineage accepted: %s", invocation)
 		}
 	}
+	adapter := NativeRecipeCase{Kind: nativeTargetKind, Cwd: "adapter/opencode", runner: "check", materializer: "bun", HarnessFiles: []string{"adapter/opencode/acceptance.py", "adapter/opencode/demo.test.ts", "adapter/opencode/other.test.ts"}, checks: []nativeTargetCheck{{Witness: "selected", Argv: []string{"python3", "acceptance.py", "demo.test.ts", "--expect", "Demo"}}}}
+	for invocation, want := range map[string]bool{
+		"bun test --timeout=10 adapter/opencode/demo.test.ts":                   true,
+		"bun test ./adapter/opencode/demo.test.ts --timeout 10":                 true,
+		"bun test adapter/opencode/demo.test.ts adapter/opencode/other.test.ts": false,
+		"bun test --timeout=10 --timeout 10 adapter/opencode/demo.test.ts":      false,
+		"bun test --timeout=0 adapter/opencode/demo.test.ts":                    false,
+	} {
+		if got := ProjectToolingCoverageLineage(invocation, adapter); got != want {
+			t.Fatalf("adapter lineage %q = %v, want %v", invocation, got, want)
+		}
+	}
 }
 
 func toolingCoverageDocument(invocation string, coverage any) []byte {
@@ -358,6 +404,14 @@ func TestProjectToolingCoverageSharedAndAbsent(t *testing.T) {
 	if err != nil || len(m.ResolvedCoverage) != 1 {
 		t.Fatalf("shared identical relation: %+v %v", m, err)
 	}
+	conflicting := toolingCoverageEntry()
+	conflicting["case_id"] = "case:other"
+	other["coverage"] = []any{conflicting}
+	r.files[projectToolingManifestPath], _ = json.Marshal(document)
+	if _, err := resolveProjectToolingAtCommit(context.Background(), r, "synthetic", "project", r.commit); err == nil || err.Error() != "conflicting coverage binding" {
+		t.Fatalf("cross-tool conflict lost its refusal: %v", err)
+	}
+	other["coverage"] = []any{toolingCoverageEntry()}
 	other["invocation"] = "go test ./other"
 	r.files[projectToolingManifestPath], _ = json.Marshal(document)
 	if _, err := resolveProjectToolingAtCommit(context.Background(), r, "synthetic", "project", r.commit); err == nil {
@@ -422,5 +476,26 @@ func TestProjectToolingCoverageDirectGrammar(t *testing.T) {
 				t.Fatal("non-direct or selecting invocation gained coverage")
 			}
 		})
+	}
+	for _, test := range []struct {
+		invocation string
+		kind       string
+		inputs     []string
+		ok         bool
+	}{
+		{"go test -v", "go", nil, false},
+		{"bun test --timeout 10", "bun", nil, false},
+		{"go test -timeout", "", nil, false},
+		{"bun test --timeout", "", nil, false},
+		{"go test -count=1 -count 1 ./...", "", nil, false},
+		{"go test ./... ./...", "", nil, false},
+		{"go test -v=true ./...", "", nil, false},
+		{"go test ./internal/demo -p 2 -timeout=20m", "go", []string{"./internal/demo"}, true},
+		{"bun test --timeout=10 adapter/opencode/demo.test.ts", "bun", []string{"adapter/opencode/demo.test.ts"}, true},
+	} {
+		kind, inputs, ok := projectToolingDirectCommand(test.invocation)
+		if kind != test.kind || !reflect.DeepEqual(inputs, test.inputs) || ok != test.ok {
+			t.Fatalf("direct command %q = (%q, %v, %v), want (%q, %v, %v)", test.invocation, kind, inputs, ok, test.kind, test.inputs, test.ok)
+		}
 	}
 }

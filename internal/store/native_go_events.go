@@ -47,26 +47,14 @@ func (g *nativeGoEventGrade) consume(action, test, pkg string) error {
 		return nil
 	}
 	if test == "" {
-		if action != "pass" || !g.started && g.packageMode || len(g.required) == 0 {
-			return nativeUnavailable("test2json has no complete package pass")
-		}
-		for _, phase := range g.state {
-			if phase != 2 && phase != 3 {
-				return nativeUnavailable("package passed before every witness terminated")
-			}
-		}
-		g.terminal = true
-		return nil
+		return g.consumePackagePass(action)
 	}
 	root, _, nested := strings.Cut(test, "/")
-	rootPhase, knownRoot := g.state[root]
+	rootPhase := g.state[root]
 	phase, known := g.state[test]
 	switch action {
 	case "run":
-		if !g.started && g.packageMode || (!nested && !known) || (nested && (!knownRoot || rootPhase != 1)) || (known && phase != 0) || len(g.state) >= 65536 {
-			return nativeUnavailable("test2json contains duplicate or undeclared witness runs")
-		}
-		g.state[test] = 1
+		return g.consumeWitnessRun(test)
 	case "pause", "cont":
 		if !known || phase != 1 {
 			return nativeUnavailable("test2json continues a witness that is not running")
@@ -75,29 +63,61 @@ func (g *nativeGoEventGrade) consume(action, test, pkg string) error {
 		if !known || phase != 1 || nested && rootPhase != 1 {
 			return nativeUnavailable("test2json contains a duplicate or unordered witness terminal")
 		}
-		if action == "skip" {
-			if !nested && (!g.packageMode || !slices.Contains(g.expected, test)) {
-				return nativeUnavailable("selected witness was skipped or undeclared: " + test)
-			}
-			if nested {
-				for _, required := range g.required {
-					if !g.packageMode && (test == required || strings.HasPrefix(test, required+"/") || strings.HasPrefix(required, test+"/")) {
-						return nativeUnavailable("required witness subtree was skipped: " + test)
-					}
-				}
-				if len(g.nestedSkips) >= 64 || len(test) > 256 {
-					return nativeUnavailable("nested skip accounting exceeds bounded result")
-				}
-				g.nestedSkips = append(g.nestedSkips, test)
-			} else {
-				g.skipped = append(g.skipped, test)
-			}
-			g.state[test] = 3
-		} else {
+		if action == "pass" {
 			g.state[test] = 2
+			return nil
 		}
+		if !nested && (!g.packageMode || !slices.Contains(g.expected, test)) {
+			return nativeUnavailable("selected witness was skipped or undeclared: " + test)
+		}
+		if !nested {
+			g.skipped = append(g.skipped, test)
+			g.state[test] = 3
+			return nil
+		}
+		if err := g.validateRequiredSkipSubtree(test); err != nil {
+			return err
+		}
+		if len(g.nestedSkips) >= 64 || len(test) > 256 {
+			return nativeUnavailable("nested skip accounting exceeds bounded result")
+		}
+		g.nestedSkips = append(g.nestedSkips, test)
+		g.state[test] = 3
 	default:
 		return nativeUnavailable("test2json contains an unsupported action")
+	}
+	return nil
+}
+
+func (g *nativeGoEventGrade) consumePackagePass(action string) error {
+	if action != "pass" || !g.started && g.packageMode || len(g.required) == 0 {
+		return nativeUnavailable("test2json has no complete package pass")
+	}
+	for _, phase := range g.state {
+		if phase != 2 && phase != 3 {
+			return nativeUnavailable("package passed before every witness terminated")
+		}
+	}
+	g.terminal = true
+	return nil
+}
+
+func (g *nativeGoEventGrade) consumeWitnessRun(test string) error {
+	root, _, nested := strings.Cut(test, "/")
+	rootPhase, knownRoot := g.state[root]
+	phase, known := g.state[test]
+	if !g.started && g.packageMode || (!nested && !known) || (nested && (!knownRoot || rootPhase != 1)) || (known && phase != 0) || len(g.state) >= 65536 {
+		return nativeUnavailable("test2json contains duplicate or undeclared witness runs")
+	}
+	g.state[test] = 1
+	return nil
+}
+
+func (g *nativeGoEventGrade) validateRequiredSkipSubtree(test string) error {
+	for _, required := range g.required {
+		if !g.packageMode && (test == required || strings.HasPrefix(test, required+"/") || strings.HasPrefix(required, test+"/")) {
+			return nativeUnavailable("required witness subtree was skipped: " + test)
+		}
 	}
 	return nil
 }

@@ -355,38 +355,11 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 	if len(m.Cases) < 1 || len(m.Cases) > OracleCasesMax {
 		return nativeUnavailable("recipe cases are out of bounds")
 	}
-	for id := range m.Cases {
-		if !oracleCaseIDPattern.MatchString(id) {
-			return nativeUnavailable("invalid recipe case identity")
-		}
-		witnesses, err := nativeTargetCaseWitnesses(m, OracleControl{CaseIDs: []string{id}})
-		if err != nil {
-			return err
-		}
-		for _, witness := range witnesses {
-			if pair.Runner == nativeTargetRunnerPytest {
-				file, _, err := nativeTargetPytestWitness(m.Root, witness)
-				joined, ok := nativeTargetRootedPath(m.Root, file)
-				if err != nil || !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
-					return nativeUnavailable("pytest witness must name a pinned harness test")
-				}
-			} else if _, err := nativeTargetCheckFor(m, witness); err != nil {
-				return err
-			}
-		}
+	if err := validateNativeTargetManifestCases(m, pair); err != nil {
+		return err
 	}
-	seen := map[string]bool{}
-	for i, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
-		for _, name := range group {
-			contained := nativeTargetContainedName(m.Root, name)
-			if i == 1 {
-				contained = contained || nativeFixtureDataPath(name)
-			}
-			if seen[name] || !contained {
-				return nativeUnavailable("manifest paths must be unique contained files under the root")
-			}
-			seen[name] = true
-		}
+	if err := validateNativeTargetManifestFiles(m); err != nil {
+		return err
 	}
 	witnesses, err := nativeTargetCaseWitnesses(m, c)
 	if err != nil {
@@ -405,6 +378,54 @@ func validateNativeTargetManifest(m nativeTargetOracleManifest, c OracleControl)
 	for _, pin := range []string{m.Pin.UV, m.Pin.Python, m.Pin.Pytest, m.Pin.Shell, m.Pin.Bun} {
 		if pin != "" && !nativeTargetVersionPin.MatchString(pin) {
 			return nativeUnavailable("runtime pins must be exact dotted numeric versions")
+		}
+	}
+	return nil
+}
+
+func validateNativeTargetManifestCases(m nativeTargetOracleManifest, pair nativeTargetPair) error {
+	for id := range m.Cases {
+		if !oracleCaseIDPattern.MatchString(id) {
+			return nativeUnavailable("invalid recipe case identity")
+		}
+		witnesses, err := nativeTargetCaseWitnesses(m, OracleControl{CaseIDs: []string{id}})
+		if err != nil {
+			return err
+		}
+		for _, witness := range witnesses {
+			if err := validateNativeTargetDeclaredWitness(m, pair, witness); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateNativeTargetDeclaredWitness(m nativeTargetOracleManifest, pair nativeTargetPair, witness string) error {
+	if pair.Runner == nativeTargetRunnerPytest {
+		file, _, err := nativeTargetPytestWitness(m.Root, witness)
+		joined, ok := nativeTargetRootedPath(m.Root, file)
+		if err != nil || !ok || !slices.Contains(m.HarnessFiles, joined) || !strings.HasSuffix(file, ".py") {
+			return nativeUnavailable("pytest witness must name a pinned harness test")
+		}
+		return nil
+	}
+	_, err := nativeTargetCheckFor(m, witness)
+	return err
+}
+
+func validateNativeTargetManifestFiles(m nativeTargetOracleManifest) error {
+	seen := map[string]bool{}
+	for i, group := range [][]string{m.HarnessFiles, m.SupportFiles} {
+		for _, name := range group {
+			contained := nativeTargetContainedName(m.Root, name)
+			if i == 1 {
+				contained = contained || nativeFixtureDataPath(name)
+			}
+			if seen[name] || !contained {
+				return nativeUnavailable("manifest paths must be unique contained files under the root")
+			}
+			seen[name] = true
 		}
 	}
 	return nil

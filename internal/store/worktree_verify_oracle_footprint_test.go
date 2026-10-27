@@ -384,6 +384,52 @@ func TestNativeFootprintPackageEventRefusals(t *testing.T) {
 	}
 }
 
+func TestNativeFootprintPackageFrames(t *testing.T) {
+	run := "\x16=== RUN   TestOne\n"
+	pass := "\x16--- PASS: TestOne (0.00s)\n"
+	skip := "\x16--- SKIP: TestOne (0.00s)\n"
+	trailer := "\x16PASS\n"
+	unique := "raw package stdout lacks unique inventory events: TestOne"
+	packagePass := "raw test stdout lacks exactly one framed package pass"
+	mismatch := "framed package outcome differs from converter"
+	for _, tc := range []struct {
+		name, stdout string
+		skipped      []string
+		failure      string
+	}{
+		{name: "pass", stdout: run + pass + trailer},
+		{name: "named_skip", stdout: run + skip + trailer, skipped: []string{"TestOne"}},
+		{name: "indented", stdout: "\x16 \t=== RUN   TestOne\n\x16 \t--- PASS: TestOne (0.00s)\n\x16 \tPASS\n"},
+		{name: "irrelevant_frames", stdout: "\x16=== RUN   TestOther\n\x16--- SKIP: TestOther (0.00s)\n" + run + pass + trailer},
+		{name: "unframed", stdout: "=== RUN   TestOne\n--- PASS: TestOne (0.00s)\nPASS\n", failure: packagePass},
+		{name: "missing_run", stdout: pass + trailer, failure: unique},
+		{name: "duplicate_run", stdout: run + run + pass + trailer, failure: unique},
+		{name: "missing_terminal", stdout: run + trailer, failure: unique},
+		{name: "duplicate_terminal", stdout: run + pass + pass + trailer, failure: unique},
+		{name: "missing_duration_separator", stdout: run + "\x16--- PASS: TestOne\n" + trailer, failure: unique},
+		{name: "missing_duration_suffix", stdout: run + "\x16--- PASS: TestOne (0.00)\n" + trailer, failure: unique},
+		{name: "missing_trailer", stdout: run + pass, failure: packagePass},
+		{name: "duplicate_trailer", stdout: run + pass + trailer + trailer, failure: packagePass},
+		{name: "unexpected_skip", stdout: run + skip + trailer, failure: mismatch},
+		{name: "expected_skip_passed", stdout: run + pass + trailer, skipped: []string{"TestOne"}, failure: mismatch},
+		{name: "outcome_before_trailer_error", stdout: run + skip, failure: mismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateNativeGoPackageFrames([]byte(tc.stdout), []string{"TestOne"}, tc.skipped)
+			if tc.failure == "" {
+				if err != nil {
+					t.Fatalf("complete frames refused: %v", err)
+				}
+				return
+			}
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindUnavailable || failure.Detail != tc.failure {
+				t.Fatalf("frame refusal = %v, want unavailable: %s", err, tc.failure)
+			}
+		})
+	}
+}
+
 func TestNativeFootprintPackageRecipeCannotReplaceTests(t *testing.T) {
 	m := nativeGoOracleManifest{Kind: nativeGoPackageKind, PackageCwd: "pkg", Cases: map[string][]string{"case:package": {"go_package:./pkg"}}}
 	for _, input := range []string{"test", "fixture", "skip", "witness", "selector"} {

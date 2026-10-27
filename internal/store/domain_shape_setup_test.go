@@ -145,6 +145,36 @@ func TestDomainShapeSetupPreservesAuthoredIdentitiesAndTooling(t *testing.T) {
 	}
 }
 
+func TestDomainShapeSetupPreservesTypedToolCoverage(t *testing.T) {
+	for _, kind := range []string{"go_package", "unknown"} {
+		t.Run(kind, func(t *testing.T) {
+			request := setupShapeRequest(t, "orchard")
+			tooling := `{"schema_version":"1.0","project":"orchard-home","tools":[{"id":"unit-check","purpose":"Check the complete package.","invocation":"go test ./fruit","tier":"fast","coverage":[{"anchor":{"kind":"` + kind + `","value":"./fruit"},"recipe_path":".concord/oracles/fruit.json","case_id":"case:fruit"}]}],"domain_shape":{}}` + "\n"
+			writeSetupInput(t, request, projectToolingManifestPath, tooling)
+			writeSetupInput(t, request, ".concord/oracles/fruit.json", `{"kind":"go_package_v1","package_cwd":"fruit","cases":{"case:fruit":["go_package:./fruit"]}}`)
+			writeSetupInput(t, request, "fruit/value.go", "package fruit\n")
+			before := setupShapeSnapshot(t, request.RepoPath)
+			plan, err := PrepareDomainShapeSetup(request)
+			if kind == "unknown" {
+				if err == nil || !reflect.DeepEqual(before, setupShapeSnapshot(t, request.RepoPath)) {
+					t.Fatalf("invalid coverage must refuse without writing: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid typed coverage refused by setup: %v", err)
+			}
+			if _, err := plan.Apply(); err != nil {
+				t.Fatal(err)
+			}
+			actual, err := os.ReadFile(filepath.Join(request.RepoPath, projectToolingManifestPath))
+			if err != nil || string(actual) != tooling {
+				t.Fatalf("setup rewrote authored coverage: %s, %v", actual, err)
+			}
+		})
+	}
+}
+
 func TestDomainShapeSetupAddsOnlyMissingToolingDeclaration(t *testing.T) {
 	request := setupShapeRequest(t, "orchard")
 	tooling := "{\n  \"schema_version\":\"1.0\",\"project\":\"orchard-home\",\"tools\":[{\"id\":\"unit-check\",\"purpose\":\"Check units.\",\"invocation\":\"go test ./...\",\"tier\":\"fast\"}]\n}\n"
